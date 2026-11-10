@@ -18,6 +18,7 @@ import {
   parseBlocksFieldSuggestionRevision,
   suggestionBlocksFieldId,
 } from "@shared/blocks-field-suggestions";
+import { applyMarkdownSuggestionOperation } from "@shared/suggestion-apply";
 import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -32,6 +33,8 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { peekBlockFieldSaveController } from "./blockFieldSaveRegistry";
+import { moveLoadedThreadQuote } from "./comment-quote-cache";
 import {
   nextSuggestionAutosaveRetryDelay,
   suggestionAutosaveDebounce,
@@ -54,7 +57,11 @@ import {
   type SuggestionDraftSession,
   type SuggestionPersistenceEntry,
 } from "./suggestions/draft-session";
-import type { SuggestionPresentationTransitions } from "./suggestions/presentation-rebase";
+import {
+  createObservedSuggestionPresentationTransition,
+  retainCommittedSuggestionPresentationTransitions,
+  type SuggestionPresentationTransitions,
+} from "./suggestions/presentation-rebase";
 import { suggestionSourceThreadId } from "./thread-suggestions";
 import type { VisualEditorSuggestion } from "./VisualEditor";
 
@@ -67,6 +74,9 @@ const NO_TRANSITIONS: SuggestionPresentationTransitions = new Map();
 const NO_VISUALS: VisualEditorSuggestion[] = [];
 const NO_FIELDS: ReadonlySet<string> = new Set();
 const NO_VIEWS: ReadonlyMap<string, ResourceSuggestion[]> = new Map();
+const NO_PREVIEWS: ReadonlyMap<string, FieldPreview> = new Map();
+const NO_LANDED: ReadonlyMap<string, LandedPreview> = new Map();
+const NO_DRAFTS: DraftSuggestion[] = [];
 
 type ProposalRequest = {
   resourceType: string;
@@ -127,6 +137,28 @@ type FieldSession = {
   } | null;
 };
 
+/**
+ * What a tab shows while it accepts suggestions: its text with them in it,
+ * as the server writes it, so the new words show at once rather than once
+ * the tab's text is read again.
+ */
+type FieldPreview = {
+  key: string;
+  text: string;
+  /** The suggestions the text has in it, which the tab no longer highlights. */
+  accepted: ReadonlySet<string>;
+  /** Places the tab's other suggestions on the text. */
+  transitions: SuggestionPresentationTransitions;
+};
+
+/**
+ * A preview whose suggestions the server accepted. The tab's own copy of
+ * its text takes in the text read a render or two after the page has it, so
+ * the tab shows this until that copy is at `revision`, rather than its old
+ * text meanwhile.
+ */
+type LandedPreview = { key: string; text: string; revision: number };
+
 type PresentationsArgs = {
   savedSuggestions: ResourceSuggestion[];
   drafts: DraftSuggestion[];
@@ -151,6 +183,10 @@ type BlocksFieldSuggestionsValue = {
   visuals: (fieldId: string, markdown: string) => VisualEditorSuggestion[];
   /** Tabs whose suggestions are being accepted or rejected. */
   decidingFields: ReadonlySet<string>;
+  /** What tabs accepting suggestions show in place of their text. */
+  previews: ReadonlyMap<string, FieldPreview>;
+  /** The previews tabs show until they hold the text accepting wrote. */
+  landed: ReadonlyMap<string, LandedPreview>;
   /** The page is saving every draft to leave Suggesting mode or the page. */
   leaving: boolean;
   activeSuggestionId: string | null;
@@ -217,6 +253,16 @@ export function useBlocksFieldSuggestionEditor(fieldId: string) {
      * last save before Suggesting mode ends, would leave what's typed unsaved.
      */
     readOnly: value.leaving || value.decidingFields.has(fieldId),
+    /**
+     * The tab's text with the suggestions it is accepting in it, shown in
+     * place of its text or draft until the tab reads the text they wrote.
+     */
+    preview: value.previews.get(fieldId) ?? null,
+    /**
+     * The tab's preview once its suggestions are accepted, shown until the
+     * tab's own copy of its text is at the revision accepting wrote.
+     */
+    landed: value.landed.get(fieldId) ?? null,
     visuals,
     activeSuggestionId: value.activeSuggestionId,
     ...handlers,
@@ -259,6 +305,38 @@ function isClientError(error: unknown) {
     status !== 408 &&
     status !== 429
   );
+}
+
+/**
+ * `text` with `accepted` placed on it, as the server places each when it
+ * accepts them; null when one can't be placed there.
+ */
+function acceptedText(
+  text: string,
+  accepted: ReadonlyArray<Pick<ResourceSuggestion, "operations">>,
+): string | null {
+  try {
+    let next: string | null = text;
+    for (const suggestion of accepted) {
+      for (const operation of suggestion.operations) {
+        next =
+          next === null
+            ? null
+            : applyMarkdownSuggestionOperation(next, operation);
+      }
+    }
+    if (next !== null) return next;
+    // Members of one proposal are each made on the same text, so placing one
+    // can move the context the next was anchored to.
+    const together = createObservedSuggestionPresentationTransition([
+      ...accepted,
+    ]);
+    return together?.before === text ? together.after : null;
+  } catch {
+    // coercion-ok: a suggestion that can't be read here shows accepted once
+    // its tab's text is read.
+    return null;
+  }
 }
 
 function sameIds(left: readonly string[] | undefined, right: string[]) {
@@ -368,6 +446,29 @@ export function useBlocksFieldSuggestions({
     },
     [],
   );
+  /**
+   * The tabs' previews while they accept suggestions. Read and changed
+   * through the ref, so a decision builds on the preview before it.
+   */
+  const [previews, setPreviews] =
+    useState<ReadonlyMap<string, FieldPreview>>(NO_PREVIEWS);
+  const previewsRef = useRef(previews);
+  const previewCountRef = useRef(0);
+  const changePreviews = useCallback(
+    (
+      change: (
+        current: ReadonlyMap<string, FieldPreview>,
+      ) => ReadonlyMap<string, FieldPreview>,
+    ) => {
+      const next = change(previewsRef.current);
+      if (next === previewsRef.current) return;
+      previewsRef.current = next;
+      setPreviews(next);
+    },
+    [],
+  );
+  const [landed, setLanded] =
+    useState<ReadonlyMap<string, LandedPreview>>(NO_LANDED);
   /** Stops the waits for decided tabs' text that hold their views. */
   const waitingReadsRef = useRef(new Set<() => void>());
   /** Counts the pages this one has left, so a late decision waits on none. */
@@ -675,15 +776,17 @@ export function useBlocksFieldSuggestions({
   // Another page, or none: what this one's tabs hold is saved as it goes.
   useEffect(() => () => endSessionsRef.current(), [documentId]);
   // Another row of the Collection has the same tabs; none of this page's
-  // held views carry over to it.
+  // held views or previews carry over to it.
   useEffect(
     () => () => {
       pageLeftRef.current += 1;
       for (const stop of waitingReadsRef.current) stop();
       waitingReadsRef.current.clear();
       changeViews(() => NO_VIEWS);
+      changePreviews(() => NO_PREVIEWS);
+      setLanded(NO_LANDED);
     },
-    [changeViews, documentId],
+    [changePreviews, changeViews, documentId],
   );
 
   useEffect(() => {
@@ -881,9 +984,29 @@ export function useBlocksFieldSuggestions({
   );
   const suggestionsRef = useRef(suggestions);
   suggestionsRef.current = suggestions;
+  const derivedRef = useRef(derived);
+  derivedRef.current = derived;
 
   const visuals = useCallback(
     (fieldId: string, markdown: string) => {
+      const preview = previews.get(fieldId);
+      // The tab shows its preview: the suggestions it accepts are text there,
+      // and its others sit on that text.
+      if (preview?.text === markdown) {
+        return presentations({
+          savedSuggestions: (decidingViews.get(fieldId) ?? suggestions).filter(
+            (suggestion) =>
+              suggestion.status === "pending" &&
+              !preview.accepted.has(suggestion.id) &&
+              suggestionBlocksFieldId(suggestion) === fieldId,
+          ),
+          drafts: NO_DRAFTS,
+          currentMarkdown: markdown,
+          editingSuggestionId: null,
+          pendingSuggestionId: null,
+          transitions: preview.transitions,
+        });
+      }
       const shown = derived.visuals.get(fieldId) ?? [];
       const inSession = new Set(shown.map((visual) => visual.id));
       return presentations({
@@ -900,7 +1023,7 @@ export function useBlocksFieldSuggestions({
         transitions: NO_TRANSITIONS,
       });
     },
-    [decidingViews, derived, presentations, suggestions],
+    [decidingViews, derived, presentations, previews, suggestions],
   );
 
   const provider = useMemo<BlocksFieldSuggestionsValue>(
@@ -912,6 +1035,8 @@ export function useBlocksFieldSuggestions({
       replacementIntent,
       visuals,
       decidingFields,
+      previews,
+      landed,
       leaving: flushing || saving,
       activeSuggestionId,
       onActivateSuggestion,
@@ -924,9 +1049,11 @@ export function useBlocksFieldSuggestions({
       decidingFields,
       derived.sessions,
       flushing,
+      landed,
       onActivateSuggestion,
       onAnchorsChange,
       onHoverSuggestion,
+      previews,
       replacementIntent,
       saving,
       start,
@@ -1160,12 +1287,168 @@ export function useBlocksFieldSuggestions({
   );
 
   /**
+   * The text a tab holds now, which its preview starts from: an earlier
+   * preview it still shows, else its own copy, which has any typing not
+   * saved yet, else the page's newest read of it.
+   */
+  const heldText = useCallback(
+    (fieldId: string) => {
+      const earlier = previewsRef.current.get(fieldId);
+      if (earlier) return earlier.text;
+      const own = peekBlockFieldSaveController(`${documentId}:${fieldId}`);
+      if (own) return own.pending;
+      let text: string | null = null;
+      let newest = -1;
+      for (const query of queryClient.getQueryCache().findAll({
+        queryKey: ["action", "list-document-properties", { documentId }],
+      })) {
+        const read = query.state.data as DocumentPropertiesResponse | undefined;
+        const property = read?.properties.find(
+          (candidate) => candidate.definition.id === fieldId,
+        );
+        const revision = property?.blocksField?.revision;
+        if (
+          revision !== undefined &&
+          revision > newest &&
+          typeof property?.value === "string"
+        ) {
+          newest = revision;
+          text = property.value;
+        }
+      }
+      return text;
+    },
+    [documentId, queryClient],
+  );
+
+  /**
+   * Shows the tabs of `held` with the suggestions of `accepting` in their
+   * text, as the server writes it, and moves the quotes of the threads that
+   * asked for them onto it, as the server does. A tab whose new text can't
+   * be worked out here, or with a draft not saved yet, which its preview
+   * wouldn't show, keeps its text until the new text is read. Returns the
+   * tabs it previews, whether a quote moved, and what lets previews go.
+   */
+  const previewAccepted = useCallback(
+    (
+      held: ReadonlyMap<string, ResourceSuggestion[]>,
+      accepting: ReadonlyArray<ResourceSuggestion | DraftSuggestion>,
+    ) => {
+      const shown = new Map<string, FieldPreview>();
+      let movedQuotes = false;
+      for (const [fieldId, view] of held) {
+        const onField = accepting.filter(
+          (suggestion) => suggestionBlocksFieldId(suggestion) === fieldId,
+        );
+        if (onField.length === 0) continue;
+        const ids = new Set(onField.map((suggestion) => suggestion.id));
+        if (
+          derivedRef.current.drafts.some(
+            (draft) =>
+              suggestionBlocksFieldId(draft) === fieldId && !ids.has(draft.id),
+          )
+        )
+          continue;
+        const before = heldText(fieldId);
+        if (before === null) continue;
+        const text = acceptedText(before, onField);
+        if (text === null) continue;
+        const accepted = new Set([
+          ...(previewsRef.current.get(fieldId)?.accepted ?? []),
+          ...ids,
+        ]);
+        previewCountRef.current += 1;
+        shown.set(fieldId, {
+          key: String(previewCountRef.current),
+          text,
+          accepted,
+          transitions: retainCommittedSuggestionPresentationTransitions(
+            NO_TRANSITIONS,
+            view.filter((suggestion) => !accepted.has(suggestion.id)),
+            onField.map((suggestion) => ({
+              ...suggestion,
+              status: "accepted" as const,
+            })),
+          ),
+        });
+        for (const suggestion of onField) {
+          const threadId =
+            "metadata" in suggestion
+              ? suggestionSourceThreadId(suggestion)
+              : null;
+          if (
+            threadId &&
+            moveLoadedThreadQuote(
+              queryClient,
+              documentId,
+              { threadId, fieldId },
+              before,
+              text,
+            )
+          )
+            movedQuotes = true;
+        }
+      }
+      if (shown.size > 0)
+        changePreviews((current) => new Map([...current, ...shown]));
+      // A later preview of a tab replaces this one there.
+      const release = (fieldIds: Iterable<string> = shown.keys()) => {
+        const ids = new Set(fieldIds);
+        changePreviews((current) => {
+          const kept = new Map(
+            [...current].filter(
+              ([fieldId, preview]) =>
+                !ids.has(fieldId) || shown.get(fieldId) !== preview,
+            ),
+          );
+          if (kept.size === current.size) return current;
+          return kept.size > 0 ? kept : NO_PREVIEWS;
+        });
+      };
+      // The tabs of `fieldIds` still showing this preview keep its text once
+      // it goes, until each holds the text read, at the page's revision now.
+      const land = (fieldIds: Iterable<string>) => {
+        const entries = [...new Set(fieldIds)].flatMap((fieldId) => {
+          const preview = shown.get(fieldId);
+          const revisions = shownRevisions(fieldId);
+          if (
+            !preview ||
+            previewsRef.current.get(fieldId) !== preview ||
+            revisions.length === 0
+          )
+            return [];
+          return [
+            [
+              fieldId,
+              {
+                key: preview.key,
+                text: preview.text,
+                revision: Math.min(...revisions),
+              },
+            ] as const,
+          ];
+        });
+        if (entries.length > 0)
+          setLanded((current) => new Map([...current, ...entries]));
+      };
+      return { fields: [...shown.keys()], movedQuotes, release, land };
+    },
+    [changePreviews, documentId, heldText, queryClient, shownRevisions],
+  );
+
+  /**
    * Runs a decision on tabs' suggestions: their drafts are saved first, and
    * afterwards the tabs read their text again and start new drafts on it.
-   * `run` reports the suggestions it decided.
+   * `targets` are the suggestions decided on, and `run` reports the
+   * suggestions it decided.
    */
   const decideOnFields = useCallback(
-    async (fieldIds: string[], run: () => Promise<ResourceSuggestion[]>) => {
+    async (
+      fieldIds: string[],
+      decision: SuggestionDecision,
+      targets: ReadonlyArray<ResourceSuggestion | DraftSuggestion>,
+      run: () => Promise<ResourceSuggestion[]>,
+    ) => {
       if (decidingRef.current) return;
       decidingRef.current = true;
       const pagesLeft = pageLeftRef.current;
@@ -1193,6 +1476,20 @@ export function useBlocksFieldSuggestions({
           ),
         ]),
       );
+      // The decision shows at once, as the page body's does: accepted
+      // suggestions as text in their tabs, rejected ones gone.
+      const preview =
+        decision === "accepted" ? previewAccepted(views.held, targets) : null;
+      if (decision !== "accepted")
+        views.drop(new Set(targets.map((target) => target.id)));
+      /** The previewed tabs whose suggestions were all accepted. */
+      const confirmed = new Set<string>();
+      const release = () => {
+        views.release();
+        // A page left meanwhile shows none of this.
+        if (pagesLeft === pageLeftRef.current) preview?.land(confirmed);
+        preview?.release();
+      };
       /** The tabs whose changed text is still unread. */
       let unread: string[] = [];
       // Accepting moves each asking thread's quote onto the tab's new text.
@@ -1206,6 +1503,24 @@ export function useBlocksFieldSuggestions({
         const accepted = outcomes.filter(
           (suggestion) => suggestion.status === "accepted",
         );
+        if (preview) {
+          const onField = (
+            suggestions: ReadonlyArray<ResourceSuggestion | DraftSuggestion>,
+            fieldId: string,
+          ) =>
+            suggestions.filter(
+              (suggestion) => suggestionBlocksFieldId(suggestion) === fieldId,
+            ).length;
+          for (const fieldId of preview.fields) {
+            if (onField(accepted, fieldId) >= onField(targets, fieldId))
+              confirmed.add(fieldId);
+          }
+          // A tab whose suggestions weren't all accepted shows its text as
+          // it is.
+          preview.release(
+            preview.fields.filter((fieldId) => !confirmed.has(fieldId)),
+          );
+        }
         // A suggestion decided any other way left the text as it was, so the
         // tabs stop showing it now rather than when their text is read.
         views.drop(
@@ -1252,14 +1567,23 @@ export function useBlocksFieldSuggestions({
       } finally {
         decidingRef.current = false;
         setDecidingFields(NO_FIELDS);
+        // A quote moved for an acceptance that didn't happen is read again.
+        if (
+          preview?.movedQuotes &&
+          preview.fields.some((fieldId) => !confirmed.has(fieldId))
+        )
+          void queryClient
+            .invalidateQueries({
+              queryKey: ["action", "list-comments", { documentId }],
+            })
+            .catch(() => undefined);
         // Changed text that couldn't be read now, outside Suggesting mode or
         // after it ended, comes with the page's next read of it, which its
-        // sync makes after a decision. Its tabs keep their views until the
-        // page shows it and, when quotes moved, until the comments are read
-        // again after it, so no highlight is shown over text it isn't on. A
-        // page left meanwhile waits on nothing.
-        if (unread.length === 0 || pagesLeft !== pageLeftRef.current)
-          views.release();
+        // sync makes after a decision. Its tabs keep their views and previews
+        // until the page shows it and, when quotes moved, until the comments
+        // are read again after it, so no highlight is shown over text it
+        // isn't on. A page left meanwhile waits on nothing.
+        if (unread.length === 0 || pagesLeft !== pageLeftRef.current) release();
         else
           afterTextRead(
             new Map(
@@ -1270,7 +1594,7 @@ export function useBlocksFieldSuggestions({
             ),
             () => {
               if (!movedQuotes) {
-                views.release();
+                release();
                 return;
               }
               void queryClient
@@ -1278,7 +1602,7 @@ export function useBlocksFieldSuggestions({
                   queryKey: ["action", "list-comments", { documentId }],
                 })
                 .catch(() => undefined)
-                .finally(views.release);
+                .finally(release);
             },
           );
       }
@@ -1288,6 +1612,7 @@ export function useBlocksFieldSuggestions({
       bump,
       documentId,
       holdViews,
+      previewAccepted,
       queryClient,
       reread,
       save,
@@ -1302,7 +1627,8 @@ export function useBlocksFieldSuggestions({
     ) => {
       const fieldId = suggestionBlocksFieldId(target);
       if (!fieldId) return Promise.resolve();
-      return decideOnFields([fieldId], async () => {
+      const shown = "durability" in target ? target : freshest(target);
+      return decideOnFields([fieldId], decision, [shown], async () => {
         const savedTarget =
           "durability" in target
             ? await materializeDraft(target)
@@ -1329,7 +1655,10 @@ export function useBlocksFieldSuggestions({
     ) =>
       decideOnFields(
         members.flatMap((member) => suggestionBlocksFieldId(member) ?? []),
+        decision,
+        members.map(freshest),
         async () => {
+          // Saving the tabs' drafts can amend a member.
           const current = members.map(freshest);
           const result = await mutationsRef.current.decideProposal.mutateAsync({
             proposalId,

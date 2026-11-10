@@ -152,18 +152,37 @@ describe("useBlocksFieldSuggestions", () => {
     });
   }
 
-  /** The page's read of its properties, at `revision` of the Notes tab. */
+  /**
+   * The page's read of its properties, at `revision` of the Notes tab, with
+   * the tab's text when given.
+   */
   function showNotes(
     revision: number,
     scope: { documentId: string; databaseId?: string } = {
       documentId: "doc-1",
     },
+    value?: string,
   ) {
     queryClient.setQueryData(["action", "list-document-properties", scope], {
       documentId: scope.documentId,
       databaseId: scope.databaseId ?? null,
-      properties: [{ definition: { id: "notes" }, blocksField: { revision } }],
+      properties: [
+        {
+          definition: { id: "notes" },
+          blocksField: { revision },
+          ...(value === undefined ? {} : { value }),
+        },
+      ],
     });
+  }
+
+  /** What the Notes tab highlights while it shows `markdown`. */
+  function highlightedOver(markdown: string) {
+    presentations.mockClear();
+    latest.provider.visuals("notes", markdown);
+    return first(first(presentations.mock.calls)).savedSuggestions.map(
+      (suggestion) => suggestion.id,
+    );
   }
 
   /** The saved suggestions the Notes tab highlights over its text. */
@@ -807,6 +826,223 @@ describe("useBlocksFieldSuggestions", () => {
       finish?.({ suggestion: { ...created, status: "accepted" } });
       await decision;
     });
+    expect(highlighted()).toEqual([]);
+  });
+
+  it("shows a tab's accepted suggestion in its text at once, before the server answers", async () => {
+    let finish: ((value: unknown) => void) | undefined;
+    mocks.decideSuggestion.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const created = first(firstSaved());
+    await render(true, [created]);
+    await act(async () => {
+      showNotes(3, undefined, "Original notes.");
+    });
+
+    let decision: Promise<void> | undefined;
+    await act(async () => {
+      decision = latest.decide(created, "accepted");
+    });
+    // The tab shows the edit as text, as the server writes it, and no longer
+    // highlights it, while the decision is still on its way.
+    expect(finish).toBeDefined();
+    expect(latest.provider.previews.get("notes")?.text).toBe(
+      "Original notes, revised.",
+    );
+    expect(highlightedOver("Original notes, revised.")).toEqual([]);
+
+    // Reading the tab's text again brings what the server wrote.
+    vi.spyOn(queryClient, "refetchQueries").mockImplementation(async () => {
+      showNotes(4, undefined, "Original notes, revised.");
+    });
+    await act(async () => {
+      finish?.({ suggestion: { ...created, status: "accepted" } });
+      await decision;
+    });
+    // The page has read the tab's new text. The tab keeps the preview's
+    // words until its own copy holds that revision.
+    expect(latest.provider.previews.size).toBe(0);
+    expect(latest.provider.landed.get("notes")).toEqual({
+      key: expect.any(String),
+      text: "Original notes, revised.",
+      revision: 4,
+    });
+  });
+
+  it("puts a tab's text back when accepting its suggestion fails", async () => {
+    let fail: ((error: Error) => void) | undefined;
+    mocks.decideSuggestion.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const created = first(firstSaved());
+    await render(true, [created]);
+    await act(async () => {
+      showNotes(3, undefined, "Original notes.");
+    });
+
+    let decision: Promise<void> | undefined;
+    await act(async () => {
+      decision = latest.decide(created, "accepted");
+    });
+    expect(latest.provider.previews.has("notes")).toBe(true);
+
+    await act(async () => {
+      fail?.(new Error("Network down"));
+      await decision;
+    });
+    expect(latest.provider.previews.size).toBe(0);
+    expect(latest.provider.landed.size).toBe(0);
+    expect(mocks.toastError).toHaveBeenCalled();
+  });
+
+  it("puts a tab's text back as soon as the server doesn't accept its suggestion", async () => {
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const created = first(firstSaved());
+    // Someone rejected it first.
+    mocks.decideSuggestion.mockResolvedValue({
+      suggestion: { ...created, status: "rejected" },
+    });
+    await render(true, [created]);
+    await act(async () => {
+      showNotes(3, undefined, "Original notes.");
+    });
+    let land: () => void = () => {};
+    const landed = new Promise<void>((resolve) => {
+      land = resolve;
+    });
+    vi.spyOn(queryClient, "refetchQueries").mockImplementation(async () => {
+      await landed;
+    });
+
+    let decision: Promise<void> | undefined;
+    await act(async () => {
+      decision = latest.decide(created, "accepted");
+    });
+    // The tab's text isn't read yet, but nothing it previewed was written.
+    await vi.waitFor(() => expect(latest.provider.previews.size).toBe(0));
+    expect(latest.provider.landed.size).toBe(0);
+    expect(latest.deciding).toBe(true);
+
+    await act(async () => {
+      land();
+      await decision;
+    });
+    expect(latest.deciding).toBe(false);
+  });
+
+  it("moves the asking thread's quote onto the new words at once, and reads it again when accepting fails", async () => {
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const asked = {
+      ...first(firstSaved()),
+      metadata: { sourceThreadId: "thread-1", commentAiRequestId: "request-1" },
+    };
+    let fail: ((error: Error) => void) | undefined;
+    mocks.decideSuggestion.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+    await render(true, [asked]);
+    const commentsKey = ["action", "list-comments", { documentId: "doc-1" }];
+    await act(async () => {
+      showNotes(3, undefined, "Original notes.");
+      queryClient.setQueryData(commentsKey, {
+        comments: [
+          {
+            id: "comment-1",
+            document_id: "doc-1",
+            thread_id: "thread-1",
+            parent_id: null,
+            field_id: "notes",
+            content: "Make this longer",
+            quoted_text: "notes.",
+            anchor_prefix: "Original ",
+            anchor_suffix: "",
+            anchor_start_offset: 9,
+          },
+        ],
+      });
+    });
+    const quote = () =>
+      first(
+        (
+          queryClient.getQueryData(commentsKey) as {
+            comments: Array<{ quoted_text: string | null }>;
+          }
+        ).comments,
+      ).quoted_text;
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+    let decision: Promise<void> | undefined;
+    await act(async () => {
+      decision = latest.decide(asked, "accepted");
+    });
+    // The thread's highlight moves with the tab's new text, before the
+    // comments are read again.
+    expect(quote()).toBe("notes, revised.");
+
+    await act(async () => {
+      fail?.(new Error("Network down"));
+      await decision;
+    });
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: commentsKey });
+  });
+
+  it("stops highlighting a rejected tab suggestion at once", async () => {
+    let finish: ((value: unknown) => void) | undefined;
+    mocks.decideSuggestion.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const created = first(firstSaved());
+    await render(false, [created]);
+    expect(highlighted()).toEqual(["saved-0"]);
+
+    let decision: Promise<void> | undefined;
+    await act(async () => {
+      decision = latest.decide(created, "rejected");
+    });
+    expect(finish).toBeDefined();
+    expect(highlighted()).toEqual([]);
+
+    await act(async () => {
+      finish?.({ suggestion: { ...created, status: "rejected" } });
+      await decision;
+    });
+    await render(false, [{ ...created, status: "rejected" }]);
     expect(highlighted()).toEqual([]);
   });
 
