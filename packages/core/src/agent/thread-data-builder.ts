@@ -4907,14 +4907,19 @@ function buildStoredAttachments(
               type: "text",
               text: inlineDataUrl
                 ? "Attachment not retained: inline data URLs cannot be stored in thread history. Attach the file using durable storage to keep it available throughout this thread."
-                : uploadFailed
-                  ? "Attachment not retained: the configured object-storage upload failed. Retry the upload to keep files available throughout this thread."
-                  : "Attachment not retained: connect object storage to keep files available throughout this thread.",
+                : att.storageReconnectRequired === true
+                  ? "Attachment not retained: the Builder.io connection for file storage needs to be reconnected. Reconnect Builder in Settings → Integrations → Builder, then attach the file again."
+                  : uploadFailed
+                    ? "Attachment not retained: the configured object-storage upload failed. Retry the upload to keep files available throughout this thread."
+                    : "Attachment not retained: connect object storage to keep files available throughout this thread.",
             },
           ],
           metadata: {
             storageRequired: true,
             ...(uploadFailed ? { storageUploadFailed: true } : {}),
+            ...(att.storageReconnectRequired === true
+              ? { storageReconnectRequired: true }
+              : {}),
           },
         };
       }

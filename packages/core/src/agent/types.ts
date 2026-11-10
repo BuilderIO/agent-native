@@ -273,6 +273,7 @@ export interface AgentChatAttachment {
   securityNote?: string;
   storageRequired?: boolean;
   storageUploadFailed?: boolean;
+  storageReconnectRequired?: boolean;
   contentType?: string;
   referenceUrl?: string;
   text?: string;

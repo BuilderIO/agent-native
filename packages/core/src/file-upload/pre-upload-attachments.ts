@@ -3,6 +3,7 @@ import {
   isSpreadsheetDocument,
   parseSpreadsheetDocument,
 } from "../ingestion/spreadsheet.js";
+import { isBuilderReconnectRequiredError } from "../private-blob/attachment-ref.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import { normalizeImageMediaType } from "./attachment-bytes.js";
 import {
@@ -632,12 +633,8 @@ export async function preUploadAttachments(opts: {
       att.storageRequired = true;
       att.storageUploadFailed = true;
       uploadFailed = true;
-      if (
-        err &&
-        typeof err === "object" &&
-        "errorCode" in err &&
-        err.errorCode === "builder_oauth_reauthorization_required"
-      ) {
+      if (isBuilderReconnectRequiredError(err)) {
+        att.storageReconnectRequired = true;
         builderReconnectRequired = true;
       } else {
         genericUploadFailed = true;

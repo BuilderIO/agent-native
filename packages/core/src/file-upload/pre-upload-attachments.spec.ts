@@ -1003,28 +1003,34 @@ describe("preUploadAttachments", () => {
     warn.mockRestore();
   });
 
-  it("instructs the agent to reconnect Builder rather than retry a rejected grant", async () => {
-    uploadFileMock.mockRejectedValue(
-      Object.assign(new Error("untrusted detail"), {
-        errorCode: "builder_oauth_reauthorization_required",
-      }),
-    );
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      const result = await preUploadAttachments({
-        attachments: [makeImageAtt()],
-        ownerEmail: "user@example.com",
-      });
-      expect(result.uploadFailed).toBe(true);
-      expect(result.injectedText).toContain(
-        "Builder.io connection for file storage needs to be reconnected",
+  it.each([
+    "builder_oauth_reauthorization_required",
+    "builder_credentials_rejected",
+  ])(
+    "instructs the agent to reconnect Builder rather than retry (%s)",
+    async (errorCode) => {
+      uploadFileMock.mockRejectedValue(
+        Object.assign(new Error("untrusted detail"), { errorCode }),
       );
-      expect(result.injectedText).not.toContain("Retry the upload");
-      expect(result.injectedText).not.toContain("untrusted detail");
-    } finally {
-      warn.mockRestore();
-    }
-  });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const att = makeImageAtt();
+        const result = await preUploadAttachments({
+          attachments: [att],
+          ownerEmail: "user@example.com",
+        });
+        expect(result.uploadFailed).toBe(true);
+        expect(att.storageReconnectRequired).toBe(true);
+        expect(result.injectedText).toContain(
+          "Builder.io connection for file storage needs to be reconnected",
+        );
+        expect(result.injectedText).not.toContain("Retry the upload");
+        expect(result.injectedText).not.toContain("untrusted detail");
+      } finally {
+        warn.mockRestore();
+      }
+    },
+  );
 
   it("does not describe a readable photo as too large when storage is unconfigured", async () => {
     uploadFileMock.mockResolvedValue(null);
