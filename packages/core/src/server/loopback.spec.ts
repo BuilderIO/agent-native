@@ -14,6 +14,7 @@ function makeEvent(
     encrypted: false,
     localAddress: "127.0.0.1",
     remoteAddress: "127.0.0.1",
+    localPort: 3000,
   },
 ): H3Event {
   return {
@@ -64,5 +65,24 @@ describe("isDirectLoopbackRequest", () => {
     expect(isDirectLoopbackRequest(makeEvent({ host: "127.0.0.1:0" }))).toBe(
       false,
     );
+  });
+
+  it("requires Host to name the socket's actual local port", () => {
+    expect(isDirectLoopbackRequest(makeEvent({ host: "127.0.0.1:3001" }))).toBe(
+      false,
+    );
+    expect(
+      isDirectLoopbackRequest(
+        makeEvent(
+          { host: "127.0.0.1:3000" },
+          {
+            encrypted: false,
+            localAddress: "127.0.0.1",
+            localPort: 3000,
+            remoteAddress: "203.0.113.8",
+          },
+        ),
+      ),
+    ).toBe(false);
   });
 });

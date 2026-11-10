@@ -1034,7 +1034,6 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "تعذر تحميل هذه الشاشة.",
-    writeFailed: "تعذّر حفظ هذا التغيير.",
     selectionPublishFailed: "قد لا يرى الوكيل تحديدك الأخير. حدِّده مرة أخرى.",
     liveCollaboration: {
       title: "التعاون المباشر",
@@ -1620,30 +1619,17 @@ export default {
       editColor: "تعديل لون {{name}}",
     },
     import: {
-      title: "استيراد",
       description: "استورد HTML حافظة Figma أو HTML مستقلا كشاشات Design.",
-      figmaUrlTitle: "رابط إطار Figma",
-      figmaUrlDescription: "استورد إطارا أو ملفا من رابط Figma.",
       figmaUrlLabel: "رابط إطار أو ملف Figma",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "جار التحقق من اتصال Figma…",
-      figmaConnected: "Figma متصل",
-      figmaConnectedWithSuffix: "Figma متصل · ••••{{suffix}}",
       figmaTokenLabel: "رمز وصول Figma",
       figmaTokenDocs: "الحصول على رمز",
       figmaTokenPlaceholder: "الصق رمز وصول Figma الشخصي",
-      figmaTokenDescription:
-        "يحفظ بأمان لاستيراد Figma ودردشة الوكيل. لا يضاف الرمز إلى الدردشة أبدا.",
-      importFigmaUrl: "استيراد من Figma",
-      saveKeyAndImport: "حفظ المفتاح والاستيراد",
       figmaUrlSuccess: "تم الاستيراد من Figma.",
       figmaImageFallbackWarning:
         "بدائل الصور: {{count}}. يتم الحفاظ على المظهر، لكن هذه الطبقات ليست قابلة للتحرير بالكامل.",
       figmaApproximationWarning:
         "طبقات تقريبية: {{count}}. لا يمكن لـ HTML/CSS تمثيل جميع خصائص Figma بدقة.",
-      figmaPasteTitle: "لصق من Figma",
-      figmaPasteDescription:
-        "انسخ إطارا أو طبقة في Figma، ثم الصقها في لوحة Design. يستورد Design HTML المرئي من الحافظة.",
       figmaPasteTarget: "الصق في اللوحة",
       figmaPasteApiKeyHint:
         "قم بربط رمز الوصول الخاص بك في Figma للحصول على استيراد دقيق للعقد.",
@@ -1652,11 +1638,10 @@ export default {
       figmaPasteMatchGuidance:
         "تعذّرت المطابقة مع عُقد Figma محددة. الصق رابط الإطار بدلاً من ذلك للحصول على استيراد دقيق.",
       figmaPasteUnreadable:
-        "لا تحتوي هذه الحافظة على طبقات Figma منسوخة. حدّد إطارًا في Figma وانسخه بالضغط على Cmd+C ثم الصقه مرة أخرى، أو استورد رابط Figma من لوحة الاستيراد.",
+        "لا تحتوي هذه الحافظة على طبقات Figma منسوخة. حدّد إطارًا في Figma وانسخه بالضغط على Cmd+C ثم الصقه مرة أخرى، أو الصق رابط الإطار في المحادثة.",
       figmaPasteRestLabel: "تم الاستيراد عبر واجهة Figma البرمجية",
       figmaPasteHtmlLabel: "تم الاستيراد من معاينة الحافظة",
-      figmaPasteLocalKiwiLabel:
-        "تم الاستيراد بدون رمز — الأشكال الهندسية والنص فقط",
+      figmaPasteLocalKiwiLabel: "تم الاستيراد من حافظة Figma",
       figmaPasteImagesNeedToken:
         "{{count}} صورة{{plural}} تحتاج إلى الوصول إلى Figma للتحميل.",
       figmaPasteImagesDontShowAgain: "عدم الإظهار مرة أخرى",
@@ -1687,72 +1672,27 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: "رفع .fig",
       figUploadDescription:
         "ميزة تجريبية: تنسيق .fig في Figma مملوك وقد يتغير. تتحول الطبقات المدعومة إلى شاشات قابلة للتحرير، وقد تختلف بعض الميزات. الحد الأقصى {{max}} ميغابايت.",
-      chooseFigFile: "اختر ملف .fig",
       figUploadUploading: "جار الرفع {{progress}}%",
       figUploadProcessing: "جار التحويل…",
-      figImportWarningTitle: "استيراد .fig كبير",
-      figImportWarningDescription:
-        "يحتوي هذا الملف على {{frames}} إطارًا و{{nodes}} طبقة. قد يؤدي استيراد كل شيء إلى إبطاء المحرر. اختر الصفحات التي تحتاجها.",
-      figImportFrameCount: "تم تحديد {{selected}} من أصل {{total}} إطارًا",
-      figImportSelectAll: "تحديد الكل",
-      figImportClearAll: "مسح الكل",
-      figImportCancel: "إلغاء",
-      figImportSelected: "استيراد {{count}} المحددة",
-      figImportAll: "استيراد الكل",
       figImportAnalyzing: "جار التحليل…",
       figImportSaving: "جار حفظ {{saved}} من أصل {{total}} إطارًا",
-      figImportFrameLimit: "اختر صفحات لا يتجاوز مجموع إطاراتها {{max}} إطار.",
       figImportFramesSkippedWarning:
         "تم تخطي {{count}} إطارًا لأنها معقدة جدًا للاستيراد: {{names}}",
-      figUploadLimits:
-        "حتى {{size}} غيغابايت · {{frames}} إطار لكل عملية استيراد",
-      figUploadDescriptionShort:
-        "استيراد محلي — بلا حصة من واجهة Figma. يتم تضمين الصور المضمّنة المدعومة.",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "أوقف Design هذا الاستيراد مؤقتًا",
-      quotaCooldownBody:
-        "يقوم Design بتنظيم طلبات Figma الخاصة به بعد الوصول إلى حد الحصة. تُعاد التهيئة تلقائيًا.",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "استيراد HTML",
       htmlDescription:
         "الصق أو ارفع HTML مستقلا. يحفظه Design كشاشة جديدة دون حقنه في واجهة المحرر.",
-      htmlPlaceholder: "<main>الصق HTML مستقلا هنا...</main>",
-      importHtml: "استيراد HTML",
-      chooseHtmlFile: "اختر ملف HTML",
       allSupportedFiles: "جميع الملفات المدعومة",
-      githubTitle: "GitHub",
       githubDescription: "قريبا: استيراد الشاشات والمكونات مباشرة من مستودع.",
-      localTitle: "تطبيق محلي",
       localDescription: "وصّل أي تطبيق محلي قيد التشغيل باستخدام /visual-edit.",
-      visualEditGuidance:
-        "ثبّت مهارة /visual-edit، وشغّل أي تطبيق محلي، ثم نفّذ أمر الجسر من مستودع ذلك التطبيق ليتمكن الوكيل من إضافة شاشات مدعومة بروابط URL.",
-      comingSoon: "قريبا",
       warningsToast: "اكتمل الاستيراد مع تحذيرات",
       figmaSuccess: "تم استيراد لصق Figma",
       htmlSuccess: "تم استيراد HTML",
       uploadSuccess: "تم استيراد الملف",
-      lastImport: "آخر استيراد",
       errors: {
         figmaTokenMustBeToken: "الصق رمز وصول Figma، وليس رابط ملف Figma.",
-        figmaUrlRequired: "الصق رابط إطار أو ملف Figma.",
-        invalidFigmaUrl: "أدخل رابط figma.com صالحا.",
         figmaImportFailed: "تعذر الاستيراد من Figma",
         notHtml: "الصق أو اختر HTML صالحا للاستيراد.",
         importFailed: "فشل الاستيراد",
@@ -1760,9 +1700,11 @@ export default {
         uploadFailed: "فشل رفع الملف",
         invalidFigFile: "اختر ملفا ينتهي بـ .fig.",
         unsupportedFileType: "اختر ملف ‎.fig‎ أو ‎.html‎ أو ‎.htm‎.",
-        importBusy: "هناك استيراد آخر قيد التنفيذ. أنهِه أو ألغِه أولاً.",
+        importBusy: "هناك استيراد آخر قيد التنفيذ. حاول مرة أخرى عند انتهائه.",
         figFileTooLarge:
-          "ملف ‎.fig‎ كبير جدًا — الحد الأقصى للرفع {{max}} ميغابايت. في Figma، انسخ الإطار المطلوب فقط إلى ملف جديد وصدّر ذلك الملف بصيغة ‎.fig‎، أو استخدم اللصق من Figma.",
+          "هذا الملف كبير جدًا لاستيراده هنا. الصق رابط صفحة Figma أو الإطار بدلاً من ذلك.",
+        figFileUnreadable:
+          "تعذّرت قراءة هذا الملف كملف ‎.fig. احفظ نسخة محلية جديدة من Figma واستوردها.",
       },
     },
     generationMayHaveStopped:
@@ -1823,6 +1765,7 @@ export default {
       duplicate: "تكرار",
       versionHistory: "سجل الإصدارات",
       import: "استيراد…",
+      connectLocalApp: "ربط تطبيق محلي",
       delete: "حذف",
       deleteError: "تعذّر حذف هذا التصميم",
     },
@@ -2598,6 +2541,8 @@ export default {
     changesDiscarded:
       "تعذّر حفظ بعض التغييرات لأن الملف لم يعد موجودًا، وتم تجاهلها.",
     offline: "غير متصل",
+    unsaved: "غير محفوظ",
+    saveRetrying: "تعذّر حفظ تغييراتك. جارٍ إعادة المحاولة تلقائيًا.",
     saving: "جارٍ الحفظ...",
     clearedAllAnnotations: "تم مسح جميع التعليقات التوضيحية",
     annotationsDiscardedOnViewChange:
@@ -2655,7 +2600,6 @@ export default {
     websiteReferenceMenu: "إضافة موقع ويب…",
     websiteUrlLabel: "عنوان URL لموقع الويب",
     websiteUrl: "الصق عنوان URL لموقع ويب",
-    figmaUrlLabel: "رابط Figma",
     invalidFigmaUrl: "أدخل عنوان URL صالحًا لإطار أو ملف على figma.com.",
     tooMany: "اختر ما يصل إلى 20 مرجعًا.",
     invalidWebsiteUrl: "أدخل عنوان URL صالحًا ببروتوكول HTTP أو HTTPS.",
@@ -2663,7 +2607,6 @@ export default {
     noSystems:
       "ليس لديك نظام تصميم بعد. أنشئ نظامًا من موقع ويب أو ملفات أو Figma.",
     searchSystems: "البحث في أنظمة التصميم…",
-    searchFrames: "البحث في إطارات Figma…",
     searchDesigns: "البحث في التصاميم…",
     searchPresentations: "البحث في العروض التقديمية…",
     searchDesign: "البحث في التصميم…",
@@ -2671,8 +2614,6 @@ export default {
     notReady:
       "الطلب غير جاهز للإرسال. تحقق من السياق المحدد والاتصال ثم أعد المحاولة.",
     search: "البحث في السياق…",
-    figmaUrl: "ألصق رابط Figma",
-    browse: "تصفح الإطارات",
     loadFailed: "تعذّر تحميل هذا المرجع.",
     retry: "إعادة المحاولة",
     empty: "لا توجد مراجع مطابقة.",
@@ -2681,8 +2622,26 @@ export default {
     slides: "الشرائح",
     referenceDesign: "استخدام تصميم كمرجع",
     connectFigma: "ربط Figma",
-    figmaDisconnected: "اربط Figma لتصفح التصاميم.",
-    figmaReference: "تصميم Figma",
+    figmaReference: "تصميم Figma…",
+    figmaDialogTitle: "إضافة تصميم Figma",
+    figmaDropTitle: "أفلت ملف .fig",
+    figmaChooseFile: "اختيار ملف",
+    figmaPasteHint: "يمكنك أيضًا لصق إطار منسوخ مباشرةً في الطلب.",
+    figmaAddToPrompt: "إضافة إلى الطلب",
+    figmaLinkNeedsConnection:
+      "تتطلب الروابط حساب Figma متصلًا. أفلت ملف .fig أو الصق إطارًا منسوخًا بدلًا من ذلك.",
+    figmaReferenceMore: "{{name}} و{{count}} أخرى",
+    figmaReferenceEmpty:
+      "لم تصل أي إطارات. انسخ إطارًا في Figma وحاول مرة أخرى.",
+    figmaSelection: "تحديد من Figma",
+    figmaFileTooLarge:
+      "هذا الملف كبير جدًا لقراءته هنا. الصق رابطًا إلى صفحته أو إطاره بدلًا من ذلك.",
+    figmaSearch: "ابحث في الصفحات والإطارات",
+    figmaSelectedCount: "تم تحديد {{count}}",
+    figmaShowFrames: "إظهار الإطارات في {{name}}",
+    figmaLinkNotFrame: "استخدم رابطًا إلى صفحة أو إطار في Figma.",
+    figmaPageFrameCap:
+      "تُضاف أول {{limit}} إطارات فقط. حدّد الإطارات لتختار ما يُضاف.",
     referenceDeck: "استخدام عرض تقديمي كمرجع",
     quickSaas: "إنشاء صفحة هبوط لخدمة SaaS",
     quickDashboard: "إنشاء لوحة معلومات",
@@ -2848,7 +2807,6 @@ export default {
     import: "استيراد",
     importFromFigma: "الاستيراد من Figma",
     figmaFile: "ملف Figma (.fig)",
-    figmaFileMaxSize: "حتى {{max}} غيغابايت",
     openImport: "فتح الاستيراد",
     importSelectedFile: "استيراد الملف المحدد",
     starterSaasPrompt:

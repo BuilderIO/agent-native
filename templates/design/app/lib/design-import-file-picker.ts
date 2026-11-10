@@ -17,7 +17,7 @@ export const HTML_IMPORT_FORMAT: ImportFileFormat = {
 };
 
 /** Every format the editor's File > Import accepts. Keep in step with the
- * extension checks in `DesignImportPanel`'s `importFile`. */
+ * extension checks in `runImportDesignFile`. */
 export const DESIGN_IMPORT_FORMATS: readonly ImportFileFormat[] = [
   FIGMA_IMPORT_FORMAT,
   HTML_IMPORT_FORMAT,

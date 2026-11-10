@@ -192,6 +192,7 @@ function tabSuggestion(id: string, fieldId: string): ResourceSuggestion {
 
 const commentAi = {
   requests: [],
+  serverRequests: [],
   startingThreadIds: new Set<string>(),
   stoppingRequestIds: new Set<string>(),
   continuations: new Map(),

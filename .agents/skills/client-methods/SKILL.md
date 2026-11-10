@@ -37,6 +37,7 @@ method gives the UI, docs, and future agents one stable contract.
    | Ask the user a multiple-choice question from app code | `askUserQuestion` from `@agent-native/core/client/agent-chat` (renders inline in the agent panel; answer goes to the agent — do not build a custom modal) |
    | Live sync | `useDbSync`, `useChangeVersion`, `useChangeVersions` from `@agent-native/core/client/hooks` |
    | Extension iframe calls | `appAction`, `appFetch`, `extensionFetch` from the extension runtime |
+   | Toast for a failed write that is not an action mutation | `reportWriteFailure(error, { label })`, or `meta: surfaceMutationError(label)` on a raw `useMutation`, from `@agent-native/core/client/write-failure` |
 
    Action fetch behavior: every `useActionQuery` / `useActionMutation` /
    `callAction` request is bounded by a 60s timeout, and timeouts surface as
@@ -44,6 +45,17 @@ method gives the UI, docs, and future agents one stable contract.
    requests automatically via React Query's abort signal. For imperative
    calls, `callAction(name, params, { method, signal, timeoutMs })` accepts an
    `AbortSignal` and a `timeoutMs` override for legitimately long operations.
+
+   Failed writes: `useActionMutation` shows one shared toast on its own when
+   nothing handles the error (`errorNotification: "auto"`, the default).
+   `"shared"` toasts even beside an `onError` that only rolls back or logs, and
+   `"caller"` opts out for background saves and deliberate swallows. A write
+   that goes through a raw `fetch` (an upload, a stream) or a swallowed `catch`
+   announces its failure with `reportWriteFailure(error, { label })`; a raw
+   `useMutation` opts in with `meta: surfaceMutationError(label)`. `label` is an
+   already-translated title. `AppProviders` mounts the listener
+   (`WriteFailureToaster`); an app without it, or with `toaster={null}`, renders
+   `WriteFailureToaster` from `@agent-native/toolkit/app/shared` itself.
 
 2. If no client API exists, add the narrowest helper at the boundary.
 

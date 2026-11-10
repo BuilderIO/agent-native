@@ -180,6 +180,7 @@ async function fetchOnePanel(
   vars: Record<string, string>,
   ctx: { userEmail: string; orgId: string | null },
   timeoutMs: number,
+  dashboardId: string,
 ): Promise<ReportPanelData> {
   const source = panel.source as DashboardPanelSource;
   let query: string;
@@ -201,6 +202,11 @@ async function fetchOnePanel(
     query,
     ctx,
     timeoutMs,
+    usageAttribution: {
+      workload: "dashboard-report",
+      dashboardId,
+      panelId: panel.id,
+    },
     ...(trafficEnvironment ? { trafficEnvironment } : {}),
   });
 }
@@ -272,6 +278,7 @@ export async function fetchReportPanelData(args: {
             vars,
             ctx,
             Math.min(perPanelTimeoutMs, remaining),
+            args.snapshot.dashboardId,
           ),
         );
       }
