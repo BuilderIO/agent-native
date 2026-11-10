@@ -3035,9 +3035,8 @@ describe("document editor layout", () => {
     expect(properties).toMatch(
       /<PropertyManagementPopover[\s\S]*?popoverContainer=\{popoverContainer\}/,
     );
-    expect(properties).toMatch(
-      /<HiddenPropertiesMenu[\s\S]*?popoverContainer=\{popoverContainer\}/,
-    );
+    // oracle-change: the Hidden properties menu is gone, so its popover has no
+    // container to pass; the line that replaced it opens in place.
     expect(properties).toMatch(
       /<AddProperty[\s\S]*?popoverContainer=\{popoverContainer\}/,
     );
