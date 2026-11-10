@@ -70,7 +70,6 @@ jobs:
             const startedAt = Date.now();
             const coordinatorDeadline = startedAt + 350 * 60_000;
             const pollIntervalMs = 15_000;
-            const reservedTags = new Map();
             let downstreamNotificationFailureUrl;
             let downstreamNotificationRecoveryUrl;
             let downstreamNotificationRecoveryError;
@@ -235,23 +234,8 @@ jobs:
               })).data;
             }
 
-            async function dispatchAndWait(
-              workflow,
-              ref,
-              inputs,
-              label,
-              timeoutMs,
-              reservedTag = null,
-            ) {
-              let run;
-              try {
-                run = await dispatch(workflow, ref, inputs);
-              } catch (error) {
-                if (reservedTag && error?.dispatchOutcome === "rejected") {
-                  await cleanupReservedTags([reservedTag]);
-                }
-                throw error;
-              }
+            async function dispatchAndWait(workflow, ref, inputs, label, timeoutMs) {
+              const run = await dispatch(workflow, ref, inputs);
               try {
                 await waitForRun(run, label, timeoutMs);
                 return { run, error: null };
@@ -344,19 +328,6 @@ jobs:
               }
             }
 
-            async function getReleaseByTag(tag) {
-              try {
-                return (await github.rest.repos.getReleaseByTag({
-                  owner,
-                  repo,
-                  tag,
-                })).data;
-              } catch (error) {
-                if (error.status === 404) return null;
-                throw error;
-              }
-            }
-
             function parseStableVersion(value, label) {
               const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value);
               if (!match) {
@@ -410,53 +381,87 @@ jobs:
                     ref: `refs/tags/${tagPrefix}${version}`,
                     sha: sourceSha,
                   });
-                  reservedTags.set(`${tagPrefix}${version}`, sourceSha);
                   return version;
                 } catch (error) {
-                  if (error.status === 422) {
-                    core.warning(`Stable tag ${tagPrefix}${version} was reserved concurrently; retrying.`);
-                    continue;
-                  }
-
-                  const tag = `${tagPrefix}${version}`;
-                  try {
-                    const tagSha = await getRemoteTagSha(tag);
-                    if (tagSha === sourceSha) {
-                      reservedTags.set(tag, sourceSha);
-                    } else if (tagSha) {
-                      core.warning(`Could not claim stable tag ${tag} after createRef failed; it points to another commit.`);
-                    }
-                  } catch (reconciliationError) {
-                    const message = reconciliationError instanceof Error
-                      ? reconciliationError.message
-                      : String(reconciliationError);
-                    core.warning(`Could not reconcile stable tag ${tag} after createRef failed: ${message}`);
-                  }
-                  throw error;
+                  if (error.status !== 422) throw error;
+                  core.warning(`Stable tag ${tagPrefix}${version} was reserved concurrently; retrying.`);
                 }
               }
               throw new Error(`Could not reserve a stable ${tagPrefix} version after 20 attempts.`);
             }
 
-            async function cleanupReservedTags(tags = [...reservedTags.keys()]) {
-              const cleanup = await Promise.allSettled(
-                tags.map(async (tag) => {
-                  const sourceSha = reservedTags.get(tag);
-                  if (!sourceSha) {
-                    core.warning(`Could not clean stable tag ${tag}; this run does not own it.`);
-                    return;
-                  }
-                  const tagSha = await getRemoteTagSha(tag);
-                  if (tagSha && tagSha !== sourceSha) {
-                    core.warning(`Keeping changed stable tag ${tag}; it is not owned by this run.`);
-                    return;
-                  }
-                  const release = await getReleaseByTag(tag);
-                  if (release && !release.draft) {
-                    core.info(`Keeping published stable release ${tag}.`);
-                    return;
-                  }
-                  if (release) {
+            // A run that stops between reserving a stable tag and publishing it
+            // leaves the tag, and often a draft: a failed or cancelled build,
+            // unverified npm, an unconfirmed dispatch, a cancelled coordinator.
+            // Rather than clean up on each of those paths, every run removes
+            // the ones a newer published release has superseded. Until then a
+            // draft kept for a rerun looks the same as an abandoned one; after
+            // it, publishing either would put an older version on top.
+            async function removeSupersededReservations() {
+              // GET releases/tags/{tag} answers 404 for a draft, so only a
+              // listing finds the drafts a build uploaded to.
+              const releases = await github.paginate(github.rest.repos.listReleases, {
+                owner,
+                repo,
+                per_page: 100,
+              });
+              const publishedTags = new Set(
+                releases.filter((release) => !release.draft).map((release) => release.tag_name),
+              );
+              const removed = [];
+              const waiting = [];
+              for (const [tagPrefix, workflow] of [
+                ["v", "desktop-release.yml"],
+                ["clips-v", "clips-desktop-release.yml"],
+              ]) {
+                const versionOf = (tag) => {
+                  const version = tag.startsWith(tagPrefix) ? tag.slice(tagPrefix.length) : "";
+                  return /^\d+\.\d+\.\d+$/.test(version) ? parseStableVersion(version, tag) : null;
+                };
+                let newest = null;
+                for (const release of releases) {
+                  const version = release.draft || release.prerelease ? null : versionOf(release.tag_name);
+                  if (version && (!newest || compareStableVersions(version, newest) > 0)) newest = version;
+                }
+                if (!newest) continue;
+                const tags = await github.paginate(github.rest.git.listMatchingRefs, {
+                  owner,
+                  repo,
+                  ref: `tags/${tagPrefix}`,
+                  per_page: 100,
+                });
+                const superseded = [
+                  ...new Set([
+                    ...tags.map((tag) => tag.ref.replace(/^refs\/tags\//, "")),
+                    ...releases.filter((release) => release.draft).map((release) => release.tag_name),
+                  ]),
+                ].filter((tag) => {
+                  const version = versionOf(tag);
+                  // Only the newest release's minor line: the older v0.2.4 to
+                  // v0.7.83 tags are @agent-native/core's, not reservations.
+                  return (
+                    version !== null &&
+                    version[0] === newest[0] &&
+                    version[1] === newest[1] &&
+                    compareStableVersions(version, newest) < 0 &&
+                    !publishedTags.has(tag)
+                  );
+                });
+                if (superseded.length === 0) continue;
+                const runs = await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: workflow,
+                  per_page: 100,
+                });
+                // Push runs build Nightly prereleases, never a stable tag.
+                if (runs.data.workflow_runs.some((run) => run.event !== "push" && run.status !== "completed")) {
+                  waiting.push(...superseded);
+                  continue;
+                }
+                for (const tag of superseded) {
+                  for (const release of releases) {
+                    if (!release.draft || release.tag_name !== tag) continue;
                     try {
                       await github.rest.repos.deleteRelease({
                         owner,
@@ -473,18 +478,14 @@ jobs:
                       repo,
                       ref: `tags/${tag}`,
                     });
-                    core.info(`Removed reserved stable tag ${tag}.`);
                   } catch (error) {
                     if (error.status !== 404) throw error;
                   }
-                }),
-              );
-              const failures = cleanup
-                .filter((result) => result.status === "rejected")
-                .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
-              if (failures.length > 0) {
-                core.warning(`Could not clean up reserved stable tags:\n${failures.join("\n")}`);
+                  core.info(`Removed superseded stable reservation ${tag}.`);
+                  removed.push(tag);
+                }
               }
+              return { removed, waiting };
             }
 
             async function getFirstParentSha(ref) {
@@ -1205,29 +1206,6 @@ jobs:
             // predates the coordinated source_ref input. Every build still checks
             // out the exact release commit below.
             const workflowRef = coreVersionChanged ? packageRef : "main";
-            let publicationError = null;
-            let publicationStatusUnknownError = null;
-            try {
-              await waitForStablePackagePublish(releaseSha, packageRef, coreVersionChanged);
-            } catch (error) {
-              const publicationFailure = error instanceof Error
-                ? error
-                : new Error(String(error));
-              if (publicationFailure.publicationOutcome === "failed") {
-                publicationError = publicationFailure;
-              } else {
-                publicationStatusUnknownError = publicationFailure;
-              }
-              const publicationStatus = publicationError ? "failed" : "status is unknown";
-              core.error(
-                `Stable npm publication ${publicationStatus}: ${publicationFailure.message}\nProduction sites still release from ${releaseSha}; desktop apps are skipped until publication is verified.`,
-              );
-            }
-            const publicationUnavailable = publicationError || publicationStatusUnknownError;
-            // Sites build from the release commit, not npm. Use main's workflow
-            // definition when the package tag is absent or publication is unverified.
-            const siteWorkflowRef = publicationUnavailable ? "main" : workflowRef;
-
             const sitesManifest = await readJsonAt(
               releaseSha,
               "scripts/netlify-production-sites.json",
@@ -1247,37 +1225,125 @@ jobs:
               throw new Error("The production site manifest contains no *.agent-native.com sites.");
             }
 
-            let desktopVersion;
-            let clipsVersion;
-            if (!publicationUnavailable) {
-              const desktopPackage = await readJsonAt(
-                releaseSha,
-                "packages/desktop-app/package.json",
-              );
-              const clipsPackage = await readJsonAt(
-                releaseSha,
-                "templates/clips/desktop/package.json",
-              );
-              try {
-                // Private desktop packages do not advance in the npm release commit.
-                desktopVersion = await reserveStableVersion(
-                  "v",
-                  stableVersion(desktopPackage.version, "Desktop app"),
-                  releaseSha,
-                );
-                clipsVersion = await reserveStableVersion(
-                  "clips-v",
-                  stableVersion(clipsPackage.version, "Clips desktop app"),
-                  releaseSha,
-                );
-              } catch (error) {
-                await cleanupReservedTags();
-                throw error;
-              }
-              core.info(`Selected stable desktop versions: v${desktopVersion}, clips-v${clipsVersion}.`);
+            let reservationCleanup;
+            try {
+              const { removed, waiting } = await removeSupersededReservations();
+              reservationCleanup = [
+                removed.length > 0 ? `removed ${removed.join(", ")}` : "none removed",
+                ...(waiting.length > 0
+                  ? [`kept while a release run is active: ${waiting.join(", ")}`]
+                  : []),
+              ].join("; ");
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              core.warning(`Could not remove superseded stable reservations: ${message}`);
+              reservationCleanup = `could not finish: ${message}`;
             }
 
-            // Downstream workflows own these reserved tags after dispatch.
+            const desktopPackage = await readJsonAt(
+              releaseSha,
+              "packages/desktop-app/package.json",
+            );
+            const clipsPackage = await readJsonAt(
+              releaseSha,
+              "templates/clips/desktop/package.json",
+            );
+            // Private desktop packages do not advance in the npm release commit.
+            const desktopVersion = await reserveStableVersion(
+              "v",
+              stableVersion(desktopPackage.version, "Desktop app"),
+              releaseSha,
+            );
+            const clipsVersion = await reserveStableVersion(
+              "clips-v",
+              stableVersion(clipsPackage.version, "Clips desktop app"),
+              releaseSha,
+            );
+            core.info(`Selected stable desktop versions: v${desktopVersion}, clips-v${clipsVersion}.`);
+
+            // Desktop apps build into draft releases while npm publishes, and
+            // only their publish step waits for npm. Each reserved tag points at
+            // the release commit, so dispatching on it runs that commit's
+            // workflow before the npm package tag exists. A tag this run leaves
+            // unpublished stays until removeSupersededReservations removes it.
+            function stageDesktopBuild(workflow, tag, version, label) {
+              const inputs = {
+                channel: "production",
+                version,
+                source_ref: releaseSha,
+              };
+              const staged = dispatchAndWait(
+                workflow,
+                tag,
+                { ...inputs, mode: "stage" },
+                `${label} build`,
+                120 * 60_000,
+              ).then((stage) => ({ ...stage, workflow, tag, inputs, label }));
+              // A dispatch failure rejects while the coordinator is still
+              // waiting for npm; unhandled, it would end the script there.
+              staged.catch(() => {});
+              return staged;
+            }
+
+            async function publishStagedBuild(staged) {
+              const stage = await staged;
+              if (publicationUnavailable) {
+                if (stage.error) {
+                  core.warning(
+                    `${stage.label} build failed, and npm did not publish, so it is not released: ${stage.error instanceof Error ? stage.error.message : String(stage.error)}`,
+                  );
+                }
+                return { stageRun: stage.run, run: null, error: null, skipped: true };
+              }
+              if (stage.error) {
+                return { stageRun: stage.run, run: null, error: stage.error };
+              }
+              const published = await dispatchAndWait(
+                stage.workflow,
+                stage.tag,
+                { ...stage.inputs, mode: "publish" },
+                stage.label,
+                30 * 60_000,
+              );
+              return { stageRun: stage.run, ...published };
+            }
+
+            const desktopStage = stageDesktopBuild(
+              "desktop-release.yml",
+              `v${desktopVersion}`,
+              desktopVersion,
+              "Agent-Native desktop stable release",
+            );
+            const clipsStage = stageDesktopBuild(
+              "clips-desktop-release.yml",
+              `clips-v${clipsVersion}`,
+              clipsVersion,
+              "Clips desktop stable release",
+            );
+
+            let publicationError = null;
+            let publicationStatusUnknownError = null;
+            try {
+              await waitForStablePackagePublish(releaseSha, packageRef, coreVersionChanged);
+            } catch (error) {
+              const publicationFailure = error instanceof Error
+                ? error
+                : new Error(String(error));
+              if (publicationFailure.publicationOutcome === "failed") {
+                publicationError = publicationFailure;
+              } else {
+                publicationStatusUnknownError = publicationFailure;
+              }
+              const publicationStatus = publicationError ? "failed" : "status is unknown";
+              core.error(
+                `Stable npm publication ${publicationStatus}: ${publicationFailure.message}\nProduction sites still release from ${releaseSha}; desktop builds stay unpublished.`,
+              );
+            }
+            const publicationUnavailable = publicationError || publicationStatusUnknownError;
+            // Sites build from the release commit, not npm. Use main's workflow
+            // definition when the package tag is absent or publication is unverified.
+            const siteWorkflowRef = publicationUnavailable ? "main" : workflowRef;
+
             // Each child waits independently so one ambiguous dispatch cannot
             // abandon siblings that GitHub already accepted.
             let reconciledDocsRun = null;
@@ -1325,34 +1391,8 @@ jobs:
             }
 
             const downstream = await Promise.allSettled([
-              publicationUnavailable
-                ? Promise.resolve(null)
-                : dispatchAndWait(
-                    "desktop-release.yml",
-                    workflowRef,
-                    {
-                      channel: "production",
-                      version: desktopVersion,
-                      source_ref: releaseSha,
-                    },
-                    "Agent-Native desktop stable release",
-                    120 * 60_000,
-                    `v${desktopVersion}`,
-                  ),
-              publicationUnavailable
-                ? Promise.resolve(null)
-                : dispatchAndWait(
-                    "clips-desktop-release.yml",
-                    workflowRef,
-                    {
-                      channel: "production",
-                      version: clipsVersion,
-                      source_ref: releaseSha,
-                    },
-                    "Clips desktop stable release",
-                    120 * 60_000,
-                    `clips-v${clipsVersion}`,
-                  ),
+              publishStagedBuild(desktopStage),
+              publishStagedBuild(clipsStage),
               dispatchAndWait(
                 "deploy-production-sites-prebuilt.yml",
                 siteWorkflowRef,
@@ -1391,21 +1431,20 @@ jobs:
                 failures.push(`${targetLabels[index]} dispatch failed: ${error}`);
                 return { run: null, error, dispatchFailed: true, skipped: false };
               }
-              if (result.value === null) {
-                return { run: null, error: null, dispatchFailed: false, skipped: true };
+              const stageRun = result.value.stageRun ?? null;
+              if (result.value.skipped) {
+                return { run: null, stageRun, error: null, dispatchFailed: false, skipped: true };
               }
               if (result.value.error) {
                 const error = result.value.error instanceof Error
                   ? result.value.error.message
                   : String(result.value.error);
                 failures.push(`${targetLabels[index]} failed: ${error}`);
-                return { run: result.value.run, error, dispatchFailed: false, skipped: false };
+                return { run: result.value.run, stageRun, error, dispatchFailed: false, skipped: false };
               }
-              return { run: result.value.run, error: null, dispatchFailed: false, skipped: false };
+              return { run: result.value.run, stageRun, error: null, dispatchFailed: false, skipped: false };
             });
-            const [desktop, clips, production, docs] = childResults.map(
-              (result) => result.run,
-            );
+            const [desktop, clips, production, docs] = childResults;
             const outcomes = childResults.map((result) => {
               if (result.skipped) {
                 return publicationError
@@ -1451,18 +1490,21 @@ jobs:
                           ? `not delivered: ${downstreamNotificationFailureUrl}`
                           : "delivered",
                 ],
-                ["Agent-Native desktop", desktop ? `${outcomes[0]}: stable v${desktopVersion}` : outcomes[0]],
-                ["Clips desktop", clips ? `${outcomes[1]}: stable v${clipsVersion}` : outcomes[1]],
+                ["Agent-Native desktop", desktop.skipped ? outcomes[0] : `${outcomes[0]}: stable v${desktopVersion}`],
+                ["Clips desktop", clips.skipped ? outcomes[1] : `${outcomes[1]}: stable v${clipsVersion}`],
+                ["Superseded stable reservations", reservationCleanup],
                 ["Production sites", `${outcomes[2]}: ${productionSites.length} *.agent-native.com apps`],
                 ["Docs site", `${outcomes[3]}: ${docsSite.host}`],
                 ["Source commit", releaseSha],
               ])
               .addLink("Package release PR", releasePr.html_url);
             for (const [label, run] of [
-              ["Desktop release run", desktop],
-              ["Clips release run", clips],
-              ["Production fleet run", production],
-              ["Docs production run", docs],
+              ["Desktop build run", desktop.stageRun],
+              ["Desktop release run", desktop.run],
+              ["Clips build run", clips.stageRun],
+              ["Clips release run", clips.run],
+              ["Production fleet run", production.run],
+              ["Docs production run", docs.run],
             ]) {
               if (run) summary.addBreak().addLink(label, run.url);
             }
