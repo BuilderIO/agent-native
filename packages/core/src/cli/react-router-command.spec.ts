@@ -80,6 +80,30 @@ describe("findReactRouterInvocation", () => {
     });
   });
 
+  it("uses the local Windows package when its package.json is not exported", () => {
+    const root = makeRoot();
+    const shim = path.join(root, "node_modules/.bin/react-router");
+    const packageDir = path.join(root, "node_modules/@react-router/dev");
+    fs.mkdirSync(path.dirname(shim), { recursive: true });
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(shim, "");
+    fs.writeFileSync(
+      path.join(packageDir, "package.json"),
+      JSON.stringify({
+        exports: {},
+        bin: { "react-router": "bin.cjs" },
+      }),
+    );
+    const entry = path.join(packageDir, "bin.cjs");
+    fs.writeFileSync(entry, "");
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    expect(findReactRouterInvocation(["build"], root)).toEqual({
+      command: process.execPath,
+      args: [entry, "build"],
+      shell: false,
+    });
+  });
+
   it("keeps the command-name fallback when package.json is not exported", () => {
     const root = makeRoot();
     const packageDir = path.join(root, "node_modules/@react-router/dev");
