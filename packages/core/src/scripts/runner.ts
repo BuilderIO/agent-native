@@ -294,7 +294,19 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   await loadCliBootstrap();
 
   const userEmail = await resolveDevUserEmail();
-  const orgScope = await resolveDevOrgScope(userEmail, devOrgChoiceFromEnv());
+  let orgScope: Awaited<ReturnType<typeof resolveDevOrgScope>>;
+  try {
+    orgScope = await resolveDevOrgScope(userEmail, devOrgChoiceFromEnv());
+  } catch (err) {
+    // The lookup can open the database, so a failure closes it and reports
+    // like a failed action rather than leaving an unhandled rejection.
+    await closeDbExec().catch(() => {});
+    console.error(
+      `Action "${actionName}" failed:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    process.exit(1);
+  }
 
   return runWithRequestContext(
     { ...(userEmail ? { userEmail } : {}), ...orgScope },
