@@ -143,6 +143,14 @@ export interface ShareableResourceRegistration {
     isAvailable: (resource: any) => boolean;
   };
   /**
+   * The resource-table key of a soft-delete stamp. A stamped row is
+   * unavailable, `accessFilter` leaves it out, and `resolveAccess` /
+   * `assertAccess` treat it as missing, so every child action that checks
+   * the parent also stops at a deleted one. Restore, trash views, and purge
+   * opt back in with `includeDeleted`.
+   */
+  deletedAtColumn?: string;
+  /**
    * Lets signed-in people who can't open a resource of this type ask its
    * owner and admins for access. Off by default, so an app only starts
    * emailing owners once its access screen offers the request.
@@ -218,6 +226,11 @@ export function registerShareableResource(
   entry: ShareableResourceRegistration,
 ): void {
   if (!isTestRuntime() && registrationCameFromTestFile()) return;
+  if (entry.deletedAtColumn && !entry.resourceTable[entry.deletedAtColumn]) {
+    throw new Error(
+      `Shareable resource "${entry.type}" names deletedAtColumn "${entry.deletedAtColumn}", which its resource table does not have.`,
+    );
+  }
   getRegistry().set(entry.type, entry);
 }
 

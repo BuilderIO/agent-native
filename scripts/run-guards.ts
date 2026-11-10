@@ -91,6 +91,7 @@ const guards = [
   "guard:no-blob-column-predicate",
   "guard:no-unbounded-table-reads",
   "guard:no-bare-error-in-actions",
+  "guard:no-new-hard-delete",
   "guard:no-unobserved-writes",
   "guard:no-bare-pnpm-spawn",
   "guard:no-deferred-server-counts",

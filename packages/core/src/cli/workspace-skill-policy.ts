@@ -16,6 +16,7 @@ export const STANDALONE_APP_SKILLS = [
   "client-side-routing",
   "reliable-mutations",
   "performance",
+  "soft-delete",
 ] as const;
 
 export const BUILD_AN_APP_SKILL = "build-an-app" as const;
@@ -98,6 +99,7 @@ export const HEADLESS_TEMPLATE_SHARED_SKILLS = [
   "security",
   "self-modifying-code",
   "sharing",
+  "soft-delete",
   "storing-data",
 ] as const;
 
@@ -155,6 +157,7 @@ export const FRAMEWORK_TEMPLATE_SHARED_SKILLS = [
   "secrets",
   "storing-data",
   "sharing",
+  "soft-delete",
   "turn-into-app",
   "turn-into-skill",
   "upgrade-agent-native",
