@@ -257,16 +257,38 @@ function settlingWidget(
   };
 }
 
+// A replacement draws its new text right after the struck text, so where it
+// swaps whole words the last struck word would run into the first new one
+// ("madeNo"). Those get a gap; a change inside a word ("gr~~a~~ey") doesn't.
+function replacesWholeWords(
+  doc: ProseMirrorNode,
+  range: { from: number; to: number },
+  insertedText: string | undefined,
+) {
+  const size = doc.content.size;
+  const before = doc.textBetween(Math.max(0, range.from - 1), range.from);
+  const after = doc.textBetween(range.to, Math.min(size, range.to + 1));
+  return (
+    /\S$/.test(doc.textBetween(range.from, range.to)) &&
+    /^\S/.test(insertedText ?? "") &&
+    !WORD_CHARACTER.test(before) &&
+    !WORD_CHARACTER.test(after)
+  );
+}
+
 function insertionWidget(
   spec: SuggestionHighlightSpec,
   active: boolean,
   part?: { text: string; context?: SuggestionPresentationContext },
   position?: number,
+  spaced = false,
 ) {
   return (view: EditorView) => {
     const widget = document.createElement("span");
     widget.className = classes(
-      `${insertionClass(spec)} suggestion-inline-widget`,
+      `${insertionClass(spec)} suggestion-inline-widget${
+        spaced ? " suggestion-insert--spaced" : ""
+      }`,
       active,
     );
     identifyWidget(widget, spec, "Inspect suggested insertion", position);
@@ -862,10 +884,14 @@ function buildDecorations(
       if (lineParts) decorations.push(...lineParts);
       else {
         const side = widgetSide(doc, anchor);
+        const spaced =
+          spec.kind === "replace" &&
+          !!range &&
+          replacesWholeWords(doc, range, spec.insertedText);
         decorations.push(
           Decoration.widget(
             anchor,
-            insertionWidget(spec, active, undefined, anchor),
+            insertionWidget(spec, active, undefined, anchor, spaced),
             {
               // ProseMirror reuses a widget's element while its key holds, so
               // the key covers everything the element shows and where it sits.
@@ -874,6 +900,7 @@ function buildDecorations(
                 active,
                 !!spec.editableBoundary,
                 side,
+                spaced,
               ])}`,
               marks: [],
               side,

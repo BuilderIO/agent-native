@@ -355,9 +355,9 @@ try {
 }
 ```
 
-Le texte de la notification dépend de l'échec. Un `401` et une requête annulée n'affichent rien, car la vérification de session gère déjà le `401`. Hors ligne, un délai d'expiration et un `403` affichent chacun un court message traduit sous le titre. Un `5xx` n'affiche que le titre, car le serveur masque son propre texte d'erreur. Lorsqu'une action refuse avec une erreur `4xx` typée levée par `fail()`, la notification affiche le message écrit par l'action ; voir [Faire échouer une action](/docs/actions-defining#failing). Un `403` n'affiche jamais le texte du serveur.
+Le texte de la notification dépend de l'échec. Une requête annulée n'affiche rien. Hors ligne, un délai d'expiration, un `401` et un `403` affichent chacun un court message traduit sous le titre. Un `5xx` n'affiche que le titre, car le serveur masque son propre texte d'erreur. Lorsqu'une action refuse avec une erreur `4xx` typée levée par `fail()`, la notification affiche le message écrit par l'action ; voir [Faire échouer une action](/docs/actions-defining#failing). Un `401` ou un `403` n'affiche jamais le texte du serveur.
 
-`AppProviders` monte le composant qui écoute ces échecs, `WriteFailureToaster`, dès que sa prop `toaster` n'est pas `null`. Une application qui n'utilise pas `AppProviders`, ou qui passe `toaster={null}`, rend `<WriteFailureToaster />` depuis `@agent-native/toolkit/app/shared` à l'intérieur de son `QueryClientProvider` et à côté de son propre `Toaster`. Sans lui, aucune notification n'est affichée.
+`AppProviders` monte toujours le composant qui écoute ces échecs, `WriteFailureToaster`. Celui-ci affiche sa notification via le `Toaster` de l'application, donc une application qui passe `toaster={null}` doit rendre le sien. Une application qui n'utilise pas `AppProviders` rend `<WriteFailureToaster />` depuis `@agent-native/toolkit/app/shared` à l'intérieur de son `QueryClientProvider` et à côté de son `Toaster`. Sans lui, aucune notification n'est affichée.
 
 ## useDbSync {#usedbsync}
 

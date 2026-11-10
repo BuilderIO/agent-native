@@ -17,6 +17,7 @@ import {
   useT,
 } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { hasSessionHint } from "@agent-native/core/client/use-session";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
@@ -29,6 +30,7 @@ import {
   IconMoon,
   IconSun,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import {
   lazy,
@@ -66,6 +68,7 @@ import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/content-layo
 import { ContentStartupShell } from "./components/layout/ContentStartupShell";
 import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
+import { prefetchDocumentTitles } from "./hooks/use-documents";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
 import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
@@ -391,6 +394,8 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+const TITLE_PREFETCH_DELAY_MS = 4000;
+
 function ContentCommandMenu({
   open,
   onOpenChange,
@@ -402,6 +407,16 @@ function ContentCommandMenu({
 }) {
   const t = useT();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  // The first search of a visit ranks titles at once only if they're here
+  // before it. Waits for the page to settle, so opening a page never pays.
+  useEffect(() => {
+    if (!hasSessionHint()) return;
+    const timer = window.setTimeout(() => {
+      void prefetchDocumentTitles(queryClient);
+    }, TITLE_PREFETCH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [queryClient]);
   return (
     <CommandMenu
       open={open}

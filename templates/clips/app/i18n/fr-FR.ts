@@ -733,6 +733,8 @@ const messages = {
     noMatches: "Aucun match.",
     noTranscript: "Pas encore de transcription.",
     noTranscriptCaptured: "Aucune transcription n’a été capturée.",
+    unreadableDescription:
+      "La transcription enregistrée est endommagée. La régénérer en crée une nouvelle à partir de l’audio du clip.",
     partialTranscript:
       "Transcription partielle : l’enregistrement a été coupé, il peut donc manquer des passages.",
     backupFailed:

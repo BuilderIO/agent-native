@@ -146,35 +146,7 @@ describe("createSsrfSafeDispatcher", () => {
     }
   });
 
-  it("preserves optional dispatcher behavior when Node DNS is unavailable", async () => {
-    vi.doMock("node:dns", () => {
-      throw new Error("node:dns unavailable");
-    });
-    vi.resetModules();
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    try {
-      const mod = await import("./url-safety.js");
-      await expect(mod.createSsrfSafeDispatcher()).resolves.toBeNull();
-      await expect(
-        mod.createSsrfSafeDispatcher([], undefined, { required: true }),
-      ).rejects.toThrow(/dispatcher could not be loaded/);
-      await expect(
-        mod.ssrfSafeFetch(
-          "https://93.184.216.34/data",
-          {},
-          { requireDispatcher: true },
-        ),
-      ).rejects.toThrow(/dispatcher could not be loaded/);
-      expect(fetchMock).not.toHaveBeenCalled();
-    } finally {
-      vi.doUnmock("node:dns");
-      vi.unstubAllGlobals();
-      vi.resetModules();
-    }
-  });
-
-  it("retains guarded fetch behavior in edge runtimes without a Node dispatcher", async () => {
+  it("rejects requests when the dispatcher is unavailable", async () => {
     vi.doMock("node:dns", () => {
       throw new Error("node:dns unavailable");
     });
@@ -183,20 +155,28 @@ describe("createSsrfSafeDispatcher", () => {
         .fn()
         .mockResolvedValue([{ address: "93.184.216.34", family: 4 }]),
     }));
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(new Response("ok", { status: 200 })),
-    );
     vi.resetModules();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
     try {
       const mod = await import("./url-safety.js");
+      await expect(mod.createSsrfSafeDispatcher()).rejects.toThrow(
+        /dispatcher could not be loaded/,
+      );
+      await expect(
+        mod.createSsrfSafeDispatcher([], undefined, { required: true }),
+      ).rejects.toThrow(/dispatcher could not be loaded/);
       await expect(
         mod.ssrfSafeFetch("https://example.com/data"),
-      ).resolves.toBeInstanceOf(Response);
-      expect(fetch).toHaveBeenCalledWith(
-        "https://example.com/data",
-        expect.not.objectContaining({ dispatcher: expect.anything() }),
-      );
+      ).rejects.toThrow(/dispatcher could not be loaded/);
+      await expect(
+        mod.ssrfSafeFetch(
+          "https://example.com/data",
+          {},
+          { requireDispatcher: false },
+        ),
+      ).rejects.toThrow(/dispatcher could not be loaded/);
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       vi.doUnmock("node:dns");
       vi.doUnmock("node:dns/promises");
@@ -297,6 +277,24 @@ describe("isBlockedExtensionUrlWithDns (DNS rebinding guard)", () => {
     );
     vi.doUnmock("node:dns/promises");
     vi.resetModules();
+  });
+
+  it("blocks a hostname when DNS lookup fails", async () => {
+    vi.doMock("node:dns/promises", () => ({
+      lookup: async () => {
+        throw new Error("DNS unavailable");
+      },
+    }));
+    vi.resetModules();
+    try {
+      const mod = await import("./url-safety.js");
+      expect(
+        await mod.isBlockedExtensionUrlWithDns("https://example.com/"),
+      ).toBe(true);
+    } finally {
+      vi.doUnmock("node:dns/promises");
+      vi.resetModules();
+    }
   });
 
   it("allows a hostname that resolves to a public IP", async () => {

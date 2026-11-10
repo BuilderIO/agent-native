@@ -11,6 +11,11 @@ const mocks = vi.hoisted(() => ({
   resolveCredentialDetailed: vi.fn(),
   resolveAnalyticsGongCredentials: vi.fn(),
   resolveAnalyticsProviderCredential: vi.fn(),
+  ssrfSafeFetch: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/extensions/url-safety", () => ({
+  ssrfSafeFetch: mocks.ssrfSafeFetch,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -59,6 +64,7 @@ describe("test-connection", () => {
     mocks.resolveAnalyticsGongCredentials.mockReset();
     mocks.resolveAnalyticsProviderCredential.mockReset();
     mocks.setResponseStatus.mockReset();
+    mocks.ssrfSafeFetch.mockReset();
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -158,6 +164,26 @@ describe("test-connection", () => {
       ok: false,
       error: "Missing HubSpot token",
     });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("routes a user-owned Grafana endpoint through SSRF protection", async () => {
+    mocks.body = { source: "grafana" };
+    mocks.resolveCredentialDetailed.mockImplementation(async (key: string) => ({
+      value:
+        key === "GRAFANA_URL" ? "https://grafana.example.test" : "fake-token",
+      scope: "user",
+      scopeId: "user@example.test",
+    }));
+    mocks.ssrfSafeFetch.mockRejectedValue(
+      new Error("SSRF blocked: private address"),
+    );
+
+    await expect(handler({} as never)).resolves.toEqual({
+      ok: false,
+      error: "SSRF blocked: private address",
+    });
+    expect(mocks.ssrfSafeFetch).toHaveBeenCalledTimes(1);
     expect(fetch).not.toHaveBeenCalled();
   });
 

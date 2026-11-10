@@ -546,6 +546,7 @@ describe("data-programs/execute", () => {
       expect(getSandboxExecutionForOwner).toHaveBeenCalledWith(
         "exec_done",
         OWNER,
+        null,
       );
       expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
         "dpr_queued",

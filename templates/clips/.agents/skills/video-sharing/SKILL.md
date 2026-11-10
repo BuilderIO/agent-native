@@ -310,6 +310,29 @@ temporary agent-link path:
 - Frame extraction must use the checked recording media path and must not expose
   raw provider URLs.
 
+### Downloading the video file
+
+The agent APIs above never hand out the video itself. When another app or
+tool needs the owner's own file (a private recording, say),
+`create-recording-download-link` returns a link to `/api/video/:id` with a
+`download_access` token:
+
+- **Owner-only.** Admins, editors and viewers are refused; a viewer of a shared
+  clip uses its share link.
+- **One recording, one owner.** The token signs the recording id and its
+  owner's email, so it works for nothing else and stops working if the clip
+  changes hands. A share-with-agents token or a share-password token is not a
+  download token, and the reverse.
+- **Minutes, not hours.** Ten minutes by default, `ttlSeconds` 60 to 3600.
+  The route checks expiry on every request, Range requests included, so a
+  long download fetched in ranges needs a fresh link if it outlives the first.
+- **Checked again on use.** A recording that has gone to Trash, is no longer
+  `ready`, plays only in an embedded player, or has redactions not yet burned
+  in is refused when the link is made and when it is used. Earlier-screen-time
+  footage is refused too.
+- **No fallback.** A bad or expired `download_access` answers 403 or 410; the
+  route never retries it as the caller's session.
+
 Public agent context also exposes the recording's redacted browser diagnostics:
 the bounded relative event sequence as `browserDiagnostics.timeline`, including
 navigation, click/input targets, console events, and request/response markers;
@@ -462,7 +485,7 @@ On top of the aggregate `viewCount` shown in the library and the `views` stat in
 
 - **Never** write to `recording_shares` directly. Always go through `share-resource` / `unshare-resource`.
 - **Never** store a plaintext password. Use bcrypt on write; bcrypt-compare on read.
-- **Never** bypass the access check on `/api/video/:id`. Streaming routes are the #1 data-leak vector.
+- **Never** bypass the access check on `/api/video/:id`. Streaming routes are the #1 data-leak vector. The only thing that stands in for a signed-in owner there is a `download_access` token, verified against the recording's current owner.
 - **Password + expiry are additions**, not replacements — the framework's `accessFilter` still runs first.
 - The embed route (`/embed/:shareId`) is **anonymous by default** — don't require auth, but still go through `canAccess`.
 - `build-embed-url` is the single source of truth for embed URLs — keep it in sync with the query params the player accepts.

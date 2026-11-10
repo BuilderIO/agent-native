@@ -352,9 +352,9 @@ try {
 }
 ```
 
-toast 的文本取决于失败类型。`401` 和被取消的请求不会显示任何内容，因为会话检查已经处理了 `401`。离线、超时和 `403` 各自会在标题下方显示一条简短的翻译消息。`5xx` 只显示标题，因为服务器会隐藏其自身的错误文本。当 action 通过 `fail()` 返回类型化的 `4xx` 错误时，toast 会显示 action 编写的消息；参见 [Action 失败](/docs/actions-defining#failing)。`403` 永远不会显示服务器文本。
+toast 的文本取决于失败类型。被取消的请求不会显示任何内容。离线、超时、`401` 和 `403` 各自会在标题下方显示一条简短的翻译消息。`5xx` 只显示标题，因为服务器会隐藏其自身的错误文本。当 action 通过 `fail()` 返回类型化的 `4xx` 错误时，toast 会显示 action 编写的消息；参见 [Action 失败](/docs/actions-defining#failing)。`401` 或 `403` 永远不会显示服务器文本。
 
-`AppProviders` 会在 `toaster` 属性不为 `null` 时挂载监听这些失败的组件 `WriteFailureToaster`。不使用 `AppProviders`、或传入 `toaster={null}` 的应用，需要在 `QueryClientProvider` 内、自己的 `Toaster` 旁边渲染来自 `@agent-native/toolkit/app/shared` 的 `<WriteFailureToaster />`。否则不会显示任何 toast。
+`AppProviders` 总会挂载监听这些失败的组件 `WriteFailureToaster`。它通过应用的 `Toaster` 显示 toast，因此传入 `toaster={null}` 的应用需要自己渲染 `Toaster`。不使用 `AppProviders` 的应用，需要在 `QueryClientProvider` 内、自己的 `Toaster` 旁边渲染来自 `@agent-native/toolkit/app/shared` 的 `<WriteFailureToaster />`。否则不会显示任何 toast。
 
 ## useDbSync {#usedbsync}
 

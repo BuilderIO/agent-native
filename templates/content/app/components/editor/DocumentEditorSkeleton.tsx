@@ -1,3 +1,4 @@
+import { useHoldAgentPanel } from "@/components/layout/agent-panel-host";
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import { Skeleton } from "@/components/ui/skeleton";
 import { startupAnchor } from "@/lib/startup-timing";
@@ -166,6 +167,7 @@ export function DocumentEditorSkeleton({
   stalledLoad?: { stage: string; action: string } | undefined;
 }) {
   const sidebarTrigger = useSidebarTrigger();
+  useHoldAgentPanel();
   const skeleton = (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
       <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">

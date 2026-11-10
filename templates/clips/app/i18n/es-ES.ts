@@ -734,6 +734,8 @@ const messages = {
     noMatches: "Sin coincidencias.",
     noTranscript: "Aún no hay transcripción.",
     noTranscriptCaptured: "No se capturó ninguna transcripción.",
+    unreadableDescription:
+      "La transcripción guardada está dañada. Al regenerarla, se crea una nueva a partir del audio del clip.",
     partialTranscript:
       "Transcripción parcial: la grabación se cortó, por lo que puede faltar parte.",
     backupFailed:

@@ -70,6 +70,20 @@ function runChart() {
 }
 
 describe("generate-chart local-disk writes", () => {
+  it("keeps two callers' same-stem media immutable in a shared directory", async () => {
+    mediaDir();
+    mocks.renderToBuffer.mockResolvedValue(Buffer.from("png"));
+
+    const first = await runChart();
+    const second = await runChart();
+
+    expect(first.filename).not.toBe(second.filename);
+    expect(mocks.writeFileSync).toHaveBeenCalledTimes(2);
+    for (const call of mocks.writeFileSync.mock.calls) {
+      expect(call[2]).toEqual({ flag: "wx" });
+    }
+  });
+
   it("notes a local-disk write before the PNG is written", async () => {
     const dir = mediaDir();
     const png = Buffer.from("png");
@@ -77,11 +91,15 @@ describe("generate-chart local-disk writes", () => {
 
     const result = await runChart();
 
-    expect(result).toMatchObject({ renderer: "png", filename: "signups.png" });
+    expect(result).toMatchObject({
+      renderer: "png",
+      filename: expect.stringMatching(/^signups-[a-f0-9-]+\.png$/),
+    });
     expect(mocks.noteExternalWrite).toHaveBeenCalledWith("local-disk");
     expect(mocks.writeFileSync).toHaveBeenCalledWith(
-      path.join(dir, "signups.png"),
+      path.join(dir, String(result.filename)),
       png,
+      { flag: "wx" },
     );
     expect(mocks.noteExternalWrite.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.writeFileSync.mock.invocationCallOrder[0],
@@ -96,15 +114,15 @@ describe("generate-chart local-disk writes", () => {
 
     expect(result).toMatchObject({
       renderer: "svg-fallback",
-      filename: "signups.svg",
+      filename: expect.stringMatching(/^signups-[a-f0-9-]+\.svg$/),
       fallbackReason: "canvas unavailable",
     });
     expect(mocks.noteExternalWrite).toHaveBeenCalledTimes(1);
     expect(mocks.noteExternalWrite).toHaveBeenCalledWith("local-disk");
     expect(mocks.writeFileSync).toHaveBeenCalledWith(
-      path.join(dir, "signups.svg"),
+      path.join(dir, String(result.filename)),
       expect.stringContaining("<svg"),
-      "utf8",
+      { encoding: "utf8", flag: "wx" },
     );
     expect(mocks.noteExternalWrite.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.writeFileSync.mock.invocationCallOrder[0],

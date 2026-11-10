@@ -3,8 +3,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { IconTrash } from "@tabler/icons-react";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useDeckRole } from "@/hooks/use-deck-role";
@@ -29,7 +29,8 @@ export function SnapshotShareLinks({ deckId }: { deckId: string }) {
     {
       // Refetch on failure too: a 404 means another manager already revoked it.
       onSettled: () => void query.refetch(),
-      onError: () => toast.error(t("share.revokeFailed")),
+      onError: (error) =>
+        reportWriteFailure(error, { label: t("share.revokeFailed") }),
     },
   );
 

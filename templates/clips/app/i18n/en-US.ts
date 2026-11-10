@@ -638,6 +638,8 @@ const messages = {
     noMatches: "No matches.",
     noTranscript: "No transcript yet.",
     noTranscriptCaptured: "No transcript was captured.",
+    unreadableDescription:
+      "The saved transcript is damaged. Regenerating makes a new one from the clip's audio.",
     partialTranscript:
       "Partial transcript: this recording was cut off, so some of it may be missing.",
     backupFailed:

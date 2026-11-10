@@ -28,6 +28,7 @@ vi.mock("../db/client.js", () => ({
 }));
 vi.mock("../server/dev-action-bridge.js", () => ({
   DEV_ACTION_ORG_HEADER: "x-agent-native-dev-org",
+  DEV_ACTION_ORG_SCOPE_HEADER: "x-agent-native-dev-org-scope",
   DEV_ACTION_ROUTE: "/_agent-native/dev/action",
   DEV_ACTION_TOKEN_HEADER: "x-agent-native-dev-token",
   DEV_ACTION_USER_HEADER: "x-agent-native-dev-user",
@@ -97,6 +98,7 @@ describe("tryForwardToDevServer", () => {
     mockIsValidDevActionHandoffUrl.mockClear();
     delete process.env.AGENT_USER_EMAIL;
     delete process.env.AGENT_ORG_ID;
+    delete process.env.AGENT_ORG_SCOPE;
     delete process.env.APP_URL;
     delete process.env.WORKSPACE_GATEWAY_URL;
     delete process.env.VITE_WORKSPACE_GATEWAY_URL;
@@ -390,6 +392,30 @@ describe("tryForwardToDevServer", () => {
     );
     expect(logSpy).toHaveBeenCalledWith("forwarded-ok");
     expect(exit).toHaveBeenCalledWith(0);
+  });
+
+  it("forwards a personal scope so the dev server looks up no org", async () => {
+    // The agent's shell sets AGENT_ORG_SCOPE=personal for a request with no org.
+    mockReadDevActionDiscoveryFile.mockReturnValue(
+      liveDiscovery({ token: "secret-token" }),
+    );
+    mockIsProcessAlive.mockReturnValue(true);
+    process.env.AGENT_USER_EMAIL = "owner@example.test";
+    process.env.AGENT_ORG_SCOPE = "personal";
+    fetchMock.mockResolvedValue({
+      status: 200,
+      json: async () => ({ ok: true, result: "forwarded-ok" }),
+    });
+    mockExit();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(tryForwardToDevServer("do-thing", [])).rejects.toThrow(
+      "process.exit(0)",
+    );
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers;
+    expect(headers["x-agent-native-dev-org-scope"]).toBe("personal");
+    expect(headers["x-agent-native-dev-org"]).toBeUndefined();
   });
 
   it("opens a private handoff returned beside the forwarded result", async () => {
