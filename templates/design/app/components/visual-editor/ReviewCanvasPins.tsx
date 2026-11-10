@@ -11,6 +11,7 @@ import {
   useUpdateReviewComment,
 } from "@agent-native/core/client/review";
 import { uploadEditorImage } from "@agent-native/core/client/uploads";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type {
   ReviewComment,
   ReviewCommentReaction,
@@ -1328,7 +1329,10 @@ export function ReviewCanvasPins({
           reaction,
           active,
         },
-        { onError: () => toast.error(t("review.replyFailed")) },
+        {
+          onError: (error) =>
+            reportWriteFailure(error, { label: t("review.replyFailed") }),
+        },
       );
     },
     [discussion?.canReact, reactToComment, resourceId, resourceType, t],
@@ -1440,7 +1444,7 @@ export function ReviewCanvasPins({
               return next;
             });
           },
-          onError: () => {
+          onError: (error) => {
             setOptimisticUnread((current) => {
               if (previousOptimisticUnread !== undefined) {
                 return { ...current, [threadId]: previousOptimisticUnread };
@@ -1449,7 +1453,7 @@ export function ReviewCanvasPins({
               delete next[threadId];
               return next;
             });
-            toast.error(t("review.postFailed"));
+            reportWriteFailure(error, { label: t("review.postFailed") });
           },
         },
       );
@@ -1481,7 +1485,8 @@ export function ReviewCanvasPins({
           setEditDraft("");
           setEditMentions([]);
         },
-        onError: () => toast.error(t("review.postFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, { label: t("review.postFailed") }),
       },
     );
   }, [
@@ -2538,7 +2543,8 @@ export function ReviewCanvasPins({
             }
             startAgentFromComment(comment, mentions);
           },
-          onError: () => toast.error(t("review.postFailed")),
+          onError: (error) =>
+            reportWriteFailure(error, { label: t("review.postFailed") }),
         },
       );
     },
@@ -2729,13 +2735,13 @@ export function ReviewCanvasPins({
               return next;
             });
           },
-          onError: () => {
+          onError: (error) => {
             setOptimisticAnchors((current) => {
               const next = { ...current };
               delete next[thread.root.threadId];
               return next;
             });
-            toast.error(t("review.updateFailed"));
+            reportWriteFailure(error, { label: t("review.updateFailed") });
           },
         },
       );
@@ -3157,7 +3163,10 @@ export function ReviewCanvasPins({
                           setReplyMentions([]);
                           startAgentFromComment(comment, sentMentions);
                         },
-                        onError: () => toast.error(t("review.replyFailed")),
+                        onError: (error) =>
+                          reportWriteFailure(error, {
+                            label: t("review.replyFailed"),
+                          }),
                       },
                     );
                   }}
@@ -3199,7 +3208,10 @@ export function ReviewCanvasPins({
                             toast.success(t("review.reopen"));
                           }
                         },
-                        onError: () => toast.error(t("review.resolveFailed")),
+                        onError: (error) =>
+                          reportWriteFailure(error, {
+                            label: t("review.resolveFailed"),
+                          }),
                       },
                     )
                   }
@@ -3347,7 +3359,10 @@ export function ReviewCanvasPins({
                         closeActiveThread();
                       }
                     },
-                    onError: () => toast.error(t("review.postFailed")),
+                    onError: (error) =>
+                      reportWriteFailure(error, {
+                        label: t("review.postFailed"),
+                      }),
                   },
                 );
               }}

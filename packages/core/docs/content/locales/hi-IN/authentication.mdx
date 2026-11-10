@@ -487,6 +487,20 @@ Canary user-agent marker केवल availability hint है, remote attestati
 Canary अनाम ऐप sign-in navigation को intercept नहीं करता। उपयोगकर्ता को सक्रिय registered app के लिए Desktop Settings में workspace sign-in स्पष्ट रूप से चुनना होगा; सामान्य app sign-in default path बना रहता है।
 सामान्य browsers normal per-app sign-in पर रहते हैं। Self-hosted apps को `AGENT_NATIVE_IDENTITY_HUB_URL` केवल बचे हुए explicit Desktop या server-side federation path के लिए चाहिए।
 
+## साइन-इन पेज को अनुकूलित करें
+
+Chat टेम्पलेट `server/plugins/auth.ts` में `marketing: false` सेट करता है। marketing ऑब्जेक्ट देने पर पैनल चालू होता है और मोबाइल पर फ़ॉर्म के नीचे दिखता है। `AuthMarketingProps` रेंडर किए गए पेज की प्रॉपर्टी बताता है। प्लगइन नीचे दिए `marketing` फ़ील्ड स्वीकार करता है। `authHeadHtml` ऐप द्वारा लिखा विश्वसनीय HTML अंतर्निहित स्टाइल के बाद जोड़ता है। इसमें उपयोगकर्ता इनपुट न दें।
+
+```ts filename="server/plugins/auth.ts"
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
+
+export default createToolkitAuthPlugin({
+  rootAuth: true,
+  marketing: { appName: "My app", tagline: "Make work easier" },
+  authHeadHtml: "<style>.auth-root { font-family: sans-serif; }</style>",
+});
+```
+
 ## प्रशासित डिप्लॉयमेंट और आमंत्रण
 
 प्रशासित डिप्लॉयमेंट के लिए `AUTH_SIGNUP=invited`, `ORG_CREATION=closed` और `AUTO_CREATE_DEFAULT_ORG=0` सेट करें। [प्रशासित डिप्लॉयमेंट गाइड](/docs/administered-deployments) बूटस्ट्रैप एडमिन, आमंत्रण और अनुमत ईमेल डोमेन समझाती है। सदस्यता आमंत्रण और डोमेन से जुड़ना अलग नियम हैं।

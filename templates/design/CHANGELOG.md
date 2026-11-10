@@ -3,6 +3,16 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-09
+
+### Improved
+
+- Automatic Builder setup now has bounded retries and a visible retry action when status is unavailable.
+
+### Fixed
+
+- Automatic Builder setup starts sooner and continues if you leave the page during setup.
+
 ## 2026-11-06
 
 ### Added

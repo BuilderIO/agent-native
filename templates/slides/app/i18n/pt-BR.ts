@@ -436,6 +436,8 @@ const messages = {
     presentPresenterViewDescription:
       "Ver as notas do apresentador durante a apresentação",
     presenterViewBlocked: "Permita pop-ups para abrir o modo apresentador.",
+    presenterViewUnsupported:
+      "O modo apresentador não é compatível com este navegador.",
     export: "Exportar",
     privacyPrivate: "Privado",
     privacyOrg: "Compartilhado com a organização",
@@ -489,6 +491,11 @@ const messages = {
   editorExport: {
     pptxFailed: "Não foi possível gerar o arquivo PPTX.",
     exportFailed: "Falha ao exportar",
+    exportFinishedWithWarnings: "Exportado com avisos",
+    imagesDropped:
+      "{{count}} imagem(ns) não puderam ser carregadas e ficaram de fora do arquivo do PowerPoint (slides {{slides}}).",
+    pdfSidecarSkipped:
+      "Este PDF foi exportado sem a fonte editável. Ao reimportá-lo, os slides serão reconstruídos a partir do conteúdo das páginas.",
     exporting: "Exportando...",
     exportPptxError: "Algo deu errado ao exportar como PPTX.",
     googleSlidesDownloaded: "Baixado para Google Slides",
@@ -508,6 +515,9 @@ const messages = {
     exportPdf: "Exportar como PDF",
     exportPptx: "Exportar como PPTX",
     connectGoogle: "Conectar o Google",
+    disconnectGoogle: "Desconectar o Google",
+    googleDisconnectFailed: "Não foi possível desconectar o Google Drive.",
+    googleSlidesStatusUnknown: "Não foi possível verificar o status",
     openInGoogleSlides: "Abrir no Google Slides",
     googleSlidesUnavailable: "Indisponível",
     googleSlidesOpenImporter: "Abrir a importação do Google Slides",
@@ -531,6 +541,7 @@ const messages = {
   share: {
     createFailed: "Não foi possível criar o link de compartilhamento",
     snapshotLinks: "Links de snapshot",
+    snapshotLinksLoadFailed: "Não foi possível carregar os links de snapshot",
     revokeLink: "Revogar",
     revokeFailed: "Não foi possível revogar o link de compartilhamento",
     title: "Compartilhar apresentação",
