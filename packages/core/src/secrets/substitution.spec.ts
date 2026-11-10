@@ -286,6 +286,28 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
     ).resolves.toEqual(["https://api.figma.com"]);
   });
 
+  it("keeps the legacy Gemini key on the same fixed Google API origin", async () => {
+    const ref = {
+      name: "GEMINI_API_KEY",
+      scope: "user" as const,
+      scopeId: "owner@example.test",
+    };
+    mockReadAppSecretMeta.mockResolvedValueOnce({ urlAllowlist: null });
+    await expect(getResolvedKeyAllowlist(ref)).resolves.toEqual([
+      "https://generativelanguage.googleapis.com",
+    ]);
+
+    mockReadAppSecretMeta.mockResolvedValueOnce({
+      urlAllowlist: [
+        "https://generativelanguage.googleapis.com",
+        "https://other.example.test",
+      ],
+    });
+    await expect(getResolvedKeyAllowlist(ref)).resolves.toEqual([
+      "https://generativelanguage.googleapis.com",
+    ]);
+  });
+
   it("intersects a saved provider policy with its fixed destinations", async () => {
     mockReadAppSecretMeta.mockResolvedValue({
       urlAllowlist: ["https://api.github.com", "https://other.example.test"],
