@@ -415,6 +415,13 @@ export async function boostQuietAudio(input: {
   }
 }
 
+/**
+ * A failed UPDATE is settled long before this: the database either applied it
+ * or rolled it back. Waiting this long before acting on a pending upload means
+ * the row read afterwards shows the final outcome.
+ */
+export const PENDING_UPLOAD_SETTLE_MS = 10 * 60 * 1000;
+
 export function audioLevelPendingUploadKey(recordingId: string): string {
   return `recording-audio-level-pending-upload-${recordingId}`;
 }
@@ -438,11 +445,23 @@ async function cleanUpPendingUpload(rec: {
       ? (raw as { url: string }).url
       : null;
   if (!url) return;
+  const at =
+    raw &&
+    typeof raw === "object" &&
+    typeof (raw as { at?: unknown }).at === "string"
+      ? Date.parse((raw as { at: string }).at)
+      : Number.NaN;
+  // Too recent to know how the failed update ended: leave it for a later run.
+  if (!Number.isFinite(at) || Date.now() - at < PENDING_UPLOAD_SETTLE_MS) {
+    return;
+  }
   if (url !== rec.videoUrl) {
     const cleanup = await deleteRecordingMediaObjects(
       { id: rec.id, storageMode: rec.storageMode, videoUrl: url },
       { protectedUrls: rec.videoUrl ? [rec.videoUrl] : [] },
     ).catch((err: unknown) => {
+      // Kept on purpose: the entry stays, so the next run tries again. It does
+      // not stop leveling the current media, which is a separate write.
       console.warn("[audio-level] could not delete a pending upload", {
         recordingId: rec.id,
         url,
@@ -450,7 +469,16 @@ async function cleanUpPendingUpload(rec: {
       });
       return null;
     });
-    if (!cleanup || cleanup.errors.length > 0) return;
+    if (!cleanup || cleanup.errors.length > 0) {
+      if (cleanup) {
+        console.warn("[audio-level] pending upload delete was not confirmed", {
+          recordingId: rec.id,
+          url,
+          errors: cleanup.errors.length,
+        });
+      }
+      return;
+    }
   }
   await deleteAppState(key).catch(() => {});
 }
