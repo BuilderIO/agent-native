@@ -285,10 +285,9 @@ description: "用于一次性沙盒自定义块的可选 Toolkit 能力。持久
 | -------- | ------------------------------ | ---------------------------------- |
 | **邮件** | `mail.contact-sidebar.bottom`  | 位于每个电子邮件线程的联系信息下方 |
 | **日历** | `calendar.event-detail.bottom` | 在开放事件下方                     |
-| **任务** | `tasks.task-detail.bottom`     | 任务字段下方                       |
 | **内容** | `content.sidebar.bottom`       | 文档侧边栏底部                     |
 
-扩展**安装到插槽后**，宿主会将自己选择的上下文（例如联系人邮箱、任务 ID 或文档 ID）传递给 iframe。扩展读取 `window.slotContext`，以了解用户正在查看什么。
+扩展**安装到插槽后**，宿主会将自己选择的上下文（例如联系人邮箱、事件 ID 或文档 ID）传递给 iframe。扩展读取 `window.slotContext`，以了解用户正在查看什么。
 
 <Diagram id="doc-block-eg10rt" title={"插槽将上下文推送到小部件中"} summary={"主机模板拥有命名槽；将扩展安装到其中，可以为用户当前正在查看的任何内容提供 window.slotContext 。"}>
 

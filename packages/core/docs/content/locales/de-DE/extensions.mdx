@@ -291,10 +291,9 @@ Ein Slot ist ein benannter Widget-Bereich, den eine Vorlage enthält:
 | ------------ | ------------------------------ | ----------------------------------------------------- |
 | **Mail**     | `mail.contact-sidebar.bottom`  | Unter den Kontaktinformationen in jedem E-Mail-Thread |
 | **Kalender** | `calendar.event-detail.bottom` | Unterhalb der offenen Veranstaltung                   |
-| **Aufgaben** | `tasks.task-detail.bottom`     | Unter den Aufgabenfeldern                             |
 | **Inhalte**  | `content.sidebar.bottom`       | Unten in der Dokument-Seitenleiste                    |
 
-Wenn eine Erweiterung **in einem Slot installiert** wird, übergibt der Host seinen gewählten Kontext, etwa Kontakt-E-Mail, Aufgaben-ID oder Dokument-ID, an den Iframe. Die Erweiterung liest `window.slotContext`, um zu wissen, was der Benutzer gerade sieht.
+Wenn eine Erweiterung **in einem Slot installiert** wird, übergibt der Host seinen gewählten Kontext, etwa Kontakt-E-Mail, Ereignis-ID oder Dokument-ID, an den Iframe. Die Erweiterung liest `window.slotContext`, um zu wissen, was der Benutzer gerade sieht.
 
 <Diagram id="doc-block-4kt9b8" title={"Slots übertragen Kontext in das Widget"} summary={"Die Host-Vorlage besitzt benannte Slots; Durch die Installation einer Erweiterung in einem wird window.slotContext für alles eingespeist, was der Benutzer gerade ansieht."}>
 

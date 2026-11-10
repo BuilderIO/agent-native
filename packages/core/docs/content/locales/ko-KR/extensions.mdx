@@ -288,10 +288,9 @@ iframe 샌드박스 내부의 모든 확장 프로그램에는 `window`에 다�
 | ---------- | ------------------------------ | ------------------------------------- |
 | **메일**   | `mail.contact-sidebar.bottom`  | 모든 이메일 스레드의 연락처 정보 아래 |
 | **캘린더** | `calendar.event-detail.bottom` | 공개 이벤트 아래                      |
-| **작업**   | `tasks.task-detail.bottom`     | 작업 필드 아래                        |
 | **콘텐츠** | `content.sidebar.bottom`       | 문서 사이드바 아래쪽                  |
 
-확장 프로그램이 **슬롯에 설치**되면 호스트가 선택한 컨텍스트(연락처 이메일, 작업 ID, 문서 ID 등)를 iframe에 전달합니다. 확장 프로그램은 `window.slotContext`를 읽어 사용자가 무엇을 보고 있는지 파악합니다.
+확장 프로그램이 **슬롯에 설치**되면 호스트가 선택한 컨텍스트(연락처 이메일, 이벤트 ID, 문서 ID 등)를 iframe에 전달합니다. 확장 프로그램은 `window.slotContext`를 읽어 사용자가 무엇을 보고 있는지 파악합니다.
 
 <Diagram id="doc-block-p2xcb4" title={"슬롯은 컨텍스트를 위젯에 푸시합니다."} summary={"호스트 템플릿은 명명된 슬롯을 소유합니다. 확장 기능을 설치하면 사용자가 현재 보고 있는 모든 항목에 대한 window.slotContext가 제공됩니다."}>
 

@@ -285,10 +285,9 @@ description: "用於一次性沙盒自訂區塊的選用 Toolkit 能力。持久
 | ---------- | ------------------------------ | ------------------------------------ |
 | **郵件**   | `mail.contact-sidebar.bottom`  | 位於每個電子郵件對話串的聯絡資訊下方 |
 | **行事曆** | `calendar.event-detail.bottom` | 在開放事件下方                       |
-| **任務**   | `tasks.task-detail.bottom`     | 任務欄位下方                         |
 | **內容**   | `content.sidebar.bottom`       | 文件側邊欄底部                       |
 
-擴充功能**安裝到插槽後**，主應用會將自己選擇的脈絡（例如聯絡人電子郵件、任務 ID 或文件 ID）傳給 iframe。擴充功能讀取 `window.slotContext`，以了解使用者正在檢視什麼。
+擴充功能**安裝到插槽後**，主應用會將自己選擇的脈絡（例如聯絡人電子郵件、事件 ID 或文件 ID）傳給 iframe。擴充功能讀取 `window.slotContext`，以了解使用者正在檢視什麼。
 
 <Diagram id="doc-block-1lwnufh" title={"插槽將脈絡推送到小工具中"} summary={"主機範本擁有命名槽；將擴充功能安裝到其中，可以為使用者目前正在檢視的任何內容提供 window.slotContext 。"}>
 

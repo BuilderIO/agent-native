@@ -291,10 +291,9 @@ Una ranura es un widget con nombre en el área que incluye una plantilla:
 | -------------- | ------------------------------ | ----------------------------------------------------------------------- |
 | **Correo**     | `mail.contact-sidebar.bottom`  | Debajo de la información de contacto en cada hilo de correo electrónico |
 | **Calendario** | `calendar.event-detail.bottom` | Debajo del evento abierto                                               |
-| **Tareas**     | `tasks.task-detail.bottom`     | Debajo de los campos de la tarea                                        |
 | **Contenido**  | `content.sidebar.bottom`       | En la parte inferior de la barra lateral del documento                  |
 
-Cuando una extensión se **instala en una ranura**, el host envía al iframe el contexto que eligió, como el correo del contacto, el ID de la tarea o el ID del documento. La extensión lee `window.slotContext` para saber qué está viendo el usuario.
+Cuando una extensión se **instala en una ranura**, el host envía al iframe el contexto que eligió, como el correo del contacto, el ID del evento o el ID del documento. La extensión lee `window.slotContext` para saber qué está viendo el usuario.
 
 <Diagram id="doc-block-1uwb6po" title="Las ranuras introducen contexto en el widget" summary={"La plantilla de host posee espacios con nombre; instalar una extensión en uno le proporciona window.slotContext para lo que el usuario esté viendo actualmente."}>
 

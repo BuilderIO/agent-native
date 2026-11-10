@@ -291,10 +291,9 @@ Um slot é um widget nomeado onde um modelo é enviado:
 | -------------- | ------------------------------ | ------------------------------------------------------------------ |
 | **E-mail**     | `mail.contact-sidebar.bottom`  | Abaixo das informações de contato em todas as conversas por e-mail |
 | **Calendário** | `calendar.event-detail.bottom` | Abaixo do evento aberto                                            |
-| **Tarefas**    | `tasks.task-detail.bottom`     | Abaixo dos campos da tarefa                                        |
 | **Conteúdo**   | `content.sidebar.bottom`       | Na parte inferior da barra lateral do documento                    |
 
-Quando uma extensão é **instalada em um slot**, o host envia ao iframe o contexto que escolheu, como o e-mail do contato, o ID da tarefa ou o ID do documento. A extensão lê `window.slotContext` para saber o que o usuário está vendo.
+Quando uma extensão é **instalada em um slot**, o host envia ao iframe o contexto que escolheu, como o e-mail do contato, o ID do evento ou o ID do documento. A extensão lê `window.slotContext` para saber o que o usuário está vendo.
 
 <Diagram id="doc-block-1mbdamx" title="Os slots empurram o contexto para o widget" summary={"O modelo de host possui slots nomeados; instalar uma extensão em um alimenta window.slotContext para tudo o que o usuário está visualizando no momento."}>
 

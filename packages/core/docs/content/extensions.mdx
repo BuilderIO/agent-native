@@ -514,10 +514,9 @@ A slot is a named widget area the host app places in its UI:
 | ------------ | ------------------------------ | -------------------------------------------- |
 | **Mail**     | `mail.contact-sidebar.bottom`  | Below the contact info on every email thread |
 | **Calendar** | `calendar.event-detail.bottom` | Below the open event                         |
-| **Tasks**    | `tasks.task-detail.bottom`     | Below the task fields                        |
 | **Content**  | `content.sidebar.bottom`       | At the bottom of the document sidebar        |
 
-When an extension is **installed into a slot**, the host pushes its chosen context, such as a contact email, task id, or document id, into the iframe. The extension reads `window.slotContext` to know what the user is looking at.
+When an extension is **installed into a slot**, the host pushes its chosen context, such as a contact email, event id, or document id, into the iframe. The extension reads `window.slotContext` to know what the user is looking at.
 
 <Diagram id="doc-block-18p3btl" title="Slots push context into the widget" summary={"The host template owns named slots; installing an extension into one feeds it window.slotContext for whatever the user is currently viewing."}>
 
