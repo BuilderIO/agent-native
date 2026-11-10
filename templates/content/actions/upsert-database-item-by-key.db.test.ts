@@ -1389,6 +1389,8 @@ describe("reliable Content database row mutations", () => {
           await waitUntilWaitingOn(holder.pid, 2);
         } finally {
           await holder.release();
+          // A failed poll still waits out both writes, so none outlives the test.
+          await settled;
         }
         const receipts = (await settled).map((outcome) => {
           if (outcome.status === "rejected") throw outcome.reason;
@@ -1418,6 +1420,7 @@ describe("reliable Content database row mutations", () => {
           await revokeDocumentShare(documentId);
         } finally {
           await holder.release();
+          await outcome;
         }
         return outcome;
       }

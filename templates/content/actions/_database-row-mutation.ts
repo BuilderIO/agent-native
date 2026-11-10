@@ -1246,8 +1246,9 @@ async function withMutationLocks<T>(
 /**
  * Access can be revoked, and another instance can commit this key, while a
  * single-row write waits for the collection lock, so it checks both once the
- * lock is held, as the batch patch does. The transaction scopes the access
- * reads to its own connection.
+ * lock is held, as the batch patch does. A committed receipt replays with the
+ * access it needs before the lock; only a new write needs editor on the row.
+ * The transaction scopes the access reads to its own connection.
  */
 async function replayAfterCollectionLock(
   tx: Db,
@@ -1256,10 +1257,18 @@ async function replayAfterCollectionLock(
   replayDigests: readonly string[],
   rowDocumentIds: readonly string[] = [],
 ): Promise<ContentDatabaseRowMutationResult | null> {
-  for (const documentId of [context.database.documentId, ...rowDocumentIds]) {
+  await assertAccess("document", context.database.documentId, "editor");
+  const replay = await replayReceipt(
+    context,
+    idempotencyKey,
+    replayDigests,
+    tx,
+  );
+  if (replay) return replay;
+  for (const documentId of rowDocumentIds) {
     await assertAccess("document", documentId, "editor");
   }
-  return replayReceipt(context, idempotencyKey, replayDigests, tx);
+  return null;
 }
 
 async function createInsideTransaction(
