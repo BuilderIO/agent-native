@@ -1631,9 +1631,7 @@ impl CustomScreenCaptureWriter {
             return None;
         }
         let frames = guard.video_frames_past_first_segment;
-        let closing_frame_age = guard
-            .first_fragment_closing_frame_at
-            .map(|at| at.elapsed());
+        let closing_frame_age = guard.first_fragment_closing_frame_at.map(|at| at.elapsed());
         if first_fragment_awaits_screen_changes(frames, closing_frame_age) {
             return None;
         }
@@ -4556,7 +4554,11 @@ mod fragment_fence_tests {
             .is_some_and(|error| error.starts_with("first media fragment overdue")));
         let sink = writer.inner.lock().unwrap().segment_sink.clone().unwrap();
         sink.append(b"init", AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION, None);
-        sink.append(b"fragment", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(1.0));
+        sink.append(
+            b"fragment",
+            AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE,
+            Some(1.0),
+        );
         assert!(writer.output_failure_after_startup().is_none());
         assert!(!writer.inner.lock().unwrap().awaiting_first_fragment);
         drop(writer);
