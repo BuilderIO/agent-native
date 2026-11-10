@@ -341,16 +341,24 @@ async function executeProgramCode(
       maxBytes: MAX_PROGRAM_RESULT_BYTES,
     });
     if (!parsed.ok) {
-      // A program that throws before emit() never prints a result, so report
-      // its own error rather than a missing emit().
-      const thrown =
-        parsed.error.code === "emit_missing" && result.exitCode !== 0
-          ? thrownProgramMessage(result.stderr)
-          : undefined;
+      // A run that fails before emit() never prints a result, so report what
+      // the program threw, or else that the sandbox failed, rather than a
+      // missing emit().
+      if (parsed.error.code === "emit_missing" && result.exitCode !== 0) {
+        const thrown = thrownProgramMessage(result.stderr);
+        return {
+          ok: false,
+          code: thrown ? "program_error" : "sandbox_error",
+          message:
+            thrown ??
+            "The sandbox stopped before the program emitted a result.",
+          logsTail,
+        };
+      }
       return {
         ok: false,
-        code: thrown ? "program_error" : parsed.error.code,
-        message: thrown ?? parsed.error.message,
+        code: parsed.error.code,
+        message: parsed.error.message,
         logsTail,
       };
     }

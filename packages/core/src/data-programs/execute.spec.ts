@@ -414,7 +414,7 @@ describe("data-programs/execute", () => {
 
       expect(result.ok).toBe(false);
       if (result.ok) return;
-      expect(result.error.code).not.toBe("program_error");
+      expect(result.error.code).toBe("sandbox_error");
     });
 
     it("surfaces timeout as a distinct error code", async () => {
