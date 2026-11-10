@@ -1356,6 +1356,27 @@ export function unansweredTitleAfterSave(args: {
   return null;
 }
 
+// Saves are not queued behind each other, so an icon or other metadata save can
+// carry the typed title while the title's own save is still out. A failed save
+// answers for the title only when it is the last save carrying it; otherwise
+// the one still out settles it.
+export function createTitleMarkCarriers() {
+  const carrying = new Map<UnansweredTitle, number>();
+  return {
+    send(mark: UnansweredTitle | null) {
+      if (mark) carrying.set(mark, (carrying.get(mark) ?? 0) + 1);
+    },
+    /** Lets go of `mark` and returns the mark this save's answer settles. */
+    settle(mark: UnansweredTitle | null, failed: boolean) {
+      if (!mark) return null;
+      const left = (carrying.get(mark) ?? 1) - 1;
+      if (left > 0) carrying.set(mark, left);
+      else carrying.delete(mark);
+      return failed && left > 0 ? null : mark;
+    },
+  };
+}
+
 // A failed save puts the last saved title back into the cached page, unless a
 // title typed after it was sent is waiting for its own save, whose answer
 // settles it.
@@ -3655,6 +3676,7 @@ function PageEditorSessionBody({
   // The newest title this editor typed into the cached page that no save
   // carrying it has settled yet.
   const unansweredTitleRef = useRef<UnansweredTitle | null>(null);
+  const titleMarkCarriersRef = useRef(createTitleMarkCarriers());
   const lastSavedContentRef = useRef<ContentSaveWatermark>({
     content: "",
     updatedAt: null,
@@ -4456,6 +4478,8 @@ function PageEditorSessionBody({
         unansweredTitleRef.current?.title === updates.title
           ? unansweredTitleRef.current
           : null;
+      titleMarkCarriersRef.current.send(sentTitleMark);
+      let settledTitleMark: UnansweredTitle | null | undefined;
       let answer: DocumentUpdateResult | null = null;
       try {
         if (!isLinkedLocalSource) requireActiveEditorSession();
@@ -4522,11 +4546,15 @@ function PageEditorSessionBody({
         );
         return answer;
       } catch (error) {
+        settledTitleMark = titleMarkCarriersRef.current.settle(
+          sentTitleMark,
+          true,
+        );
         if (
           failedSaveRestoresSavedTitle({
             sentTitle: updates.title,
             unanswered: unansweredTitleRef.current,
-            sent: sentTitleMark,
+            sent: settledTitleMark,
           })
         ) {
           patchDocumentCaches(queryClient, documentId, {
@@ -4546,9 +4574,15 @@ function PageEditorSessionBody({
         });
         return fileFirstDocument;
       } finally {
+        if (settledTitleMark === undefined) {
+          settledTitleMark = titleMarkCarriersRef.current.settle(
+            sentTitleMark,
+            answer === null,
+          );
+        }
         unansweredTitleRef.current = unansweredTitleAfterSave({
           unanswered: unansweredTitleRef.current,
-          sent: sentTitleMark,
+          sent: settledTitleMark,
           answer,
         });
       }

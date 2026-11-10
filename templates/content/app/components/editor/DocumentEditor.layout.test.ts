@@ -77,6 +77,7 @@ import {
   subscribeToAuthoritativeQuerySuccess,
   titleMatchConfirmsSave,
   failedSaveRestoresSavedTitle,
+  createTitleMarkCarriers,
   unansweredTitleAfterSave,
   updateAdditionalBlockContents,
   updateDocumentLoadFailureState,
@@ -3069,6 +3070,49 @@ describe("document editor layout", () => {
         answer: null,
       }),
     ).toBe(retyped);
+  });
+
+  it("leaves a typed title to the save still carrying it when another carrier fails", () => {
+    // The title's own save and an icon save both carry "Renamed page"; the
+    // icon save fails first.
+    const page = { id: "page", title: "Renamed page" } as DocumentUpdateResult;
+    const typed = { title: "Renamed page" };
+    const carriers = createTitleMarkCarriers();
+    carriers.send(typed);
+    carriers.send(typed);
+    const iconSave = carriers.settle(typed, true);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed page",
+        unanswered: typed,
+        sent: iconSave,
+      }),
+    ).toBe(false);
+    expect(
+      unansweredTitleAfterSave({
+        unanswered: typed,
+        sent: iconSave,
+        answer: null,
+      }),
+    ).toBe(typed);
+    const titleSave = carriers.settle(typed, false);
+    expect(
+      unansweredTitleAfterSave({
+        unanswered: typed,
+        sent: titleSave,
+        answer: page,
+      }),
+    ).toBeNull();
+  });
+
+  it("settles a typed title when the last save carrying it fails", () => {
+    const typed = { title: "Renamed page" };
+    const carriers = createTitleMarkCarriers();
+    carriers.send(typed);
+    carriers.send(typed);
+    expect(carriers.settle(typed, false)).toBe(typed);
+    expect(carriers.settle(typed, true)).toBe(typed);
+    expect(carriers.settle(null, true)).toBeNull();
   });
 
   it("keeps a newer typed title in the cache when an older save fails", () => {
