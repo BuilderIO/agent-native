@@ -2020,6 +2020,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "무료 클립 {{count}}개 남음",
     freeClipsLeft_other: "무료 클립 {{count}}개 남음",
+    activateBuilder: "Builder.io 활성화",
     hostedClipsExhaustedTitle: "Builder.io에 무료로 연결하고 계속 녹화하세요",
     hostedClipsExhaustedDescription:
       "무료 호스팅 클립을 모두 사용했습니다. Builder.io 저장소를 연결하면 라이브러리에 클립을 계속 저장할 수 있습니다.",

@@ -141,7 +141,6 @@ function QueueDraftDialog({
           setForm(EMPTY_FORM);
           onOpenChange(false);
         },
-        onError: (error) => toast.error(error.message),
       },
     );
   };
@@ -368,7 +367,7 @@ function DraftDetail({
   const t = useT();
   const updateDraft = useUpdateQueuedDraft();
   const openDraft = useOpenQueuedDraft();
-  const sendDraft = useSendQueuedDrafts();
+  const sendDraft = useSendQueuedDrafts(t("mail.toasts.failedToSendDraft"));
 
   const canReview = !!draft && draft.ownerEmail === currentUser;
   const hasChanges =
@@ -406,7 +405,6 @@ function DraftDetail({
       },
       {
         onSuccess: () => toast(t("mail.toasts.draftUpdated")),
-        onError: (error) => toast.error(error.message),
       },
     );
   };
@@ -416,7 +414,6 @@ function DraftDetail({
       { id: draft.id, status: "dismissed" },
       {
         onSuccess: () => toast(t("mail.toasts.draftDismissed")),
-        onError: (error) => toast.error(error.message),
       },
     );
   };
@@ -426,7 +423,6 @@ function DraftDetail({
       { id: draft.id },
       {
         onSuccess: () => toast(t("mail.toasts.openedInCompose")),
-        onError: (error) => toast.error(error.message),
       },
     );
   };
@@ -444,7 +440,6 @@ function DraftDetail({
             toast(t("mail.toasts.draftSent"));
           }
         },
-        onError: (error) => toast.error(error.message),
       },
     );
   };
