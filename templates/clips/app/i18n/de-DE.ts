@@ -2080,6 +2080,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "Noch {{count}} kostenloser Clip verfügbar",
     freeClipsLeft_other: "Noch {{count}} kostenlose Clips verfügbar",
+    activateBuilder: "Builder.io aktivieren",
     hostedClipsExhaustedTitle:
       "Verbinde Builder.io kostenlos, um weiter aufzunehmen",
     hostedClipsExhaustedDescription:

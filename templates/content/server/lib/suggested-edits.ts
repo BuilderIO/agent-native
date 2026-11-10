@@ -32,6 +32,7 @@ import {
 } from "../../actions/_blocks-field-identity.js";
 import { lockExistingDatabaseMemberships } from "../../actions/_database-membership-lock.js";
 import { accessibleDocumentIds } from "../../actions/_document-access.js";
+import { assertAgentsMayEditPageText } from "../../actions/_document-agent-lock.js";
 import {
   documentContentHash,
   documentRevisionToken,
@@ -161,6 +162,19 @@ async function acceptOnLegacyWriter<T>(
           tx,
           context.resourceId,
         );
+        // guard:allow-unscoped — core's decide action asserted edit access to this Page before coordinating.
+        const lockedPage = await tx.execute({
+          sql: "SELECT agent_text_locked FROM documents WHERE id = ?",
+          args: [context.resourceId],
+        });
+        // A person's switch waits for the Page row `lockSuggestionPage` holds,
+        // so this read has the last word.
+        assertAgentsMayEditPageText(
+          {
+            agentTextLocked: Number(lockedPage.rows[0]?.agent_text_locked ?? 0),
+          },
+          context.ctx as ActionRunContext | undefined,
+        );
         return run(
           {
             ydoc,
@@ -176,6 +190,15 @@ async function acceptOnLegacyWriter<T>(
   return result;
 }
 
+/** The edits a Content suggestion can make, on the body or on a tab. */
+export const CONTENT_SUGGESTION_OPERATION_KINDS: readonly string[] = [
+  "insert_text",
+  "delete_text",
+  "replace_text",
+  "add_text_block",
+  "set_inline_mark",
+];
+
 function validateOperations(
   operations: SuggestionOperation[],
 ): SuggestionOperation[] {
@@ -185,15 +208,7 @@ function validateOperations(
     );
   }
   const operation = operations[0]!;
-  if (
-    ![
-      "insert_text",
-      "delete_text",
-      "replace_text",
-      "add_text_block",
-      "set_inline_mark",
-    ].includes(operation.kind)
-  ) {
+  if (!CONTENT_SUGGESTION_OPERATION_KINDS.includes(operation.kind)) {
     throw new Error(
       `Unsupported Content suggestion operation: ${operation.kind}`,
     );
@@ -289,7 +304,7 @@ export function acceptedSuggestionRequestSource(
   return requestSource === "agent" ? "agent" : undefined;
 }
 
-function validateSuggestionStructure(
+export function validateSuggestionStructure(
   beforeMarkdown: string,
   afterMarkdown: string,
   refusal: string,
@@ -304,7 +319,7 @@ function validateSuggestionStructure(
   return after;
 }
 
-function drizzleTransactionForExec(transaction: DbExec) {
+export function drizzleTransactionForExec(transaction: DbExec) {
   return drizzle(
     async (sql, args, method) => {
       const result = await transaction.execute({ sql, args });
@@ -403,7 +418,7 @@ const INLINE_DATABASE_ACCEPT_MESSAGE =
   "Pages containing inline databases cannot accept suggestions yet.";
 
 /** Core turns this into a 409 `suggestion_stale` and keeps it pending. */
-function suggestionStaleError(message: string) {
+export function suggestionStaleError(message: string) {
   const error = new Error(message);
   error.name = "SuggestionStaleError";
   return error;
@@ -1132,6 +1147,16 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return operations;
   },
   async coordinateDecision(context, run) {
+    // Accepting writes the text, so a page locked against agents needs a
+    // person to do it. Core only coordinates accepts.
+    const [lockState] = await getDb()
+      .select({ agentTextLocked: schema.documents.agentTextLocked })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, context.resourceId));
+    assertAgentsMayEditPageText(
+      lockState,
+      context.ctx as ActionRunContext | undefined,
+    );
     // A Page can change writers between reading the gate and writing; the
     // writer then refuses, and the gate is read again to choose the writer.
     for (let attempt = 1; ; attempt += 1) {

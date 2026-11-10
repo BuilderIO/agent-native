@@ -2084,6 +2084,7 @@ const messages = {
     freeClipsLeft_one: "Il vous reste {{count}} clip gratuit",
     freeClipsLeft_other: "Il vous reste {{count}} clips gratuits",
     freeClipsLeft_many: "Il vous reste {{count}} clips gratuits",
+    activateBuilder: "Activer Builder.io",
     hostedClipsExhaustedTitle:
       "Connectez Builder.io gratuitement pour continuer à enregistrer",
     hostedClipsExhaustedDescription:
