@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({ error: vi.fn() }));
 vi.mock("sonner", () => ({ toast: { error: mocks.error } }));
 
 const labels = {
+  builderRefused: "Builder.io refused the connection (translated).",
+  storageRefused: "The bucket refused the upload (translated).",
+  storageNotConfigured: "Storage isn't set up (translated).",
   openStorageSettings: "Open storage settings",
   reconnectBuilder: "Reconnect Builder.io",
   useOwnStorage: "Use your own storage",
@@ -24,13 +27,13 @@ describe("toastUploadFailure", () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
 
     toastUploadFailure(
-      new UploadError("Builder.io refused the connection.", "builder-refused"),
+      new UploadError("Server text in English.", "builder-refused"),
       "Failed to attach file",
       labels,
     );
 
     const [message, options] = mocks.error.mock.lastCall ?? [];
-    expect(message).toBe("Builder.io refused the connection.");
+    expect(message).toBe("Builder.io refused the connection (translated).");
     expect(options.action.label).toBe("Reconnect Builder.io");
     options.action.onClick();
     expect(open).toHaveBeenLastCalledWith(
@@ -47,19 +50,22 @@ describe("toastUploadFailure", () => {
     );
   });
 
-  it.each(["storage-refused", "not-configured"] as const)(
+  it.each([
+    ["storage-refused", "The bucket refused the upload (translated)."],
+    ["not-configured", "Storage isn't set up (translated)."],
+  ] as const)(
     "opens File uploads and storage when the reason is %s",
-    (reason) => {
+    (reason, translated) => {
       const open = vi.spyOn(window, "open").mockImplementation(() => null);
 
       toastUploadFailure(
-        new UploadError("Storage needs attention.", reason),
+        new UploadError("Server text in English.", reason),
         "Failed to attach file",
         labels,
       );
 
       const [message, options] = mocks.error.mock.lastCall ?? [];
-      expect(message).toBe("Storage needs attention.");
+      expect(message).toBe(translated);
       expect(options.action.label).toBe("Open storage settings");
       expect(options.cancel).toBeUndefined();
       options.action.onClick();

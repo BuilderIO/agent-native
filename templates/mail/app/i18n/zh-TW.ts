@@ -449,6 +449,12 @@ const messages = {
       scheduledCancelFailed: "取消定時郵件失敗",
       failedToAttachFile: "附加檔案失敗",
       failedToUploadImage: "上傳圖片失敗",
+      storageBuilderRefused:
+        "Builder.io 拒絕了 Mail 的檔案儲存空間連線，因此未能附加檔案。請重新連線 Builder.io 或使用自己的儲存空間，然後再試一次。",
+      storageRefused:
+        "你的儲存貯體拒絕了這次上傳，因此未能附加檔案。請檢查儲存貯體及其金鑰，然後再試一次。",
+      storageNotConfigured:
+        "尚未設定檔案儲存空間，因此未能附加檔案。請連線 Builder.io 或你自己的儲存貯體，然後再試一次。",
       openStorageSettings: "開啟儲存空間設定",
       reconnectBuilderStorage: "重新連線 Builder.io",
       useOwnStorage: "使用自己的儲存空間",

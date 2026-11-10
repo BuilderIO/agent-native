@@ -481,6 +481,12 @@ const messages = {
       scheduledCancelFailed: "Échec de l’annulation de l’email programmé",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "Échec du téléversement de l’image",
+      storageBuilderRefused:
+        "Builder.io a refusé la connexion de stockage de fichiers de Mail, le fichier n’a donc pas été joint. Reconnectez Builder.io ou utilisez votre propre stockage, puis réessayez.",
+      storageRefused:
+        "Votre bucket de stockage a refusé ce téléversement, le fichier n’a donc pas été joint. Vérifiez le bucket et ses clés, puis réessayez.",
+      storageNotConfigured:
+        "Le stockage de fichiers n’est pas configuré, le fichier n’a donc pas été joint. Connectez Builder.io ou votre propre bucket de stockage, puis réessayez.",
       openStorageSettings: "Ouvrir les paramètres de stockage",
       reconnectBuilderStorage: "Reconnecter Builder.io",
       useOwnStorage: "Utiliser votre propre stockage",

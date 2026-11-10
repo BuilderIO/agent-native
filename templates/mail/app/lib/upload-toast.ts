@@ -5,6 +5,12 @@ import { toast } from "sonner";
 import { UploadError } from "./upload";
 
 export interface StorageSetupLabels {
+  /** Builder.io refused Mail's storage connection. */
+  builderRefused: string;
+  /** The workspace's own bucket refused the upload. */
+  storageRefused: string;
+  /** No storage is set up. */
+  storageNotConfigured: string;
   /** Opens Settings › Infrastructure › File uploads and storage. */
   openStorageSettings: string;
   /** Opens Settings › Model, where Builder.io connects. */
@@ -37,8 +43,9 @@ export function toastStorageSetupFailure(
   labels: StorageSetupLabels,
 ): boolean {
   if (!(error instanceof UploadError) || !error.storageSetup) return false;
+  // The server's message is English: it is written for agents.
   if (error.storageSetup === "builder-refused") {
-    toast.error(error.message, {
+    toast.error(labels.builderRefused, {
       action: {
         label: labels.reconnectBuilder,
         onClick: () => openInNewTab(builderSettingsHref()),
@@ -50,7 +57,11 @@ export function toastStorageSetupFailure(
     });
     return true;
   }
-  toast.error(error.message, {
+  const message =
+    error.storageSetup === "storage-refused"
+      ? labels.storageRefused
+      : labels.storageNotConfigured;
+  toast.error(message, {
     action: {
       label: labels.openStorageSettings,
       onClick: () => openInNewTab(storageSettingsHref()),

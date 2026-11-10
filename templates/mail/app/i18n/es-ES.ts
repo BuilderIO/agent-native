@@ -476,6 +476,12 @@ const messages = {
       scheduledCancelFailed: "No se pudo cancelar el email programado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "No se pudo subir la imagen",
+      storageBuilderRefused:
+        "Builder.io rechazó la conexión de almacenamiento de archivos de Mail, así que el archivo no se adjuntó. Vuelve a conectar Builder.io o usa tu propio almacenamiento y luego inténtalo de nuevo.",
+      storageRefused:
+        "Tu bucket de almacenamiento rechazó esta subida, así que el archivo no se adjuntó. Revisa el bucket y sus claves y luego inténtalo de nuevo.",
+      storageNotConfigured:
+        "El almacenamiento de archivos no está configurado, así que el archivo no se adjuntó. Conecta Builder.io o tu propio bucket de almacenamiento y luego inténtalo de nuevo.",
       openStorageSettings: "Abrir ajustes de almacenamiento",
       reconnectBuilderStorage: "Volver a conectar Builder.io",
       useOwnStorage: "Usar tu propio almacenamiento",

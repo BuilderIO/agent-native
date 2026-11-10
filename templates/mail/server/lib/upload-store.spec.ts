@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getStoredUpload } from "./upload-store.js";
 
-const settings = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn() }));
+const settings = vi.hoisted(() => ({ get: vi.fn(), mutate: vi.fn() }));
 
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: settings.get,
-  putUserSetting: settings.put,
+  mutateUserSetting: settings.mutate,
 }));
 
 describe("getStoredUpload", () => {

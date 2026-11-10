@@ -785,6 +785,9 @@ export function ComposeModal({
   };
 
   const storageSetupLabels = {
+    builderRefused: t("mail.toasts.storageBuilderRefused"),
+    storageRefused: t("mail.toasts.storageRefused"),
+    storageNotConfigured: t("mail.toasts.storageNotConfigured"),
     openStorageSettings: t("mail.toasts.openStorageSettings"),
     reconnectBuilder: t("mail.toasts.reconnectBuilderStorage"),
     useOwnStorage: t("mail.toasts.useOwnStorage"),
