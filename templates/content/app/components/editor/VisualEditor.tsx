@@ -5027,10 +5027,13 @@ export function VisualEditor({
     // its way, so the save waits for those rather than being skipped.
     await waitForImageUploadsToSettle(imageUploadOwner);
     if (editor.isDestroyed || suggestingRef.current) return false;
+    // Strict, so a save the page skips, such as while another block waits on
+    // its picker, reports as failed instead of "Image added".
     return isEditorDraftSaveAccepted(
       await persistEditorContent(editor, {
         immediate: true,
         userInitiated: true,
+        strict: true,
       }),
     );
   };
