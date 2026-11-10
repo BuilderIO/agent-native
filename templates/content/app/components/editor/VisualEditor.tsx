@@ -2710,7 +2710,10 @@ export async function runImageUpload(
       return { status: "failed", error };
     }
     const failedId = failedImageUploadId(uploadId);
+    // An editor that can't take the image now, such as while suggesting,
+    // gets its block back as it was rather than a failed block to retry.
     const kept =
+      !isBlocked?.() &&
       hasImageUploadPreview(uploadId) &&
       commitPendingImageUpload(view, request, uploadId, {
         src: request.attrs.src ?? null,
@@ -2725,6 +2728,7 @@ export async function runImageUpload(
       uploadId,
       error instanceof ImageRenderError ? "render" : "upload",
       () => {
+        if (isBlocked?.()) return;
         if (!replacePendingMediaUploadId(view, "image", failedId, uploadId))
           return;
         void runImageUpload(run).then((outcome) =>

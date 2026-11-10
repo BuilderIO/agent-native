@@ -4263,6 +4263,53 @@ describe("image upload previews", () => {
       { type: "doc", content: [{ type: "image", attrs: request.attrs }] },
     );
   });
+
+  it("puts the block back as it was when the editor starts suggesting mid-upload", async () => {
+    const oldSrc = "https://cdn.example.com/old.png";
+    const request = {
+      pickerId: "image-picker-test",
+      position: 0,
+      attrs: { src: oldSrc, alt: "", uploadId: "image-picker-test" },
+    };
+    await withMountedEditor(
+      async (editor) => {
+        holdImageUploadPreview("image-upload-test", file, {});
+        const pending = deferred<string>();
+        let suggesting = false;
+        let done!: Promise<Awaited<ReturnType<typeof runImageUpload>>>;
+        await act(async () => {
+          expect(
+            ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+          ).toBe(true);
+          done = runImageUpload({
+            view: editor.view,
+            file,
+            uploadId: "image-upload-test",
+            request,
+            upload: () => pending.promise,
+            persist: () => true,
+            isBlocked: () => suggesting,
+            messages,
+          });
+        });
+
+        suggesting = true;
+        let outcome: Awaited<typeof done> | undefined;
+        await act(async () => {
+          pending.resolve(uploadedSrc);
+          outcome = await done;
+        });
+
+        expect(outcome?.status).toBe("failed");
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: oldSrc,
+          uploadId: null,
+        });
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
+      },
+      { type: "doc", content: [{ type: "image", attrs: request.attrs }] },
+    );
+  });
 });
 
 describe("media draft persistence", () => {
