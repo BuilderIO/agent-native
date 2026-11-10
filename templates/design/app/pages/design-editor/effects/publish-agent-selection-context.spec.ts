@@ -23,6 +23,7 @@ import { setClientAppState } from "@agent-native/core/client/hooks";
 import { assertNoInlineImageBytes } from "@agent-native/core/testing";
 
 type Args = Parameters<typeof runPublishAgentSelectionContext>[0];
+// A debounce or retry timer left pending writes into a later test's mock.
 const selectionFixtures = new Set<Args>();
 
 function disposeSelectionFixture(args: Args) {
