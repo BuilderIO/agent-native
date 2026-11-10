@@ -580,6 +580,7 @@
         "@agent-native/core/shared/builder-link-tracking",
         "@agent-native/core/shared/docs-url",
         "@agent-native/core/shared/first-party-agents",
+        "@agent-native/core/shared/mcp-connect-content",
         "@agent-native/core/shared/password-policy",
         "@agent-native/core/user-profile/shared"
       ]

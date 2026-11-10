@@ -4245,6 +4245,7 @@ type IssuedMcpCredential = {
   connect?: { jti: string | undefined };
   oauthScopes?: string[];
   oauthClientId?: string;
+  oauthResource?: string;
   catalogScope?: "full";
   /** Immutable server-recorded OAuth grant creation time, in milliseconds. */
   grantCreatedAtMs?: number;
@@ -4327,6 +4328,7 @@ async function verifyIssuedMcpCredential(
       : {}),
     oauthScopes: oauth.scopes,
     oauthClientId: oauth.clientId,
+    oauthResource: oauth.resource,
     ...(oauth.catalogScope ? { catalogScope: oauth.catalogScope } : {}),
     ...(oauth.grantCreatedAtMs !== undefined
       ? { grantCreatedAtMs: oauth.grantCreatedAtMs }
@@ -4413,6 +4415,23 @@ async function admitIssuedMcpCredential(
   );
   if (admitted.authed && credential.connect) {
     await markConnectTokenUsed(credential.connect.jti);
+  } else if (
+    admitted.authed &&
+    credential.oauthClientId &&
+    credential.oauthResource
+  ) {
+    try {
+      const { recordOAuthClientActivity } = await import("./oauth-store.js");
+      await recordOAuthClientActivity({
+        clientId: credential.oauthClientId,
+        email: credential.userEmail,
+        orgId: orgId ?? null,
+        resource: credential.oauthResource,
+      });
+    } catch (error) {
+      // Activity metadata must not turn a successfully admitted request into an authentication failure.
+      console.warn("[mcp] Could not record client activity", error);
+    }
   }
   return admitted;
 }

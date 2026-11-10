@@ -77,6 +77,7 @@ import { accessFilter } from "../sharing/access.js";
 import { createSharesTable } from "../sharing/schema.js";
 import { requireServiceTokenCaller } from "./actions/service-token-access.js";
 import { resolveMcpIdentityOrgId, verifyAuth } from "./build-server.js";
+import { listMcpClientConnections } from "./client-connections.js";
 import { handleMcpConnect, mintOrgServiceToken } from "./connect-route.js";
 import {
   approveDeviceCode,
@@ -590,6 +591,28 @@ describe("MCP OAuth access after the user is removed from the org", () => {
       authed: true,
       identity: { userEmail: CAROL, orgId: ORG },
     });
+  });
+
+  it("records admitted MCP activity and exposes it in the Settings metadata without stamping rejected calls", async () => {
+    const startedAt = Date.now();
+    expect((await authenticateMcpRequest(alice.accessToken)).auth.authed).toBe(
+      true,
+    );
+    const metadata = await listMcpClientConnections({
+      email: ALICE,
+      orgId: ORG,
+      issuer: ORIGIN,
+    });
+    const connection = metadata.connections.find(
+      (row) => row.client === "other",
+    );
+    expect(connection?.status).toBe("connected");
+    expect(connection?.lastUsedAt).toBeGreaterThanOrEqual(startedAt);
+    const before = await refreshRowsFor(carol);
+    expect((await authenticateMcpRequest(carol.accessToken)).auth.authed).toBe(
+      false,
+    );
+    expect(await refreshRowsFor(carol)).toEqual(before);
   });
 
   it("control: the real removal path deleted Bob's membership", async () => {

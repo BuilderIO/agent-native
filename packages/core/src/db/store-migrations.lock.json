@@ -647,6 +647,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "client-connection-metadata",
+      "checksum": "e3be9d6fc56a1427"
     }
   ],
   "mcp_oauth": [

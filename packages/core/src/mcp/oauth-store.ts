@@ -752,3 +752,28 @@ export async function revokeOAuthRefreshToken(
   if (result.rowsAffected !== 0 && result.rowsAffected !== 1)
     throw new Error("Refresh-token revocation returned an invalid row count");
 }
+
+export async function recordOAuthClientActivity(params: {
+  clientId: string;
+  email: string;
+  orgId: string | null;
+  resource: string;
+}): Promise<void> {
+  await ensureTable();
+  const now = Date.now();
+  await getDbExec().execute({
+    sql: `UPDATE mcp_oauth_refresh_tokens SET last_used_at = ?
+    WHERE client_id = ? AND LOWER(owner_email) = ? AND LOWER(issued_for_email) = ?
+      AND org_id IS NOT DISTINCT FROM ? AND resource = ?
+      AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`,
+    args: [
+      now,
+      params.clientId,
+      params.email.toLowerCase(),
+      params.email.toLowerCase(),
+      params.orgId,
+      params.resource,
+      now,
+    ],
+  });
+}
