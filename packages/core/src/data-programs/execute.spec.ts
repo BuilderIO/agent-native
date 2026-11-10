@@ -59,6 +59,7 @@ function makeRun(
 const storeMocks = vi.hoisted(() => ({
   getDataProgram: vi.fn(),
   getLatestSuccessfulRun: vi.fn(),
+  getLatestFinishedRun: vi.fn(),
   getActiveRun: vi.fn(),
   recordDataProgramRun: vi.fn(),
   updateDataProgramRun: vi.fn(),
@@ -82,12 +83,14 @@ beforeEach(() => {
   vi.restoreAllMocks();
   storeMocks.getDataProgram.mockReset();
   storeMocks.getLatestSuccessfulRun.mockReset();
+  storeMocks.getLatestFinishedRun.mockReset();
   storeMocks.getActiveRun.mockReset();
   storeMocks.recordDataProgramRun.mockReset();
   storeMocks.updateDataProgramRun.mockReset();
   accessMocks.resolveAccess.mockReset();
 
   storeMocks.getActiveRun.mockResolvedValue(null);
+  storeMocks.getLatestFinishedRun.mockResolvedValue(null);
   storeMocks.recordDataProgramRun.mockResolvedValue(
     makeRun({ id: "dpr_running", status: "running" }),
   );
@@ -951,6 +954,54 @@ describe("data-programs/execute", () => {
       });
       expect(enqueueSandboxExecution).not.toHaveBeenCalled();
     });
+
+    it.each([
+      ["returns its error", 1_000, false],
+      ["queues the program again", 400_000, true],
+    ])(
+      "on a later read of a run that failed %s",
+      async (_case, failedAgoMs, enqueues) => {
+        storeMocks.getDataProgram.mockResolvedValue(
+          makeProgram({ background: true }),
+        );
+        accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+        storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
+        storeMocks.getLatestFinishedRun.mockResolvedValue(
+          makeRun({
+            status: "failed",
+            rowsJson: null,
+            errorCode: "program_error",
+            errorMessage: "The panels haven't been saved yet",
+            finishedAt: Date.now() - failedAgoMs,
+          }),
+        );
+        const enqueueSandboxExecution = vi.fn().mockResolvedValue({
+          execution: { id: "exec_new" },
+        });
+        vi.doMock("../coding-tools/sandbox/index.js", () => ({
+          enqueueSandboxExecution,
+          getSandboxExecutionForOwner: vi.fn(),
+        }));
+        const { runDataProgram } = await loadExecute();
+
+        const result = await runDataProgram({
+          programId: PROGRAM_ID,
+          ctx: { userEmail: OWNER },
+          triggeredBy: "panel_view",
+        });
+
+        expect(enqueueSandboxExecution).toHaveBeenCalledTimes(enqueues ? 1 : 0);
+        if (!enqueues) {
+          expect(result).toEqual({
+            ok: false,
+            error: {
+              code: "program_error",
+              message: "The panels haven't been saved yet",
+            },
+          });
+        }
+      },
+    );
 
     it.each([
       ["the executor's own error", "", "Sandbox executor error: spawn ENOENT"],

@@ -27,6 +27,7 @@ import {
 import {
   getActiveRun,
   getDataProgram,
+  getLatestFinishedRun,
   getLatestSuccessfulRun,
   recordDataProgramRun,
   updateDataProgramRun,
@@ -645,12 +646,15 @@ async function runBackgroundProgram(
     if (cached) return cached;
     // Queueing another run behind a failure would report it as pending and
     // run the broken program again on every read.
-    if (finishedFailure) {
+    const failed =
+      finishedFailure ??
+      (active ? null : await recentBackgroundFailure(program, paramsHash));
+    if (failed) {
       return failureWithLastGood(
         program.id,
         paramsHash,
-        finishedFailure.code,
-        finishedFailure.message,
+        failed.code,
+        failed.message,
       );
     }
   }
@@ -729,6 +733,29 @@ async function runBackgroundProgram(
 interface BackgroundRunFailure {
   code: DataProgramErrorCode;
   message: string;
+}
+
+// A failed run answers reads for as long as a successful one would; a forced
+// refresh retries it sooner.
+async function recentBackgroundFailure(
+  program: DataProgramRow,
+  paramsHash: string,
+): Promise<BackgroundRunFailure | null> {
+  const latest = await getLatestFinishedRun(program.id, paramsHash);
+  if (latest?.status !== "failed" && latest?.status !== "timed_out") {
+    return null;
+  }
+  const asOf = latest.finishedAt ?? latest.startedAt;
+  if (
+    program.refreshMode !== "manual" &&
+    Date.now() - asOf >= program.refreshTtlMs
+  ) {
+    return null;
+  }
+  return {
+    code: (latest.errorCode as DataProgramErrorCode | null) ?? "sandbox_error",
+    message: latest.errorMessage ?? "Background execution failed.",
+  };
 }
 
 /** Saves a finished run. Returns the failure it saved, or null on success. */
