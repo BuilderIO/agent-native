@@ -437,6 +437,9 @@ export function SearchPage({
     documentType,
     modifiedAfter,
     limit: 20,
+    // Meaning matches join the menu with its second wave; until then it keeps
+    // the word results it dedupes and pages against.
+    mode: "words" as const,
   };
   // No `placeholderData`: a query-key change (a new debounced query, or a
   // different filter/scope) must never keep showing the previous key's

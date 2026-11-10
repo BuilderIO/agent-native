@@ -2873,6 +2873,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "स्लाइड और डिज़ाइन के लिए इमेज बनाता है।",
   "settingsInfra.whyEmbeddings":
     "सिमेंटिक खोज को बेहतर बनाता है। कीवर्ड खोज इसके बिना भी काम करती है।",
+  "settingsInfra.semanticSearch": "सिमेंटिक खोज",
+  "settingsInfra.semanticSearchOn":
+    "शब्दों के साथ-साथ अर्थ से भी पेज ढूँढता है। पेज का टेक्स्ट और खोजें एम्बेडिंग प्रदाता को भेजी जाती हैं।",
+  "settingsInfra.semanticSearchOff":
+    "बंद। खोज केवल शब्दों से मेल खाती है, और कोई पेज टेक्स्ट एम्बेडिंग प्रदाता को नहीं भेजा जाता।",
+  "settingsInfra.semanticSearchUnknown":
+    "यह पढ़ा नहीं जा सका कि सिमेंटिक खोज चालू है या नहीं।",
+  "settingsInfra.semanticSearchTurnedOn":
+    "सिमेंटिक खोज चालू है। मौजूदा पेज बैकग्राउंड में इंडेक्स किए जाते हैं।",
+  "settingsInfra.semanticSearchTurnedOff":
+    "सिमेंटिक खोज बंद है। सहेजे गए पेज वेक्टर हटा दिए गए।",
+  "settingsInfra.semanticSearchSaveFailed": "सिमेंटिक खोज नहीं बदली जा सकी।",
   "settingsInfra.designSystem": "डिज़ाइन सिस्टम इंटेलिजेंस",
   "settingsInfra.whyDesignSystem":
     "बनाई गई स्लाइड और डिज़ाइन को ब्रांड के अनुरूप रखता है।",

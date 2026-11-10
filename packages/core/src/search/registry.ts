@@ -28,6 +28,13 @@ export interface SearchableResourceDocument {
   summary?: string | null;
   body?: string | null;
   modifiedAt?: string | Date | null;
+  /**
+   * Who the resource belongs to: its organization, or its owner when it has
+   * none. Registrations with `semantic` need it, to embed the resource with
+   * that organization's provider and settings and to narrow meaning matches
+   * to likely readers. Access is still checked live on every result.
+   */
+  audience?: { orgId?: string | null; ownerEmail?: string | null };
 }
 
 export interface SearchableResourceRegistration {
@@ -50,6 +57,12 @@ export interface SearchableResourceRegistration {
    * might search; access and filters are checked live at query time.
    */
   load(ids: string[]): Promise<SearchableResourceDocument[]>;
+  /**
+   * Also embed each resource's text so searches can match by meaning (see
+   * `searchSemanticIndex`). Pair it with `semanticSearchMigration()`, and
+   * return `audience` from `load`.
+   */
+  semantic?: boolean;
 }
 
 const registrations = new Map<string, SearchableResourceRegistration>();
@@ -62,6 +75,9 @@ function key(app: string, type: string) {
 const AFTER_WRITE_DRAIN_MS = 250;
 /** Share of the recurring sweep's budget search may use. */
 const SWEEP_DRAIN_MS = 20_000;
+/** Budgets for embedding, which waits on a provider. */
+const AFTER_WRITE_SEMANTIC_DRAIN_MS = 2_000;
+const SWEEP_SEMANTIC_DRAIN_MS = 15_000;
 
 let hooksRegistered = false;
 
@@ -79,6 +95,18 @@ function registerDrainHooks() {
     const { drainAllSearchIndexes } = await import("./indexer.js");
     await drainAllSearchIndexes(
       Math.min(deadlineAt - 1_000, Date.now() + SWEEP_DRAIN_MS),
+    );
+  });
+  // Embedding calls are slower than word indexing, so the meaning lane gets
+  // its own budgets and never delays a search.
+  registerAfterWriteDrain("search-embeddings", async () => {
+    const { drainAllSemanticIndexes } = await import("./semantic.js");
+    await drainAllSemanticIndexes(Date.now() + AFTER_WRITE_SEMANTIC_DRAIN_MS);
+  });
+  registerRecurringSweepHandler("search-embeddings", async ({ deadlineAt }) => {
+    const { drainAllSemanticIndexes } = await import("./semantic.js");
+    await drainAllSemanticIndexes(
+      Math.min(deadlineAt - 1_000, Date.now() + SWEEP_SEMANTIC_DRAIN_MS),
     );
   });
 }

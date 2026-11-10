@@ -3074,6 +3074,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "Erzeugt Bilder für Folien und Designs.",
   "settingsInfra.whyEmbeddings":
     "Verbessert die semantische Suche. Die Stichwortsuche funktioniert auch ohne.",
+  "settingsInfra.semanticSearch": "Semantische Suche",
+  "settingsInfra.semanticSearchOn":
+    "Findet Seiten nach Bedeutung und nach Wörtern. Seitentext und Suchanfragen gehen an den Embeddings-Anbieter.",
+  "settingsInfra.semanticSearchOff":
+    "Aus. Die Suche findet nur Wörter, und kein Seitentext geht an den Embeddings-Anbieter.",
+  "settingsInfra.semanticSearchUnknown":
+    "Konnte nicht lesen, ob die semantische Suche an ist.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "Die semantische Suche ist an. Vorhandene Seiten werden im Hintergrund indexiert.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "Die semantische Suche ist aus. Gespeicherte Seitenvektoren wurden gelöscht.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "Die semantische Suche konnte nicht geändert werden.",
   "settingsInfra.designSystem": "Design-System-Intelligenz",
   "settingsInfra.whyDesignSystem":
     "Hält generierte Folien und Designs markenkonform.",

@@ -3056,6 +3056,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "ينشئ صورًا للشرائح والتصاميم.",
   "settingsInfra.whyEmbeddings":
     "يحسّن البحث الدلالي. البحث بالكلمات المفتاحية يعمل بدونه.",
+  "settingsInfra.semanticSearch": "البحث الدلالي",
+  "settingsInfra.semanticSearchOn":
+    "يعثر على الصفحات حسب المعنى إلى جانب الكلمات. يُرسَل نص الصفحات وعمليات البحث إلى مزوّد التضمينات.",
+  "settingsInfra.semanticSearchOff":
+    "متوقف. يطابق البحث الكلمات فقط، ولا يُرسَل أي نص من الصفحات إلى مزوّد التضمينات.",
+  "settingsInfra.semanticSearchUnknown":
+    "تعذّرت معرفة ما إذا كان البحث الدلالي مُفعّلًا.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "البحث الدلالي مُفعّل. تتم فهرسة الصفحات الحالية في الخلفية.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "البحث الدلالي متوقف. تم حذف متجهات الصفحات المخزّنة.",
+  "settingsInfra.semanticSearchSaveFailed": "تعذّر تغيير البحث الدلالي.",
   "settingsInfra.designSystem": "ذكاء نظام التصميم",
   "settingsInfra.whyDesignSystem":
     "يُبقي الشرائح والتصاميم المُنشأة متوافقة مع علامتك التجارية.",

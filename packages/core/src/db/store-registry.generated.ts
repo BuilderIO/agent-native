@@ -364,6 +364,10 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       import("../jobs/scheduler-health.js").then((m) => m.schedulerHealthStore),
   ],
   [
+    "search_embeddings",
+    () => import("../search/semantic.js").then((m) => m.semanticSearchStore),
+  ],
+  [
     "search_resources",
     () => import("../search/index-store.js").then((m) => m.searchIndexStore),
   ],

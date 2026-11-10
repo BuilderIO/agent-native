@@ -60,6 +60,7 @@ export const documentSearchIndex = registerSearchableResource({
   table: schema.documents,
   idColumn: schema.documents.id,
   version: 2,
+  semantic: true,
   load: async (ids) => {
     // guard:allow-unscoped — the indexer projects changed documents by id with no caller; search-documents applies access live when reading the index.
     const rows = await getDb()
@@ -69,6 +70,8 @@ export const documentSearchIndex = registerSearchableResource({
         description: schema.documents.description,
         content: schema.documents.content,
         updatedAt: schema.documents.updatedAt,
+        ownerEmail: schema.documents.ownerEmail,
+        orgId: schema.documents.orgId,
       })
       .from(schema.documents)
       .where(inArray(schema.documents.id, ids));
@@ -78,6 +81,7 @@ export const documentSearchIndex = registerSearchableResource({
       summary: row.description,
       body: row.content,
       modifiedAt: row.updatedAt,
+      audience: { orgId: row.orgId, ownerEmail: row.ownerEmail },
     }));
   },
 });

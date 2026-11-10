@@ -43,6 +43,11 @@ vi.mock("../../server/secret-key-aliases.js", () => ({
       : { value: null, lookupFailed: false },
 }));
 
+vi.mock("../../search/semantic.js", () => ({
+  forgetSemanticSearchForOrg: async () => undefined,
+  requeueSemanticSearchForOrg: async () => undefined,
+}));
+
 vi.mock("../../audit/record.js", () => ({
   recordActionAudit: async () => {},
 }));

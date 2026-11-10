@@ -1019,6 +1019,12 @@
       "checksum": "d6a4998c3d5b4fd1"
     }
   ],
+  "search_embeddings": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
   "search_resources": [
     {
       "name": "baseline",

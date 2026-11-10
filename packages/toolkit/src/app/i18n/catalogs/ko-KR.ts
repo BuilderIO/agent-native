@@ -2885,6 +2885,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "슬라이드와 디자인용 이미지를 생성합니다.",
   "settingsInfra.whyEmbeddings":
     "의미 기반 검색을 개선합니다. 키워드 검색은 이것 없이도 작동합니다.",
+  "settingsInfra.semanticSearch": "의미 기반 검색",
+  "settingsInfra.semanticSearchOn":
+    "단어뿐 아니라 의미로도 페이지를 찾습니다. 페이지 텍스트와 검색어는 임베딩 제공업체로 전송됩니다.",
+  "settingsInfra.semanticSearchOff":
+    "꺼짐. 검색은 단어만 찾으며, 페이지 텍스트는 임베딩 제공업체로 전송되지 않습니다.",
+  "settingsInfra.semanticSearchUnknown":
+    "의미 기반 검색이 켜져 있는지 확인할 수 없습니다.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "의미 기반 검색이 켜졌습니다. 기존 페이지는 백그라운드에서 색인됩니다.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "의미 기반 검색이 꺼졌습니다. 저장된 페이지 벡터가 삭제되었습니다.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "의미 기반 검색을 변경할 수 없습니다.",
   "settingsInfra.designSystem": "디자인 시스템 인텔리전스",
   "settingsInfra.whyDesignSystem":
     "생성된 슬라이드와 디자인을 브랜드에 맞게 유지합니다.",

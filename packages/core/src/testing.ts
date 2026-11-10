@@ -33,3 +33,8 @@ export {
 } from "./cli/design-connect.js";
 
 export { assertNoInlineImageBytes } from "./shared/inline-bytes.js";
+
+export {
+  createMemorySearchVectorStore,
+  type MemorySearchVectorStore,
+} from "./search/memory-vector-store.js";

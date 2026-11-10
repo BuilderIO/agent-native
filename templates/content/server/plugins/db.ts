@@ -1,5 +1,8 @@
 import { runMigrations } from "@agent-native/core/db";
-import { searchIndexMigration } from "@agent-native/core/search";
+import {
+  searchIndexMigration,
+  semanticSearchMigration,
+} from "@agent-native/core/search";
 
 import { documentSearchIndex } from "../db/index.js";
 import { scheduleStartupMaintenance } from "../lib/startup-maintenance.js";
@@ -1676,6 +1679,12 @@ export const runContentMigrations = runMigrations(
       name: "content-document-agent-text-locked",
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS agent_text_locked INTEGER NOT NULL DEFAULT 0`,
     },
+    // Queues every page to be embedded for question search. The capture
+    // installed by version 117 records later changes for it too.
+    semanticSearchMigration(documentSearchIndex, {
+      version: 137,
+      name: "search-embeddings-documents",
+    }),
   ],
   { table: "content_migrations" },
 );
