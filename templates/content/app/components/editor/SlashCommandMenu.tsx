@@ -32,6 +32,9 @@ import {
   IconTable as TableIcon,
   IconHierarchy2,
   IconInfoCircle,
+  IconColumns,
+  IconColumns2,
+  IconColumns3,
   IconMusic,
   IconPhoto,
   IconFileText,
@@ -660,6 +663,32 @@ export function getEquationInsertionRange(
     : slashRange;
 }
 
+export function columnSetContent(count: number) {
+  return {
+    type: "notionColumns",
+    content: Array.from({ length: count }, () => ({
+      type: "notionColumn",
+      content: [{ type: "paragraph" }],
+    })),
+  };
+}
+
+/** Puts a set of empty columns where the menu opened, caret in the first. */
+export function insertColumnSet(
+  editor: Pick<Editor, "chain" | "commands" | "state">,
+  count: number,
+) {
+  if (!editor.chain().focus().insertContent(columnSetContent(count)).run())
+    return false;
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth--) {
+    if ($from.node(depth).type.name !== "notionColumns") continue;
+    // Inside the set, its first column, and that column's paragraph.
+    return editor.commands.setTextSelection($from.before(depth) + 3);
+  }
+  return true;
+}
+
 export function setCodeBlockFromSlashCommand(
   editor: Editor,
   slashRange: { from: number; to: number } | null,
@@ -752,6 +781,20 @@ const commands: CommandTemplate[] = [
         })
         .run(),
   },
+  ...(
+    [
+      [2, "editor.slash.twoColumns", IconColumns2],
+      [3, "editor.slash.threeColumns", IconColumns3],
+      [4, "editor.slash.fourColumns", IconColumns],
+    ] as const
+  ).map(
+    ([count, titleKey, icon]): CommandTemplate => ({
+      titleKey,
+      descriptionKey: "editor.slash.columnsDescription",
+      icon,
+      action: (editor) => insertColumnSet(editor, count),
+    }),
+  ),
   {
     titleKey: "editor.slash.divider",
     descriptionKey: "editor.slash.dividerDescription",

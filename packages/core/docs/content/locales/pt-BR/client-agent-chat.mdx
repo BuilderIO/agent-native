@@ -204,6 +204,8 @@ sendToAgentChat({
 });
 ```
 
+`sendToAgentChat()` retorna um ID de aba, não uma confirmação de entrega. Para confirmar um envio local, use `sendToAgentChatAndConfirm({ message, chatTarget: "local" })` e trate `delivered: false` e `reason`. A função aguarda a confirmação e cancela ao expirar o prazo. Rascunhos e destinos de código não são suportados.
+
 ### AgentChatMessage {#agentchatmessage}
 
 | Opção          | Tipo       | Descrição                                                                                                       |

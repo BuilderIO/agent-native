@@ -31,7 +31,10 @@ const tauri = vi.hoisted(() => {
 const transcription = vi.hoisted(() => ({
   start: vi.fn(async () => "whisper" as const),
   stop: vi.fn(
-    async (_engine?: string, _runId?: number): Promise<void> => undefined,
+    async (
+      _engine?: string,
+      _runId?: number,
+    ): Promise<{ failure: string | null }> => ({ failure: null }),
   ),
   restart: vi.fn(async () => undefined),
 }));
@@ -90,6 +93,7 @@ function Probe({
     selectedMicId: null,
     selectedMicLabel: null,
     enabled: true,
+    localModel: null,
   });
   return null;
 }
@@ -108,7 +112,7 @@ describe("useMeetingTranscription quit coordination", () => {
     transcription.start.mockReset();
     transcription.stop.mockReset();
     transcription.restart.mockReset();
-    transcription.stop.mockResolvedValue(undefined);
+    transcription.stop.mockResolvedValue({ failure: null });
     transcription.restart.mockResolvedValue(undefined);
     host = document.createElement("div");
     document.body.append(host);
@@ -333,7 +337,7 @@ describe("useMeetingTranscription quit coordination", () => {
 
   it("waits for engine startup and stop before closing an app-quit session", async () => {
     const engineStart = deferred<"whisper">();
-    const engineStop = deferred<void>();
+    const engineStop = deferred<{ failure: string | null }>();
     const stopRecording = deferred<{ actualEnd: string }>();
     transcription.start.mockReturnValue(engineStart.promise);
     transcription.stop.mockReturnValue(engineStop.promise);
@@ -411,7 +415,7 @@ describe("useMeetingTranscription quit coordination", () => {
     expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
 
     await act(async () => {
-      engineStop.resolve();
+      engineStop.resolve({ failure: null });
       await waitFor(() =>
         callClipsAction.mock.calls.some(
           ([name]) => name === "stop-meeting-recording",
@@ -439,7 +443,7 @@ describe("useMeetingTranscription quit coordination", () => {
 
   it("stops the resolved native engine after delayed startup before acknowledging quit", async () => {
     const engineStart = deferred<"whisper">();
-    const engineStop = deferred<void>();
+    const engineStop = deferred<{ failure: string | null }>();
     const stopRecording = deferred<{ actualEnd: string }>();
     const events: string[] = [];
     transcription.start.mockImplementation(async () => {
@@ -452,6 +456,7 @@ describe("useMeetingTranscription quit coordination", () => {
       if (engine === "whisper" && events.includes("startup-settled")) {
         return engineStop.promise;
       }
+      return { failure: null };
     });
     const callClipsAction = vi.fn((name: string) => {
       if (name === "start-meeting-recording") {
@@ -513,7 +518,7 @@ describe("useMeetingTranscription quit coordination", () => {
     expect(tauri.invoke).not.toHaveBeenCalledWith("quit_teardown_done");
 
     await act(async () => {
-      engineStop.resolve();
+      engineStop.resolve({ failure: null });
       await waitFor(() =>
         callClipsAction.mock.calls.some(
           ([name]) => name === "stop-meeting-recording",
@@ -536,7 +541,7 @@ describe("useMeetingTranscription quit coordination", () => {
 
   it("keeps quit pending and retries when stopping the resolved native engine fails", async () => {
     const engineStart = deferred<"whisper">();
-    const retryEngineStop = deferred<void>();
+    const retryEngineStop = deferred<{ failure: string | null }>();
     const stopRecording = deferred<{ actualEnd: string }>();
     const events: string[] = [];
     let postStartWhisperStops = 0;
@@ -555,6 +560,7 @@ describe("useMeetingTranscription quit coordination", () => {
         }
         return retryEngineStop.promise;
       }
+      return { failure: null };
     });
     const callClipsAction = vi.fn((name: string) => {
       if (name === "start-meeting-recording") {
@@ -625,7 +631,7 @@ describe("useMeetingTranscription quit coordination", () => {
     ).toBe(false);
 
     await act(async () => {
-      retryEngineStop.resolve();
+      retryEngineStop.resolve({ failure: null });
       await waitFor(() =>
         callClipsAction.mock.calls.some(
           ([name]) => name === "stop-meeting-recording",
@@ -788,5 +794,125 @@ describe("useMeetingTranscription quit coordination", () => {
 
     expect(stopAttempts).toBe(2);
     expect(tauri.invoke).toHaveBeenCalledWith("quit_teardown_done");
+  });
+
+  describe("meeting session identity", () => {
+    function startTranscriptionListener() {
+      const first = tauri.listeners
+        .get("meetings:start-transcription")
+        ?.values()
+        .next();
+      if (!first || first.done) {
+        throw new Error("start-transcription listener not registered");
+      }
+      return first.value;
+    }
+
+    function startedMeetingAction() {
+      return vi.fn((name: string) => {
+        if (name === "start-meeting-recording") {
+          return Promise.resolve({
+            meetingId: "meeting-row-1",
+            recording: { id: "recording-1" },
+          });
+        }
+        if (name === "get-meeting") {
+          return Promise.resolve({ meeting: { title: "Meeting" } });
+        }
+        return Promise.resolve({ actualEnd: new Date().toISOString() });
+      });
+    }
+
+    it("keeps the running session when a start repeats the calendar id it was started with", async () => {
+      transcription.start.mockResolvedValue("whisper");
+      const callClipsAction = startedMeetingAction();
+      await act(async () => {
+        root.render(<Probe callClipsAction={callClipsAction} />);
+      });
+      const startListener = startTranscriptionListener();
+
+      await act(async () => {
+        startListener({ payload: { meetingId: "calendar-event-1" } });
+        await waitFor(() =>
+          tauri.emit.mock.calls.some(
+            ([name]) => name === "meetings:transcription-started",
+          ),
+        );
+      });
+      tauri.invoke.mockClear();
+
+      await act(async () => {
+        startListener({ payload: { meetingId: "calendar-event-1" } });
+        await waitFor(() =>
+          tauri.invoke.mock.calls.some(
+            ([command]) => command === "recording_pill_show",
+          ),
+        );
+      });
+
+      expect(
+        callClipsAction.mock.calls.some(
+          ([name]) => name === "stop-meeting-recording",
+        ),
+      ).toBe(false);
+      expect(transcription.stop).not.toHaveBeenCalled();
+      expect(tauri.invoke).not.toHaveBeenCalledWith("recording_pill_hide");
+      expect(tauri.invoke).toHaveBeenCalledWith("recording_pill_show", {
+        meetingId: "meeting-row-1",
+        mode: "meeting",
+      });
+    });
+
+    it("marks the meeting active as soon as its pill shows, before the server confirms the start", async () => {
+      transcription.start.mockResolvedValue("whisper");
+      const startRecording = deferred<{
+        meetingId: string;
+        recording: { id: string };
+      }>();
+      const callClipsAction = vi.fn((name: string) => {
+        if (name === "start-meeting-recording") return startRecording.promise;
+        if (name === "get-meeting") {
+          return Promise.resolve({ meeting: { title: "Meeting" } });
+        }
+        return Promise.resolve({ actualEnd: new Date().toISOString() });
+      });
+      await act(async () => {
+        root.render(<Probe callClipsAction={callClipsAction} />);
+      });
+      const startListener = startTranscriptionListener();
+
+      await act(async () => {
+        startListener({ payload: { meetingId: "calendar-event-1" } });
+        await waitFor(() =>
+          callClipsAction.mock.calls.some(
+            ([name]) => name === "start-meeting-recording",
+          ),
+        );
+      });
+
+      expect(tauri.invoke).toHaveBeenCalledWith("set_meeting_active", {
+        active: true,
+        meetingId: "calendar-event-1",
+      });
+
+      await act(async () => {
+        startRecording.resolve({
+          meetingId: "meeting-row-1",
+          recording: { id: "recording-1" },
+        });
+        await waitFor(() =>
+          tauri.emit.mock.calls.some(
+            ([name]) => name === "meetings:transcription-started",
+          ),
+        );
+      });
+      const meetingActiveCalls = tauri.invoke.mock.calls.filter(
+        ([command]) => command === "set_meeting_active",
+      );
+      expect(meetingActiveCalls[meetingActiveCalls.length - 1]).toEqual([
+        "set_meeting_active",
+        { active: true, meetingId: "meeting-row-1" },
+      ]);
+    });
   });
 });

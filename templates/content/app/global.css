@@ -1387,15 +1387,19 @@ div[data-notion-callout-content] > :last-child {
   margin-bottom: 0;
 }
 
+/* Columns share the row by their ratio (each column's flex-grow), or equally
+   without one. A row too narrow for every column's minimum wraps, and a phone
+   stacks them. */
 div[data-notion-columns] {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   margin: 1rem 0;
 }
 
 div[data-notion-column] {
-  min-width: 0;
+  flex: 1 1 0%;
+  min-width: min(100%, 8rem);
   border: 1px solid hsl(var(--border));
   border-radius: 12px;
   padding: 0.85rem 0.95rem;
@@ -1408,6 +1412,12 @@ div[data-notion-column] > :first-child {
 
 div[data-notion-column] > :last-child {
   margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  div[data-notion-column] {
+    flex-basis: 100%;
+  }
 }
 
 .content-atom {
@@ -2615,10 +2625,12 @@ audio.media-block__content {
 
   [data-document-print-root] {
     position: absolute !important;
-    inset: 0 !important;
+    inset: 0 0 auto !important;
     display: block !important;
     width: 100% !important;
+    height: auto !important;
     min-height: auto !important;
+    overflow: visible !important;
     background: #fff !important;
     color: #111 !important;
   }
@@ -2815,13 +2827,15 @@ audio.media-block__content {
   text-decoration: line-through;
   text-decoration-color: hsl(var(--muted-foreground) / 0.8);
 }
+/* Removed text stays struck through while it's pointed at or selected, so it
+   never reads as the text that replaces it. */
 .content-editor .suggestion-delete:hover,
 .content-editor .suggestion-delete:focus-visible,
 .content-editor .suggestion-delete-widget:hover,
 .content-editor .suggestion-delete-widget:focus-visible {
   background: hsl(var(--muted));
   color: hsl(var(--foreground));
-  text-decoration: none;
+  text-decoration-color: hsl(var(--foreground) / 0.7);
 }
 
 .content-editor .suggestion-change {
@@ -2841,6 +2855,13 @@ audio.media-block__content {
   background: hsl(var(--suggestion) / 0.12);
   box-shadow: inset 0 -2px hsl(var(--suggestion) / 0.55);
   color: hsl(var(--suggestion));
+}
+
+/* New words after the struck words they replace start a little apart, so the
+   two runs don't read as one word. */
+.content-editor
+  .suggestion-inline-widget.suggestion-insert--spaced[data-suggestion-widget] {
+  margin-inline-start: 0.3em;
 }
 
 /* A whole suggested line is drawn as the block it adds or removes, marked by
@@ -2881,8 +2902,11 @@ audio.media-block__content {
 .content-editor .suggestion-delete.suggestion-highlight--active,
 .content-editor .suggestion-delete-widget.suggestion-highlight--active {
   background: hsl(var(--muted));
+  box-shadow: none;
   color: hsl(var(--foreground));
-  text-decoration: none;
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--foreground) / 0.7);
+  text-decoration-thickness: auto;
 }
 .content-editor .suggestion-delete-block.suggestion-highlight--active {
   background: hsl(var(--muted));

@@ -12,6 +12,7 @@ import {
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
@@ -127,6 +128,7 @@ import {
   holdDroppedClipFile,
   watchClipUploadBlocks,
 } from "./clip-embed/clip-uploads";
+import { ColumnResizeControls } from "./ColumnResizeControls";
 import {
   buildDocText,
   resolveAnchor,
@@ -163,7 +165,7 @@ import {
 } from "./extensions/CommentHighlight";
 import { ContentReferenceNode } from "./extensions/ContentReferenceNode";
 import { DragHandle } from "./extensions/DragHandle";
-import { ImageNode } from "./extensions/ImageNode";
+import { ImageNode, type ContentImageOptions } from "./extensions/ImageNode";
 import {
   LOCAL_FILE_USER_EDIT_META,
   LocalMdxComponentNode,
@@ -220,6 +222,7 @@ import {
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import { suggestionPlacements } from "./suggestion-placement";
+import { caretAfterPageSwap } from "./suggestions/keep-caret";
 import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
@@ -1862,6 +1865,8 @@ interface VisualEditorProps {
     actualContent: string,
   ) => void;
   activeSuggestionId?: string | null;
+  /** The suggestions decided together with the active one. */
+  activeSuggestionUnitIds?: readonly string[];
   onActivateSuggestion?: (suggestionId: string) => void;
   onHoverSuggestion?: (suggestionId: string | null) => void;
   onSuggestionReplacementIntent?: (intent: {
@@ -2221,7 +2226,8 @@ interface VisualEditorExtensionOptions {
     email?: string;
     avatarUrl?: string;
   } | null;
-  onImageComment?: (quotedText: string, offsetTop: number) => void;
+  /** Starts a comment on the whole image or audio clip at `pos`. */
+  onMediaComment?: ContentImageOptions["onImageComment"];
   onVideoComment?: ContentVideoOptions["onVideoComment"];
   canCommentOnVideo?: ContentVideoOptions["canCommentOnVideo"];
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
@@ -2887,7 +2893,7 @@ export function createVisualEditorExtensions({
   ydoc,
   localAwareness,
   user,
-  onImageComment,
+  onMediaComment,
   onVideoComment,
   canCommentOnVideo,
   onImageFilePickerRequest,
@@ -2949,7 +2955,7 @@ export function createVisualEditorExtensions({
       ImageNode.configure({
         HTMLAttributes: { class: "content-image" },
         documentId,
-        onImageComment,
+        onImageComment: onMediaComment,
         onImageFilePickerRequest,
         usesPrivateImageUploads,
         canMutateMedia,
@@ -2968,7 +2974,7 @@ export function createVisualEditorExtensions({
       AudioNode.configure({
         HTMLAttributes: { class: "content-audio" },
         documentId,
-        onAudioComment: onImageComment,
+        onAudioComment: onMediaComment,
         canMutateMedia,
       }),
       MediaSourceCommit.configure({ onMediaSourceCommitted }),
@@ -3367,6 +3373,7 @@ export function VisualEditor({
   onProposalDecisionRendered,
   onProposalDecisionReadbackOutdated,
   activeSuggestionId,
+  activeSuggestionUnitIds,
   onActivateSuggestion,
   onHoverSuggestion,
   onSuggestionReplacementIntent,
@@ -3595,6 +3602,28 @@ export function VisualEditor({
         : undefined,
     [canCommentOnBlocks, savesVideoIds],
   );
+  // An image or audio clip goes by an id derived from its file, which nothing
+  // writes down, so any tab that comments can start a thread on one.
+  const onMediaComment = useMemo<ContentImageOptions["onImageComment"]>(
+    () =>
+      canCommentOnBlocks
+        ? (view, pos, offsetTop) => {
+            const node = view.state.doc.nodeAt(pos);
+            const block = commentAnchorBlockAt(view.state.doc, pos);
+            if (!node || !block) return;
+            onBlockCommentRef.current?.(
+              {
+                blockId: block.blockId,
+                blockType: block.blockType,
+                from: pos,
+                to: pos + node.nodeSize,
+              },
+              offsetTop,
+            );
+          }
+        : undefined,
+    [canCommentOnBlocks],
+  );
   const findCommentQuote = useCallback(
     (threadId: string, doc: ProseMirrorNode) => {
       const thread = threadsRef.current?.find((t) => t.threadId === threadId);
@@ -3703,7 +3732,7 @@ export function VisualEditor({
         ydoc,
         localAwareness,
         user,
-        onImageComment: onComment,
+        onMediaComment,
         onVideoComment,
         canCommentOnVideo,
         onImageFilePickerRequest,
@@ -3718,6 +3747,35 @@ export function VisualEditor({
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
         findCommentQuote,
+      }),
+      Extension.create({
+        name: "suggestingCaretOnPageSwap",
+        addProseMirrorPlugins() {
+          return [
+            new Plugin({
+              // The suggestion draft starting over from a newer Page swaps the
+              // editor's content; the caret stays by the text around it.
+              appendTransaction(transactions, oldState, newState) {
+                if (
+                  !isSuggesting() ||
+                  !guardsRef.current?.isSettingContentRef.current ||
+                  !oldState.selection.empty ||
+                  !transactions.some((transaction) => transaction.docChanged)
+                )
+                  return null;
+                const at = caretAfterPageSwap(
+                  oldState.doc,
+                  oldState.selection.from,
+                  newState.doc,
+                );
+                if (at === null || at === newState.selection.from) return null;
+                return newState.tr.setSelection(
+                  TextSelection.create(newState.doc, at),
+                );
+              },
+            }),
+          ];
+        },
       }),
       Extension.create({
         name: "contentEditorEscape",
@@ -3753,7 +3811,7 @@ export function VisualEditor({
       ydoc,
       localAwareness,
       user,
-      onComment,
+      onMediaComment,
       onVideoComment,
       canCommentOnVideo,
       onImageFilePickerRequest,
@@ -3877,7 +3935,7 @@ export function VisualEditor({
         throw new Error(t("empty.genericError"));
       }
     } catch (error) {
-      toast.error(t("empty.genericError"));
+      reportWriteFailure(error, { label: t("empty.genericError") });
       console.error("Media source persistence error:", error);
     }
   };
@@ -5149,14 +5207,18 @@ export function VisualEditor({
               ) ?? null
             );
           }
+          const unitSpec =
+            spec && activeSuggestionUnitIds?.includes(suggestion.id)
+              ? { ...spec, inActiveUnit: true }
+              : spec;
           // While suggesting, a saved suggestion's text outside the document
           // is somewhere to type beside, not a control to focus.
-          return spec &&
+          return unitSpec &&
             suggesting &&
             editable &&
             suggestion.presentation === "canonical"
-            ? { ...spec, editableBoundary: true }
-            : spec;
+            ? { ...unitSpec, editableBoundary: true }
+            : unitSpec;
         })
         .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
       if (lagging) specs.push(...typed.filter(isProvisionalDraftSpec));
@@ -5195,6 +5257,7 @@ export function VisualEditor({
     };
   }, [
     activeSuggestionId,
+    activeSuggestionUnitIds,
     content,
     editable,
     editor,
@@ -5491,6 +5554,9 @@ export function VisualEditor({
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable && !suggesting ? <TableHoverControls editor={editor} /> : null}
+      {editable && !suggesting ? (
+        <ColumnResizeControls editor={editor} />
+      ) : null}
       {editable ? (
         <BlockActionsMenu
           editor={editor}

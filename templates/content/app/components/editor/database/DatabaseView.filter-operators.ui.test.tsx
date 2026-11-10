@@ -142,6 +142,10 @@ function ruleActionsButton(control: HTMLElement) {
   throw new Error("No rule actions button");
 }
 
+// Radix's focus scope fires this on the menu element just before it moves
+// focus back, in the same task.
+const MENU_FOCUS_RETURN_EVENT = "focusScope.autoFocusOnUnmount";
+
 async function chooseMenuItem(text: string) {
   const item = await vi.waitFor(() => {
     const item = [
@@ -158,12 +162,29 @@ async function chooseMenuItem(text: string) {
     return item;
   });
   const menu = item.closest('[role="menu"]');
+  let focusReturned = false;
+  menu?.addEventListener(
+    MENU_FOCUS_RETURN_EVENT,
+    () => {
+      focusReturned = true;
+    },
+    { once: true },
+  );
   await click(item);
-  // A closed menu queues its focus return to its trigger as a zero-delay
-  // task. If the next non-modal menu opens first, that focus lands outside it
-  // and dismisses it, so let the queued task run before the next step.
+  // A closed menu returns focus to its trigger from a later task. If the next
+  // non-modal menu opens first, that focus lands outside it and dismisses it,
+  // so wait for the return itself, however late it runs, before going on.
   if (menu && !menu.isConnected) {
-    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+    await act(() =>
+      vi.waitFor(
+        () => {
+          expect(focusReturned, `menu closed by "${text}" returned focus`).toBe(
+            true,
+          );
+        },
+        { interval: 1 },
+      ),
+    );
   }
 }
 

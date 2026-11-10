@@ -19,6 +19,7 @@ import {
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  storedSegmentsUnreadable,
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
@@ -120,12 +121,18 @@ export default defineEventHandler(async (event) => {
 
     const transcript = linked?.transcript ?? null;
     const transcriptPresentation = resolveTranscriptPresentation(transcript);
-    const transcriptSegments = transcript
-      ? normalizeTranscriptSegments({
-          segments: parseTranscriptSegments(transcript.segmentsJson),
-          fullText: transcript.fullText,
-        })
-      : [];
+    // Lines built from the full text would read as the transcript with its
+    // speakers gone; readers get that text as saved instead.
+    const segmentsUnreadable = storedSegmentsUnreadable(
+      transcript?.segmentsJson,
+    );
+    const transcriptSegments =
+      transcript && !segmentsUnreadable
+        ? normalizeTranscriptSegments({
+            segments: parseTranscriptSegments(transcript.segmentsJson),
+            fullText: transcript.fullText,
+          })
+        : [];
     const role = access.role;
 
     const ownerEmailIsPublic = participants.some(
@@ -155,6 +162,9 @@ export default defineEventHandler(async (event) => {
                     language: transcript.language,
                     fullText: transcript.fullText,
                     segments: transcriptSegments,
+                    ...(segmentsUnreadable
+                      ? { segmentsUnreadable: true as const }
+                      : {}),
                   }
                 : null,
             }

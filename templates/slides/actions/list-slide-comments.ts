@@ -7,6 +7,7 @@ import { and, asc, eq, gt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { commentActorKey } from "../shared/comment-author.js";
 import { parseSlideCommentAnchor } from "../shared/slide-comment-anchor.js";
 import { summarizeSlideCommentReactions } from "../shared/slide-comment-reactions.js";
 
@@ -40,7 +41,7 @@ export default defineAction({
       .describe("Continue after the last comment returned by the prior page"),
   }),
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const { deckId, slideId } = args;
     const offset = args.offset ?? 0;
     const pageLimit = args.limit ?? DEFAULT_COMMENT_PAGE_SIZE;
@@ -90,9 +91,11 @@ export default defineAction({
         anchor: parseSlideCommentAnchor(row.anchor),
         reactions: summarizeSlideCommentReactions(
           row.emojiReactionsJson,
-          viewerEmail,
+          viewerEmail &&
+            commentActorKey(ctx?.caller, viewerEmail.trim().toLowerCase()),
         ),
         author_email: row.authorEmail,
+        author_kind: row.authorKind,
         author_name: resolveUserProfileName(
           row.authorEmail,
           row.authorName,

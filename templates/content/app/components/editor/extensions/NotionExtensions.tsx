@@ -6,6 +6,11 @@ import {
   type IconValue,
 } from "@agent-native/core/icons";
 import type { ContentLinkTarget } from "@shared/api";
+import {
+  formatColumnRatio,
+  normalizeColumnRatios,
+  parseColumnRatio,
+} from "@shared/column-ratios";
 import { pageLinkBlockId } from "@shared/content-links";
 import { findTrailingPlainInlineMath } from "@shared/inline-math";
 import { NFM_COLORS, serializeToggleTitle } from "@shared/nfm";
@@ -67,6 +72,7 @@ import { EmojiPicker } from "../EmojiPicker";
 import { MathRenderer } from "../MathRenderer";
 import { isSuggestingEdits } from "../suggestions/read-only-blocks";
 import { useEditorEditable } from "../useEditorEditable";
+import { COLUMN_NODE, COLUMNS_NODE, repairColumnSets } from "./column-sets";
 
 const BLOCK_ATOM_TAGS = [
   "page",
@@ -2391,11 +2397,20 @@ export const NotionCallout = Node.create({
   },
 });
 
-export const NotionColumns = Node.create({
-  name: "notionColumns",
+export interface NotionColumnsOptions {
+  /** Whether a change is this tab's own edit, which may repair a set. */
+  isEdit: (transaction: Transaction) => boolean;
+}
+
+export const NotionColumns = Node.create<NotionColumnsOptions>({
+  name: COLUMNS_NODE,
   group: "block",
-  content: "notionColumn+",
+  content: `${COLUMN_NODE}+`,
   defining: true,
+
+  addOptions() {
+    return { isEdit: () => false };
+  },
 
   parseHTML() {
     return [{ tag: "columns" }, { tag: "div[data-notion-columns]" }];
@@ -2406,6 +2421,23 @@ export const NotionColumns = Node.create({
       "div",
       mergeAttributes(HTMLAttributes, { "data-notion-columns": "true" }),
       0,
+    ];
+  },
+
+  addProseMirrorPlugins() {
+    const { editor, options } = this;
+    // Another tab's change, a load, or an undo in another tab is left as it
+    // came: the tab that made the change repaired it there.
+    const isEdit = (transaction: Transaction) =>
+      isNotRemoteChange(transaction) && options.isEdit(transaction);
+    return [
+      new Plugin({
+        key: new PluginKey("notionColumnSets"),
+        appendTransaction(transactions, oldState, newState) {
+          if (!editor.isEditable || !transactions.some(isEdit)) return null;
+          return repairColumnSets(transactions, oldState, newState);
+        },
+      }),
     ];
   },
 
@@ -2423,10 +2455,48 @@ export const NotionColumns = Node.create({
   },
 });
 
+function isColumnElement(element: Element) {
+  return (
+    element.tagName.toLowerCase() === "column" ||
+    element.hasAttribute("data-notion-column")
+  );
+}
+
+// A pasted set may give only some of its columns a width; each column reads
+// its share of the set's widths, as Markdown does.
+function columnRatioFromElement(element: HTMLElement): number | null {
+  const read = (column: Element) =>
+    parseColumnRatio(
+      column.getAttribute("data-ratio") ?? column.getAttribute("ratio"),
+    );
+  const siblings = element.parentElement
+    ? Array.from(element.parentElement.children).filter(isColumnElement)
+    : [element];
+  const index = siblings.indexOf(element);
+  if (index < 0) return read(element);
+  return normalizeColumnRatios(siblings.map(read))[index] ?? null;
+}
+
 export const NotionColumn = Node.create({
-  name: "notionColumn",
+  name: COLUMN_NODE,
   content: "block+",
   defining: true,
+
+  addAttributes() {
+    return {
+      // Its percentage of the row's width; null for an equal share.
+      ratio: {
+        default: null,
+        parseHTML: columnRatioFromElement,
+        renderHTML: (attributes) => {
+          const ratio = parseColumnRatio(attributes.ratio);
+          if (ratio === null) return {};
+          const written = formatColumnRatio(ratio);
+          return { "data-ratio": written, style: `flex-grow: ${written}` };
+        },
+      },
+    };
+  },
 
   parseHTML() {
     return [{ tag: "column" }, { tag: "div[data-notion-column]" }];
@@ -2440,12 +2510,54 @@ export const NotionColumn = Node.create({
     ];
   },
 
+  // The same markup as renderHTML. A resize draws its widths on the columns
+  // while the pointer moves and writes them once it lets go, so the view keeps
+  // a changed style rather than redrawing the column under the pointer.
+  addNodeView() {
+    return ({ node }) => {
+      const dom = document.createElement("div");
+      dom.setAttribute("data-notion-column", "true");
+      const showRatio = (column: ProseMirrorNode) => {
+        const ratio = parseColumnRatio(column.attrs.ratio);
+        if (ratio === null) {
+          dom.removeAttribute("data-ratio");
+          dom.style.removeProperty("flex-grow");
+        } else {
+          const written = formatColumnRatio(ratio);
+          dom.setAttribute("data-ratio", written);
+          dom.style.flexGrow = written;
+        }
+      };
+      showRatio(node);
+      return {
+        dom,
+        contentDOM: dom,
+        update: (updated) => {
+          if (updated.type !== node.type) return false;
+          showRatio(updated);
+          return true;
+        },
+        ignoreMutation: (mutation) =>
+          mutation.type === "attributes" &&
+          mutation.target === dom &&
+          mutation.attributeName === "style",
+      };
+    };
+  },
+
   addStorage() {
     return {
       markdown: {
         serialize: function (_state: any, node: any) {
           const inner = serializeInnerMarkdown((this as any).editor, node);
-          _state.write(serializeContainerTag("column", {}, inner));
+          const ratio = parseColumnRatio(node.attrs.ratio);
+          _state.write(
+            serializeContainerTag(
+              "column",
+              { ratio: ratio === null ? null : formatColumnRatio(ratio) },
+              inner,
+            ),
+          );
           _state.closeBlock(node);
         },
         parse: {},
@@ -2656,7 +2768,9 @@ export function createNotionEditorExtensions(
       ? NotionToggle.configure({ isEdit: blockAtomOptions.isEdit })
       : NotionToggle,
     NotionCallout.configure({ documentId: blockAtomOptions.documentId }),
-    NotionColumns,
+    blockAtomOptions.isEdit
+      ? NotionColumns.configure({ isEdit: blockAtomOptions.isEdit })
+      : NotionColumns,
     NotionColumn,
     NotionBlockAtom.configure(blockAtomOptions),
     NotionInlineAtom,

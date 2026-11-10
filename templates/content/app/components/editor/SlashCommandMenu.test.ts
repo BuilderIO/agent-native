@@ -28,6 +28,7 @@ import {
   getEquationInsertionRange,
   getSlashMenuVerticalPosition,
   inlineDatabaseBlockContent,
+  insertColumnSet,
   insertEquation,
   insertInlineDatabaseBlock,
   parseSlashCommandQuery,
@@ -751,6 +752,30 @@ describe("heading slash commands", () => {
 
     expect(chain.toggleHeading).toHaveBeenCalledWith({ level: 5 });
     expect(chain.setHeading).toHaveBeenCalledWith({ level: 6 });
+  });
+});
+
+describe("column slash commands", () => {
+  it("puts a set of empty columns where the slash was and the caret in the first", () => {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc("Before\n<empty-block/>\nAfter"),
+    });
+
+    try {
+      editor.commands.setTextSelection(editor.state.doc.child(0).nodeSize + 1);
+      expect(insertColumnSet(editor, 3)).toBe(true);
+
+      const set = editor.state.doc.child(1);
+      expect(set.type.name).toBe("notionColumns");
+      expect(set.childCount).toBe(3);
+      expect(editor.state.doc.child(2).textContent).toBe("After");
+      const { $from } = editor.state.selection;
+      expect($from.node(-1)).toBe(set.child(0));
+      expect($from.parent.type.name).toBe("paragraph");
+    } finally {
+      editor.destroy();
+    }
   });
 });
 

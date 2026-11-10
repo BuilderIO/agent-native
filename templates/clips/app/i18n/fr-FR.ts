@@ -731,6 +731,8 @@ const messages = {
     noMatches: "Aucun match.",
     noTranscript: "Pas encore de transcription.",
     noTranscriptCaptured: "Aucune transcription n’a été capturée.",
+    unreadableDescription:
+      "La transcription enregistrée est endommagée. La régénérer en crée une nouvelle à partir de l’audio du clip.",
     partialTranscript:
       "Transcription partielle : l’enregistrement a été coupé, il peut donc manquer des passages.",
     backupFailed:
@@ -2084,6 +2086,7 @@ const messages = {
     freeClipsLeft_one: "Il vous reste {{count}} clip gratuit",
     freeClipsLeft_other: "Il vous reste {{count}} clips gratuits",
     freeClipsLeft_many: "Il vous reste {{count}} clips gratuits",
+    activateBuilder: "Activer Builder.io",
     hostedClipsExhaustedTitle:
       "Connectez Builder.io gratuitement pour continuer à enregistrer",
     hostedClipsExhaustedDescription:
@@ -2300,6 +2303,13 @@ const messages = {
     flowOriginalTranscript: "Afficher la transcription d’origine",
     flowCleanupSkipped: "Nettoyage ignoré, texte d’origine conservé",
     flowBacktrackSkipped: "Modification ignorée, texte reconnu conservé",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet non téléchargé",
+    flowAppleSpeechParakeetDownloading:
+      "Apple Speech · Téléchargement de Parakeet",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Chargement de Parakeet",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet occupé",
+    flowAppleSpeechParakeetFailed:
+      "Apple Speech · Échec du chargement de Parakeet",
     flowCancelDictation: "Annuler la dictée",
     flowCopying: "Copie de la transcription…",
     aiProcessed: "Traité par l’IA",

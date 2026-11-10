@@ -207,6 +207,19 @@ function requireAuthEmail(session: { email?: string } | null): string {
   return email;
 }
 
+function requireVerifiedEmail(
+  session: { email?: string; emailVerified?: boolean } | null,
+): string {
+  const email = requireAuthEmail(session);
+  if (session?.emailVerified !== true) {
+    throw createError({
+      statusCode: 403,
+      message: "Verify your email before joining an organization.",
+    });
+  }
+  return email;
+}
+
 async function getSessionForEvent(event: H3Event) {
   const { getSession } = await import("../server/auth.js");
   return getSession(event);
@@ -217,6 +230,9 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   const requestContext = getRequestContext();
   const delegatedOrgMember =
     requestContext?.a2aIdentityAssurance === "org-member";
+  const emailVerified =
+    !delegatedOrgMember &&
+    (await getSessionForEvent(event))?.emailVerified === true;
   const delegatedEmail = requestContext?.userEmail?.trim().toLowerCase();
   const delegatedOrgId = delegatedOrgMember
     ? requestContext.orgId?.trim()
@@ -292,9 +308,9 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }));
 
   let domainMatches: Array<{ orgId: string; orgName: string }> = [];
-  const domain = delegatedOrgMember
-    ? undefined
-    : ctx.email.split("@")[1]?.toLowerCase();
+  const domain = emailVerified
+    ? ctx.email.split("@")[1]?.toLowerCase()
+    : undefined;
   if (domain) {
     try {
       const dmRes = await e.execute({
@@ -363,23 +379,15 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     );
   }
 
-  const invitesRes = delegatedOrgMember
-    ? scopedDelegatedOrgId
-      ? await e.execute({
-          sql: `SELECT i.id AS id, i.org_id AS "orgId", o.name AS "orgName", i.invited_by AS "invitedBy"
-                FROM org_invitations i
-                INNER JOIN organizations o ON i.org_id = o.id
-                WHERE LOWER(i.email) = ? AND i.org_id = ? AND i.status = 'pending'`,
-          args: [ctx.email.toLowerCase(), scopedDelegatedOrgId],
-        })
-      : { rows: [] }
-    : await e.execute({
+  const invitesRes = emailVerified
+    ? await e.execute({
         sql: `SELECT i.id AS id, i.org_id AS "orgId", o.name AS "orgName", i.invited_by AS "invitedBy"
               FROM org_invitations i
               INNER JOIN organizations o ON i.org_id = o.id
               WHERE LOWER(i.email) = ? AND i.status = 'pending'`,
         args: [ctx.email.toLowerCase()],
-      });
+      })
+    : { rows: [] };
   const pendingInvitations = invitesRes.rows.map((r: any) => ({
     id: String(r.id),
     orgId: String(r.orgId ?? r.org_id),
@@ -1049,7 +1057,7 @@ export const listInvitationsHandler = defineEventHandler(
 export const acceptInvitationHandler = defineEventHandler(
   async (event: H3Event) => {
     const session = await getSessionForEvent(event);
-    const email = requireAuthEmail(session);
+    const email = requireVerifiedEmail(session);
 
     const invitationId = extractInvitationId(event);
     if (!invitationId) {
@@ -1769,7 +1777,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
 export const joinByDomainHandler = defineEventHandler(
   async (event: H3Event) => {
     const session = await getSessionForEvent(event);
-    const email = requireAuthEmail(session);
+    const email = requireVerifiedEmail(session);
 
     const body = await readBody(event);
     const orgId = body?.orgId;

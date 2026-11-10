@@ -31,19 +31,21 @@ const state = vi.hoisted(() => ({
     type?: string;
     data: Buffer;
   }>,
+  rawBody: Buffer.alloc(256),
   status: 200,
   responseHeaders: {} as Record<string, string>,
   requestContexts: [] as Array<Record<string, unknown>>,
 }));
 
 const uploadFile = vi.hoisted(() => vi.fn());
+const parseMultipart = vi.hoisted(() => vi.fn(async () => state.parts));
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getRequestHeader: (_event: unknown, name: string) =>
     state.headers[name.toLowerCase()],
   getRouterParam: () => state.identifier,
-  readMultipartFormData: async () => state.parts,
+  readMultipartFormData: parseMultipart,
   setResponseHeader: (_event: unknown, name: string, value: string) => {
     state.responseHeaders[name] = value;
   },
@@ -87,7 +89,17 @@ vi.mock("../db/index.js", async () => {
 const { uploadFormFile } = await import("./uploads.js");
 
 function event() {
-  return {} as any;
+  return {
+    req: new Request("https://forms.example.test/upload", {
+      method: "POST",
+      headers: Object.fromEntries(
+        Object.entries(state.headers).filter(
+          (entry): entry is [string, string] => entry[1] !== undefined,
+        ),
+      ),
+      body: state.rawBody,
+    }),
+  } as unknown as Parameters<typeof uploadFormFile>[0];
 }
 
 function setValidRequest() {
@@ -106,9 +118,11 @@ function setValidRequest() {
       data: Buffer.from("png"),
     },
   ];
+  state.rawBody = Buffer.alloc(256);
   state.status = 200;
   state.responseHeaders = {};
   state.requestContexts = [];
+  parseMultipart.mockClear();
   uploadFile.mockReset();
   uploadFile.mockResolvedValue({
     url: "https://cdn.example.test/screen.png",
@@ -156,6 +170,18 @@ describe("public form file uploads", () => {
 
     expect(state.status).toBe(403);
     expect(result).toEqual({ error: "Origin not allowed" });
+    expect(uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized chunked upload before multipart parsing", async () => {
+    delete state.headers["content-length"];
+    state.rawBody = Buffer.alloc(10 * 1024 * 1024 + 32 * 1024 + 1);
+
+    const result = await uploadFormFile(event());
+
+    expect(state.status).toBe(413);
+    expect(result).toEqual({ error: "File upload is too large" });
+    expect(parseMultipart).not.toHaveBeenCalled();
     expect(uploadFile).not.toHaveBeenCalled();
   });
 
