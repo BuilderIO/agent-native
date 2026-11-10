@@ -3,7 +3,11 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionBatchItemResult } from "../shared/action-batch.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
-import { getRequestContext, getRequestIsLoopback } from "./request-context.js";
+import {
+  getRequestContext,
+  getRequestIsDirectLoopback,
+  getRequestIsLoopback,
+} from "./request-context.js";
 
 // Kept out of get-actions-batch.ts: that module builds a defineAction at load,
 // and action-routes.ts loads this file on every cold start.
@@ -77,10 +81,13 @@ export async function runActionBatch(
   // loopback-gated auth path (the desktop SSO dev fallback) would refuse it
   // even though the batch request itself came over loopback.
   const clientAddress = getRequestIsLoopback() ? "127.0.0.1" : undefined;
+  const directLoopback =
+    clientAddress !== undefined && getRequestIsDirectLoopback();
   const results = await mapWithConcurrency(
     input.requests,
     ITEM_CONCURRENCY,
-    (item) => dispatchItem(item, base, headers, clientAddress, bound),
+    (item) =>
+      dispatchItem(item, base, headers, clientAddress, directLoopback, bound),
   );
   return { results };
 }
@@ -122,6 +129,7 @@ async function dispatchItem(
   base: string,
   headers: Headers,
   clientAddress: string | undefined,
+  directLoopback: boolean,
   bound: ActionBatchBinding,
 ): Promise<ActionBatchItemResult> {
   const entry = bound.actions[item.action];
@@ -141,7 +149,10 @@ async function dispatchItem(
   try {
     const request = new Request(url, { method: "GET", headers });
     if (clientAddress) {
-      (request as Request & { context?: object }).context = { clientAddress };
+      (request as Request & { context?: object }).context = {
+        clientAddress,
+        ...(directLoopback ? { directLoopback: true } : {}),
+      };
     }
     response = await bound.fetch(request);
     text = await response.text();

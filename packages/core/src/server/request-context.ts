@@ -651,6 +651,10 @@ export function getRequestIsLoopback(): boolean {
   return als.getStore()?.isLoopbackRequest === true;
 }
 
+export function getRequestIsDirectLoopback(): boolean {
+  return als.getStore()?.isDirectLoopbackRequest === true;
+}
+
 function markAuthContextAccess(ctx: RequestContext | undefined) {
   if (!ctx) return;
   if (ctx.userEmail || ctx.userName || ctx.orgId || ctx.authCapability) {
