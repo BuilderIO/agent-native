@@ -249,12 +249,14 @@ describe("syncDraftToMailbox with overlapping saves", () => {
       return { draftId: "g0", accountEmail: OWNER, created: false };
     });
 
-    await expect(
-      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
-    ).resolves.toMatchObject({
+    const result = await syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" });
+
+    expect(result).toMatchObject({
       status: "pending",
       errorCode: "draft_mailbox_busy",
     });
+    // The copy was already there, so there's no new one to report.
+    expect(result).not.toHaveProperty("savedDraft");
     expect(mocks.saveGmailDraft).toHaveBeenCalledTimes(3);
   });
 });
@@ -296,6 +298,58 @@ describe("syncDraftToMailbox when adopting a copy", () => {
     expect(mocks.saveGmailDraft).toHaveBeenLastCalledWith(
       expect.objectContaining({ draftId: "g1", body: "newer" }),
     );
+  });
+
+  it("says which copy it made when the draft keeps changing after the adoption", async () => {
+    mocks.appState.set(KEY, draft({}));
+    let writes = 0;
+    mocks.saveGmailDraft.mockImplementation(async () => {
+      writes += 1;
+      if (writes === 1) return made;
+      mocks.appState.set(KEY, {
+        ...mocks.appState.get(KEY)!,
+        body: `edit ${writes}`,
+      });
+      return { ...made, created: false };
+    });
+    mocks.compareAndSetOverride.mockImplementationOnce(async () => {
+      mocks.appState.set(
+        KEY,
+        draft({ ...onGmail, savedDraftId: "g1", body: "newer" }),
+      );
+      return true;
+    });
+
+    await expect(
+      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+    ).resolves.toMatchObject({
+      status: "pending",
+      errorCode: "draft_mailbox_busy",
+      savedDraft: { draftId: "g1", backend: "gmail", accountEmail: OWNER },
+    });
+    expect(mocks.deleteGmailDraft).not.toHaveBeenCalled();
+  });
+
+  it("says which copy it made when a later write fails", async () => {
+    mocks.appState.set(KEY, draft({}));
+    mocks.saveGmailDraft
+      .mockResolvedValueOnce(made)
+      .mockRejectedValueOnce(new Error("Gmail is down"));
+    mocks.compareAndSetOverride.mockImplementationOnce(async () => {
+      mocks.appState.set(
+        KEY,
+        draft({ ...onGmail, savedDraftId: "g1", body: "newer" }),
+      );
+      return true;
+    });
+
+    await expect(
+      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+    ).resolves.toMatchObject({
+      status: "pending",
+      errorCode: "draft_mailbox_save_failed",
+      savedDraft: { draftId: "g1", backend: "gmail", accountEmail: OWNER },
+    });
   });
 
   it("counts a write that landed before it threw as adopted", async () => {

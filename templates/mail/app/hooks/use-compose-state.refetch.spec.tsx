@@ -254,6 +254,35 @@ describe("useComposeState", () => {
     expect(failures).toHaveLength(0);
   });
 
+  it("keeps the copy a sync made before newer saves overtook it", async () => {
+    const { id, sent, answer, result, local } = await mounted();
+    mocks.callAction.mockResolvedValue({
+      status: "pending",
+      errorCode: "draft_mailbox_busy",
+      message: "The draft kept changing while its mailbox copy was saved.",
+      savedDraft: {
+        draftId: "gmail-new",
+        backend: "gmail",
+        accountEmail: "me@example.com",
+      },
+    });
+
+    act(() => result.current.update(id, { subject: "Mine" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await act(async () => {
+      answer(0, asJson({ value: sent[0], revision: "rev_saved" }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    // Discarding the draft deletes the copy it points at, so it has to know this one.
+    await waitFor(() => expect(local()?.savedDraftId).toBe("gmail-new"));
+    expect(local()?.savedDraftBackend).toBe("gmail");
+    // The sync stored the ID already, so the composer doesn't write it again.
+    expect(sent).toHaveLength(1);
+  });
+
   it("still reports a mailbox copy the mailbox wouldn't take", async () => {
     const { id, sent, answer, result } = await mounted();
     mocks.callAction.mockResolvedValue({

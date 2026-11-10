@@ -39,6 +39,12 @@ export type MailboxSync =
       errorCode: string;
       message: string;
       retryAfterMs?: number;
+      /**
+       * A copy this sync made and pointed Mail's copy at before it stopped,
+       * so the caller can update or delete that copy rather than lose track
+       * of it.
+       */
+      savedDraft?: SavedDraftRef;
       leftoverDraftIds?: string[];
     }
   /** There's no mailbox to save to. */
@@ -273,6 +279,11 @@ export async function syncDraftToMailbox(args: {
   const leftovers: string[] = [];
   const leftover = () =>
     leftovers.length ? { leftoverDraftIds: [...leftovers] } : {};
+  let adopted: SavedDraftRef | undefined;
+  const pendingCopy = () => ({
+    ...(adopted ? { savedDraft: adopted } : {}),
+    ...leftover(),
+  });
   try {
     for (let attempt = 0; attempt < MAX_SYNC_ATTEMPTS; attempt += 1) {
       const stored = await readAppState(key);
@@ -296,6 +307,7 @@ export async function syncDraftToMailbox(args: {
           continue;
         }
         written = next;
+        adopted = refOf(copy);
       }
 
       const latest = await readAppState(key);
@@ -314,7 +326,7 @@ export async function syncDraftToMailbox(args: {
       errorCode: DRAFT_MAILBOX_BUSY_ERROR_CODE,
       message:
         "The draft kept changing while its mailbox copy was saved; the next save brings that copy up to date.",
-      ...leftover(),
+      ...pendingCopy(),
     };
   } catch (error) {
     if (error instanceof GmailQuotaCooldownError) {
@@ -323,7 +335,7 @@ export async function syncDraftToMailbox(args: {
         errorCode: error.errorCode,
         message: error.message,
         retryAfterMs: error.retryAfterMs,
-        ...leftover(),
+        ...pendingCopy(),
       };
     }
     console.error(`[draft-mailbox-sync] draft ${args.id}:`, error);
@@ -331,7 +343,7 @@ export async function syncDraftToMailbox(args: {
       status: "pending",
       errorCode: "draft_mailbox_save_failed",
       message: error instanceof Error ? error.message : String(error),
-      ...leftover(),
+      ...pendingCopy(),
     };
   }
 }

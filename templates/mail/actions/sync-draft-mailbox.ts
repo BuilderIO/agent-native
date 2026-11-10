@@ -4,6 +4,12 @@ import { z } from "zod";
 
 import { syncDraftToMailbox } from "../server/lib/draft-mailbox-sync.js";
 
+const savedDraft = z.object({
+  draftId: z.string(),
+  backend: z.enum(["gmail", "local"]),
+  accountEmail: z.string().optional(),
+});
+
 export default defineAction({
   description:
     "Copy a compose draft, as Mail stores it, to its mailbox draft in Gmail or the local mailbox.",
@@ -17,17 +23,14 @@ export default defineAction({
   outputSchema: z.discriminatedUnion("status", [
     z.object({
       status: z.literal("synced"),
-      savedDraft: z.object({
-        draftId: z.string(),
-        backend: z.enum(["gmail", "local"]),
-        accountEmail: z.string().optional(),
-      }),
+      savedDraft,
     }),
     z.object({
       status: z.literal("pending"),
       errorCode: z.string(),
       message: z.string(),
       retryAfterMs: z.number().optional(),
+      savedDraft: savedDraft.optional(),
       leftoverDraftIds: z.array(z.string()).optional(),
     }),
     z.object({ status: z.literal("unavailable") }),

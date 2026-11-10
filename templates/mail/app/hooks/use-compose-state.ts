@@ -296,7 +296,13 @@ type DraftSaved = { status: "saved" } & SavedDraftMetadata & {
 export type DraftSaveResult =
   | DraftSaved
   | { status: "unavailable" }
-  | { status: "failed"; error: unknown }
+  | {
+      status: "failed";
+      error: unknown;
+      // A sync that stopped short may still have made the draft's mailbox copy
+      // and pointed Mail's copy at it.
+      savedDraft?: SavedDraftMetadata;
+    }
   // Mail no longer stores the draft, so there was nothing to copy.
   | { status: "gone" };
 
@@ -347,9 +353,10 @@ export function enqueueDraftSave(
       ? applyDraftSaveResult(latest, { status: "saved", ...savedDraft })
       : latest;
     const result = await save(nextDraft);
-    return result.status === "saved"
-      ? result
-      : { ...result, ...(savedDraft ? { savedDraft } : {}) };
+    if (result.status === "saved") return result;
+    const latestCopy =
+      ("savedDraft" in result ? result.savedDraft : undefined) ?? savedDraft;
+    return { ...result, ...(latestCopy ? { savedDraft: latestCopy } : {}) };
   })();
   pending.set(draft.id, next);
   const clear = () => {
@@ -441,15 +448,21 @@ export function getDraftSaveMetadataUpdate(
   result: DraftSaveQueueResult,
   isRemoved: boolean,
 ): ComposeState | undefined {
-  if (isRemoved || !draft || result.status !== "saved") return undefined;
+  const metadata =
+    result.status === "saved"
+      ? result
+      : result.status === "failed"
+        ? result.savedDraft
+        : undefined;
+  if (isRemoved || !draft || !metadata) return undefined;
   if (
-    result.draftId === draft.savedDraftId &&
-    result.backend === draft.savedDraftBackend &&
-    result.accountEmail === draft.savedDraftAccountEmail
+    metadata.draftId === draft.savedDraftId &&
+    metadata.backend === draft.savedDraftBackend &&
+    metadata.accountEmail === draft.savedDraftAccountEmail
   ) {
     return undefined;
   }
-  return applyDraftSaveResult(draft, result);
+  return applyDraftSaveResult(draft, { status: "saved", ...metadata });
 }
 
 export async function deleteSavedDraftAfterPendingSave(
@@ -506,6 +519,7 @@ type MailboxSyncResponse =
       errorCode: string;
       message: string;
       retryAfterMs?: number;
+      savedDraft?: SavedDraftMetadata;
     }
   | { status: "unavailable" }
   | { status: "gone" };
@@ -536,6 +550,7 @@ export async function syncDraftToMailboxBestEffort(
           errorCode: result.errorCode,
           retryAfterMs: result.retryAfterMs,
         }),
+        ...(result.savedDraft ? { savedDraft: result.savedDraft } : {}),
       };
     }
     return { status: result.status };

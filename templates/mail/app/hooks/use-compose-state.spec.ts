@@ -595,6 +595,30 @@ describe("syncDraftToMailboxBestEffort", () => {
     });
   });
 
+  it("keeps the copy a sync made before it stopped short", async () => {
+    mocks.callAction.mockResolvedValue({
+      status: "pending",
+      errorCode: "draft_mailbox_busy",
+      message: "The draft kept changing",
+      savedDraft: {
+        draftId: "gmail-1",
+        backend: "gmail",
+        accountEmail: "me@example.com",
+      },
+    });
+
+    await expect(
+      syncDraftToMailboxBestEffort(new Map(), "draft-1"),
+    ).resolves.toMatchObject({
+      status: "failed",
+      savedDraft: {
+        draftId: "gmail-1",
+        backend: "gmail",
+        accountEmail: "me@example.com",
+      },
+    });
+  });
+
   it("reports a request that fails as a failed save", async () => {
     const error = new Error("Request failed (500)");
     mocks.callAction.mockRejectedValue(error);
@@ -726,6 +750,41 @@ describe("enqueueDraftSave", () => {
       body: "Latest version",
       savedDraftId: "gmail-draft-1",
     });
+  });
+
+  it("passes on a copy a failed save made over the one before it", async () => {
+    const pending = new Map<string, Promise<DraftSaveQueueResult>>();
+    const madeCopy = { draftId: "gmail-new", backend: "gmail" as const };
+    const save = vi
+      .fn<(value: ComposeState) => Promise<DraftSaveResult>>()
+      .mockResolvedValueOnce({
+        status: "saved",
+        draftId: "old",
+        backend: "local",
+      })
+      .mockResolvedValueOnce({
+        status: "failed",
+        error: new Error("busy"),
+        savedDraft: madeCopy,
+      });
+    const current = draft("compose-1");
+
+    void enqueueDraftSave(
+      pending,
+      current,
+      () => current,
+      () => false,
+      save,
+    );
+    await expect(
+      enqueueDraftSave(
+        pending,
+        current,
+        () => current,
+        () => false,
+        save,
+      ),
+    ).resolves.toMatchObject({ status: "failed", savedDraft: madeCopy });
   });
 
   it("serializes close-time persistence behind autosave and carries the returned ID forward", async () => {
