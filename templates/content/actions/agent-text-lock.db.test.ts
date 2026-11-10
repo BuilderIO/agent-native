@@ -2345,7 +2345,7 @@ describe("Notion's text reaching a locked page", () => {
       expect((await readPage(child.id)).content).toBe(child.content);
       const link = await readLink(child.id);
       expect(link.state).toBe("error");
-      expect(link.lastError).toContain("locked");
+      expect(link.lastError).toContain("Can comment");
     });
   });
 
