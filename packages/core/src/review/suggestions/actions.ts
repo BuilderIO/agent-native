@@ -978,11 +978,40 @@ export const createResourceSuggestionProposal = defineAction({
               authorEmail,
               actorKind,
             });
-        if (!proposal)
+        if (!proposal) {
+          // A first call returns both a suggestion ID and a proposal ID, and
+          // agents appending a second edit often pass the suggestion's. Name
+          // the proposal when that suggestion is the caller's own, on this
+          // same resource: only its author can append to it.
+          const suggestion = args.proposalId
+            ? await getSuggestion(args.proposalId, tx)
+            : null;
+          if (
+            suggestion &&
+            suggestion.resourceType === args.resourceType &&
+            suggestion.resourceId === args.resourceId &&
+            suggestion.authorEmail === authorEmail &&
+            suggestion.actorKind === actorKind
+          ) {
+            fail(
+              suggestion.proposalId
+                ? `${suggestion.id} is a suggestion ID, not a proposal ID. To add this edit to the same review, pass its proposal ID: ${suggestion.proposalId}.`
+                : `${suggestion.id} is a suggestion ID, not a proposal ID, and it belongs to no proposal. Leave the proposal ID out to start a new review.`,
+              {
+                statusCode: 400,
+                errorCode: "suggestion_id_not_proposal_id",
+                details: {
+                  suggestionId: suggestion.id,
+                  proposalId: suggestion.proposalId ?? null,
+                },
+              },
+            );
+          }
           fail("Proposal not found", {
             statusCode: 404,
             errorCode: "not_found",
           });
+        }
         if (
           proposal.resourceType !== args.resourceType ||
           proposal.resourceId !== args.resourceId ||
