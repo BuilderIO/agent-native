@@ -33,6 +33,8 @@ describe("secret column names", () => {
       "slack_bot_token",
       "private_key",
       "webhook_secret",
+      "secret_key",
+      "client_secret_key",
       "credentials",
     ]) {
       assert.equal(isUnsealedSecretColumnName(name), true, name);

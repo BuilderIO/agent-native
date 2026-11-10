@@ -138,7 +138,7 @@ export function isUnsealedSecretColumnName(name: string): boolean {
   if (!namesSecret) return false;
   if (words.some((word) => SEALED_WORDS.has(word))) return false;
   // `credential_key` names a credential (`OPENAI_API_KEY`); it is not one.
-  if (/(?:^|_)(?:credential|secret)_key$/.test(joined)) return false;
+  if (/(?:^|_)credential_key$/.test(joined)) return false;
   return !METADATA_LAST_WORDS.has(words[words.length - 1] ?? "");
 }
 
