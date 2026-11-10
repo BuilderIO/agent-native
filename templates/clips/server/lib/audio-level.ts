@@ -632,22 +632,50 @@ export async function ensureRecordingAudioLevel(params: {
   // made from the clip stay valid; bumping it would make an in-flight
   // transcript reject its own write. Playback is not cached (`/api/video`
   // answers no-store), and own storage hands back a new URL anyway.
-  const updated = await db
-    .update(schema.recordings)
-    .set({
-      videoUrl: upload.url,
-      videoSizeBytes: leveled.bytes.byteLength,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(
-      and(
-        eq(schema.recordings.id, recordingId),
-        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-        eq(schema.recordings.videoUrl, rec.videoUrl),
-        eq(schema.recordings.mediaUpdatedAt, rec.mediaUpdatedAt),
-      ),
-    )
-    .returning({ videoUrl: schema.recordings.videoUrl });
+  let updated: { videoUrl: string | null }[];
+  try {
+    updated = await db
+      .update(schema.recordings)
+      .set({
+        videoUrl: upload.url,
+        videoSizeBytes: leveled.bytes.byteLength,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          eq(schema.recordings.videoUrl, rec.videoUrl),
+          eq(schema.recordings.mediaUpdatedAt, rec.mediaUpdatedAt),
+        ),
+      )
+      .returning({ videoUrl: schema.recordings.videoUrl });
+  } catch (err) {
+    // The update may or may not have landed. Read the row back: only delete
+    // the upload when the row does not point at it.
+    const after = await db
+      .select({ videoUrl: schema.recordings.videoUrl })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, recordingId))
+      .catch(() => null);
+    const live = after ? itemAt(after, 0)?.videoUrl === upload.url : true;
+    if (!live) {
+      await deleteRecordingMediaObjects(
+        { id: recordingId, storageMode: rec.storageMode, videoUrl: upload.url },
+        { protectedUrls: [rec.videoUrl] },
+      ).catch((cleanupErr: unknown) => {
+        console.warn("[audio-level] could not delete the unused upload", {
+          recordingId,
+          url: upload.url,
+          error:
+            cleanupErr instanceof Error
+              ? cleanupErr.message
+              : String(cleanupErr),
+        });
+      });
+    }
+    throw err;
+  }
 
   if (updated.length !== 1 || updated[0]?.videoUrl !== upload.url) {
     await deleteRecordingMediaObjects(

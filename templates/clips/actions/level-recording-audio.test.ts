@@ -49,6 +49,13 @@ vi.mock("../server/lib/audio-level.js", () => ({
   AUDIO_LEVEL_QUIET_THRESHOLD_LUFS: -24,
   AUDIO_LEVEL_TARGET_LUFS: -16,
   ensureRecordingAudioLevel: (...args: unknown[]) => mockEnsure(...args),
+  isRetryableAudioLevelStatus: (status: string) =>
+    [
+      "skipped-fetch-failed",
+      "skipped-measure-failed",
+      "skipped-boost-failed",
+      "skipped-upload-failed",
+    ].includes(status),
 }));
 
 import levelRecordingAudio, {
@@ -188,5 +195,24 @@ describe("level-recording-audio", () => {
 
     expect(result).not.toHaveProperty("nextBefore");
     expect(result).toMatchObject({ unprocessedIds: ["rec-a", "rec-b"] });
+  });
+
+  it("keeps the cursor before a clip that failed in a retryable way", async () => {
+    mockRows.value = [
+      { id: "rec-a", createdAt: "2026-11-10T10:00:00.000Z" },
+      { id: "rec-b", createdAt: "2026-11-09T10:00:00.000Z" },
+    ];
+    mockEnsure.mockImplementation(async ({ recordingId }) => ({
+      recordingId,
+      status: recordingId === "rec-b" ? "skipped-fetch-failed" : "boosted",
+      changed: recordingId !== "rec-b",
+    }));
+
+    const result = await levelRecordingAudio.run({ all: true, limit: 2 });
+
+    expect(result).toMatchObject({
+      processed: 2,
+      nextBefore: "2026-11-10T10:00:00.000Z|rec-a",
+    });
   });
 });

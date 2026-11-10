@@ -7,6 +7,7 @@ import {
   AUDIO_LEVEL_QUIET_THRESHOLD_LUFS,
   AUDIO_LEVEL_TARGET_LUFS,
   ensureRecordingAudioLevel,
+  isRetryableAudioLevelStatus,
   type AudioLevelResult,
 } from "../server/lib/audio-level.js";
 import {
@@ -309,10 +310,13 @@ export default defineAction({
     // id that also sits further down the sweep must not move the cursor past
     // clips that were never reached.
     let reachedCount = 0;
-    while (
-      reachedCount < sweepRows.length &&
-      processedIds.has(itemAt(sweepRows, reachedCount)?.id ?? "")
-    ) {
+    // A retryable failure also stops the cursor, so continuing the sweep
+    // tries that clip again instead of passing it.
+    const statusById = new Map(results.map((r) => [r.recordingId, r.status]));
+    for (;;) {
+      const row = itemAt(sweepRows, reachedCount);
+      const status = row ? statusById.get(row.id) : undefined;
+      if (!status || isRetryableAudioLevelStatus(status)) break;
       reachedCount += 1;
     }
     const lastReached = itemAt(sweepRows, reachedCount - 1);
