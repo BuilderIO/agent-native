@@ -703,6 +703,8 @@ const messages = {
     noMatches: "일치하는 항목이 없습니다.",
     noTranscript: "아직 성적표가 없습니다.",
     noTranscriptCaptured: "캡처된 녹취록이 없습니다.",
+    unreadableDescription:
+      "저장된 스크립트가 손상되었습니다. 다시 생성하면 클립 오디오로 새 스크립트를 만듭니다.",
     partialTranscript:
       "일부 녹취록: 녹화가 중간에 끊겨 일부 내용이 누락되었을 수 있습니다.",
     backupFailed:

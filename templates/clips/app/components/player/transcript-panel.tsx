@@ -29,12 +29,7 @@ import { toast } from "sonner";
 import { useAiSetupHref } from "@/components/settings/settings-links";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Empty,
-  EmptyContent,
-  EmptyHeader,
-  EmptyTitle,
-} from "@/components/ui/empty";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
 import {
   Tooltip,
@@ -419,7 +414,56 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     );
   }
 
-  const transcriptUnreadable = unreadable && displaySegments.length === 0;
+  // With no lines to show, search, copy and download have nothing to act on,
+  // so this renders like the failed states above, without the toolbar.
+  if (unreadable && displaySegments.length === 0 && audience === "viewer") {
+    return (
+      <div className="p-4">
+        <p className="text-sm text-muted-foreground">
+          {t("transcriptBubbles.unreadable")}
+        </p>
+      </div>
+    );
+  }
+
+  if (unreadable && displaySegments.length === 0) {
+    const importAction = importButton("button");
+    const historyAction = historyButton("button");
+    return (
+      <div className="p-4 space-y-3">
+        <div>
+          <p className="text-sm font-medium">
+            {t("transcriptBubbles.unreadable")}
+          </p>
+          {onRegenerate ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("transcriptPanel.unreadableDescription")}
+            </p>
+          ) : null}
+        </div>
+        {onRegenerate || importAction || historyAction ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {onRegenerate ? (
+              <Button
+                size="sm"
+                onClick={onRegenerate}
+                disabled={isRegenerating}
+              >
+                {isRegenerating ? (
+                  <IconLoader2 className="size-4 animate-spin" />
+                ) : null}
+                {isRegenerating
+                  ? t("transcriptPanel.transcribing")
+                  : t("transcriptPanel.regenerate")}
+              </Button>
+            ) : null}
+            {importAction}
+            {historyAction}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -532,30 +576,11 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           <Empty className="min-h-full gap-2 rounded-none p-4 md:p-6">
             <EmptyHeader>
               <EmptyTitle className="text-sm font-medium text-muted-foreground">
-                {transcriptUnreadable
-                  ? t("transcriptBubbles.unreadable")
-                  : query
-                    ? t("transcriptPanel.noMatches")
-                    : t("transcriptPanel.noTranscript")}
+                {query
+                  ? t("transcriptPanel.noMatches")
+                  : t("transcriptPanel.noTranscript")}
               </EmptyTitle>
             </EmptyHeader>
-            {transcriptUnreadable && onRegenerate ? (
-              <EmptyContent className="mt-1">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={onRegenerate}
-                  disabled={isRegenerating}
-                >
-                  {isRegenerating ? (
-                    <IconLoader2 className="size-4 animate-spin" />
-                  ) : null}
-                  {isRegenerating
-                    ? t("transcriptPanel.transcribing")
-                    : t("transcriptPanel.regenerate")}
-                </Button>
-              </EmptyContent>
-            ) : null}
           </Empty>
         ) : (
           <ul className="py-1">
