@@ -96,6 +96,7 @@ const guards = [
   "guard:no-deferred-server-counts",
   "guard:no-oracle-loosening",
   "guard:no-new-legacy-mcp-hints",
+  "guard:no-new-mcp-parity-gaps",
   "guard:action-output-schema",
   "guard:no-new-escape-hatches",
   "guard:compiler-strictness",

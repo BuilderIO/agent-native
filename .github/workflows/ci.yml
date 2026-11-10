@@ -2426,6 +2426,9 @@ jobs:
       - name: Test legacy MCP hint baseline guard
         run: pnpm test:no-new-legacy-mcp-hints
 
+      - name: Test MCP parity baseline guard
+        run: pnpm test:no-new-mcp-parity-gaps
+
       - name: Test blocker-safe module names guard
         run: pnpm test:blocker-safe-module-names
 
