@@ -100,6 +100,7 @@ export {
   mountAuthMiddleware,
   autoMountAuth,
   registerAuthPublicPaths,
+  recordBuilderSignupBinding,
   getSession,
   getBrowserCookieSession,
   isSessionResolutionUnavailable,

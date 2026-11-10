@@ -446,6 +446,7 @@ import type {
 import { WidgetVisualEditorBoundary } from "./WidgetLoadDiagnostic";
 
 const NO_COMMENT_THREADS: CommentThread[] = [];
+const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
 
 export function observeAcceptedCanonicalSettlement(args: {
   ydoc: YDoc;
@@ -742,6 +743,17 @@ export function sameSuggestionAnchorIds(
     current.length === next.length &&
     current.every((id) => next.includes(id))
   );
+}
+
+// The editor redraws its highlights whenever this list changes, and the
+// redraw renders the Page again, so a draft it can't map shares one empty
+// list instead of making a new one every render.
+export function previewDraftSuggestions(
+  preview: ReturnType<typeof previewSuggestionDraft>,
+) {
+  return preview.status === "ready"
+    ? preview.suggestions
+    : NO_DRAFT_SUGGESTIONS;
 }
 
 export function documentEditorReservesInlineReviewSpace(args: {
@@ -7828,10 +7840,9 @@ function PageEditorSessionBody({
     suggestionDraft,
     suggestionPersistenceRevision,
   ]);
-  const sessionDraftSuggestions =
-    suggestionDraftPreview.status === "ready"
-      ? suggestionDraftPreview.suggestions
-      : [];
+  const sessionDraftSuggestions = previewDraftSuggestions(
+    suggestionDraftPreview,
+  );
   const draftSuggestions = useMemo(() => {
     if (suggestionBaseRef.current?.existingSuggestion) return [];
     return unpersistedDraftSuggestions(
