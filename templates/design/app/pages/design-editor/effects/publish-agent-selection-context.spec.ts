@@ -24,11 +24,26 @@ import { assertNoInlineImageBytes } from "@agent-native/core/testing";
 
 type Args = Parameters<typeof runPublishAgentSelectionContext>[0];
 
+const selectionFixtures: Args[] = [];
+afterEach(() => {
+  for (const args of selectionFixtures) {
+    // Unmount the fixture: debounce timers and late failed writes must not
+    // leak into the following test's fake clock or shared write mock.
+    args.persistedSelectionStateRef.current = null;
+    args.pendingPersistedSelectionWriteRef.current = null;
+    if (args.persistedSelectionWriteTimerRef.current !== null) {
+      window.clearTimeout(args.persistedSelectionWriteTimerRef.current);
+      args.persistedSelectionWriteTimerRef.current = null;
+    }
+  }
+  selectionFixtures.length = 0;
+});
+
 function argsFor({
   files = [],
   ...overrides
 }: Partial<Args> & { files?: DesignFile[] } = {}): Args {
-  return {
+  const args: Args = {
     activeBreakpointWidthState: undefined,
     activeCodeFile: null,
     activeFile: {
@@ -76,6 +91,8 @@ function argsFor({
     zoom: 100,
     ...overrides,
   };
+  selectionFixtures.push(args);
+  return args;
 }
 
 function publishedSelection(): Record<string, unknown> {
