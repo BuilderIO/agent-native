@@ -23,12 +23,28 @@ import { setClientAppState } from "@agent-native/core/client/hooks";
 import { assertNoInlineImageBytes } from "@agent-native/core/testing";
 
 type Args = Parameters<typeof runPublishAgentSelectionContext>[0];
+const selectionFixtures = new Set<Args>();
+
+function disposeSelectionFixture(args: Args) {
+  args.persistedSelectionStateRef.current = null;
+  args.persistedSelectionContextRef.current = null;
+  args.pendingPersistedSelectionWriteRef.current = null;
+  if (args.persistedSelectionWriteTimerRef.current !== null) {
+    window.clearTimeout(args.persistedSelectionWriteTimerRef.current);
+    args.persistedSelectionWriteTimerRef.current = null;
+  }
+}
+
+afterEach(() => {
+  for (const args of selectionFixtures) disposeSelectionFixture(args);
+  selectionFixtures.clear();
+});
 
 function argsFor({
   files = [],
   ...overrides
 }: Partial<Args> & { files?: DesignFile[] } = {}): Args {
-  return {
+  const args: Args = {
     activeBreakpointWidthState: undefined,
     activeCodeFile: null,
     activeFile: {
@@ -76,6 +92,8 @@ function argsFor({
     zoom: 100,
     ...overrides,
   };
+  selectionFixtures.add(args);
+  return args;
 }
 
 function publishedSelection(): Record<string, unknown> {
@@ -471,9 +489,10 @@ describe("runPublishAgentSelectionContext application state write", () => {
 
     runPublishAgentSelectionContext(args);
     const firstWriteCount = vi.mocked(setClientAppState).mock.calls.length;
-    await vi.waitFor(() =>
-      expect(consoleError).toHaveBeenCalledTimes(firstWriteCount),
-    );
+    await vi.waitFor(() => {
+      expect(consoleError).toHaveBeenCalledTimes(firstWriteCount);
+      expect(args.persistedSelectionWriteTimerRef.current).not.toBeNull();
+    });
 
     const reported = consoleError.mock.calls.map((call) => call[0]);
     for (const error of reported) {
@@ -495,6 +514,28 @@ describe("runPublishAgentSelectionContext application state write", () => {
     expect(vi.mocked(setClientAppState).mock.calls.length).toBe(
       firstWriteCount * 2,
     );
+    expect(args.persistedSelectionWriteTimerRef.current).toBeNull();
+  });
+
+  it("does not schedule a retry when a write rejects after fixture disposal", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const deferred: { reject?: (error: Error) => void } = {};
+      const pending = new Promise<never>((_, reject) => {
+        deferred.reject = reject;
+      });
+      vi.mocked(setClientAppState).mockReturnValue(pending);
+      const args = argsFor({ selectedElement: deepScreenElement() });
+      runPublishAgentSelectionContext(args);
+      disposeSelectionFixture(args);
+      if (!deferred.reject) throw new Error("Promise was not initialized");
+      deferred.reject(new Error("offline"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(args.persistedSelectionWriteTimerRef.current).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retries a failed write after 1, 2 and 4 seconds, then stops", async () => {
