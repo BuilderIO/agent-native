@@ -557,19 +557,19 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "sharing.agent-text-lock",
     surface: "sharing",
-    label: "Lock a page's text against agents",
+    label: "Set what agents can do on a page",
     uiEntrypoints: [
       "app/components/editor/DocumentToolbar.tsx",
       "app/components/editor/AgentsShareTab.tsx",
     ],
     durableEffect:
-      "The lock is stored on the document, and every action that writes a page's text refuses an agent's call while it is on. The exception is a GitHub folder sync an agent starts: pages following a GitHub file are view-only in Content anyway, and it doesn't name one page.",
+      "The level is stored on the document. At Can comment and Can view every action that writes a page's text or icon refuses an agent's call; at Can view agents are also refused comments, replies, reactions, suggested edits, Notion comment sync and Clip comments, and Ask AI can't answer there. The exception is a GitHub folder sync an agent starts: pages following a GitHub file are view-only in Content anyway, and it doesn't name one page.",
     uiImplementation:
-      "The Share panel's Agents tab calls the set-document-agent-text-lock Action: Can comment turns the lock on and Can edit turns it off.",
+      "The Share panel's Agents tab calls the set-document-agent-text-lock Action with the level picked: Can view, Can comment or Can edit.",
     status: "action-backed",
     actions: ["set-document-agent-text-lock"],
     exception:
-      "set-document-agent-text-lock is hidden with agentTool: false because the lock has to hold against agents, so only a person can change it.",
+      "set-document-agent-text-lock is hidden with agentTool: false because the level has to hold against agents, so only a person can change it.",
     reliabilityRisk: "none",
     spinePriority: "P1",
     testCoverage: "covered",
