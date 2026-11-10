@@ -10,13 +10,11 @@ import { runWithRequestContext } from "../server/request-context.js";
 import { mcpToolsToActionEntries } from "./index.js";
 import {
   McpClientManager,
+  fetchMcpOriginBound,
   parseMcpToolName,
   MCP_TOOL_PREFIX,
 } from "./manager.js";
-import {
-  InvalidMcpHeaderConfigurationError,
-  isFirstPartyRemoteEndpointTrusted,
-} from "./remote-store.js";
+import { InvalidMcpHeaderConfigurationError } from "./remote-store.js";
 
 type FakeTool = {
   name: string;
@@ -263,6 +261,7 @@ describe("McpClientManager", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     globalThis.fetch = originalFetch;
     if (originalOrgDirectoryUrl === undefined) {
       delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
@@ -347,6 +346,8 @@ describe("McpClientManager", () => {
   it.each(["localhost", "127.0.0.1"])(
     "keeps a directly configured %s MCP dev server reachable",
     async (host) => {
+      vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "local");
+      vi.stubEnv("NODE_ENV", "test");
       const origin = `http://${host}:3000`;
       const mgr = new McpClientManager({
         servers: { local: { type: "http", url: `${origin}/mcp` } },
@@ -360,29 +361,33 @@ describe("McpClientManager", () => {
     },
   );
 
-  it("permits a verified org-directory MCP origin on an internal address", async () => {
-    process.env.A2A_SECRET = "test-a2a-secret";
-    orgContextMocks.getOrgDomain.mockResolvedValue("acme.com");
-    orgContextMocks.getOrgA2ASecret.mockResolvedValue("org-a2a-secret");
+  it.each(["localhost", "127.0.0.1"])(
+    "blocks a directly configured %s MCP server in hosted runtime",
+    async (host) => {
+      vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production");
+      const origin = `http://${host}:3000`;
+      const mgr = new McpClientManager({
+        servers: { local: { type: "http", url: `${origin}/mcp` } },
+      });
+      await mgr.start();
+      const transport = fakeClients[0]!.getTransport() as FakeHttp;
+      await expect(transport.fetchImpl!(`${origin}/mcp`)).rejects.toThrow(
+        "SSRF blocked",
+      );
+      await mgr.stop();
+    },
+  );
+
+  it("keeps first-party metadata from expanding private MCP fetch access", async () => {
     const origin = "https://10.0.0.8";
     vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
       if (String(input).includes("/_agent-native/org/apps")) {
-        return new Response(
-          JSON.stringify({
-            apps: [{ id: "assets", url: origin, a2aUrl: origin }],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return Response.json({
+          apps: [{ id: "assets", url: origin, a2aUrl: origin }],
+        });
       }
       return new Response(null, { status: 204 });
     });
-    expect(
-      await isFirstPartyRemoteEndpointTrusted(
-        "org-internal",
-        "assets",
-        `${origin}/mcp`,
-      ),
-    ).toEqual({ ok: true });
     const mgr = new McpClientManager({
       servers: {
         "org_org-internal_assets": {
@@ -395,35 +400,94 @@ describe("McpClientManager", () => {
     });
     await mgr.start();
     const transport = fakeClients[0]!.getTransport() as FakeHttp;
-    expect(
-      (await transport.fetchImpl!(`${origin}/mcp`)) as Response,
-    ).toHaveProperty("status", 204);
-    await mgr.stop();
-
-    const unlisted = new McpClientManager({
-      servers: {
-        "org_org-internal_unlisted": {
-          type: "http",
-          url: `${origin}/mcp`,
-          firstParty: true,
-          firstPartyOrgId: "org-internal",
-        },
-      },
-    });
-    await unlisted.start();
-    const unlistedTransport = fakeClients.at(-1)!.getTransport() as FakeHttp;
-    await expect(unlistedTransport.fetchImpl!(`${origin}/mcp`)).rejects.toThrow(
+    await expect(transport.fetchImpl!(`${origin}/mcp`)).rejects.toThrow(
       "SSRF blocked",
     );
-    await unlisted.stop();
+    await mgr.stop();
+  });
 
-    await runWithRequestContext(
-      { userEmail: "other@example.test", orgId: "org-other" },
-      () =>
-        expect(transport.fetchImpl!(`${origin}/mcp`)).rejects.toThrow(
-          "SSRF blocked",
-        ),
+  it("replays a bounded POST body across same-origin redirects", async () => {
+    const origin = "https://93.184.216.34";
+    const received: Array<{ url: string; body: string; auth: string | null }> =
+      [];
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const request = new Request(input, init);
+      received.push({
+        url: request.url,
+        body: await request.text(),
+        auth: request.headers.get("authorization"),
+      });
+      return received.length === 1
+        ? new Response(null, {
+            status: 307,
+            headers: { location: `${origin}/mcp/next` },
+          })
+        : new Response("ok");
+    }) as typeof fetch;
+
+    const response = await fetchMcpOriginBound(
+      new Request(`${origin}/mcp`, {
+        method: "POST",
+        headers: { Authorization: "Bearer fake-token" },
+        body: '{"method":"tools/list"}',
+      }),
+      undefined,
+      origin,
     );
+    expect(await response.text()).toBe("ok");
+    expect(received).toEqual([
+      {
+        url: `${origin}/mcp`,
+        body: '{"method":"tools/list"}',
+        auth: "Bearer fake-token",
+      },
+      {
+        url: `${origin}/mcp/next`,
+        body: '{"method":"tools/list"}',
+        auth: "Bearer fake-token",
+      },
+    ]);
+  });
+
+  it("does not replay a POST body to another origin", async () => {
+    const origin = "https://93.184.216.34";
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(null, {
+          status: 307,
+          headers: { location: "https://93.184.216.35/mcp" },
+        }),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(
+      fetchMcpOriginBound(
+        new Request(`${origin}/mcp`, {
+          method: "POST",
+          body: "test request",
+        }),
+        undefined,
+        origin,
+      ),
+    ).rejects.toThrow("cross-origin redirect with a non-GET request");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an oversized replay body before making a request", async () => {
+    const origin = "https://93.184.216.34";
+    await expect(
+      fetchMcpOriginBound(
+        new Request(`${origin}/mcp`, {
+          method: "POST",
+          body: new Uint8Array(8 * 1024 * 1024 + 1).buffer,
+        }),
+        undefined,
+        origin,
+      ),
+    ).rejects.toThrow(
+      "MCP request body exceeds the 8 MiB redirect replay limit",
+    );
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
   it("refreshes a saved OAuth request on its configured origin", async () => {

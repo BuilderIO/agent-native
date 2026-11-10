@@ -18,6 +18,7 @@ import {
   isFirstPartyRemoteEndpointTrusted,
   parseMergedKey,
 } from "./remote-store.js";
+import { isLocalMcpRuntime } from "./remote-url.js";
 import {
   isWorkspaceConnectionMcpServer,
   resolveWorkspaceConnectionMcpBearer,
@@ -26,25 +27,79 @@ import {
 
 export const MCP_TOOL_PREFIX = "mcp__";
 
+const MAX_MCP_REQUEST_BODY_BYTES = 8 * 1024 * 1024;
+
+async function replayableMcpBody(
+  request: Request,
+  origin: string,
+): Promise<Uint8Array<ArrayBuffer> | undefined> {
+  if (new URL(request.url).origin !== origin) {
+    throw new Error("MCP destination changed origin");
+  }
+  if (!request.body) return undefined;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (
+      let chunk = await reader.read();
+      !chunk.done;
+      chunk = await reader.read()
+    ) {
+      const { value } = chunk;
+      size += value.byteLength;
+      if (size > MAX_MCP_REQUEST_BODY_BYTES) {
+        throw new Error(
+          "MCP request body exceeds the 8 MiB redirect replay limit",
+        );
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    void reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
 export async function fetchMcpOriginBound(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
   origin: string,
-  allowVerifiedPrivateOrigin = false,
 ): Promise<Response> {
   const request = new Request(input, init);
-  const requestOptions: RequestInit & { duplex?: "half" } = {
+  return fetchPreparedMcpRequest(
+    request,
+    origin,
+    await replayableMcpBody(request, origin),
+  );
+}
+
+function fetchPreparedMcpRequest(
+  request: Request,
+  origin: string,
+  body: Uint8Array<ArrayBuffer> | undefined,
+): Promise<Response> {
+  const requestOptions: RequestInit = {
     method: request.method,
     headers: request.headers,
-    body: request.body,
+    ...(body ? { body: body.buffer } : {}),
     signal: request.signal,
-    ...(request.body ? { duplex: "half" as const } : {}),
   };
   const parsedOrigin = new URL(origin);
+  const localRuntime = isLocalMcpRuntime();
   return ssrfSafeFetch(request.url, requestOptions, {
-    ...(parsedOrigin.hostname === "localhost"
+    ...(localRuntime && parsedOrigin.hostname === "localhost"
       ? { allowedLocalhostOrigin: origin }
-      : parsedOrigin.hostname === "127.0.0.1" || allowVerifiedPrivateOrigin
+      : localRuntime && parsedOrigin.hostname === "127.0.0.1"
         ? { allowedPrivateOrigins: [origin] }
         : {}),
     assertUrlAllowed: (candidate) => {
@@ -527,16 +582,10 @@ export class McpClientManager {
         }
         transportOptions.fetch = async (input: unknown, init?: unknown) => {
           const trust = this.firstPartyTrust(entry);
-          const requestOrgId = (
-            await import("../server/request-context.js")
-          ).getRequestOrgId();
           return fetchMcpOriginBound(
             input as Parameters<typeof fetch>[0],
             await buildFirstPartyRequestInit(staticHeaders, init, trust),
             new URL(cfg.url).origin,
-            trust !== null &&
-              (!requestOrgId || requestOrgId === trust.orgId) &&
-              (await isFirstPartyTrustCached(trust)),
           );
         };
       } else {
@@ -569,12 +618,9 @@ export class McpClientManager {
           if (refreshedAuthorization) {
             request.headers.set("Authorization", refreshedAuthorization);
           }
-          const retryRequest = request.clone();
-          const response = await fetchMcpOriginBound(
-            request,
-            undefined,
-            new URL(cfg.url).origin,
-          );
+          const origin = new URL(cfg.url).origin;
+          const body = await replayableMcpBody(request, origin);
+          const response = await fetchPreparedMcpRequest(request, origin, body);
           if (response.status !== 401) return response;
 
           let accessToken: string | null;
@@ -596,14 +642,9 @@ export class McpClientManager {
           }
 
           await response.body?.cancel();
-          const headers = new Headers(retryRequest.headers);
-          headers.set("Authorization", `Bearer ${accessToken}`);
           refreshedAuthorization = `Bearer ${accessToken}`;
-          return fetchMcpOriginBound(
-            new Request(retryRequest, { headers }),
-            undefined,
-            new URL(cfg.url).origin,
-          );
+          request.headers.set("Authorization", refreshedAuthorization);
+          return fetchPreparedMcpRequest(request, origin, body);
         };
       }
       transport = new sdk.StreamableHTTPClientTransport(
