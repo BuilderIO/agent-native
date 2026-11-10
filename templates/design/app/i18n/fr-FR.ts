@@ -1053,7 +1053,6 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "Impossible de charger cet écran.",
-    writeFailed: "Impossible d'enregistrer cette modification.",
     selectionPublishFailed:
       "L'agent ne verra peut-être pas votre dernière sélection. Sélectionnez-la à nouveau.",
     liveCollaboration: {
@@ -1655,32 +1654,18 @@ export default {
       editColor: "Modifier la couleur de {{name}}",
     },
     import: {
-      title: "Importer",
       description:
         "Importez le HTML du presse-papiers Figma ou du HTML autonome comme écrans Design.",
-      figmaUrlTitle: "URL de frame Figma",
-      figmaUrlDescription:
-        "Importez une frame ou un fichier depuis un lien Figma.",
       figmaUrlLabel: "URL de frame ou de fichier Figma",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "Vérification de la connexion Figma…",
-      figmaConnected: "Figma connecté",
-      figmaConnectedWithSuffix: "Figma connecté · ••••{{suffix}}",
       figmaTokenLabel: "Jeton d’accès Figma",
       figmaTokenDocs: "Obtenir un jeton",
       figmaTokenPlaceholder: "Collez votre jeton d’accès personnel Figma",
-      figmaTokenDescription:
-        "Enregistré de façon sécurisée pour les imports et le chat. Le jeton n’est jamais ajouté au chat.",
-      importFigmaUrl: "Importer depuis Figma",
-      saveKeyAndImport: "Enregistrer la clé et importer",
       figmaUrlSuccess: "Importé depuis Figma.",
       figmaImageFallbackWarning:
         "Solutions de repli par image : {{count}}. L’apparence est préservée, mais ces calques ne sont pas entièrement modifiables.",
       figmaApproximationWarning:
         "Calques approximés : {{count}}. HTML/CSS ne peut pas représenter exactement toutes les propriétés Figma.",
-      figmaPasteTitle: "Coller depuis Figma",
-      figmaPasteDescription:
-        "Copiez un frame ou un calque dans Figma, puis collez-le dans le canevas Design. Design importe le HTML visible du presse-papiers.",
       figmaPasteTarget: "Collez dans le canevas",
       figmaPasteApiKeyHint:
         "Connectez votre jeton d'accès Figma pour des imports de nœuds exacts.",
@@ -1689,11 +1674,10 @@ export default {
       figmaPasteMatchGuidance:
         "Impossible de faire correspondre à des nœuds Figma précis. Collez un lien de cadre pour un import exact.",
       figmaPasteUnreadable:
-        "Ce presse-papiers ne contient aucun calque Figma copié. Sélectionnez un cadre dans Figma, copiez-le avec Cmd+C puis recollez, ou importez un lien Figma depuis le panneau Importer.",
+        "Ce presse-papiers ne contient aucun calque Figma copié. Sélectionnez un cadre dans Figma, copiez-le avec Cmd+C puis recollez, ou collez un lien vers le cadre dans le chat.",
       figmaPasteRestLabel: "Importé via l'API Figma",
       figmaPasteHtmlLabel: "Importé depuis l'aperçu du presse-papiers",
-      figmaPasteLocalKiwiLabel:
-        "Importé sans token — géométrie et texte uniquement",
+      figmaPasteLocalKiwiLabel: "Importé depuis le presse-papiers Figma",
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} nécessite{{plural}} un accès Figma pour être chargée{{plural}}.",
       figmaPasteImagesDontShowAgain: "Ne plus afficher",
@@ -1725,76 +1709,30 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: "Téléverser .fig",
       figUploadDescription:
         "Expérimental : le format .fig de Figma est propriétaire et peut évoluer. Les calques pris en charge deviennent des écrans modifiables ; certaines fonctions peuvent différer. Maximum {{max}} Mo.",
-      chooseFigFile: "Choisir un fichier .fig",
       figUploadUploading: "Téléversement {{progress}} %",
       figUploadProcessing: "Conversion…",
-      figImportWarningTitle: "Importation .fig volumineuse",
-      figImportWarningDescription:
-        "Ce fichier contient {{frames}} cadres et {{nodes}} calques. Tout importer peut ralentir l’éditeur. Choisissez les pages nécessaires.",
-      figImportFrameCount: "{{selected}} cadres sur {{total}} sélectionnés",
-      figImportSelectAll: "Tout sélectionner",
-      figImportClearAll: "Tout effacer",
-      figImportCancel: "Annuler",
-      figImportSelected: "Importer {{count}} sélectionnés",
-      figImportAll: "Tout importer",
       figImportAnalyzing: "Analyse…",
       figImportSaving: "Enregistrement de {{saved}} cadres sur {{total}}",
-      figImportFrameLimit:
-        "Choisissez des pages totalisant {{max}} cadres au maximum.",
       figImportFramesSkippedWarning:
         "{{count}} cadres trop complexes ont été ignorés : {{names}}",
-      figUploadLimits:
-        "Jusqu’à {{size}} Go · {{frames}} cadres par importation",
-      figUploadDescriptionShort:
-        "Importation locale — sans quota de l’API Figma. Les images intégrées compatibles sont incluses.",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "Design a mis cet import en pause",
-      quotaCooldownBody:
-        "Design limite ses propres requêtes Figma après avoir atteint un quota. La réinitialisation est automatique.",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "Importer HTML",
       htmlDescription:
         "Collez ou téléversez du HTML autonome. Design l’enregistre comme nouvel écran sans l’injecter dans cette interface.",
-      htmlPlaceholder: "<main>Collez le HTML autonome ici...</main>",
-      importHtml: "Importer HTML",
-      chooseHtmlFile: "Choisir un fichier HTML",
       allSupportedFiles: "Tous les fichiers pris en charge",
-      githubTitle: "GitHub",
       githubDescription:
         "Bientôt : importer des écrans et composants directement depuis un dépôt.",
-      localTitle: "App locale",
       localDescription:
         "Connectez n’importe quelle app locale en cours d’exécution avec /visual-edit.",
-      visualEditGuidance:
-        "Installez la skill /visual-edit, lancez n’importe quelle app locale, puis exécutez la commande de pont depuis ce dépôt pour que votre agent ajoute des écrans par URL.",
-      comingSoon: "Bientôt",
       warningsToast: "Import terminé avec avertissements",
       figmaSuccess: "Collage Figma importé",
       htmlSuccess: "HTML importé",
       uploadSuccess: "Fichier importé",
-      lastImport: "Dernier import",
       errors: {
         figmaTokenMustBeToken:
           "Collez un jeton d’accès Figma, pas un lien de fichier Figma.",
-        figmaUrlRequired: "Collez une URL de frame ou de fichier Figma.",
-        invalidFigmaUrl: "Saisissez une URL figma.com valide.",
         figmaImportFailed: "Impossible d’importer depuis Figma",
         notHtml: "Collez ou choisissez du HTML valide à importer.",
         importFailed: "Échec de l’import",
@@ -1803,9 +1741,11 @@ export default {
         invalidFigFile: "Choisissez un fichier se terminant par .fig.",
         unsupportedFileType: "Choisissez un fichier .fig, .html ou .htm.",
         importBusy:
-          "Une autre importation est en cours. Terminez-la ou annulez-la d’abord.",
+          "Une autre importation est en cours. Réessayez une fois qu’elle sera terminée.",
         figFileTooLarge:
-          "Ce .fig est trop volumineux : les téléversements sont limités à {{max}} Mo. Dans Figma, copiez uniquement le frame souhaité dans un nouveau fichier et exportez ce fichier en .fig, ou utilisez Coller depuis Figma.",
+          "Ce fichier est trop volumineux pour être importé ici. Collez plutôt un lien vers la page ou le cadre Figma.",
+        figFileUnreadable:
+          "Impossible de lire ce fichier en tant que fichier .fig. Enregistrez une nouvelle copie locale depuis Figma et importez-la.",
       },
     },
     generationMayHaveStopped:
@@ -1869,6 +1809,7 @@ export default {
       duplicate: "Dupliquer",
       versionHistory: "Historique des versions",
       import: "Importer…",
+      connectLocalApp: "Connecter une app locale",
       delete: "Supprimer",
       deleteError: "Impossible de supprimer ce design",
     },
@@ -2734,7 +2675,6 @@ export default {
     websiteReferenceMenu: "Ajouter un site web…",
     websiteUrlLabel: "URL du site web",
     websiteUrl: "Collez l’URL d’un site web",
-    figmaUrlLabel: "Lien Figma",
     invalidFigmaUrl:
       "Saisissez une URL valide de cadre ou de fichier figma.com.",
     tooMany: "Choisissez jusqu’à 20 références.",
@@ -2743,7 +2683,6 @@ export default {
     noSystems:
       "Vous n’avez pas encore de système de design. Créez-en un à partir d’un site web, de fichiers ou de Figma.",
     searchSystems: "Rechercher des systèmes de design…",
-    searchFrames: "Rechercher des cadres Figma…",
     searchDesigns: "Rechercher des designs…",
     searchPresentations: "Rechercher des présentations…",
     searchDesign: "Rechercher un design…",
@@ -2751,8 +2690,6 @@ export default {
     notReady:
       "La demande n’est pas prête. Vérifiez le contexte sélectionné et la connexion, puis réessayez.",
     search: "Rechercher du contexte…",
-    figmaUrl: "Collez un lien Figma",
-    browse: "Parcourir les cadres",
     loadFailed: "Impossible de charger cette référence.",
     retry: "Réessayer",
     empty: "Aucune référence correspondante.",
@@ -2761,8 +2698,27 @@ export default {
     slides: "Diapositives",
     referenceDesign: "Utiliser un design comme référence",
     connectFigma: "Connecter Figma",
-    figmaDisconnected: "Connectez Figma pour parcourir les designs.",
-    figmaReference: "Design Figma",
+    figmaReference: "Design Figma…",
+    figmaDialogTitle: "Ajouter un design Figma",
+    figmaDropTitle: "Déposez un fichier .fig",
+    figmaChooseFile: "Choisir un fichier",
+    figmaPasteHint:
+      "Vous pouvez aussi coller un cadre copié directement dans le prompt.",
+    figmaAddToPrompt: "Ajouter au prompt",
+    figmaLinkNeedsConnection:
+      "Les liens nécessitent un compte Figma connecté. Déposez plutôt un fichier .fig ou collez un cadre copié.",
+    figmaReferenceMore: "{{name}} et {{count}} de plus",
+    figmaReferenceEmpty:
+      "Aucun cadre n’est arrivé. Copiez un cadre dans Figma et réessayez.",
+    figmaSelection: "Sélection Figma",
+    figmaFileTooLarge:
+      "Ce fichier est trop volumineux pour être lu ici. Collez plutôt un lien vers sa page ou son cadre.",
+    figmaSearch: "Rechercher des pages et des cadres",
+    figmaSelectedCount: "{{count}} sélectionné(s)",
+    figmaShowFrames: "Afficher les cadres de {{name}}",
+    figmaLinkNotFrame: "Indiquez un lien vers une page ou un cadre Figma.",
+    figmaPageFrameCap:
+      "Ajoute les {{limit}} premiers cadres. Cochez des cadres pour choisir lesquels.",
     referenceDeck: "Utiliser une présentation comme référence",
     quickSaas: "Créer une page SaaS",
     quickDashboard: "Créer un tableau de bord",
@@ -2928,7 +2884,6 @@ export default {
     import: "Importer",
     importFromFigma: "Importer depuis Figma",
     figmaFile: "Fichier Figma (.fig)",
-    figmaFileMaxSize: "Jusqu’à {{max}} Go",
     openImport: "Ouvrir l’importation",
     importSelectedFile: "Importer le fichier sélectionné",
     starterSaasPrompt:

@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({ activate: vi.fn(), status: vi.fn() }));
 vi.mock("@agent-native/core/client/analytics", () => ({ track: vi.fn() }));
 vi.mock("@agent-native/core/client/auth/builder-signup", () => ({
   activateBuilderSignupAssignment: mocks.activate,
-  getBuilderSignupActivationStatus: mocks.status,
+  startBuilderSignupActivation: mocks.status,
 }));
 vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: ({ children }: { children?: ReactNode }) => <div>{children}</div>,

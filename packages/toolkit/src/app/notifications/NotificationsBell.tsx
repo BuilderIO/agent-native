@@ -1,5 +1,9 @@
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { usePollLoop } from "@agent-native/core/client/use-poll-loop";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import type {
   Notification as NotificationDto,
   NotificationSeverity,
@@ -161,9 +165,16 @@ export function NotificationsBell({
 
   const markAllRead = async () => {
     try {
-      await fetch(agentNativePath(`/_agent-native/notifications/read-all`), {
-        method: "POST",
-      });
+      const res = await fetch(
+        agentNativePath(`/_agent-native/notifications/read-all`),
+        {
+          method: "POST",
+        },
+      );
+      if (!res.ok) {
+        reportWriteFailure(writeFailureFromResponse(res));
+        return;
+      }
       setItems((prev) =>
         prev
           ? prev.map((n) =>
@@ -172,20 +183,27 @@ export function NotificationsBell({
           : prev,
       );
       setUnreadCount(0);
-    } catch {
-      // best-effort
+    } catch (error) {
+      reportWriteFailure(error);
     }
   };
 
   const dismiss = async (id: string) => {
     try {
-      await fetch(agentNativePath(`/_agent-native/notifications/${id}`), {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        agentNativePath(`/_agent-native/notifications/${id}`),
+        {
+          method: "DELETE",
+        },
+      );
+      if (!res.ok) {
+        reportWriteFailure(writeFailureFromResponse(res));
+        return;
+      }
       setItems((prev) => (prev ? prev.filter((n) => n.id !== id) : prev));
       void refresh();
-    } catch {
-      // best-effort
+    } catch (error) {
+      reportWriteFailure(error);
     }
   };
 
