@@ -57,7 +57,7 @@ function anchorBlocks(doc: ProseMirrorNode): AnchorBlocks {
     const type = node.type.name;
     if (!isCommentAnchorBlockType(type)) return true;
     found.push({ type, attrs: node.attrs, pos, nodeSize: node.nodeSize });
-    blocks.videos++;
+    if (type === "video") blocks.videos++;
     return false;
   });
   commentAnchorBlockNames(found).forEach(({ block: placed, id, holders }) => {
@@ -138,8 +138,18 @@ export function threadCommentBlock(
   )
     return null;
   if (anchorBlocks(doc).videos !== 1) return null;
-  return commentAnchorBlockList(doc)[0] ?? null;
+  return (
+    commentAnchorBlockList(doc).find(
+      ({ blockType }) => blockType === "video",
+    ) ?? null
+  );
 }
+
+const BLOCK_LABELS = {
+  video: "editor.media.video",
+  image: "editor.media.image",
+  audio: "editor.media.audio",
+} as const satisfies Record<CommentAnchorBlockType, string>;
 
 /**
  * The line a thread shows as its quote. A thread on a whole block quotes no
@@ -155,7 +165,10 @@ export function commentThreadQuote(
       time: msToClock(thread.clip.videoTimestampMs),
     });
   if (!thread.block) return thread.quotedText;
-  return thread.block.blockType === "video" ? t("editor.media.video") : null;
+  const { blockType } = thread.block;
+  return isCommentAnchorBlockType(blockType)
+    ? t(BLOCK_LABELS[blockType])
+    : null;
 }
 
 function cssEscape(value: string) {

@@ -1,5 +1,5 @@
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
-import { IconCheck } from "@tabler/icons-react";
+import { IconCheck, IconMinus } from "@tabler/icons-react";
 import * as React from "react";
 
 import { cn } from "../utils.js";
@@ -12,7 +12,7 @@ const Checkbox = React.forwardRef<
     ref={ref}
     // A TooltipTrigger asChild overwrites the root's data-state, so the fill keys off aria-checked.
     className={cn(
-      "peer h-4 w-4 shrink-0 transition-colors duration-150 rounded-sm border border-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 aria-checked:bg-primary aria-checked:text-primary-foreground",
+      "group peer h-4 w-4 shrink-0 transition-colors duration-150 rounded-sm border border-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 aria-checked:bg-primary aria-checked:text-primary-foreground aria-[checked=mixed]:bg-primary aria-[checked=mixed]:text-primary-foreground",
       className,
     )}
     {...props}
@@ -20,7 +20,8 @@ const Checkbox = React.forwardRef<
     <CheckboxPrimitive.Indicator
       className={cn("flex items-center justify-center text-current")}
     >
-      <IconCheck className="h-4 w-4" />
+      <IconCheck className="h-4 w-4 group-aria-[checked=mixed]:hidden" />
+      <IconMinus className="hidden h-4 w-4 group-aria-[checked=mixed]:block" />
     </CheckboxPrimitive.Indicator>
   </CheckboxPrimitive.Root>
 ));

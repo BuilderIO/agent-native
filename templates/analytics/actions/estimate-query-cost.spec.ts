@@ -199,12 +199,33 @@ describe("estimate-query-cost action", () => {
     );
   });
 
-  it("takes eventsSource only with first-party sql", async () => {
+  it("prices first-party SQL at the traffic it will read", async () => {
+    mocks.estimateFirstPartySql.mockResolvedValueOnce(costFromBytes(GIB, null));
+
+    await run({
+      sql: "SELECT 1 FROM analytics_event_daily_rollups",
+      source: "first-party",
+      environment: "production",
+    });
+
+    expect(mocks.estimateFirstPartySql).toHaveBeenCalledWith(
+      "SELECT 1 FROM analytics_event_daily_rollups",
+      expect.any(Object),
+      null,
+      signal,
+      { trafficEnvironment: "production" },
+    );
+  });
+
+  it("takes eventsSource and environment only with first-party sql", async () => {
     await expect(
       run({ sql: "SELECT 1", eventsSource: "raw" }),
     ).rejects.toMatchObject({ errorCode: "invalid_target", statusCode: 400 });
     await expect(
       run({ dashboardId: "d1", eventsSource: "raw" }),
+    ).rejects.toMatchObject({ errorCode: "invalid_target", statusCode: 400 });
+    await expect(
+      run({ sql: "SELECT 1", environment: "beta" }),
     ).rejects.toMatchObject({ errorCode: "invalid_target", statusCode: 400 });
     expect(mocks.estimateBigQuerySql).not.toHaveBeenCalled();
   });
