@@ -36,9 +36,13 @@ my-app이라는 새 폴더에 새 Agent-Native 앱을 만들고 실행해 줘.
 4. 앱 구조를 파악할 수 있도록 APP_NAME/AGENTS.md를 읽어 줘.
 5. `pnpm dev --no-open`로 앱을 시작하고 백그라운드에서 계속 실행해 줘.
 6. `pnpm dev`가 출력하는 로컬 URL을 읽어 줘. 응답하는지 예를
-   들어 `curl -I <url>`로 확인해 줘. 브라우저를 열지 말고
-   헤드리스 브라우저 도구도 쓰지 마. 앱은 내가 직접 열게.
-7. 결과를 보여 줘. 로컬 URL과 거기서 받은 응답을 알려 줘.
+   들어 `curl "<url>/_agent-native/ping?configuration=1"`로 확인해 줘.
+   응답에는 `"message":"pong"`과 설정 상태 `"ok"`가 있어야 해.
+   브라우저를 열지 말고 헤드리스 브라우저 도구도 쓰지 마. 앱은
+   내가 직접 열게.
+7. APP_NAME 폴더에서 `pnpm action hello`를 실행해 줘. 앱의 예제
+   액션이 실행되고 "Hello, world!"가 출력돼야 해.
+8. 결과를 보여 줘. 로컬 URL과 두 확인에서 출력된 내용을 알려 줘.
    설정이 끝났다고 말만 하지 마.
 
 규칙:
@@ -56,6 +60,8 @@ my-app이라는 새 폴더에 새 Agent-Native 앱을 만들고 실행해 줘.
 - `actions/`, `app/`, `AGENTS.md` 파일이 들어 있는 새 앱 폴더. 이름을 바꾸지 않았다면 `my-app`입니다.
 - 오류 없이 실행 중인 `pnpm dev`.
 - 에이전트가 응답하는지 확인한 로컬 URL. 보통 `http://localhost:8080`입니다.
+- 설정 상태가 `ok`인 `<url>/_agent-native/ping?configuration=1`의 응답.
+- "Hello, world!"를 출력하는 `pnpm action hello`.
 
 그런 다음 본인의 브라우저에서 로컬 URL을 여세요. Welcome 화면에서 **Continue as local dev**를 선택하세요. 시작하기 페이지가 나타납니다.
 
