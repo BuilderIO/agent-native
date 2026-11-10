@@ -755,7 +755,16 @@ export function useHomePromptContext({
           ),
         );
         if (!result.success) throw new Error(loadFailed);
-        return result.data;
+        const { items, hasMore, nextCursor } = result.data;
+        return {
+          items: items.map(({ id, title, url }) => ({
+            id,
+            title,
+            ...(url ? { url } : {}),
+          })),
+          hasMore,
+          ...(nextCursor === undefined ? {} : { nextCursor }),
+        };
       } catch (error) {
         throw new Error(actionErrorMessage(error) ?? loadFailed);
       }
