@@ -2488,6 +2488,8 @@ export default {
     changesSaveWhenReconnected: "重新连接时将保存更改",
     changesDiscarded: "部分更改因文件不存在而无法保存，已被丢弃。",
     offline: "离线",
+    unsaved: "未保存",
+    saveRetrying: "无法保存你的更改，正在自动重试。",
     saving: "正在保存...",
     clearedAllAnnotations: "已清除所有批注",
     annotationsDiscardedOnViewChange:

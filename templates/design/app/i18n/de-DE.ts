@@ -2628,6 +2628,9 @@ export default {
     changesDiscarded:
       "Einige Änderungen konnten nicht gespeichert werden, da die Datei nicht mehr existiert, und wurden verworfen.",
     offline: "Offline",
+    unsaved: "Nicht gespeichert",
+    saveRetrying:
+      "Änderungen konnten nicht gespeichert werden. Es wird automatisch erneut versucht.",
     saving: "Speichern...",
     clearedAllAnnotations: "Alle Anmerkungen gelöscht",
     annotationsDiscardedOnViewChange:

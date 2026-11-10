@@ -2599,6 +2599,8 @@ export default {
     changesDiscarded:
       "ファイルが存在しないため、一部の変更を保存できず破棄しました。",
     offline: "オフライン",
+    unsaved: "未保存",
+    saveRetrying: "変更を保存できませんでした。自動的に再試行します。",
     saving: "保存中...",
     clearedAllAnnotations: "すべての注釈を消去しました",
     annotationsDiscardedOnViewChange:

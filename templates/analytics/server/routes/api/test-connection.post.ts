@@ -2,6 +2,7 @@ import { readBody } from "@agent-native/core/server";
 import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 import { defineEventHandler, setResponseStatus } from "h3";
 
+import { fetchConfiguredEndpoint } from "../../lib/configured-endpoint-fetch";
 import {
   assertCredentialCanReachEndpoint,
   resolveCredential,
@@ -253,7 +254,7 @@ export default defineEventHandler(async (event) => {
           if (!url || !token)
             return { ok: false, error: "Missing credentials" };
           assertCredentialCanReachEndpoint(url, token, "GRAFANA_API_TOKEN");
-          const res = await fetch(`${url.value}/api/org`, {
+          const res = await fetchConfiguredEndpoint(url.value, "/api/org", {
             headers: { Authorization: `Bearer ${token.value}` },
           });
           if (!res.ok) return { ok: false, error: "Connection failed" };
@@ -340,8 +341,9 @@ export default defineEventHandler(async (event) => {
           const auth = `Basic ${Buffer.from(
             `${credentials.accessKey}:${credentials.accessSecret}`,
           ).toString("base64")}`;
-          const res = await fetch(
-            `${endpoint.value.replace(/\/+$/, "")}/users?limit=1`,
+          const res = await fetchConfiguredEndpoint(
+            endpoint.value,
+            "/users?limit=1",
             {
               headers: { Authorization: auth },
             },

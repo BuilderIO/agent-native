@@ -9,7 +9,6 @@ import {
 
 import { getAppConfig } from "../app-config/store.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
-import { isLoopbackRequest } from "../server/auth.js";
 import {
   describeBearerCredentialRefusal,
   type BearerCredentialRefusal,
@@ -19,6 +18,7 @@ import { resolveEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import { isDirectLoopbackRequest } from "../server/loopback.js";
 import { registerMcpAppCardsLab } from "./app-cards-lab.js";
 import { mcpApprovalRoute, mountMcpApprovalRoute } from "./approval-route.js";
 import { mcpApprovalAppId } from "./approval-store.js";
@@ -119,22 +119,6 @@ function deriveRequestMeta(event: H3Event): MCPRequestMeta {
     ...(fullCatalog ? { fullCatalog } : {}),
     ...(inlineAppsRequested ? { inlineMcpApps: true } : {}),
   };
-}
-
-function isLoopbackOrigin(origin: string | undefined): boolean {
-  if (!origin) return false;
-  try {
-    const hostname = new URL(origin).hostname;
-    return (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1" ||
-      hostname === "[::1]" ||
-      hostname.startsWith("127.")
-    );
-  } catch {
-    return false;
-  }
 }
 
 function buildWebRequest(
@@ -365,7 +349,12 @@ async function handleMcpRequestInternal(
     "x-agent-native-owner-email",
   );
   const requestMeta = deriveRequestMeta(event);
-  const hasLocalOwnerHint = Boolean(ownerEmailHeader?.trim());
+  const requestOrigin = getRequestHeader(event, "origin");
+  const directLocalRequest =
+    isDirectLoopbackRequest(event) &&
+    (requestOrigin === undefined || requestOrigin === requestMeta.origin);
+  const localOwnerHint = directLocalRequest ? ownerEmailHeader : undefined;
+  const hasLocalOwnerHint = Boolean(localOwnerHint?.trim());
   const directoryProfile =
     routePath === MCP_DIRECTORY_ROUTE_PREFIX &&
     config.directoryProfile?.directoryRoute !== false
@@ -390,10 +379,10 @@ async function handleMcpRequestInternal(
     : config;
   let authResult: Awaited<ReturnType<typeof verifyAuth>>;
   try {
-    authResult = await verifyAuth(authHeader, ownerEmailHeader, {
+    authResult = await verifyAuth(authHeader, localOwnerHint, {
+      allowLocalOwnerHint: hasLocalOwnerHint,
       allowDevOpen:
-        isLoopbackRequest(event) &&
-        isLoopbackOrigin(requestMeta.origin) &&
+        directLocalRequest &&
         (hasLocalOwnerHint || getAppConfig().mcp.allowDevOpen),
       resourceUrl: getMcpOAuthAudiences(event, routePath),
       requestOrigin: getOrigin(event),

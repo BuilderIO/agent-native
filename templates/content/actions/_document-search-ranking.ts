@@ -22,20 +22,6 @@ function regexTerm(value: string) {
   return escapeRegex(value.trim()).replace(/\s+/g, "[[:space:]]+");
 }
 
-export function searchQueryProximityPattern(parsed: ParsedSearchQuery) {
-  if (
-    parsed.groups.length < 2 ||
-    parsed.groups.some(
-      (group) => group.terms.length !== 1 || group.terms[0]!.titleOnly,
-    )
-  ) {
-    return null;
-  }
-  return parsed.groups
-    .map((group) => regexTerm(group.terms[0]!.text))
-    .join("(.|\\n){0,240}");
-}
-
 function wordPrefixMatch(column: SQLWrapper, term: SearchQueryTerm): SQL {
   const pattern = regexTerm(term.text);
   return sql`${column} ~* ${`(^|[^[:alnum:]_])${pattern}`}`;

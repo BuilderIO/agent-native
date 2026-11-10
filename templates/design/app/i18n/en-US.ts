@@ -2508,6 +2508,8 @@ export default {
     changesDiscarded:
       "Some changes couldn't be saved because the file no longer exists and were discarded.",
     offline: "Offline",
+    unsaved: "Not saved",
+    saveRetrying: "Couldn't save your changes. Retrying automatically.",
     saving: "Saving...",
     clearedAllAnnotations: "Cleared all annotations",
     annotationsDiscardedOnViewChange:

@@ -314,7 +314,12 @@ class BuilderEngine implements AgentEngine {
       await inlineOwnedToolResultImages(opts.messages),
       toolNameMap,
     );
-    const tools = engineToolsToAnthropic(providerTools, toolNameMap);
+    const anthropicTools = engineToolsToAnthropic(providerTools, toolNameMap);
+    // The gateway sends GPT tools in OpenAI strict mode unless told otherwise,
+    // and strict mode makes the model fill every optional action argument.
+    const tools = /^gpt-/i.test(model)
+      ? anthropicTools.map((tool) => ({ ...tool, strict: false }))
+      : anthropicTools;
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
     const reasoningEffort = normalizeReasoningEffortForModel(
