@@ -2007,6 +2007,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "{{count}} free clip left",
     freeClipsLeft_other: "{{count}} free clips left",
+    activateBuilder: "Activate Builder.io",
     hostedClipsExhaustedTitle: "Connect Builder.io for free to keep recording",
     hostedClipsExhaustedDescription:
       "Your free hosted clips are used up. Connect Builder.io storage to keep saving clips to your library.",
