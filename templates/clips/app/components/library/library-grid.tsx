@@ -668,17 +668,22 @@ export function LibraryGrid({
     }
     const uploadWithinFreeClips = async () => {
       // Each upload uses a free clip, so a batch bigger than what's left
-      // would queue files the server is about to refuse. A fresh read counts
-      // the clips earlier uploads reserved; queued files that haven't
-      // created their recording yet aren't in it.
-      let capacity = freeClipsCapacity(storageStatus.data);
-      if (capacity !== null) {
-        const fresh = await storageStatus.refetch();
-        if (fresh.data) capacity = freeClipsCapacity(fresh.data);
-      }
+      // would queue files the server is about to refuse. Queued files that
+      // haven't created their recording haven't reserved a clip yet; count
+      // them before the read, so one that reserves during it is counted
+      // twice rather than not at all.
       const queued =
         uploadsRef.current.filter((u) => !u.recordingId).length +
         admittedSinceRenderRef.current;
+      let status: VideoStorageStatus;
+      try {
+        status = await fetchVideoStorageStatus({ timeoutMs: 10_000 });
+      } catch (error) {
+        console.warn("[clips] storage status read before drop failed:", error);
+        setStorageGateIssue("unavailable");
+        return;
+      }
+      const capacity = freeClipsCapacity(status);
       const allowed =
         capacity === null
           ? files
