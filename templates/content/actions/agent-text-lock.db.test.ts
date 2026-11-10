@@ -1174,10 +1174,11 @@ describe("Agents set to Can comment on a page", () => {
         caller: typeof person | typeof agent,
       ) => {
         const discovered = await contract(row.databaseId);
+        const { spaceId, databaseId, databaseDocumentId } = discovered.target;
         return (await configureProperty.run(
           {
             ...change,
-            target: discovered.target,
+            target: { spaceId, databaseId, databaseDocumentId },
             expectedSchemaRevision: discovered.schemaRevision,
             idempotencyKey: `${key}-${caller.caller}`,
           } as never,
