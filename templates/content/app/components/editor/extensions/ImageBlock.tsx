@@ -1151,6 +1151,22 @@ export function ImageBlock({
             ) : null}
             {uploadFailure ? renderUploadFailure(true) : null}
           </div>
+        ) : src ? (
+          // The browser couldn't draw the picked file, so a failed replacement
+          // keeps showing the image the page still holds.
+          <div
+            className="media-block media-block--upload"
+            data-failed="true"
+            style={activeWidth ? { width: `${activeWidth}px` } : undefined}
+          >
+            <img
+              src={displaySrc}
+              alt={alt || ""}
+              className="media-block__content"
+              draggable={false}
+            />
+            {renderUploadFailure(true)}
+          </div>
         ) : (
           <div className="media-empty-block">{renderUploadFailure(false)}</div>
         )}

@@ -2333,6 +2333,30 @@ function heldImageUploadIds(doc: ProseMirrorNode): Set<string> {
 }
 
 /**
+ * The upload ids of this tab's image blocks inside the ranges `transaction`
+ * replaced, so an edit elsewhere on a long page costs no full scan.
+ */
+function touchedImageUploadIds(transaction: Transaction): Set<string> {
+  const ids = new Set<string>();
+  transaction.steps.forEach((step, index) => {
+    const doc = transaction.docs[index];
+    step.getMap().forEach((oldStart, oldEnd) => {
+      if (oldEnd <= oldStart) return;
+      doc.nodesBetween(oldStart, oldEnd, (node) => {
+        if (
+          node.type.name === "image" &&
+          hasImageUploadPreview(node.attrs.uploadId)
+        ) {
+          ids.add(node.attrs.uploadId as string);
+        }
+        return true;
+      });
+    });
+  });
+  return ids;
+}
+
+/**
  * Notes when the user deletes a block this tab is uploading an image for, so
  * its upload doesn't put the block back. A collaborator's change can drop the
  * block too while the page reconciles; its upload restores it then.
@@ -2341,14 +2365,18 @@ const ImageUploadRemovals = Extension.create({
   name: "imageUploadRemovals",
   onTransaction({ transaction }) {
     if (
+      !transaction.docChanged ||
       !hasAnyImageUploadPreview() ||
       !isLocalEditorEdit(transaction) ||
       transaction.getMeta(IMAGE_UPLOAD_STEP_META)
     ) {
       return;
     }
+    const touched = touchedImageUploadIds(transaction);
+    if (touched.size === 0) return;
+    // A moved block was replaced too; only one gone from the page is deleted.
     const after = heldImageUploadIds(transaction.doc);
-    for (const uploadId of heldImageUploadIds(transaction.before)) {
+    for (const uploadId of touched) {
       if (!after.has(uploadId)) noteImageUploadBlockRemoved(uploadId);
     }
   },

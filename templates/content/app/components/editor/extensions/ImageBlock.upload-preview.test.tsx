@@ -222,4 +222,25 @@ describe("image upload previews in the block", () => {
       buttonNamed(container, "editor.media.retryImageUpload"),
     ).toBeDefined();
   });
+
+  it("keeps a replaced image in view when its failed pick can't be drawn", () => {
+    vi.mocked(URL.createObjectURL).mockImplementation(() => {
+      throw new Error("Not supported");
+    });
+    holdImageUploadPreview("image-upload-1", file, owner);
+    failImageUploadPreview("image-upload-1", "upload", vi.fn());
+    const { props } = imageProps({
+      uploadId: "image-failed-1",
+      src: "https://cdn.example.com/old.png",
+    });
+    act(() => root.render(block(props)));
+
+    expect(container.querySelector("img")?.getAttribute("src")).toContain(
+      "old.png",
+    );
+    expect(container.textContent).toContain("editor.media.imageUploadFailed");
+    expect(
+      buttonNamed(container, "editor.media.retryImageUpload"),
+    ).toBeDefined();
+  });
 });
