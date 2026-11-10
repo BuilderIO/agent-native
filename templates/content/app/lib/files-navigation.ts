@@ -92,9 +92,15 @@ type FilesNavigationRead =
 type CreatedFilesRow = {
   databaseId: string;
   item: ContentDatabaseNavigationItem;
-  /** When the create's answer arrived; null while it is in flight. */
-  confirmedAt: number | null;
+  /** The mark taken when the create's answer arrived; null while in flight. */
+  confirmedMark: number | null;
 };
+
+// Orders this tab's Files reads and create answers. A counter, not the clock:
+// a read that starts in the same millisecond as an answer would count as
+// starting after it, and could drop a row the read never had a chance to list.
+let lastFilesMark = 0;
+const nextFilesMark = () => ++lastFilesMark;
 
 const createdFilesRows = new WeakMap<
   QueryClient,
@@ -122,10 +128,12 @@ function updateCachedFilesPages(
     if (!params?.navigation || !page || "available" in page) continue;
     const next = update(page, params);
     if (!next) continue;
-    // Writing a page marks it fresh. One already marked stale still rereads
-    // the next time it draws.
+    // A written page keeps the time of its last read, so it rereads when it
+    // would have; one already marked stale still rereads when it next draws.
     const stale = query.state.isInvalidated;
-    queryClient.setQueryData(query.queryKey, next);
+    queryClient.setQueryData(query.queryKey, next, {
+      updatedAt: query.state.dataUpdatedAt,
+    });
     if (stale) {
       void queryClient.invalidateQueries({
         queryKey: query.queryKey,
@@ -173,9 +181,9 @@ export function showCreatedFilesRow(
   rows.set(document.id, {
     databaseId,
     item,
-    confirmedAt: isDocumentCreationPending(queryClient, document)
+    confirmedMark: isDocumentCreationPending(queryClient, document)
       ? null
-      : Date.now(),
+      : nextFilesMark(),
   });
   updateCachedFilesPages(queryClient, (page, params) =>
     params.databaseId === databaseId &&
@@ -196,7 +204,7 @@ export function confirmCreatedFilesRow(
   documentId: string,
 ) {
   const row = createdFilesRows.get(queryClient)?.get(documentId);
-  if (row) row.confirmedAt ??= Date.now();
+  if (row) row.confirmedMark ??= nextFilesMark();
 }
 
 /**
@@ -248,7 +256,7 @@ function withCreatedFilesRows(
   queryClient: QueryClient,
   params: FilesNavigationPageParams,
   page: ContentDatabaseNavigationPage,
-  readStartedAt: number,
+  readStartMark: number,
 ): ContentDatabaseNavigationPage {
   const rows = createdFilesRows.get(queryClient);
   if (!rows?.size) return page;
@@ -269,7 +277,7 @@ function withCreatedFilesRows(
     parentIds.add(row.item.parentId);
     if (!firstPage || row.item.parentId !== navigation.parentId) continue;
     const readAfterCreate =
-      row.confirmedAt !== null && row.confirmedAt <= readStartedAt;
+      row.confirmedMark !== null && row.confirmedMark < readStartMark;
     if (listed.has(documentId)) {
       if (readAfterCreate) rows.delete(documentId);
       continue;
@@ -327,7 +335,7 @@ export async function readFilesNavigationPage(
     }
     pending.add(expansionKey);
   }
-  const readStartedAt = Date.now();
+  const readStartMark = nextFilesMark();
   try {
     const response = await callActionWithRetry<FilesNavigationRead>(
       "query-content-database-items",
@@ -356,12 +364,12 @@ export async function readFilesNavigationPage(
             queryClient,
             branchParams,
             branch,
-            readStartedAt,
+            readStartMark,
           ),
         );
       }
     }
-    return withCreatedFilesRows(queryClient, params, page, readStartedAt);
+    return withCreatedFilesRows(queryClient, params, page, readStartMark);
   } finally {
     if (expansionKey && pending) pending.delete(expansionKey);
   }
@@ -390,12 +398,22 @@ function isExpansionReadPending(
 
 const NO_EXPANDED_FOLDERS: ReadonlySet<string> = new Set();
 
+// The folders the sidebar draws open under each Files page it reads. A reader
+// that doesn't draw folders, such as a breadcrumb menu, asks for these too, so
+// a reread asks for the same folders whichever reader mounted last.
+const openFoldersByPage = new WeakMap<
+  QueryClient,
+  Map<string, ReadonlySet<string>>
+>();
+
 export function useFilesNavigationPage(
   params: FilesNavigationPageParams,
   expanded: ReadonlySet<string> = NO_EXPANDED_FOLDERS,
   { enabled = true }: { enabled?: boolean } = {},
 ) {
   const queryClient = useQueryClient();
+  const queryKey = filesNavigationQueryKey(params);
+  const pageKey = JSON.stringify(queryKey);
   const expansionKey = JSON.stringify([
     params.databaseId,
     params.navigation.parentId,
@@ -403,11 +421,27 @@ export function useFilesNavigationPage(
     [...expanded],
   ]);
   const rootReadExpansion = useRef<string | null>(null);
+  useEffect(() => {
+    if (expanded.size === 0) return;
+    let pages = openFoldersByPage.get(queryClient);
+    if (!pages) {
+      pages = new Map();
+      openFoldersByPage.set(queryClient, pages);
+    }
+    pages.set(pageKey, expanded);
+    return () => {
+      if (pages.get(pageKey) === expanded) pages.delete(pageKey);
+    };
+  }, [expanded, pageKey, queryClient]);
   const query = useQuery({
-    queryKey: filesNavigationQueryKey(params),
+    queryKey,
     queryFn: ({ signal }) => {
       rootReadExpansion.current = expansionKey;
-      return readFilesNavigationPage(queryClient, params, expanded, signal);
+      const open =
+        expanded.size > 0
+          ? expanded
+          : (openFoldersByPage.get(queryClient)?.get(pageKey) ?? expanded);
+      return readFilesNavigationPage(queryClient, params, open, signal);
     },
     retry: false,
     enabled,

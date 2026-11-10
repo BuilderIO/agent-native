@@ -8,6 +8,7 @@ import {
   resolveContentSpaceAccess,
 } from "./_content-space-access.js";
 import {
+  organizationContentSpaceId,
   personalContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
@@ -65,12 +66,23 @@ export async function listAuthorizedContentSpaces(
   return rows as ContentSpaceNameCandidate[];
 }
 
+/** Whether the setup pass creates this workspace for the caller. */
+async function setupCreatesContentSpace(userEmail: string, spaceId: string) {
+  const email = normalizeContentSpaceEmail(userEmail);
+  if (spaceId === personalContentSpaceId(email)) return true;
+  const memberships = await listContentOrganizationMemberships(email);
+  return memberships.some(
+    (membership) => organizationContentSpaceId(membership.orgId) === spaceId,
+  );
+}
+
 /**
  * Checks the caller's access to a workspace, and creates the caller's
- * workspaces first only when it doesn't exist yet. That pass checks every
- * workspace the caller belongs to, which takes more than a hundred queries for
- * a member of a few organizations. The app runs it once when it loads, so a
- * workspace the caller can already see doesn't need it again on each create.
+ * workspaces first only when it is one of theirs that doesn't exist yet. That
+ * pass checks every workspace the caller belongs to, which takes more than a
+ * hundred queries for a member of a few organizations. The app runs it once
+ * when it loads, so a workspace the caller can already see doesn't need it
+ * again on each create, and one the pass wouldn't create never does.
  */
 export async function resolveProvisionedContentSpaceAccess(args: {
   db: ReturnType<typeof getDb>;
@@ -88,7 +100,8 @@ export async function resolveProvisionedContentSpaceAccess(args: {
     if (
       args.provision === false ||
       !(error instanceof ActionContractError) ||
-      error.errorCode !== "SPACE_NOT_FOUND"
+      error.errorCode !== "SPACE_NOT_FOUND" ||
+      !(await setupCreatesContentSpace(args.userEmail, args.spaceId))
     ) {
       throw error;
     }

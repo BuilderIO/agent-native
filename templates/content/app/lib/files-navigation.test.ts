@@ -6,7 +6,7 @@ import type {
   Document,
 } from "@shared/api";
 import { QueryClient } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { callActionWithRetry } = vi.hoisted(() => ({
   callActionWithRetry: vi.fn(),
@@ -122,6 +122,10 @@ describe("pages this tab created in the Files tree", () => {
     queryClient.setQueryData(branchKey(), page([row("a"), row("b")]));
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("keep each new page through another create's reread of the branch", async () => {
     startCreate(queryClient, created("new-1"));
     startCreate(queryClient, created("new-2"));
@@ -178,7 +182,7 @@ describe("pages this tab created in the Files tree", () => {
     ]);
   });
 
-  it("keep a new page when the read started before the create was confirmed", async () => {
+  it("keep a new page when the read started before the create was confirmed, even in the same millisecond", async () => {
     startCreate(queryClient, created("new"));
     let answer!: (value: ContentDatabaseNavigationPageResponse) => void;
     callActionWithRetry.mockReturnValueOnce(
@@ -190,8 +194,8 @@ describe("pages this tab created in the Files tree", () => {
       databaseId: FILES,
       parentId: null,
     });
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
     const read = readFilesNavigationPage(queryClient, params, []);
-    await new Promise((resolve) => setTimeout(resolve, 2));
     confirmCreatedFilesRow(queryClient, "new");
     answer(page([row("a"), row("b")]));
 
@@ -291,5 +295,15 @@ describe("pages this tab created in the Files tree", () => {
 
     expect(ids(queryClient)).toEqual(["a", "b", "new"]);
     expect(queryClient.getQueryState(branchKey())?.isInvalidated).toBe(true);
+  });
+
+  it("leave a branch's read time as it was, so it rereads when it would have", () => {
+    queryClient.setQueryData(branchKey(), page([row("a")]), {
+      updatedAt: 1_000,
+    });
+    startCreate(queryClient, created("new"));
+
+    expect(ids(queryClient)).toEqual(["a", "new"]);
+    expect(queryClient.getQueryState(branchKey())?.dataUpdatedAt).toBe(1_000);
   });
 });
