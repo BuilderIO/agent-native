@@ -3742,207 +3742,207 @@ function DatabaseTable({
         </div>
       ) : null}
 
-      {database.itemsFailed ? (
-        <QueryErrorState
-          compact
-          onRetry={() => void database.retryItems()}
-          retrying={database.itemsRetrying}
-        />
-      ) : activeView.type === "form" ? (
-        <DatabaseFormView
-          databaseId={databaseId}
-          databaseDocumentId={document.id}
-          databaseTitle={data?.database.title ?? document.title}
-          view={activeView}
-          properties={orderedProperties}
-          canEdit={effectiveCanEdit}
-        />
-      ) : activeView.type === "board" ? (
-        <DatabaseBoardView
-          databaseId={databaseId}
-          activeView={activeView}
-          properties={orderedProperties}
-          items={visibleItems}
-          groupProperty={boardGroupProperty}
-          databaseDocumentId={document.id}
-          canEdit={effectiveCanEdit}
-          canCreateItems={canCreateItems}
-          isLoading={isDatabaseViewLoading}
-          isCreating={isCreatingDatabaseItem || setProperty.isPending}
-          hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
-          isMoving={setProperty.isPending}
-          source={source}
-          sources={sources}
-          addPropertyOpenRequestId={addPropertyOpenRequestId}
-          onAddPropertyOpenRequestHandled={(requestId) =>
-            setAddPropertyOpenRequestId((current) =>
-              current === requestId ? 0 : current,
-            )
-          }
-          onConnectSource={openSourcesFromAddProperty}
-          collapsedGroupIds={activeView.collapsedGroupIds ?? []}
-          hideEmptyGroups={activeView.hideEmptyGroups === true}
-          onClearResultConstraints={clearSearchAndFilters}
-          onGroupByChange={(propertyId) =>
-            updateActiveView((view) =>
-              setDatabaseViewGroupByProperty(view, propertyId),
-            )
-          }
-          onHideEmptyGroupsChange={setHideEmptyGroups}
-          onGroupsCollapsedChange={setGroupsCollapsed}
-          onCreateCard={createBoardCard}
-          onMoveCard={moveBoardCard}
-          onGroupCollapsedChange={setGroupCollapsed}
-          onPreview={previewItemPage}
-          onDeletedPreviewItem={handleDeletedPreviewItem}
-          onOpenPage={openItemPage}
-        />
-      ) : activeView.type === "list" ? (
-        <DatabaseListView
-          properties={tableProperties}
-          groupableProperties={orderedProperties}
-          layoutProperties={databaseListLayoutProperties(
-            orderedProperties,
-            activeView,
-          )}
-          items={visibleItems}
-          databaseId={databaseId}
-          databaseDocumentId={document.id}
-          itemLayout={activeView.itemLayout ?? null}
-          editingRows={editingListRowsViewId === activeView.id}
-          canEdit={effectiveCanEdit}
-          canCreateItems={canCreateItems}
-          isLoading={isDatabaseViewLoading}
-          isCreating={isCreatingDatabaseItem}
-          activeFilters={activeFilters}
-          hasSearch={!!searchQuery}
-          rowsAreManuallyOrdered={rowsAreManuallyOrdered}
-          groupByPropertyId={activeView.groupByPropertyId ?? null}
-          collapsedGroupIds={activeView.collapsedGroupIds ?? []}
-          hideEmptyGroups={activeView.hideEmptyGroups === true}
-          onClearResultConstraints={clearSearchAndFilters}
-          onCreateRow={createRow}
-          onCreateGroupedRow={createGroupedRow}
-          onGroupCollapsedChange={setGroupCollapsed}
-          onPreview={previewItemPage}
-          onDeletedPreviewItem={handleDeletedPreviewItem}
-          onOpenPage={openItemPage}
-          onItemLayoutChange={setItemLayout}
-          onEditingRowsChange={(editing) =>
-            setEditingListRowsViewId(editing ? activeView.id : null)
-          }
-        />
-      ) : activeView.type === "gallery" ? (
-        <DatabaseGalleryView
-          properties={tableProperties}
-          groupableProperties={orderedProperties}
-          items={visibleItems}
-          databaseDocumentId={document.id}
-          canEdit={effectiveCanEdit}
-          canCreateItems={canCreateItems}
-          isLoading={isDatabaseViewLoading}
-          isCreating={isCreatingDatabaseItem}
-          activeFilters={activeFilters}
-          hasSearch={!!searchQuery}
-          rowsAreManuallyOrdered={rowsAreManuallyOrdered}
-          groupByPropertyId={activeView.groupByPropertyId ?? null}
-          collapsedGroupIds={activeView.collapsedGroupIds ?? []}
-          hideEmptyGroups={activeView.hideEmptyGroups === true}
-          onClearResultConstraints={clearSearchAndFilters}
-          onCreateRow={createRow}
-          onCreateGroupedRow={createGroupedRow}
-          onGroupCollapsedChange={setGroupCollapsed}
-          onPreview={previewItemPage}
-          onDeletedPreviewItem={handleDeletedPreviewItem}
-          onOpenPage={openItemPage}
-        />
-      ) : activeView.type === "calendar" ? (
-        <DatabaseCalendarView
-          databaseId={databaseId}
-          activeView={activeView}
-          properties={orderedProperties}
-          items={visibleItems}
-          databaseDocumentId={document.id}
-          canEdit={effectiveCanEdit}
-          canCreateItems={canCreateItems}
-          isLoading={isDatabaseViewLoading}
-          isCreating={isCreatingDatabaseItem || setProperty.isPending}
-          activeFilters={activeFilters}
-          hasSearch={!!searchQuery}
-          dateProperty={dateViewProperty}
-          month={dateViewMonth}
-          source={source}
-          sources={sources}
-          addPropertyOpenRequestId={addPropertyOpenRequestId}
-          onAddPropertyOpenRequestHandled={(requestId) =>
-            setAddPropertyOpenRequestId((current) =>
-              current === requestId ? 0 : current,
-            )
-          }
-          onConnectSource={openSourcesFromAddProperty}
-          onClearResultConstraints={clearSearchAndFilters}
-          onMonthChange={setDateViewMonth}
-          onDatePropertyChange={(propertyId) =>
-            updateActiveView((view) => ({
-              ...view,
-              datePropertyId: propertyId,
-            }))
-          }
-          onCreateCard={createDatedCard}
-          onPreview={previewItemPage}
-          onDeletedPreviewItem={handleDeletedPreviewItem}
-          onOpenPage={openItemPage}
-        />
-      ) : activeView.type === "timeline" ? (
-        <DatabaseTimelineView
-          databaseId={databaseId}
-          activeView={activeView}
-          properties={orderedProperties}
-          items={visibleItems}
-          databaseDocumentId={document.id}
-          canEdit={effectiveCanEdit}
-          canCreateItems={canCreateItems}
-          isLoading={isDatabaseViewLoading}
-          isCreating={isCreatingDatabaseItem || setProperty.isPending}
-          activeFilters={activeFilters}
-          hasSearch={!!searchQuery}
-          dateProperty={dateViewProperty}
-          month={dateViewMonth}
-          source={source}
-          sources={sources}
-          addPropertyOpenRequestId={addPropertyOpenRequestId}
-          onAddPropertyOpenRequestHandled={(requestId) =>
-            setAddPropertyOpenRequestId((current) =>
-              current === requestId ? 0 : current,
-            )
-          }
-          onConnectSource={openSourcesFromAddProperty}
-          onClearResultConstraints={clearSearchAndFilters}
-          onMonthChange={setDateViewMonth}
-          onDatePropertyChange={(propertyId) =>
-            updateActiveView((view) => ({
-              ...view,
-              datePropertyId: propertyId,
-            }))
-          }
-          onEndDatePropertyChange={(propertyId) =>
-            updateActiveView((view) => ({
-              ...view,
-              endDatePropertyId: propertyId,
-            }))
-          }
-          onCreateCard={createDatedCard}
-          onPreview={previewItemPage}
-          onDeletedPreviewItem={handleDeletedPreviewItem}
-          onOpenPage={openItemPage}
-        />
-      ) : (
-        // The read-only ChatGPT widget can't read or write Comments.
-        <DatabaseItemCommentsContext.Provider
-          value={
-            document.mcpDirectoryWidgetReadOnly ? null : previewItemComments
-          }
-        >
+      {/* Board and calendar cards share the table's row menu, so every view
+          gets the handler. The read-only ChatGPT widget can't read or write
+          Comments. */}
+      <DatabaseItemCommentsContext.Provider
+        value={document.mcpDirectoryWidgetReadOnly ? null : previewItemComments}
+      >
+        {database.itemsFailed ? (
+          <QueryErrorState
+            compact
+            onRetry={() => void database.retryItems()}
+            retrying={database.itemsRetrying}
+          />
+        ) : activeView.type === "form" ? (
+          <DatabaseFormView
+            databaseId={databaseId}
+            databaseDocumentId={document.id}
+            databaseTitle={data?.database.title ?? document.title}
+            view={activeView}
+            properties={orderedProperties}
+            canEdit={effectiveCanEdit}
+          />
+        ) : activeView.type === "board" ? (
+          <DatabaseBoardView
+            databaseId={databaseId}
+            activeView={activeView}
+            properties={orderedProperties}
+            items={visibleItems}
+            groupProperty={boardGroupProperty}
+            databaseDocumentId={document.id}
+            canEdit={effectiveCanEdit}
+            canCreateItems={canCreateItems}
+            isLoading={isDatabaseViewLoading}
+            isCreating={isCreatingDatabaseItem || setProperty.isPending}
+            hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
+            isMoving={setProperty.isPending}
+            source={source}
+            sources={sources}
+            addPropertyOpenRequestId={addPropertyOpenRequestId}
+            onAddPropertyOpenRequestHandled={(requestId) =>
+              setAddPropertyOpenRequestId((current) =>
+                current === requestId ? 0 : current,
+              )
+            }
+            onConnectSource={openSourcesFromAddProperty}
+            collapsedGroupIds={activeView.collapsedGroupIds ?? []}
+            hideEmptyGroups={activeView.hideEmptyGroups === true}
+            onClearResultConstraints={clearSearchAndFilters}
+            onGroupByChange={(propertyId) =>
+              updateActiveView((view) =>
+                setDatabaseViewGroupByProperty(view, propertyId),
+              )
+            }
+            onHideEmptyGroupsChange={setHideEmptyGroups}
+            onGroupsCollapsedChange={setGroupsCollapsed}
+            onCreateCard={createBoardCard}
+            onMoveCard={moveBoardCard}
+            onGroupCollapsedChange={setGroupCollapsed}
+            onPreview={previewItemPage}
+            onDeletedPreviewItem={handleDeletedPreviewItem}
+            onOpenPage={openItemPage}
+          />
+        ) : activeView.type === "list" ? (
+          <DatabaseListView
+            properties={tableProperties}
+            groupableProperties={orderedProperties}
+            layoutProperties={databaseListLayoutProperties(
+              orderedProperties,
+              activeView,
+            )}
+            items={visibleItems}
+            databaseId={databaseId}
+            databaseDocumentId={document.id}
+            itemLayout={activeView.itemLayout ?? null}
+            editingRows={editingListRowsViewId === activeView.id}
+            canEdit={effectiveCanEdit}
+            canCreateItems={canCreateItems}
+            isLoading={isDatabaseViewLoading}
+            isCreating={isCreatingDatabaseItem}
+            activeFilters={activeFilters}
+            hasSearch={!!searchQuery}
+            rowsAreManuallyOrdered={rowsAreManuallyOrdered}
+            groupByPropertyId={activeView.groupByPropertyId ?? null}
+            collapsedGroupIds={activeView.collapsedGroupIds ?? []}
+            hideEmptyGroups={activeView.hideEmptyGroups === true}
+            onClearResultConstraints={clearSearchAndFilters}
+            onCreateRow={createRow}
+            onCreateGroupedRow={createGroupedRow}
+            onGroupCollapsedChange={setGroupCollapsed}
+            onPreview={previewItemPage}
+            onDeletedPreviewItem={handleDeletedPreviewItem}
+            onOpenPage={openItemPage}
+            onItemLayoutChange={setItemLayout}
+            onEditingRowsChange={(editing) =>
+              setEditingListRowsViewId(editing ? activeView.id : null)
+            }
+          />
+        ) : activeView.type === "gallery" ? (
+          <DatabaseGalleryView
+            properties={tableProperties}
+            groupableProperties={orderedProperties}
+            items={visibleItems}
+            databaseDocumentId={document.id}
+            canEdit={effectiveCanEdit}
+            canCreateItems={canCreateItems}
+            isLoading={isDatabaseViewLoading}
+            isCreating={isCreatingDatabaseItem}
+            activeFilters={activeFilters}
+            hasSearch={!!searchQuery}
+            rowsAreManuallyOrdered={rowsAreManuallyOrdered}
+            groupByPropertyId={activeView.groupByPropertyId ?? null}
+            collapsedGroupIds={activeView.collapsedGroupIds ?? []}
+            hideEmptyGroups={activeView.hideEmptyGroups === true}
+            onClearResultConstraints={clearSearchAndFilters}
+            onCreateRow={createRow}
+            onCreateGroupedRow={createGroupedRow}
+            onGroupCollapsedChange={setGroupCollapsed}
+            onPreview={previewItemPage}
+            onDeletedPreviewItem={handleDeletedPreviewItem}
+            onOpenPage={openItemPage}
+          />
+        ) : activeView.type === "calendar" ? (
+          <DatabaseCalendarView
+            databaseId={databaseId}
+            activeView={activeView}
+            properties={orderedProperties}
+            items={visibleItems}
+            databaseDocumentId={document.id}
+            canEdit={effectiveCanEdit}
+            canCreateItems={canCreateItems}
+            isLoading={isDatabaseViewLoading}
+            isCreating={isCreatingDatabaseItem || setProperty.isPending}
+            activeFilters={activeFilters}
+            hasSearch={!!searchQuery}
+            dateProperty={dateViewProperty}
+            month={dateViewMonth}
+            source={source}
+            sources={sources}
+            addPropertyOpenRequestId={addPropertyOpenRequestId}
+            onAddPropertyOpenRequestHandled={(requestId) =>
+              setAddPropertyOpenRequestId((current) =>
+                current === requestId ? 0 : current,
+              )
+            }
+            onConnectSource={openSourcesFromAddProperty}
+            onClearResultConstraints={clearSearchAndFilters}
+            onMonthChange={setDateViewMonth}
+            onDatePropertyChange={(propertyId) =>
+              updateActiveView((view) => ({
+                ...view,
+                datePropertyId: propertyId,
+              }))
+            }
+            onCreateCard={createDatedCard}
+            onPreview={previewItemPage}
+            onDeletedPreviewItem={handleDeletedPreviewItem}
+            onOpenPage={openItemPage}
+          />
+        ) : activeView.type === "timeline" ? (
+          <DatabaseTimelineView
+            databaseId={databaseId}
+            activeView={activeView}
+            properties={orderedProperties}
+            items={visibleItems}
+            databaseDocumentId={document.id}
+            canEdit={effectiveCanEdit}
+            canCreateItems={canCreateItems}
+            isLoading={isDatabaseViewLoading}
+            isCreating={isCreatingDatabaseItem || setProperty.isPending}
+            activeFilters={activeFilters}
+            hasSearch={!!searchQuery}
+            dateProperty={dateViewProperty}
+            month={dateViewMonth}
+            source={source}
+            sources={sources}
+            addPropertyOpenRequestId={addPropertyOpenRequestId}
+            onAddPropertyOpenRequestHandled={(requestId) =>
+              setAddPropertyOpenRequestId((current) =>
+                current === requestId ? 0 : current,
+              )
+            }
+            onConnectSource={openSourcesFromAddProperty}
+            onClearResultConstraints={clearSearchAndFilters}
+            onMonthChange={setDateViewMonth}
+            onDatePropertyChange={(propertyId) =>
+              updateActiveView((view) => ({
+                ...view,
+                datePropertyId: propertyId,
+              }))
+            }
+            onEndDatePropertyChange={(propertyId) =>
+              updateActiveView((view) => ({
+                ...view,
+                endDatePropertyId: propertyId,
+              }))
+            }
+            onCreateCard={createDatedCard}
+            onPreview={previewItemPage}
+            onDeletedPreviewItem={handleDeletedPreviewItem}
+            onOpenPage={openItemPage}
+          />
+        ) : (
           <DatabaseTableView
             startupAnchored={renderMode === "page"}
             columnOrderIds={activeView.tableColumnOrderIds ?? NO_COLUMN_ORDER}
@@ -4042,8 +4042,8 @@ function DatabaseTable({
             onDeletedPreviewItems={handleDeletedPreviewItems}
             onOpenPage={openItemPage}
           />
-        </DatabaseItemCommentsContext.Provider>
-      )}
+        )}
+      </DatabaseItemCommentsContext.Provider>
 
       {hasMoreItems &&
       !isClientQueryExpansionPending &&

@@ -476,6 +476,25 @@ describe("the Discussion panel", () => {
     expect(onFocused).toHaveBeenCalledOnce();
   });
 
+  it("drops a page composer request once the person clicks elsewhere", async () => {
+    const onFocused = vi.fn();
+    pageComment = { focus: true, onFocused };
+    render();
+    act(() => {
+      document.body.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+    });
+    await nextFrame();
+    await nextFrame();
+
+    const composer = container.querySelector<HTMLElement>(
+      "[data-discussion-composer]",
+    );
+    expect(composer?.contains(document.activeElement)).toBe(false);
+    expect(onFocused).toHaveBeenCalledOnce();
+  });
+
   it("shows a linked thread whatever the filters say, Type included", () => {
     render("history", "text-1");
     act(() => replies.setHistoryFilters({ kind: "suggestions" }));

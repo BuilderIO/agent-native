@@ -2153,6 +2153,21 @@ export function CommentsSidebar({
     if (!focusPageComposer || presentation !== "history") return;
     let attempts = 0;
     let frame = 0;
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      cancelAnimationFrame(frame);
+      onPageComposerFocusedRef.current?.();
+    };
+    // The preview and the panel move focus as they open, so a focus change
+    // isn't the person moving on; only their own click or key press elsewhere
+    // drops the request.
+    const relinquish = (event: Event) => {
+      if (!pageComposerBoxRef.current?.contains(event.target as Node)) settle();
+    };
+    document.addEventListener("pointerdown", relinquish, true);
+    document.addEventListener("keydown", relinquish, true);
     const focusComposer = () => {
       const box = pageComposerBoxRef.current;
       if (!box?.contains(document.activeElement))
@@ -2161,13 +2176,17 @@ export function CommentsSidebar({
       // yet. A request that never lands is dropped rather than left to take
       // focus the next time Discussion opens.
       if (box?.contains(document.activeElement) || ++attempts >= 60) {
-        onPageComposerFocusedRef.current?.();
+        settle();
         return;
       }
       frame = requestAnimationFrame(focusComposer);
     };
     frame = requestAnimationFrame(focusComposer);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", relinquish, true);
+      document.removeEventListener("keydown", relinquish, true);
+    };
   }, [focusPageComposer, presentation]);
 
   // A Clip's thread is saved in Clips; the margin knows it by an id that

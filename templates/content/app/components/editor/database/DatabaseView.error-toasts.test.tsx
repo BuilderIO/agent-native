@@ -2040,6 +2040,49 @@ describe("DatabaseView UI regressions", () => {
     ).toBeTruthy();
   });
 
+  it("offers a comment from a board card's menu", async () => {
+    const done: DocumentProperty = {
+      definition: {
+        id: "done",
+        databaseId: "database-1",
+        name: "Done",
+        type: "checkbox",
+        visibility: "always_show",
+        options: {},
+        position: 0,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      value: null,
+      editable: true,
+    };
+    const view = createDatabaseView(
+      "Board",
+      "board",
+      { groupByPropertyId: "done" },
+      "board",
+    );
+    databaseResponse.database.viewConfig = {
+      activeViewId: view.id,
+      views: [view],
+      sorts: view.sorts,
+      filters: view.filters,
+      columnWidths: view.columnWidths,
+    };
+    databaseResponse.properties = [done];
+    databaseResponse.items = [
+      { ...commentableRow("a", "Alpha", true), properties: [done] },
+    ];
+    await renderDatabaseView();
+    const trigger = container.querySelector(
+      '[aria-label="Row actions for Alpha"]',
+    );
+    if (!trigger) throw new Error("Alpha's board card has no row menu.");
+
+    await mousePointerDown(trigger);
+    expect(menuItem("editor.comment")).toBeDefined();
+  });
+
   it("offers no page link or comment on a workspace's row, which opens the workspace", async () => {
     contentSpacesData.catalogDocumentId = "document-1";
     databaseResponse.items = [commentableRow("a", "Alpha", true)];
