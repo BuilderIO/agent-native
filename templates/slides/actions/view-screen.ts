@@ -12,6 +12,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { commentActorKey } from "../shared/comment-author.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { summarizeDeckStyle } from "../shared/representative-slide.js";
@@ -106,7 +107,7 @@ export default defineAction({
     "Inspect the current Slides editor context when the active deck, slide, or selection is unknown. Returns the current deck and slide IDs, slide previews, current slide HTML, and matching visual selection metadata (or the deck list on the home page). For a short exact selectedText browser-range edit, use this result directly with one update-slide literal replacement and expectedMatches=1. When a selected element has an objectId but no exact selectedText, use that objectId with one update-slide replace edit to change only its inner content; do not load the full deck for either focused path.",
   schema: z.object({}),
   http: false,
-  run: async (_args) => {
+  run: async (_args, ctx) => {
     const navigation = (await readAppStateForCurrentTab("navigation")) as {
       view?: string;
       deckId?: string;
@@ -336,9 +337,11 @@ export default defineAction({
       } else {
         for (const comment of commentRows) {
           const anchor = parseSlideCommentAnchor(comment.anchor);
+          const viewerEmail = getRequestUserEmail();
           const reactions = summarizeSlideCommentReactions(
             comment.emojiReactionsJson,
-            getRequestUserEmail(),
+            viewerEmail &&
+              commentActorKey(ctx?.caller, viewerEmail.trim().toLowerCase()),
           );
           lines.push(
             `commentId: ${comment.id}  threadId: ${comment.threadId}  parentId: ${comment.parentId ?? "(root)"}`,

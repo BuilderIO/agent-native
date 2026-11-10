@@ -798,7 +798,6 @@ const editor = {
     image: "صورة",
     imageAdded: "تمت إضافة الصورة",
     imageBroken: "تعذّر تحميل الصورة",
-    imageCommentWithAlt: "الصورة: {{alt}}",
     imageCopied: "تم نسخ الصورة.",
     imageDownloadStarted: "بدأ تنزيل الصورة.",
     imageLinkHint: "يعمل مع أي صورة من الويب",
@@ -1085,6 +1084,27 @@ const editor = {
     hideInSearch: "إخفاء في البحث",
     hideInSearchDescription:
       "إخفاء من المنظمة والبحث. لا يزال بإمكان الأشخاص الذين لديهم الرابط المشاهدة.",
+    sharePeopleTab: "الأشخاص",
+    shareAgentsTab: "الوكلاء",
+    agentLevelHeading: "الوكلاء في هذه الصفحة",
+    agentLevelMenuLabel: "ما يمكن للوكلاء فعله في هذه الصفحة",
+    agentLevelDefault: "(الافتراضي)",
+    agentLevelCommentDescription:
+      "يمكنهم القراءة والتعليق واقتراح التعديلات. ولا يقبلها إلا الأشخاص.",
+    agentLevelEditDescription:
+      "يمكنهم القراءة والتعليق والاقتراح وتعديل النص والعنوان وعلامات التبويب ونقل الصفحة إلى سلة المهملات.",
+    agentLevelCommentConfirm:
+      "يمكن للوكلاء الآن التعليق واقتراح التعديلات في هذه الصفحة، ولكن لا يمكنهم تعديلها.",
+    agentLevelEditConfirm: "يمكن للوكلاء تعديل هذه الصفحة مرة أخرى.",
+    agentLevelLimit:
+      "لا يحصل الوكيل أبدًا على صلاحيات تتجاوز صلاحيات الشخص الذي يعمل لصالحه.",
+    agentLevelManagersOnly:
+      "لا يمكن تغيير هذا إلا للأشخاص الذين يديرون هذه الصفحة.",
+    agentLevelUpdateFailed: "تعذّر تغيير ما يمكن للوكلاء فعله هنا.",
+    agentLevelNote: "يمكن للوكلاء التعليق",
+    agentLevelNoteHint: "يمكن للوكلاء التعليق في هذه الصفحة. غيّر ذلك من «شارك».",
+    sendPageToAgent: "إرسال هذه الصفحة إلى وكيل",
+    connectAgentOverMcp: "ربط وكيل عبر MCP",
     importingFromNotion: "الاستيراد من الفكرة...",
     lastSynced: "آخر مزامنة",
     linkedToNotion: "مرتبطة بالفكرة",

@@ -833,6 +833,7 @@ describe("comment review interactions", () => {
     const onActivateThread = vi.fn();
     const commentAi = {
       requests: [applied],
+      serverRequests: [applied],
       startingThreadIds: new Set<string>(),
       stoppingRequestIds: new Set<string>(),
       continuations: new Map(),
@@ -907,6 +908,7 @@ describe("comment review interactions", () => {
     requests: CommentAiController["requests"],
   ): CommentAiController => ({
     requests,
+    serverRequests: requests,
     startingThreadIds: new Set<string>(),
     stoppingRequestIds: new Set<string>(),
     continuations: new Map(),
@@ -1178,6 +1180,7 @@ describe("comment review interactions", () => {
   const commentAiWith = (start: CommentAiController["start"]) =>
     ({
       requests: [],
+      serverRequests: [],
       startingThreadIds: new Set<string>(),
       stoppingRequestIds: new Set<string>(),
       continuations: new Map(),

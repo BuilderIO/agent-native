@@ -1409,6 +1409,101 @@ it("highlights only changed text beside unchanged markdown formatting", async ()
   }
 });
 
+it("marks whole words, not scattered letters, when a suggestion rewrites words", async () => {
+  const replacement = (ordinal: number, before: string, after: string) => ({
+    ordinal,
+    kind: "replace_text" as const,
+    before: { markdown: before, changedText: before },
+    after: { markdown: after, changedText: after },
+    anchor: { from: 0, to: before.length, prefix: "", suffix: "" },
+    schemaVersion: 1,
+  });
+  const card = async (
+    id: string,
+    operations: ReturnType<typeof replacement>[],
+    check: (card: Element) => void,
+  ) => {
+    const saved = suggestionFixture({
+      id,
+      revision: 1,
+      threadId: `thread-${id}`,
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations,
+    });
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    function Harness() {
+      const replyDrafts = useCommentReplyDrafts(`document-${id}`);
+      return (
+        <CommentsSidebar
+          replyDrafts={replyDrafts}
+          documentId={`document-${id}`}
+          suggestions={[saved]}
+          canComment
+          forceVisible
+        />
+      );
+    }
+    try {
+      await act(async () => root.render(<Harness />));
+      const shown = container.querySelector(`[data-suggestion-id="${id}"]`);
+      if (!shown) throw new Error(`No card for ${id}`);
+      check(shown);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  };
+  const marked = (card: Element) =>
+    [...card.querySelectorAll("span")]
+      .filter((span) =>
+        span.className.includes("decoration-[hsl(var(--suggestion))]"),
+      )
+      .map((span) => span.textContent.trim());
+
+  // By letters, this marks "m", "de n", "e" and "d" of the new sentence.
+  await card(
+    "rewritten-sentence",
+    [
+      replacement(
+        0,
+        "Clips keeps the recording you already made",
+        "No special recording mode needed",
+      ),
+    ],
+    (rewritten) => {
+      expect(rewritten.textContent).toContain(
+        "with: “No special recording mode needed”",
+      );
+      expect(marked(rewritten)).toEqual([]);
+    },
+  );
+  await card(
+    "swapped-word",
+    [replacement(0, "The quick brown fox jumps", "The quick red fox jumps")],
+    (swapped) => {
+      expect(swapped.textContent).toContain("with: “The quick red fox jumps”");
+      expect(marked(swapped)).toEqual(["red"]);
+    },
+  );
+  // An agent's find and replace narrows to the word; by letters, it marks "ed".
+  await card("narrowed-word", [replacement(0, "brown", "red")], (narrowed) => {
+    expect(narrowed.textContent).toContain("with: “red”");
+    expect(marked(narrowed)).toEqual([]);
+  });
+  await card(
+    "formatted-rewrite",
+    [replacement(0, "**Clips** keeps the take", "**Clips** makes no demands")],
+    (formatted) => {
+      expect(formatted.querySelector("strong")?.textContent).toBe("Clips");
+      expect(formatted.textContent).toContain("with: “Clips makes no demands”");
+      expect(marked(formatted)).toEqual([]);
+    },
+  );
+});
+
 it("shows an explicit unavailable label for invalid provided suggestion context", async () => {
   const saved = suggestionFixture({
     id: "invalid-presentation",

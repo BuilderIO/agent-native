@@ -1395,6 +1395,11 @@ export interface TiptapComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
+  /**
+   * Claims a paste as app context before the composer handles it. Return true
+   * when the paste was taken, so nothing is inserted or attached.
+   */
+  onPasteContext?: (clipboard: DataTransfer) => boolean;
   /** Shared + menu entries; matching IDs replace built-in full-mode actions. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /**
@@ -3035,6 +3040,7 @@ function TiptapComposerSurface({
   contextItems: providedContextItems,
   onRemoveContextItem,
   onRetryContextItem,
+  onPasteContext,
   contextMenuItems,
   plusMenuMode = "full",
   terminalModeControl,
@@ -3212,6 +3218,8 @@ function TiptapComposerSurface({
   const composingRef = useRef(false);
   const voiceCapturingRef = useRef(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const onPasteContextRef = useRef(onPasteContext);
+  onPasteContextRef.current = onPasteContext;
   const onAttachmentErrorRef = useRef(onAttachmentError);
   // Many standalone prompts pass no handler; a rejected file must still say so.
   onAttachmentErrorRef.current = onAttachmentError ?? setAttachmentError;
@@ -3784,6 +3792,8 @@ function TiptapComposerSurface({
         role: "textbox",
         "data-agent-composer-variant": layoutVariant,
         "data-agent-composer-slot": "editor-input",
+        // Page-level paste listeners defer to a composer that claims pastes.
+        ...(onPasteContext ? { "data-claims-paste": "true" } : {}),
         class:
           "agent-composer-prosemirror flex-1 resize-none bg-transparent text-[length:var(--agentkit-composer-font-size,0.875rem)] text-foreground outline-none leading-[var(--agentkit-composer-line-height,1.625rem)] min-h-[var(--agentkit-composer-editor-min-height,3.25rem)] max-h-[var(--agentkit-composer-editor-max-height,10rem)] overflow-y-auto [&>p.is-editor-empty:first-child]:before:pointer-events-none [&>p.is-editor-empty:first-child]:before:float-start [&>p.is-editor-empty:first-child]:before:h-0 [&>p.is-editor-empty:first-child]:before:text-muted-foreground [&>p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]",
       },
@@ -3822,6 +3832,13 @@ function TiptapComposerSurface({
             return true;
           }
           return false;
+        }
+        if (
+          event.clipboardData &&
+          onPasteContextRef.current?.(event.clipboardData)
+        ) {
+          event.preventDefault();
+          return true;
         }
         if (!attachmentsEnabled) {
           if (event.clipboardData?.files.length) {
