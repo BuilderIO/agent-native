@@ -17,7 +17,7 @@ vi.mock("./builder-signup-experiment.js", () => ({
 import { getSession, recordBuilderSignupBinding } from "./auth.js";
 beforeEach(() => {
   mocks.bind.mockReset().mockResolvedValue({ userId: "qa-user" });
-  mocks.start.mockClear();
+  mocks.start.mockReset().mockResolvedValue(undefined);
 });
 describe("signup callback experiment binding", () => {
   it.each([
@@ -35,11 +35,9 @@ describe("signup callback experiment binding", () => {
         token: "test-only-issued-session",
         emailVerified: true,
       };
-      mocks.start.mockImplementationOnce(async (event) => {
-        expect(await getSession(event)).toEqual({
-          ...signed,
-          userId: "qa-user",
-        });
+      const observedSessions: Array<AuthSession | null> = [];
+      mocks.start.mockImplementation(async (event) => {
+        observedSessions.push(await getSession(event));
       });
       const server = createApp();
       server.use(
@@ -59,6 +57,9 @@ describe("signup callback experiment binding", () => {
         (await server.fetch(new Request("https://apps.example.com/callback")))
           .status,
       ).toBe(200);
+      expect(observedSessions).toEqual(
+        bound ? [{ ...signed, userId: "qa-user" }] : [],
+      );
       if (bound)
         expect(mocks.start).toHaveBeenCalledWith(expect.anything(), {
           ...signed,
