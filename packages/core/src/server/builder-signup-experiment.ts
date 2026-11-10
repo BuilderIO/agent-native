@@ -211,7 +211,8 @@ export async function bindBuilderSignupAttempt(
   if (
     !identity ||
     !Number.isFinite(createdAtMs) ||
-    createdAtMs < assignment.issuedAt
+    createdAtMs < assignment.issuedAt ||
+    (assignment.acceptedAt !== undefined && createdAtMs < assignment.acceptedAt)
   )
     return false;
   track(
@@ -258,7 +259,6 @@ export async function bindBuilderSignupAttempt(
     (assignment.email && assignment.email !== normalizedEmail)
   )
     return false;
-  if (createdAtMs < assignment.acceptedAt) return false;
   const bound = z
     .object({ id: z.string(), boundUserId: z.string() })
     .parse(
@@ -352,7 +352,34 @@ async function finishSignupActivation(
   };
 }
 
-export function createBuilderSignupExperimentHandler(dependencies: {
+let verifiedSignupStarter:
+  | ((event: H3Event, session: AuthSession) => Promise<unknown>)
+  | undefined;
+
+export function setBuilderSignupVerifiedStarter(
+  starter: (event: H3Event, session: AuthSession) => Promise<unknown>,
+): void {
+  verifiedSignupStarter = starter;
+}
+
+/** Called only after the auth provider issued this verified signup's session. */
+export async function startBuilderSignupForVerifiedSession(
+  event: H3Event,
+  session: AuthSession,
+): Promise<void> {
+  if (
+    !isBuilderSignupExperimentEnabled() ||
+    !session.userId ||
+    !session.token ||
+    session.emailVerified !== true
+  )
+    return;
+  if (!verifiedSignupStarter)
+    throw new Error("Builder signup activation handler is unavailable");
+  await verifiedSignupStarter(event, session);
+}
+
+export function createBuilderSignupExperiment(dependencies: {
   getSession: (event: H3Event) => Promise<AuthSession | null>;
   sameOrigin: (event: H3Event) => boolean;
   activate: (
@@ -415,10 +442,48 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       ...(result.code ? { code: result.code } : {}),
     };
   };
-  return defineEventHandler(async (event) => {
+  const reportSavedOutcome = async (
+    existing: Record<string, unknown>,
+    assignment: Assignment,
+    session: AuthSession,
+  ) => {
+    if (
+      existing.id !== assignment.id ||
+      (existing.status !== "connected" && existing.status !== "fallback") ||
+      typeof existing.completedAt !== "number" ||
+      !Number.isFinite(existing.completedAt)
+    )
+      return;
+    track(
+      "builder_signup_experiment_outcome",
+      {
+        ...experimentProperties(assignment),
+        status: existing.status,
+        code:
+          typeof existing.code === "string" ? existing.code : existing.status,
+        replayed: true,
+        ...(typeof existing.startedAt === "number" &&
+        Number.isFinite(existing.startedAt)
+          ? {
+              activation_duration_ms: existing.completedAt - existing.startedAt,
+            }
+          : {}),
+      },
+      {
+        userId: session.email,
+        ...(session.userId ? { authUserId: session.userId } : {}),
+        occurredAt: existing.completedAt,
+      },
+    );
+    await flushTracking();
+  };
+  const handle = async (
+    event: H3Event,
+    verifiedSignupSession?: AuthSession,
+  ) => {
     setResponseHeader(event, "Cache-Control", "no-store");
     const refuse = (status: number, code: string) => {
-      setResponseStatus(event, status);
+      if (!verifiedSignupSession) setResponseStatus(event, status);
       return { status: "unavailable" as const, code };
     };
     if (!isBuilderSignupExperimentEnabled()) {
@@ -426,11 +491,13 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
       return { status: "disabled" as const };
     }
-    const method = getMethod(event);
+    const method = verifiedSignupSession ? "POST" : getMethod(event);
     if (method !== "GET" && method !== "POST")
       return refuse(405, "method_not_allowed");
-    if (!dependencies.sameOrigin(event)) return refuse(403, "cross_origin");
-    const session = await dependencies.getSession(event);
+    if (!verifiedSignupSession && !dependencies.sameOrigin(event))
+      return refuse(403, "cross_origin");
+    const session =
+      verifiedSignupSession ?? (await dependencies.getSession(event));
     let assignment = decodeBuilderSignupAssignment(
       getCookie(event, builderSignupAssignmentCookieName()),
     );
@@ -452,6 +519,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       };
     }
     if (
+      !verifiedSignupSession &&
       !/^application\/json\s*(;|$)/i.test(
         getHeader(event, "content-type") ?? "",
       )
@@ -465,7 +533,11 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         method: z.enum(["password", "magic-link", "google"]).optional(),
         email: z.string().email().max(320).optional(),
       })
-      .safeParse(await readBodyWithSizeLimit(event, 4096));
+      .safeParse(
+        verifiedSignupSession
+          ? { operation: "start" }
+          : await readBodyWithSizeLimit(event, 4096),
+      );
     if (!body.success) return refuse(400, "invalid_request");
     const waitUntil =
       body.data.operation === "start"
@@ -519,7 +591,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     }
     if (
       body.data.operation === "status" ||
-      (body.data.operation === "start" && !waitUntil)
+      (body.data.operation === "start" && !waitUntil && !verifiedSignupSession)
     ) {
       if (!session?.emailVerified || !session.userId)
         return refuse(401, "verified_session_required");
@@ -543,6 +615,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
             )) ?? { status: "pending" as const }
           );
         }
+        if (assignment) await reportSavedOutcome(existing, assignment, session);
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };
       }
@@ -675,6 +748,8 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "control" };
       }
+      if (status !== "started")
+        await reportSavedOutcome(existing, assignment, session);
       if (status !== "started" && body.data.operation === "start") {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };
@@ -771,5 +846,10 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     }
     // Hosts without a durable background lifetime must await the write.
     return completion;
-  });
+  };
+  return {
+    handler: defineEventHandler((event) => handle(event)),
+    startVerifiedSignup: (event: H3Event, session: AuthSession) =>
+      handle(event, session),
+  };
 }

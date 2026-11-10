@@ -63,7 +63,7 @@ import {
   bindBuilderSignupAttempt,
   getBuilderSignupConnectError,
   getBuilderSignupTrackingIdentity,
-  createBuilderSignupExperimentHandler,
+  createBuilderSignupExperiment,
   builderSignupAssignmentCookieName,
   decodeBuilderSignupAssignment,
   encodeBuilderSignupAssignment,
@@ -94,12 +94,12 @@ function request(body?: unknown, cookie?: string) {
   const app = createApp();
   app.use(
     "/experiment",
-    createBuilderSignupExperimentHandler({
+    createBuilderSignupExperiment({
       getSession: async () => session,
       sameOrigin: () => sameOrigin,
       activate,
       reconcile,
-    }),
+    }).handler,
   );
   return app.fetch(
     new Request("https://design.example.com/experiment", {
@@ -203,6 +203,89 @@ describe("pre-signup Builder experiment", () => {
         expect.any(String),
         expect.objectContaining({ experiment_id: `${app}_builder_signup_v1` }),
         expect.anything(),
+      );
+    },
+  );
+
+  it.each([true, false])(
+    "finishes a verified signup callback without a subsequent app request (background=%s)",
+    async (background) => {
+      const works: Promise<unknown>[] = [];
+      if (background)
+        mocks.waitUntil = (work) => {
+          works.push(work);
+        };
+      let finish!: (result: { ok: boolean }) => void;
+      activate.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const experiment = createBuilderSignupExperiment({
+        getSession: async () => null,
+        sameOrigin: () => false,
+        activate,
+        reconcile,
+      });
+      const server = createApp();
+      server.use(
+        "/callback",
+        defineEventHandler(async (event) => {
+          await experiment.startVerifiedSignup(event, signedSession());
+          return { signedIn: true };
+        }),
+      );
+      const response = server.fetch(
+        new Request("https://design.example.com/callback"),
+      );
+      await vi.waitFor(() => expect(activate).toHaveBeenCalledOnce());
+      if (background)
+        expect(await (await response).json()).toEqual({ signedIn: true });
+      expect(
+        mocks.settings.get("design_builder_signup_v1:new-user")?.status,
+      ).toBe("started");
+      // No frontend hydration, session read, start request, or polling happens.
+      finish({ ok: true });
+      await response;
+      await Promise.all(works);
+      expect(
+        mocks.settings.get("design_builder_signup_v1:new-user")?.status,
+      ).toBe("connected");
+      session = signedSession();
+      await request({ operation: "start" });
+      expect(activate).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["start", "status", "activate"])(
+    "re-reports a saved outcome during %s without another Builder call",
+    async (operation) => {
+      session = signedSession();
+      const completedAt = testTime - 300;
+      mocks.settings.set("design_builder_signup_v1:new-user", {
+        ...accepted(),
+        status: "fallback",
+        code: "account_exists",
+        startedAt: testTime - 500,
+        completedAt,
+      });
+      await request({ operation });
+      expect(activate).not.toHaveBeenCalled();
+      expect(mocks.track).toHaveBeenCalledWith(
+        "builder_signup_experiment_outcome",
+        expect.objectContaining({
+          assignment_id: accepted().id,
+          status: "fallback",
+          code: "account_exists",
+          replayed: true,
+          activation_duration_ms: 200,
+        }),
+        {
+          userId: "new@example.com",
+          authUserId: "new-user",
+          occurredAt: completedAt,
+        },
       );
     },
   );
@@ -332,11 +415,20 @@ describe("pre-signup Builder experiment", () => {
         status: "disabled",
         code: "already_completed",
       });
+      // oracle-change: later status reads replay the durable result, while the provider and primary outcome remain single-shot.
+      const outcomes = mocks.track.mock.calls.filter(
+        ([name]) => name === "builder_signup_experiment_outcome",
+      );
+      expect(outcomes).toHaveLength(2);
       expect(
-        mocks.track.mock.calls.filter(
-          ([name]) => name === "builder_signup_experiment_outcome",
-        ),
+        outcomes.filter(([, properties]) => properties.replayed === false),
       ).toHaveLength(1);
+      expect(outcomes[1][1]).toMatchObject({
+        status: "connected",
+        code: "connection_reconciled",
+        replayed: true,
+      });
+      expect(activate).toHaveBeenCalledOnce();
     },
   );
 
@@ -594,6 +686,24 @@ describe("pre-signup Builder experiment", () => {
       expect(activate).not.toHaveBeenCalled();
     },
   );
+
+  it("does not count an existing password identity as a new enrollment when signup is retried after acceptance", async () => {
+    mocks.settings.clear();
+    const assignment = { ...accepted(), method: "password" as const };
+    mocks.identity.user.createdAt = new Date(testTime - 1500);
+    expect(
+      await (
+        await bindRequest(
+          encodeBuilderSignupAssignment(assignment),
+          ATTEMPT,
+          "password",
+          "new@example.com",
+        )
+      ).json(),
+    ).toEqual({ bound: false });
+    expect(mocks.track).not.toHaveBeenCalled();
+    expect(mocks.settings.size).toBe(0);
+  });
 
   it("links signup enrollment without granting provisioning consent when acceptance is absent", async () => {
     mocks.settings.delete("design_builder_signup_v1:consent:new-user");

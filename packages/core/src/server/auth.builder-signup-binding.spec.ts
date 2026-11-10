@@ -1,13 +1,60 @@
-import { createApp, defineEventHandler } from "h3";
+import { createApp, defineEventHandler, type H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ cookie: "", bind: vi.fn(async () => true) }));
+
+import type { AuthSession } from "./auth.js";
+const mocks = vi.hoisted(() => ({
+  cookie: "",
+  bind: vi.fn(async () => true),
+  start: vi.fn(async (_event: H3Event, _session: AuthSession) => {}),
+}));
 vi.mock("./builder-signup-experiment.js", () => ({
   builderSignupAssignmentCookieName: () => mocks.cookie,
   bindBuilderSignupAttempt: mocks.bind,
+  startBuilderSignupForVerifiedSession: mocks.start,
 }));
-import { recordBuilderSignupBinding } from "./auth.js";
-beforeEach(() => mocks.bind.mockClear());
+import { getSession, recordBuilderSignupBinding } from "./auth.js";
+beforeEach(() => {
+  mocks.bind.mockReset().mockResolvedValue(true);
+  mocks.start.mockClear();
+});
 describe("signup callback experiment binding", () => {
+  it.each([true, false])(
+    "starts only a bound verified callback's own issued session (bound=%s)",
+    async (bound) => {
+      mocks.cookie = "an_builder_signup";
+      mocks.bind.mockResolvedValue(bound);
+      const signed = {
+        email: "qa@example.invalid",
+        userId: "qa-user",
+        token: "test-only-issued-session",
+        emailVerified: true,
+      };
+      mocks.start.mockImplementationOnce(async (event) => {
+        expect(await getSession(event)).toEqual(signed);
+      });
+      const server = createApp();
+      server.use(
+        "/callback",
+        defineEventHandler(async (event) => {
+          await recordBuilderSignupBinding(
+            event,
+            "test-only-signup-attempt",
+            "google",
+            signed.email,
+            signed,
+          );
+          return { signedIn: true };
+        }),
+      );
+      expect(
+        (await server.fetch(new Request("https://apps.example.com/callback")))
+          .status,
+      ).toBe(200);
+      if (bound)
+        expect(mocks.start).toHaveBeenCalledWith(expect.anything(), signed);
+      else expect(mocks.start).not.toHaveBeenCalled();
+    },
+  );
   it.each(["clips", "slides"])(
     "records a %s control callback without an attempt ID",
     async (app) => {
