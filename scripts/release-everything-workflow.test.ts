@@ -2305,6 +2305,123 @@ return { desktopVersion, clipsVersion };`,
     );
   });
 
+  it("waits out a run GitHub cannot read yet, but not one that is gone", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const slice = (from: string, to: string) => {
+      const start = source.indexOf(from);
+      const end = source.indexOf(to, start);
+      assert(start >= 0 && end > start);
+      return source.slice(start, end);
+    };
+    const waitSource = `${slice(
+      "function isTransientDispatchFailure(error)",
+      "\n\nasync function findDispatchedRun",
+    )}
+${slice("function neverStartedFailures", "function requireSingleJob")}; return waitForRun;`;
+    type Run = {
+      run_attempt: number;
+      status: string;
+      conclusion: string | null;
+    };
+    const httpError = (status: number, message: string) =>
+      Object.assign(new Error(message), { status });
+    const inProgress: Run = {
+      run_attempt: 1,
+      status: "in_progress",
+      conclusion: null,
+    };
+    const succeeded: Run = {
+      run_attempt: 1,
+      status: "completed",
+      conclusion: "success",
+    };
+    const wait = (reads: (Run | Error)[]) => {
+      let polls = 0;
+      const warnings: string[] = [];
+      const waitForRun = new Function(
+        "getRun",
+        "github",
+        "core",
+        "sleep",
+        "phaseDeadline",
+        "pollIntervalMs",
+        "wasSupersededPendingRun",
+        "owner",
+        "repo",
+        waitSource,
+      )(
+        async () => {
+          const read = reads[Math.min(polls++, reads.length - 1)];
+          if (read instanceof Error) throw read;
+          return read;
+        },
+        {},
+        { info() {}, warning: (message: string) => warnings.push(message) },
+        async () => {},
+        () => Date.now() + 60_000,
+        15_000,
+        async () => false,
+        "BuilderIO",
+        "agent-native",
+      ) as (
+        run: { id: number; url: string },
+        label: string,
+        timeoutMs: number,
+      ) => Promise<Run>;
+      const result = waitForRun(
+        { id: 42689013504, url: "run" },
+        "Stable package release preparation",
+        60_000,
+      );
+      return { result, polls: () => polls, warnings };
+    };
+
+    // Run 42688993983: the run GitHub returned from the dispatch answered
+    // 404 when it was read 0.2 seconds later.
+    const notVisibleYet = wait([
+      httpError(404, "Not Found"),
+      httpError(404, "Not Found"),
+      inProgress,
+      succeeded,
+    ]);
+    assert.deepEqual(await notVisibleYet.result, succeeded);
+    assert.equal(notVisibleYet.polls(), 4);
+    assert.deepEqual(notVisibleYet.warnings, [
+      "Stable package release preparation: could not read run (Not Found); retrying.",
+      "Stable package release preparation: could not read run (Not Found); retrying.",
+    ]);
+
+    const gone = httpError(404, "Not Found");
+    const disappeared = wait([inProgress, gone]);
+    await assert.rejects(disappeared.result, (error) => error === gone);
+    assert.equal(disappeared.polls(), 2);
+
+    // Each successful read starts the count again.
+    const badGateways = Array.from({ length: 19 }, () =>
+      httpError(502, "Bad Gateway"),
+    );
+    const recovered = wait([
+      ...badGateways,
+      inProgress,
+      ...badGateways,
+      succeeded,
+    ]);
+    assert.deepEqual(await recovered.result, succeeded);
+    assert.equal(recovered.polls(), 40);
+
+    const outage = wait([httpError(503, "Service Unavailable")]);
+    await assert.rejects(
+      outage.result,
+      /^Error: Stable package release preparation could not be read 20 times in a row: run: Service Unavailable$/,
+    );
+    assert.equal(outage.polls(), 20);
+
+    const forbidden = httpError(403, "Resource not accessible by integration");
+    const denied = wait([forbidden]);
+    await assert.rejects(denied.result, (error) => error === forbidden);
+    assert.equal(denied.polls(), 1);
+  });
+
   it("releases production sites even when npm publication fails", () => {
     const source = String((coordinator.with as Workflow).script);
     assert.match(
