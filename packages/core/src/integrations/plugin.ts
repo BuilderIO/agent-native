@@ -1017,12 +1017,16 @@ export function createIntegrationsPlugin(
             console.error(
               `[telegram] setWebhook failed (${res.status}): ${data?.description ?? body}`,
             );
+            const isRateLimit = res.status === 429;
             const isUpstreamOutage = res.status >= 500;
+            const statusCode = isRateLimit ? 429 : isUpstreamOutage ? 424 : 422;
+            const upstreamStatus =
+              isRateLimit || isUpstreamOutage ? res.status : undefined;
             return {
               ok: false,
-              statusCode: isUpstreamOutage ? 424 : 422,
+              statusCode,
               error: `Telegram setWebhook failed: ${data?.description ?? `HTTP ${res.status}`}`,
-              ...(isUpstreamOutage ? { upstreamStatus: res.status } : {}),
+              ...(upstreamStatus !== undefined ? { upstreamStatus } : {}),
             };
           }
           return { ok: true, webhookUrl, result: data };

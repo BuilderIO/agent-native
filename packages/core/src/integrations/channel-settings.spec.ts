@@ -946,12 +946,28 @@ describe("channel settings", () => {
       ok: false,
       statusCode: 424,
       error: "Telegram setWebhook failed: HTTP 502",
+      upstreamStatus: 502,
     });
     await expect(
       registerMessagingChannelWebhook(OWNER, "telegram"),
     ).rejects.toMatchObject({
       statusCode: 424,
       message: "Telegram setWebhook failed: HTTP 502",
+      details: { upstreamStatus: 502 },
+    });
+
+    mounted.registerWebhook.mockResolvedValueOnce({
+      ok: false,
+      statusCode: 429,
+      error: "Telegram setWebhook failed: Too Many Requests: retry after 30",
+      upstreamStatus: 429,
+    });
+    await expect(
+      registerMessagingChannelWebhook(OWNER, "telegram"),
+    ).rejects.toMatchObject({
+      statusCode: 429,
+      message: "Telegram setWebhook failed: Too Many Requests: retry after 30",
+      details: { upstreamStatus: 429 },
     });
   });
 

@@ -945,6 +945,9 @@ export async function registerMessagingChannelWebhook(
     fail(registration.error, {
       statusCode: registration.statusCode,
       errorCode: "webhook_registration_failed",
+      ...(registration.upstreamStatus !== undefined
+        ? { details: { upstreamStatus: registration.upstreamStatus } }
+        : {}),
     });
   }
   const channel = await readChannelStatus(mounted, adapter, access, baseUrl);
