@@ -27,6 +27,7 @@ import type {
 import {
   isBlocksPropertyType,
   isComputedPropertyType,
+  isUrlPropertyValue,
   parsePropertyOptions,
   parsePropertyValue,
   serializePropertyValue,
@@ -49,6 +50,7 @@ import {
   normalizeDatabasePropertyInput,
   type DatabasePropertyEntry,
 } from "./_database-property-input.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertCollectionAcceptsNewRows,
   assertSourceAllowsPageEdit,
@@ -674,13 +676,11 @@ async function strictValue(
     case "url": {
       if (typeof value !== "string" || value !== value.trim())
         invalidProperty(definition, "expected a URL");
-      try {
-        const url = new URL(value);
-        if (url.protocol !== "http:" && url.protocol !== "https:")
-          throw new Error();
-      } catch {
-        invalidProperty(definition, "expected an http or https URL");
-      }
+      if (!isUrlPropertyValue(value))
+        invalidProperty(
+          definition,
+          "expected an http or https URL, or a t3-thread link",
+        );
       return value;
     }
     case "email":
@@ -846,22 +846,42 @@ export async function rowSnapshots(
 ): Promise<Map<string, RowSnapshot>> {
   if (rows.length === 0) return new Map();
   const requested = new Map(rows.map((row) => [row.itemId, row.documentId]));
-  const found = (
+  const items = (
     await db
-      .select({ item: schema.contentDatabaseItems, document: schema.documents })
+      .select()
       .from(schema.contentDatabaseItems)
-      .innerJoin(
-        schema.documents,
-        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
-      )
       .where(
         and(
           inArray(schema.contentDatabaseItems.id, [...requested.keys()]),
           eq(schema.contentDatabaseItems.databaseId, databaseId),
-          isNull(schema.documents.trashedAt),
         ),
       )
-  ).filter((row) => requested.get(row.item.id) === row.item.documentId);
+  ).filter((item) => requested.get(item.id) === item.documentId);
+  // DbExec returns objects; a join of both complete rows has duplicate column
+  // names, which cannot be mapped back to Drizzle's positional result.
+  // guard:allow-unscoped — exact memberships of an access-checked collection; mutation callers also resolve row access.
+  const documents =
+    items.length === 0
+      ? []
+      : await db
+          .select()
+          .from(schema.documents)
+          .where(
+            and(
+              inArray(
+                schema.documents.id,
+                items.map((item) => item.documentId),
+              ),
+              isNull(schema.documents.trashedAt),
+            ),
+          );
+  const documentsById = new Map(
+    documents.map((document) => [document.id, document]),
+  );
+  const found = items.flatMap((item) => {
+    const document = documentsById.get(item.documentId);
+    return document ? [{ item, document }] : [];
+  });
   // Before the values: see readPropertyTombstones.
   const tombstones =
     revisionPropertyIds.size === 0 || found.length === 0
@@ -1380,6 +1400,7 @@ async function updateInsideTransaction(
     title?: string;
     values: Map<string, string>;
   },
+  ctx: ActionRunContext | undefined,
 ) {
   const actor = requireDocumentRequestActor();
   const unguardable = unguardablePropertyIds(
@@ -1455,6 +1476,7 @@ async function updateInsideTransaction(
   const titleChanged =
     args.title !== undefined && args.title.trim() !== before.document.title;
   if (titleChanged) {
+    assertAgentsMayEditPageText(before.document, ctx);
     await writeRowTitle(tx, actor, now, before, {
       title: args.title!,
       expectedRowRevision: args.expectedRowRevision,
@@ -1602,6 +1624,7 @@ export async function createDatabaseRow(
 
 export async function updateDatabaseRow(
   input: UpdateDatabaseRowMutationInput,
+  ctx?: ActionRunContext,
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
   await assertAccess("document", input.documentId, "editor");
@@ -1656,6 +1679,7 @@ export async function updateDatabaseRow(
           title: input.title,
           values,
         },
+        ctx,
       );
       await touchContentDatabase(
         tx as unknown as Db,
@@ -1695,6 +1719,7 @@ export async function updateDatabaseRow(
 
 export async function upsertDatabaseRow(
   input: UpsertDatabaseRowMutationInput,
+  ctx?: ActionRunContext,
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
   const replayKeyPropertyId = initial.database.naturalKeyPropertyId;
@@ -1898,6 +1923,7 @@ export async function upsertDatabaseRow(
           title: input.title,
           values,
         },
+        ctx,
       );
       await touchContentDatabase(
         tx as unknown as Db,
@@ -2336,6 +2362,7 @@ async function patchRowsInsideTransaction(
   context: MutationContext,
   rows: CanonicalRowPatch[],
   patches: Map<string, string>[],
+  ctx: ActionRunContext | undefined,
 ): Promise<ContentDatabaseRowPatchReceipt[]> {
   const actor = requireDocumentRequestActor();
   const unguardable = rows.flatMap((row, index) => {
@@ -2431,6 +2458,7 @@ async function patchRowsInsideTransaction(
     }
     const titleChanged =
       row.title !== undefined && row.title.trim() !== snapshot.document.title;
+    if (titleChanged) assertAgentsMayEditPageText(snapshot.document, ctx);
     return {
       documentId: row.documentId,
       snapshot,
@@ -2605,6 +2633,7 @@ async function patchRowsInsideTransaction(
 
 export async function patchDatabaseRows(
   input: PatchDatabaseRowsMutationInput,
+  ctx?: ActionRunContext,
 ): Promise<ContentDatabaseRowPatchBatchResult> {
   const rows = canonicalRowPatches(input.rows);
   const initial = await loadContext(input.target, "editor");
@@ -2627,6 +2656,7 @@ export async function patchDatabaseRows(
         rows,
         patches,
         inputDigest,
+        ctx,
       );
     } catch (error) {
       // Another instance committed this key first. Replay its receipt, or
@@ -2650,6 +2680,7 @@ function patchRowsTransaction(
   rows: CanonicalRowPatch[],
   patches: Map<string, string>[],
   inputDigest: string,
+  ctx: ActionRunContext | undefined,
 ): Promise<ContentDatabaseRowPatchBatchResult> {
   return getDb().transaction(async (tx) => {
     const db = tx as unknown as Db;
@@ -2681,6 +2712,7 @@ function patchRowsTransaction(
       locked,
       rows,
       patches,
+      ctx,
     );
     const now = new Date().toISOString();
     await touchContentDatabase(db, locked.database.id, now);

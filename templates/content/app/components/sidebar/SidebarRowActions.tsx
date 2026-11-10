@@ -2,17 +2,7 @@ import { appPath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
-import {
-  IconArrowForwardUp,
-  IconClockX,
-  IconCopy,
-  IconDots,
-  IconExternalLink,
-  IconLink,
-  IconPencil,
-  IconPin,
-  IconTrash,
-} from "@tabler/icons-react";
+import { IconDots } from "@tabler/icons-react";
 import {
   createContext,
   Fragment,
@@ -93,7 +83,6 @@ export function SidebarPinMenuItem({
   const t = useT();
   return (
     <DropdownMenuItem onSelect={onSelect}>
-      <IconPin className="me-2 size-4" strokeWidth={pinned ? 2.2 : 1.7} />
       {pinned ? t("sidebar.unpinFromSidebar") : t("sidebar.pinToSidebar")}
     </DropdownMenuItem>
   );
@@ -182,12 +171,10 @@ export function SidebarPageMenu({
       : [],
     [
       <DropdownMenuItem key="copy" onSelect={() => void copyLink()}>
-        <IconLink className="me-2 size-4" />
         {t("sidebar.copyLink")}
       </DropdownMenuItem>,
       <DropdownMenuItem key="open" asChild>
         <a href={href} target="_blank" rel="noopener noreferrer">
-          <IconExternalLink className="me-2 size-4" />
           {t("sidebar.openInNewTab")}
         </a>
       </DropdownMenuItem>,
@@ -200,19 +187,16 @@ export function SidebarPageMenu({
             pendingRenameRef.current = true;
           }}
         >
-          <IconPencil className="me-2 size-4" />
           {t("sidebar.rename")}
         </DropdownMenuItem>
       ) : null,
       onDuplicate ? (
         <DropdownMenuItem key="duplicate" onSelect={onDuplicate}>
-          <IconCopy className="me-2 size-4" />
           {t("sidebar.duplicate")}
         </DropdownMenuItem>
       ) : null,
       onMove ? (
         <DropdownMenuItem key="move" onSelect={onMove}>
-          <IconArrowForwardUp className="me-2 size-4" />
           {t("sidebar.moveTo")}
         </DropdownMenuItem>
       ) : null,
@@ -220,7 +204,6 @@ export function SidebarPageMenu({
     [
       onRemoveFromRecent ? (
         <DropdownMenuItem key="forget" onSelect={onRemoveFromRecent}>
-          <IconClockX className="me-2 size-4" />
           {t("sidebar.removeFromRecent")}
         </DropdownMenuItem>
       ) : null,
@@ -230,7 +213,6 @@ export function SidebarPageMenu({
           className="text-destructive focus:text-destructive"
           onSelect={onMoveToTrash}
         >
-          <IconTrash className="me-2 size-4" />
           {t("sidebar.moveToTrash")}
         </DropdownMenuItem>
       ) : null,

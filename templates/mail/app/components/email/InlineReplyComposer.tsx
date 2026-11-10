@@ -1,5 +1,6 @@
 import { useAgentChatGenerating } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   appendSignatureToBody,
   splitAppendedSignature,
@@ -39,6 +40,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAliases } from "@/hooks/use-aliases";
+import { draftRevisionPromptArg } from "@/hooks/use-compose-state";
 import {
   useSendEmail,
   useAddOptimisticReply,
@@ -260,9 +262,11 @@ export const InlineReplyComposer = forwardRef<
             });
           }
         })
-        .catch(() => {
+        .catch((error) => {
           toast.dismiss(sendingToastId);
-          toast.error(t("mail.toasts.failedToSendEmail"));
+          reportWriteFailure(error, {
+            label: t("mail.toasts.failedToSendEmail"),
+          });
           const { id: _id, ...reopenData } = draftSnapshot;
           onReopen(reopenData);
         })
@@ -318,7 +322,7 @@ export const InlineReplyComposer = forwardRef<
     const draftContext = context || "(empty draft)";
     sendToAgent({
       message: generatePrompt.trim(),
-      context: `The user is composing an email reply in Agent-Native Mail. Use the draft snapshot below as the source of truth, then update the existing reply draft by calling manage-draft with action "update", id "${draft.id}", and the revised Markdown body. Do not only reply with the revised content; the Mail draft must be updated through the tool. Preserve recipients and subject unless the user explicitly asks to change them.\n\nDrafting rules:\n- Use the configured signature exactly when one is present, and do not duplicate it if it is already in the draft.\n- If no configured signature is present, do not invent or derive a sign-off from the user's name or email address.\n- Use Markdown only. Keep the copy natural, specific, and free of generic AI email filler unless the user asks for a formal template.\n\n${draftContext}`,
+      context: `The user is composing an email reply in Agent-Native Mail. Use the draft snapshot below as the source of truth, then update the existing reply draft by calling manage-draft with action "update", id "${draft.id}"${draftRevisionPromptArg(draft.id)}, and the revised Markdown body. Do not only reply with the revised content; the Mail draft must be updated through the tool. Preserve recipients and subject unless the user explicitly asks to change them.\n\nDrafting rules:\n- Use the configured signature exactly when one is present, and do not duplicate it if it is already in the draft.\n- If no configured signature is present, do not invent or derive a sign-off from the user's name or email address.\n- Use Markdown only. Keep the copy natural, specific, and free of generic AI email filler unless the user asks for a formal template.\n\n${draftContext}`,
       submit: true,
     });
     setGeneratePrompt("");
@@ -436,7 +440,7 @@ export const InlineReplyComposer = forwardRef<
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      toast.error(t("mail.toasts.failedToUploadImage"));
+      reportWriteFailure(err, { label: t("mail.toasts.failedToUploadImage") });
       throw err;
     }
   };

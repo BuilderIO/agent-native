@@ -11,11 +11,23 @@
 // Exit 0: proven (green on HEAD, red on base). Exit 1: not proven (red on
 // HEAD, or the check still passes without the fix). Exit 2: could not run
 // (dirty tree, no source changes, git failure, check missing on base).
+// A test-only change has nothing to prove; the feedback gate passes it.
+// Only a command the gate can re-run gets a `fix-proof: proven` line.
 import { spawnSync } from "node:child_process";
-import { realpathSync } from "node:fs";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  realpathSync,
+  rmdirSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname } from "node:path";
 
-const TEST_PATH =
-  /(^|\/)(__tests__|e2e|tests?)\/|\.(test|spec|e2e)\.[cm]?[jt]sx?$|\.md$|^\.changeset\//;
+import { parseProofCommand, TEST_PATH } from "./feedback-fix-proof.ts";
 
 const argv = process.argv.slice(2);
 const dash = argv.indexOf("--");
@@ -39,8 +51,17 @@ function git(...args: string[]): string {
   return r.stdout;
 }
 
-function run(): { status: number; signal: string | null; tail: string } {
+function run(): {
+  status: number;
+  signal: string | null;
+  error?: Error;
+  output: string;
+  tail: string;
+} {
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
   const r = spawnSync(command[0], command.slice(1), {
+    env,
     encoding: "utf8",
     maxBuffer: 256 << 20,
     stdio: ["ignore", "pipe", "pipe"],
@@ -49,8 +70,36 @@ function run(): { status: number; signal: string | null; tail: string } {
   return {
     status: r.status ?? 127,
     signal: r.signal,
+    ...(r.error ? { error: r.error } : {}),
+    output: out.join("\n"),
     tail: out.slice(-12).join("\n"),
   };
+}
+
+function isTestCommand(): boolean {
+  return (
+    (command[0] === "node" && command[1] === "--test") ||
+    ((command[0] === "pnpm" ||
+      (command[0] === "corepack" && command[1] === "pnpm")) &&
+      command.includes("vitest"))
+  );
+}
+
+function hasTestFailureEvidence(output: string): boolean {
+  const plain = output.replace(/\u001b\[[0-9;]*m/g, "");
+  if (
+    /ERR_MODULE_NOT_FOUND|Cannot find (?:module|package)|Failed to resolve (?:import|entry)|Failed to load config|No test files found/i.test(
+      plain,
+    )
+  ) {
+    return false;
+  }
+  if (command[0] === "node")
+    return (
+      /^(?:not ok \d+ - |# fail [1-9]\d*\b)/m.test(plain) ||
+      /\b(?:AssertionError|ERR_ASSERTION)\b/.test(plain)
+    );
+  return /(?:Tests|Test Files)\s+[^\n]*\b[1-9]\d*\s+failed\b/i.test(plain);
 }
 
 if (command.length === 0) couldNotRun("pass the check after `--`");
@@ -100,36 +149,60 @@ const source = changes.filter(
   ({ path }) => !TEST_PATH.test(path) && path !== entryPoint,
 );
 if (source.length === 0)
-  couldNotRun(`no non-test changes between ${base.slice(0, 9)} and HEAD`);
+  couldNotRun(
+    `no non-test changes between ${base.slice(0, 9)} and HEAD; a test-only change needs no fix proof`,
+  );
 const all = source.map(({ path }) => path);
 
-// git checkout and git rm replace symlinks instead of writing through them.
-// Every step uses tryGit so a failure still reaches the restore at the end.
+function removePath(path: string) {
+  if (!lstatSync(path, { throwIfNoEntry: false })) return;
+  unlinkSync(path);
+  for (let dir = dirname(path); dir !== "."; dir = dirname(dir)) {
+    if (readdirSync(dir).length) break;
+    rmdirSync(dir);
+  }
+}
+
+// Files are written from git's blobs with fs, never `git checkout` or
+// `git rm`, so the index stays at HEAD and sandboxes that block those
+// commands can still run the proof. Unlinking first replaces a symlink
+// instead of writing through it. Every failure is recorded rather than
+// thrown so the restore at the end still runs.
 const gitErrors: string[] = [];
 function putAt(ref: string): boolean {
-  const listed = tryGit("ls-tree", "-r", "--name-only", ref, "--", ...all);
+  const listed = tryGit("ls-tree", "-r", "-z", ref, "--", ...all);
   if (listed.status !== 0) {
     gitErrors.push(`git ls-tree ${ref}: ${listed.stderr.trim()}`);
     return false;
   }
-  const present = new Set(listed.stdout.split("\n"));
-  for (const args of [
-    ["checkout", ref, "--", ...all.filter((path) => present.has(path))],
-    [
-      "rm",
-      "-q",
-      "-f",
-      "--ignore-unmatch",
-      "--",
-      ...all.filter((path) => !present.has(path)),
-    ],
-  ]) {
-    if (args.at(-1) === "--") continue;
-    const r = tryGit(...args);
-    if (r.status !== 0) {
-      gitErrors.push(`git ${args[0]}: ${r.stderr.trim()}`);
-      return false;
+  const entries = new Map<string, { mode: string; oid: string }>();
+  for (const record of listed.stdout.split("\0").filter(Boolean)) {
+    const tab = record.indexOf("\t");
+    const [mode, type, oid] = record.slice(0, tab).split(" ");
+    if (type === "blob") entries.set(record.slice(tab + 1), { mode, oid });
+  }
+  try {
+    for (const path of all) {
+      const entry = entries.get(path);
+      removePath(path);
+      if (!entry) continue;
+      const blob = spawnSync("git", ["cat-file", "blob", entry.oid], {
+        maxBuffer: 256 << 20,
+      });
+      if (blob.status !== 0) {
+        gitErrors.push(`git cat-file ${entry.oid}: ${blob.stderr}`.trim());
+        return false;
+      }
+      mkdirSync(dirname(path), { recursive: true });
+      if (entry.mode === "120000") symlinkSync(blob.stdout.toString(), path);
+      else {
+        writeFileSync(path, blob.stdout);
+        chmodSync(path, entry.mode === "100755" ? 0o755 : 0o644);
+      }
     }
+  } catch (error) {
+    gitErrors.push(`writing ${ref}'s files: ${(error as Error).message}`);
+    return false;
   }
   return true;
 }
@@ -156,6 +229,8 @@ for (const r of [green, red])
     couldNotRun(
       `the check was interrupted (${r.signal ?? `exit ${r.status}`})`,
     );
+for (const r of [green, red])
+  if (r?.error) couldNotRun(`the check could not start: ${r.error.message}`);
 if (green.status !== 0) {
   console.log(
     `fix-proof: NOT PROVEN, the check fails with the fix at ${greenAt.slice(0, 9)}\n${green.tail}`,
@@ -167,10 +242,19 @@ if (red.status === 127)
   couldNotRun(`\`${command[0]}\` is missing without the fix\n${red.tail}`);
 if (red.status === 0) {
   console.log(
-    `fix-proof: NOT PROVEN, the check also passes without the fix (${source.length} source files at ${base.slice(0, 9)})`,
+    `fix-proof: NOT PROVEN, the check also passes without the fix (${source.length} source files at ${base.slice(0, 9)})\n${red.tail}`,
   );
   process.exit(1);
 }
+if (isTestCommand() && !hasTestFailureEvidence(red.output))
+  couldNotRun(
+    `the red test run did not report a test failure; this is not proof the fix caused the result\n${red.tail}`,
+  );
+// The feedback gate re-runs only test commands; a `proven` line for any other
+// check fails CI, so it gets a line the gate doesn't read as proof.
+const verdict = parseProofCommand(command.join(" "))
+  ? "fix-proof: proven"
+  : "fix-proof: proven locally only (CI's feedback gate re-runs just `pnpm [--filter <pkg>] exec vitest run <test-file>` or `node --test <test-file>`, so this is not a PR proof line; prove the fix with a test)";
 console.log(
-  `fix-proof: proven, red at ${base.slice(0, 9)} (exit ${red.status}), green at ${greenAt.slice(0, 9)}: ${command.join(" ")}\n--- red output ---\n${red.tail}`,
+  `${verdict}, red at ${base.slice(0, 9)} (exit ${red.status}), green at ${greenAt.slice(0, 9)}: ${command.join(" ")}\n--- red output ---\n${red.tail}`,
 );

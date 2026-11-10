@@ -12,9 +12,23 @@ import {
 } from "../deploy/nitro-preset.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
+import {
+  CREATE_FINISHED_EVENT,
+  createFinishedProperties,
+  DEPLOY_FINISHED_EVENT,
+  deployFinishedProperties,
+  noteCreateReturned,
+  readPresetForReport,
+  reportAtExit,
+  startDevReadyReport,
+} from "./activation-telemetry.js";
 import { buildStepFailureReport } from "./build-failure-report.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
-import { cliSpawnOptions, runDevServer } from "./process.js";
+import {
+  cliSpawnOptions,
+  runDevServer,
+  WORKSPACE_DEPLOY_BUILD_ENV,
+} from "./process.js";
 import {
   findBinUpwards,
   findReactRouterInvocation,
@@ -24,8 +38,12 @@ import {
   flushSentryTelemetry,
   setCliSentryVersion,
 } from "./sentry-telemetry.js";
-import { shouldTrackCliRun } from "./telemetry-routing.js";
+import {
+  shouldTrackCliRun,
+  telemetryCommandName,
+} from "./telemetry-routing.js";
 import { createCliTelemetry } from "./telemetry.js";
+import { getTemplate } from "./templates-meta.js";
 
 let _version = "unknown";
 try {
@@ -59,10 +77,11 @@ const BUGS_URL = "https://github.com/BuilderIO/agent-native/issues";
 
 const command = process.argv[2];
 const args = process.argv.slice(3).filter((a) => a !== "--");
+const telemetryCommand = telemetryCommandName(command);
 const cliTelemetry = createCliTelemetry({
   cli: "core",
   cliVersion: _version,
-  command: command ?? "none",
+  command: telemetryCommand,
   interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
 });
 
@@ -117,7 +136,7 @@ Examples:
 
 function trackCli(event: string, props?: Record<string, unknown>): void {
   try {
-    cliTelemetry.track(event, { command, ...props });
+    cliTelemetry.track(event, { command: telemetryCommand, ...props });
   } catch {}
 }
 
@@ -130,34 +149,41 @@ function captureCliException(
   } catch {}
 }
 
-function flushTelemetryAndExit(code: number): void {
-  void Promise.allSettled([
-    cliTelemetry.flush(),
-    flushSentryTelemetry(2000),
-  ]).finally(() => process.exit(code));
+/**
+ * Analytics goes out first: loading Sentry can block the event loop for long
+ * enough to strand a send that hasn't left yet.
+ */
+function reportToSentryAndExit(
+  code: number,
+  error: unknown,
+  context?: Parameters<typeof captureOptionalSentryException>[1],
+): void {
+  void cliTelemetry
+    .flush()
+    .then(() => captureOptionalSentryException(error, context))
+    .then(() => flushSentryTelemetry(2000))
+    .finally(() => process.exit(code));
 }
 
 process.on("uncaughtException", (err) => {
   console.error(`\n  Unexpected error: ${err.message}\n`);
   console.error(`  Report this bug: ${BUGS_URL}`);
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
-  trackCli("cli.crash", { error: err.message });
+  trackCli("cli.crash", { error: err });
   captureCliException(err, { handled: false, tags: { source: "process" } });
-  void captureOptionalSentryException(err);
-  flushTelemetryAndExit(1);
+  reportToSentryAndExit(1, err);
 });
 
 process.on("unhandledRejection", (reason: any) => {
   console.error(`\n  Unhandled error: ${reason?.message ?? reason}\n`);
   console.error(`  Report this bug: ${BUGS_URL}`);
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
-  trackCli("cli.crash", { error: reason?.message ?? String(reason) });
+  trackCli("cli.crash", { error: reason });
   captureCliException(reason, {
     handled: false,
     tags: { source: "unhandled-rejection" },
   });
-  void captureOptionalSentryException(reason);
-  flushTelemetryAndExit(1);
+  reportToSentryAndExit(1, reason);
 });
 
 function handleScaffoldImportError(err: any): void {
@@ -176,13 +202,12 @@ function handleScaffoldImportError(err: any): void {
   } else {
     console.error(`\n  Failed to load the scaffolder: ${msg}\n`);
   }
-  trackCli("cli.scaffold.import_error", { error: msg });
+  trackCli("cli.scaffold.import_error", { error: err });
   captureCliException(err, {
     handled: false,
     tags: { source: "scaffold-import" },
   });
-  void captureOptionalSentryException(err);
-  flushTelemetryAndExit(1);
+  reportToSentryAndExit(1, err);
 }
 
 function findViteBin(): string {
@@ -350,21 +375,19 @@ function run(
   return child;
 }
 
-function inferBuildContext(cwd: string): {
-  template?: string;
-  app?: string;
-} {
+// Only our own template names: any other folder name is the developer's word.
+function inferFirstPartyTemplate(cwd: string): string | undefined {
   const segs = cwd.split(path.sep);
   let template: string | undefined;
-  let app: string | undefined;
   for (let i = 0; i < segs.length - 1; i++) {
-    if (segs[i] === "templates" && segs[i + 1] && !segs[i + 1].startsWith("."))
-      template = segs[i + 1];
-    if (segs[i] === "apps" && segs[i + 1] && !segs[i + 1].startsWith("."))
-      app = segs[i + 1];
+    const next = segs[i + 1];
+    if (segs[i] === "templates" && next && getTemplate(next)) template = next;
   }
-  return { template, app };
+  return template;
 }
+
+// What `build` was doing when it ended, for its finished event.
+let buildStep = "doctor";
 
 function runBuildStep(
   cmd: string,
@@ -372,11 +395,6 @@ function runBuildStep(
   opts: { label: string; env?: NodeJS.ProcessEnv; shell?: boolean },
 ): Promise<void> {
   return new Promise<void>((resolve) => {
-    const STDERR_TAIL_BYTES = 8000;
-    const STDOUT_TAIL_BYTES = 4000;
-    let stderrBuf = "";
-    let stdoutBuf = "";
-
     const child = spawn(cmd, cmdArgs, {
       stdio: ["inherit", "pipe", "pipe"],
       shell: opts.shell ?? process.platform === "win32",
@@ -385,43 +403,24 @@ function runBuildStep(
 
     child.stdout?.on("data", (chunk: Buffer) => {
       process.stdout.write(chunk);
-      const next = stdoutBuf + chunk.toString("utf-8");
-      stdoutBuf =
-        next.length > STDOUT_TAIL_BYTES ? next.slice(-STDOUT_TAIL_BYTES) : next;
     });
     child.stderr?.on("data", (chunk: Buffer) => {
       process.stderr.write(chunk);
-      const next = stderrBuf + chunk.toString("utf-8");
-      stderrBuf =
-        next.length > STDERR_TAIL_BYTES ? next.slice(-STDERR_TAIL_BYTES) : next;
     });
 
     child.on("error", (err) => {
-      const cwd = process.cwd();
-      const { template, app } = inferBuildContext(cwd);
-      void captureOptionalSentryException(err, {
-        tags: {
-          buildStep: opts.label,
-          ...(template ? { template } : {}),
-          ...(app ? { app } : {}),
-        },
-        extra: {
-          command: `${cmd} ${cmdArgs.join(" ")}`,
-          cwd,
-          stage: "spawn",
-        },
-      });
+      const template = inferFirstPartyTemplate(process.cwd());
+      const tags = {
+        source: "build-step",
+        buildStep: opts.label,
+        ...(template ? { template } : {}),
+      };
       captureCliException(err, {
         handled: false,
-        tags: {
-          source: "build-step",
-          buildStep: opts.label,
-          ...(template ? { template } : {}),
-          ...(app ? { app } : {}),
-        },
+        tags,
         extra: { stage: "spawn" },
       });
-      flushTelemetryAndExit(1);
+      reportToSentryAndExit(1, err, { tags, extra: { stage: "spawn" } });
     });
 
     child.on("exit", (code, signal) => {
@@ -430,41 +429,42 @@ function runBuildStep(
         resolve();
         return;
       }
-      const cwd = process.cwd();
-      const { template, app } = inferBuildContext(cwd);
-      const childCommand = `${cmd} ${cmdArgs.join(" ")}`;
       const report = buildStepFailureReport({
         label: opts.label,
         exitCode,
         signal: signal ?? null,
-        stderrTail: stderrBuf,
-        template,
-        app,
+        template: inferFirstPartyTemplate(process.cwd()),
       });
       const err = report.error;
-      void captureOptionalSentryException(err, {
-        tags: {
-          buildStep: opts.label,
-          ...(template ? { template } : {}),
-          ...(app ? { app } : {}),
-        },
-        extra: {
-          command: childCommand,
-          cwd,
-          exitCode,
-          signal: signal ?? null,
-          stderrTail: stderrBuf,
-          stdoutTail: stdoutBuf,
-        },
-      });
       captureCliException(err, {
         handled: false,
         tags: report.tags,
         extra: report.extra,
       });
-      flushTelemetryAndExit(exitCode);
+      reportToSentryAndExit(exitCode, err, {
+        fingerprint: report.fingerprint,
+        tags: report.tags,
+        extra: report.extra,
+      });
     });
   });
+}
+
+function runWorkspaceDevCommand(): void {
+  let appCount = 0;
+  const env = startDevReadyReport(cliTelemetry, {
+    workspace: true,
+    appCount: () => appCount,
+  });
+  import("./workspace-dev.js")
+    .then((m) => m.runWorkspaceDev({ args, env }))
+    .then((workspace) => {
+      appCount = workspace.apps.length;
+    })
+    .catch((err) => {
+      console.error(err?.message ?? err);
+      process.exit(1);
+    });
 }
 
 if (shouldTrackCliRun(command, args)) trackCli("cli.run");
@@ -472,18 +472,17 @@ if (shouldTrackCliRun(command, args)) trackCli("cli.run");
 switch (command) {
   case "dev": {
     if (isWorkspaceRoot()) {
-      import("./workspace-dev.js")
-        .then((m) => m.runWorkspaceDev({ args }))
-        .catch((err) => {
-          console.error(err?.message ?? err);
-          process.exit(1);
-        });
+      runWorkspaceDevCommand();
       break;
     }
+    const devEnv = startDevReadyReport(cliTelemetry, {
+      workspace: false,
+      appCount: () => 1,
+    });
     const vite = findViteBin();
     const { inspectFlag, rest } = extractNodeInspectFlag(args);
     if (!inspectFlag) {
-      runDevServer(vite, rest);
+      runDevServer(vite, rest, { env: devEnv });
       break;
     }
     const viteJsEntry = findViteJsEntry();
@@ -492,7 +491,7 @@ switch (command) {
         "[agent-native] Could not resolve Vite's JS entry; starting dev " +
           "server without the debugger.",
       );
-      runDevServer(vite, rest);
+      runDevServer(vite, rest, { env: devEnv });
       break;
     }
     const parsed = inspectFlag.match(/^--(inspect(?:-brk)?)(?:=(.+))?$/);
@@ -505,8 +504,8 @@ switch (command) {
         `process.env.NODE_OPTIONS=((process.env.NODE_OPTIONS??"")+" ${directive}").trim();`,
       );
     const env = {
-      ...process.env,
-      NITRO_DEV_RUNNER: process.env.NITRO_DEV_RUNNER ?? "node-process",
+      ...devEnv,
+      NITRO_DEV_RUNNER: devEnv.NITRO_DEV_RUNNER ?? "node-process",
     };
     console.log(`[agent-native] API server debugger listening on ${target}`);
     runDevServer(
@@ -521,16 +520,19 @@ switch (command) {
   }
 
   case "workspace-dev": {
-    import("./workspace-dev.js")
-      .then((m) => m.runWorkspaceDev({ args }))
-      .catch((err) => {
-        console.error(err?.message ?? err);
-        process.exit(1);
-      });
+    runWorkspaceDevCommand();
     break;
   }
 
   case "build": {
+    if (!process.env[WORKSPACE_DEPLOY_BUILD_ENV]) {
+      reportAtExit(cliTelemetry, DEPLOY_FINISHED_EVENT, (exitCode) =>
+        deployFinishedProperties(exitCode, {
+          step: buildStep,
+          preset: readPresetForReport(resolveAgentNativeNitroPreset),
+        }),
+      );
+    }
     (async () => {
       try {
         const { runDoctorBuildHook } = await import("./doctor.js");
@@ -552,6 +554,7 @@ switch (command) {
       }
 
       if (isReactRouterFramework()) {
+        buildStep = "react-router-build";
         clearAgentNativeNitroPresetMarker();
         const { clearAgentNativeBuildConfigMarker } =
           await import("../vite/agent-native-config-loader.js");
@@ -564,12 +567,14 @@ switch (command) {
           shell: rr.shell,
         });
       } else {
+        buildStep = "vite-build";
         const vite = findViteBin();
         console.log("Building...");
         await runBuildStep(vite, ["build"], { label: "vite-build" });
       }
 
       if (isReactRouterFramework()) {
+        buildStep = "deploy-build";
         const configuredNitroPreset = resolveAgentNativeNitroPreset();
         const deployEnv = configuredNitroPreset
           ? { ...process.env, NITRO_PRESET: configuredNitroPreset }
@@ -598,8 +603,7 @@ switch (command) {
         handled: false,
         tags: { source: "orchestration" },
       });
-      void captureOptionalSentryException(err);
-      flushTelemetryAndExit(1);
+      reportToSentryAndExit(1, err);
     });
     break;
   }
@@ -733,6 +737,7 @@ switch (command) {
       console.log(CREATE_HELP);
       break;
     }
+    reportAtExit(cliTelemetry, CREATE_FINISHED_EVENT, createFinishedProperties);
     const parsed = parseScaffoldArgs(args);
     import("./create.js")
       .then((m) =>
@@ -741,6 +746,7 @@ switch (command) {
           standalone: parsed.standalone,
         }),
       )
+      .then(noteCreateReturned)
       .catch(handleScaffoldImportError);
     break;
   }
@@ -797,6 +803,16 @@ switch (command) {
         const code = await m.runTemplate(args);
         process.exit(code);
       })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "telemetry": {
+    import("./telemetry-command.js")
+      .then((m) => m.runTelemetryCommand(args))
       .catch((err) => {
         console.error(err?.message ?? err);
         process.exit(1);
@@ -1002,8 +1018,17 @@ switch (command) {
   }
 
   case "deploy": {
+    const deployRun: { step: string; preset?: string } = { step: "prepare" };
+    reportAtExit(cliTelemetry, DEPLOY_FINISHED_EVENT, (exitCode) =>
+      deployFinishedProperties(exitCode, deployRun),
+    );
     import("../deploy/workspace-deploy.js")
-      .then((m) => m.runWorkspaceDeploy({ args }))
+      .then((m) =>
+        m.runWorkspaceDeploy({
+          args,
+          onProgress: (progress) => Object.assign(deployRun, progress),
+        }),
+      )
       .catch((err) => {
         console.error("Deploy failed:", err?.message ?? err);
         process.exit(1);
@@ -1138,6 +1163,8 @@ Usage:
   agent-native script <name>    Run an action (deprecated alias for 'action')
   agent-native typecheck        Run TypeScript type checking
   agent-native doctor           Scan app/workspace source for guard violations
+  agent-native telemetry <cmd>  Control anonymous usage data.
+                                cmds: status | enable | disable | reset
   agent-native create [name]    Set up a Chat workspace, standalone app,
                                 headless app, or first-party/community template.
   agent-native code             Launch Agent-Native Code workspace. Type a task or

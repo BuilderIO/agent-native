@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { normalizeWorkspaceAppId } from "@agent-native/core/shared";
 import {
   IconArrowUpRight,
@@ -12,8 +13,9 @@ import { toast } from "sonner";
 import { cn } from "../lib/utils";
 import { AppIcon } from "./app-icon";
 import { AppListRow } from "./app-list-row";
-import { AppOpenActions } from "./app-open-actions";
+import { AppOpenActions, appOpenActionLabels } from "./app-open-actions";
 import { AppRowSettings } from "./app-row-settings";
+import { useNotifyBuildInBuilder } from "./build-in-builder";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -110,12 +112,6 @@ function defaultAppIdFor(
   return `${sourceId}-app`;
 }
 
-function stringifyError(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string") return error;
-  return "Unknown error";
-}
-
 function mergeLabels(
   labels?: Partial<WorkspaceTemplateLabels>,
 ): WorkspaceTemplateLabels {
@@ -130,6 +126,7 @@ export function WorkspaceTemplateCard({
   catalog = false,
   onRemixSuccess,
 }: WorkspaceTemplateCardProps) {
+  const t = useT();
   const labels = useMemo(() => mergeLabels(labelOverrides), [labelOverrides]);
   const [open, setOpen] = useState(false);
   const [appId, setAppId] = useState(() =>
@@ -138,11 +135,15 @@ export function WorkspaceTemplateCard({
   const isInstalled = Boolean(template.installed || template.installedAppId);
   const liveUrl = template.liveUrl || template.productUrl;
   const setupNote = template.integrationSetup || template.setupNote;
+  const notifyBuildInBuilder = useNotifyBuildInBuilder();
   const remix = useActionMutation("remix-workspace-template", {
     onSuccess: (result) => {
       const mode = (result as { mode?: string } | null)?.mode;
       const message = (result as { message?: string } | null)?.message;
-      if (mode === "builder") {
+      const url = (result as { url?: string } | null)?.url;
+      if (mode === "builder-managed" && url) {
+        notifyBuildInBuilder(url);
+      } else if (mode === "builder") {
         toast.success(labels.remixSuccess);
       } else if (mode === "builder-unavailable" || mode === "app-id-taken") {
         toast.error(message || labels.remixError);
@@ -154,8 +155,7 @@ export function WorkspaceTemplateCard({
       setOpen(false);
       onRemixSuccess?.(result, template);
     },
-    onError: (error) =>
-      toast.error(`${labels.remixError}: ${stringifyError(error)}`),
+    errorLabel: labels.remixError,
   });
 
   useEffect(() => {
@@ -213,7 +213,10 @@ export function WorkspaceTemplateCard({
                 name={template.name}
                 href={liveUrl}
                 rel="noreferrer"
-                labels={{ openApp: labels.openApp }}
+                labels={{
+                  ...appOpenActionLabels(t, template.name),
+                  openApp: labels.openApp,
+                }}
                 showNewTabOption
               />
             ) : null}

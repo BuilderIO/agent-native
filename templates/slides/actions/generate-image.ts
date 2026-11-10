@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 
 import { parseArgs } from "@agent-native/core";
-import { fail } from "@agent-native/core/action";
+import { fail, noteExternalWrite } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import pLimit from "p-limit";
 
@@ -34,6 +34,7 @@ async function saveDelegatedImages(
     );
     throw new Error("Script failed");
   }
+  noteExternalWrite("local-disk");
   mkdirSync(dirname(outputPrefix), { recursive: true });
   let failures = 0;
   for (const [i, url] of urls.entries()) {
@@ -147,6 +148,7 @@ Options:
     console.log(`Loaded deck context: ${deckCtx.deckText.length} chars`);
   }
 
+  let assetsUnavailableReason = "";
   if (opts["use-brand-library"] === "true") {
     const delegation = await delegateImageGenerationToAssets({
       prompt,
@@ -198,8 +200,8 @@ Options:
         { errorCode: "assets_generation_rejected", statusCode: 424 },
       );
     }
-    const unavailableReason = delegation.reason.trim();
-    if (!unavailableReason) {
+    assetsUnavailableReason = delegation.reason.trim();
+    if (!assetsUnavailableReason) {
       console.error(
         "Assets reported image generation unavailable without a reason; local fallback skipped.",
       );
@@ -209,8 +211,8 @@ Options:
       );
     }
     console.warn(
-      `[slides/generate-image] Assets unavailable (${unavailableReason}); ` +
-        `using the local provider — output will not be brand-grounded.`,
+      `[slides/generate-image] Assets unavailable (${assetsUnavailableReason}); ` +
+        `trying the local provider — output will not be brand-grounded.`,
     );
   } else {
     console.log(
@@ -225,14 +227,19 @@ Options:
   try {
     provider = await getProvider(modelChoice);
   } catch (error) {
-    if (error instanceof Error) {
-      const message = error.message.replace(
-        "set useBrandLibrary: true",
-        "pass --use-brand-library true",
-      );
+    const message = (
+      error instanceof Error ? error.message : String(error)
+    ).replace("set useBrandLibrary: true", "pass --use-brand-library true");
+    if (!assetsUnavailableReason) {
       console.error(`Error: ${message}`);
+      throw error;
     }
-    throw error;
+    const combined = `Assets image generation was unavailable (${assetsUnavailableReason}), and no local provider could generate instead: ${message}`;
+    console.error(`Error: ${combined}`);
+    fail(combined, {
+      errorCode: "assets_unavailable_no_local_provider",
+      statusCode: 424,
+    });
   }
 
   const context =
@@ -274,6 +281,7 @@ Options:
   }
 
   if (outputPrefix) {
+    noteExternalWrite("local-disk");
     mkdirSync(dirname(outputPrefix), { recursive: true });
   }
 
@@ -305,6 +313,7 @@ Options:
     successfulVariations++;
     if (outputPrefix) {
       const filePath = `${outputPrefix}-v${i + 1}.png`;
+      noteExternalWrite("local-disk");
       writeFileSync(filePath, result.imageData);
       generatedFiles.push(filePath);
       console.log(

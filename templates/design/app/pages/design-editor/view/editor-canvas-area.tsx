@@ -7,6 +7,7 @@ import {
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import { GenerationStatusCard } from "@/components/design/GenerationStatusCard";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
+import { Button } from "@/components/ui/button";
 import { DrawOverlay as SharedDrawOverlay } from "@/components/visual-editor/DrawOverlay";
 import { readSystemClipboard } from "@/lib/design-clipboard";
 import { hasExplicitOverviewZoomCommand as hasExplicitOverviewZoomCommandFromSearchParams } from "@/lib/design-editor-route";
@@ -597,9 +598,10 @@ export function renderEditorCanvasArea({
       }
     >
       {designIsEmpty &&
-      (generating || pendingGenerationActive || generationIssue) ? (
+      generationIssue &&
+      !generating &&
+      !pendingGenerationActive ? (
         <GenerationStatusCard
-          generating={generating || pendingGenerationActive}
           issue={generationIssue}
           retryablePrompt={retryablePrompt?.prompt ?? null}
           onRetry={handleRetryGeneration}
@@ -670,6 +672,8 @@ export function renderEditorCanvasArea({
                 designId={id}
                 status={fusionApp.status}
                 statusMessage={fusionApp.statusMessage}
+                built={Boolean(fusionApp.previewUrl)}
+                canSync={canEditDesign}
               />
             )}
             {pendingVisualEditPublicationFailed ? (
@@ -683,6 +687,28 @@ export function renderEditorCanvasArea({
               >
                 <div className="pointer-events-auto rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                   {t("designEditor.toasts.codingHandoffError")}
+                </div>
+              </div>
+            ) : null}
+            {generationIssue &&
+            !designIsEmpty &&
+            !generating &&
+            !pendingGenerationActive ? (
+              <div
+                role="alert"
+                className="pointer-events-none absolute inset-x-0 top-16 z-[70] flex justify-center px-4"
+              >
+                <div className="pointer-events-auto flex items-center gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {generationIssue}
+                  {retryablePrompt ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleRetryGeneration}
+                    >
+                      {t("designEditor.tryAgain")}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             ) : null}

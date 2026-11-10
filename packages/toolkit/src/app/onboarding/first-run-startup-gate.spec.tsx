@@ -43,6 +43,7 @@ import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run
 import {
   FirstRunOnboardingStartupGate,
   useFirstRunOnboardingGateOwnsSurface,
+  useStartupInteractionBlocked,
 } from "./first-run-startup-gate.js";
 
 function deferred<T>() {
@@ -64,7 +65,12 @@ function StatefulApp() {
 
 function GateOwnershipProbe() {
   const ownsSurface = useFirstRunOnboardingGateOwnsSurface();
-  return <div data-testid="gate-ownership">{String(ownsSurface)}</div>;
+  const blocked = useStartupInteractionBlocked();
+  return (
+    <div data-blocked={blocked} data-testid="gate-ownership">
+      {String(ownsSurface)}
+    </div>
+  );
 }
 
 describe("FirstRunOnboardingStartupGate", () => {
@@ -91,6 +97,32 @@ describe("FirstRunOnboardingStartupGate", () => {
     container.remove();
     vi.unstubAllGlobals();
     document.cookie = `${FIRST_RUN_ONBOARDING_COOKIE}=; Max-Age=0; path=/`;
+  });
+
+  it("reserves onboarding ownership while Builder setup runs without mounting the onboarding surface", async () => {
+    mocks.fetchStatus.mockResolvedValue(true);
+    await act(async () => {
+      root.render(
+        <FirstRunOnboardingStartupGate deferSurface>
+          <GateOwnershipProbe />
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+    expect(
+      container.querySelector('[data-testid="gate-ownership"]')?.textContent,
+    ).toBe("true");
+    expect(
+      container.querySelector('[data-first-run-app-inert="true"]'),
+    ).toBeNull();
+    expect(container.querySelector("[aria-hidden='true']")).toBeNull();
+    expect(
+      container
+        .querySelector("[data-testid='gate-ownership']")
+        ?.getAttribute("data-blocked"),
+    ).toBe("false");
+    expect(
+      container.querySelector('[data-testid="first-run-onboarding"]'),
+    ).toBeNull();
   });
 
   it("holds the status read while the session preloads, then reads once it resolves", async () => {
@@ -169,7 +201,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).not.toBeNull();
   });
 
-  it("holds the app behind a neutral screen while eligibility is unresolved", () => {
+  it("keeps the app visible but inert while eligibility is unresolved", async () => {
     const status = deferred<boolean>();
     mocks.fetchStatus.mockReturnValue(status.promise);
 
@@ -183,17 +215,26 @@ describe("FirstRunOnboardingStartupGate", () => {
     });
 
     expect(mocks.fetchStatus).toHaveBeenCalledOnce();
-    const loading = container.querySelector("[data-first-run-startup-loading]");
-    expect(loading?.getAttribute("role")).toBe("status");
-    expect(loading?.getAttribute("aria-label")).toBe("Loading application");
-    expect(loading?.hasAttribute("inert")).toBe(false);
-    expect(loading?.querySelector("[inert]")).not.toBeNull();
     expect(
-      container.querySelector("[data-first-run-app-hidden]"),
+      container.querySelector("[data-first-run-startup-loading]"),
+    ).toBeNull();
+    // oracle-change: the app paints behind onboarding while first-run eligibility resolves.
+    expect(
+      container.querySelector("[data-testid='app-content']"),
+    ).not.toBeNull();
+    expect(container.querySelector("[data-first-run-app-hidden]")).toBeNull();
+    expect(
+      container.querySelector("[data-first-run-app-inert]"),
     ).not.toBeNull();
     expect(
       container.querySelector("[data-testid='gate-ownership']")?.textContent,
     ).toBe("true");
+
+    await act(async () => {
+      status.resolve(false);
+      await status.promise;
+    });
+    expect(container.querySelector("[data-first-run-app-inert]")).toBeNull();
   });
 
   it("retries a failed status read before revealing a first-run app", async () => {
@@ -217,13 +258,11 @@ describe("FirstRunOnboardingStartupGate", () => {
     expect(mocks.fetchStatus).toHaveBeenCalledTimes(2);
     expect(
       container.querySelector("[data-first-run-startup-loading]"),
-    ).not.toBeNull();
+    ).toBeNull();
     expect(
       container.querySelector("[data-testid='app-content']"),
     ).not.toBeNull();
-    expect(
-      container.querySelector("[data-first-run-app-hidden]"),
-    ).not.toBeNull();
+    expect(container.querySelector("[data-first-run-app-hidden]")).toBeNull();
 
     await act(async () => {
       status.resolve(true);
@@ -256,9 +295,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     await act(async () => {});
 
     expect(mocks.fetchStatus).toHaveBeenCalledTimes(2);
-    expect(
-      container.querySelector("[data-first-run-app-hidden]"),
-    ).not.toBeNull();
+    expect(container.querySelector("[data-first-run-app-hidden]")).toBeNull();
     expect(
       container.querySelector("[data-first-run-status-error]"),
     ).not.toBeNull();
@@ -478,7 +515,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).not.toBeNull();
   });
 
-  it("keeps the app hidden and owns the onboarding surface for a new user", async () => {
+  it("keeps the app visible behind onboarding for a new user", async () => {
     const status = deferred<boolean>();
     mocks.fetchStatus.mockReturnValue(status.promise);
 
@@ -501,8 +538,9 @@ describe("FirstRunOnboardingStartupGate", () => {
         container.querySelector("[data-testid='first-run-onboarding']"),
       ).not.toBeNull();
     });
+    expect(container.querySelector("[data-first-run-app-hidden]")).toBeNull();
     expect(
-      container.querySelector("[data-first-run-app-hidden]"),
+      container.querySelector("[data-testid='app-content']"),
     ).not.toBeNull();
     expect(
       container.querySelector("[data-testid='gate-ownership']")?.textContent,
@@ -584,7 +622,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     ).toBeNull();
   });
 
-  it("keeps the app behind a retry surface if both eligibility checks are unavailable", async () => {
+  it("keeps the app visible if both eligibility checks are unavailable", async () => {
     vi.useFakeTimers();
     const retryError = new Error("retry failed");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -608,9 +646,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     expect(
       container.querySelector("[data-testid='app-content']"),
     ).not.toBeNull();
-    expect(
-      container.querySelector("[data-first-run-app-hidden]"),
-    ).not.toBeNull();
+    expect(container.querySelector("[data-first-run-app-hidden]")).toBeNull();
     expect(
       container.querySelector("[data-first-run-status-error]"),
     ).not.toBeNull();

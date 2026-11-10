@@ -7,6 +7,7 @@ import { getAppConfig } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { withRecordingMediaProduction } from "./recording-media-lifecycle.js";
 import { ownerEmailMatches } from "./recordings.js";
 import {
   deleteS3ObjectByUrl,
@@ -90,6 +91,14 @@ async function deleteRejectedHostedUpload(input: {
 
 /** Upload a recording derivative using the storage mode already pinned to it. */
 export async function uploadRecordingMedia(
+  input: UploadRecordingMediaInput,
+): Promise<FileUploadResult | null> {
+  return withRecordingMediaProduction(input, () =>
+    uploadRecordingMediaUntracked(input),
+  );
+}
+
+async function uploadRecordingMediaUntracked(
   input: UploadRecordingMediaInput,
 ): Promise<FileUploadResult | null> {
   const [recording] = await getDb()

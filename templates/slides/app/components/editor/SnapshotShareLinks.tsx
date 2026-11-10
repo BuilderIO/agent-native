@@ -1,0 +1,87 @@
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+import { IconTrash } from "@tabler/icons-react";
+
+import { Button } from "@/components/ui/button";
+import { useDeckRole } from "@/hooks/use-deck-role";
+
+interface SnapshotShareLink {
+  token: string;
+  createdAt: string;
+}
+
+export function SnapshotShareLinks({ deckId }: { deckId: string }) {
+  const t = useT();
+  const { role } = useDeckRole(deckId);
+  // Listing needs admin access, so a failure only means something for managers.
+  const canManage = role === "owner" || role === "admin";
+  const query = useActionQuery<{ links: SnapshotShareLink[] }>(
+    "list-deck-share-links",
+    { deckId },
+    { enabled: canManage },
+  );
+  const revoke = useActionMutation<unknown, { deckId: string; token: string }>(
+    "revoke-deck-share-link",
+    {
+      // Refetch on failure too: a 404 means another manager already revoked it.
+      onSettled: () => void query.refetch(),
+      onError: (error) =>
+        reportWriteFailure(error, { label: t("share.revokeFailed") }),
+    },
+  );
+
+  if (!canManage) return null;
+  // A failed refetch keeps the last good list, so only show the banner without one.
+  if (query.isError && !query.data) {
+    return (
+      <div
+        role="alert"
+        className="mt-4 flex items-center justify-between gap-2 text-xs text-muted-foreground"
+      >
+        <span>{t("share.snapshotLinksLoadFailed")}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={query.isFetching}
+          onClick={() => void query.refetch()}
+        >
+          {t("settings.retry")}
+        </Button>
+      </div>
+    );
+  }
+
+  const links = query.data?.links ?? [];
+  if (links.length === 0) return null;
+
+  return (
+    <div className="mt-4 space-y-2">
+      <div className="text-xs font-medium text-muted-foreground">
+        {t("share.snapshotLinks")}
+      </div>
+      {links.map((link) => (
+        <div
+          key={link.token}
+          className="flex items-center justify-between gap-3"
+        >
+          <span className="text-sm text-muted-foreground">
+            {new Date(link.createdAt).toLocaleString()}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={revoke.isPending}
+            onClick={() => revoke.mutate({ deckId, token: link.token })}
+          >
+            <IconTrash className="h-3.5 w-3.5" />
+            {t("share.revokeLink")}
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}

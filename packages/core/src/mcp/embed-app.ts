@@ -1,5 +1,10 @@
 import type { ActionMcpAppResourceConfig } from "../action.js";
-import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
+import {
+  FETCH_TRANSPORT_CHANGED_EVENT,
+  FETCH_TRANSPORT_SYMBOL_KEY,
+  EMBED_SESSION_RENEWAL_WINDOW_KEY,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   MCP_APP_PANE_FILL_MAX_HEIGHT,
@@ -957,6 +962,7 @@ export function embedApp(
       }
       if (typeof fetch === "function") {
         const originalFetch = fetch.bind(window);
+        var pageFetch = fetch;
         window.fetch = function(input, init) {
           const raw = input instanceof Request ? input.url : String(input);
           const url = rewrittenUrl(raw, false);
@@ -966,10 +972,62 @@ export function embedApp(
             credentials: "omit"
           });
           if (input instanceof Request) {
-            return originalFetch(new Request(url, input), nextInit);
+            const requestInit = {
+              method: input.method,
+              mode: input.mode,
+              cache: input.cache,
+              redirect: input.redirect,
+              referrer: input.referrer,
+              referrerPolicy: input.referrerPolicy,
+              integrity: input.integrity,
+              keepalive: input.keepalive,
+              signal: input.signal
+            };
+            // A body in init replaces the Request's, which may already be spent.
+            if (nextInit.body !== undefined) {
+              return originalFetch(url, Object.assign(requestInit, nextInit));
+            }
+            // Read the body first: a Request used as init sends it as a stream,
+            // which needs HTTP/2 and which not every browser can send.
+            return input.arrayBuffer().then(function(body) {
+              return originalFetch(
+                url,
+                Object.assign(
+                  requestInit,
+                  body.byteLength > 0 ? { body: body } : null,
+                  nextInit
+                )
+              );
+            });
           }
           return originalFetch(url, nextInit);
         };
+        // The requests it signs go out on a transport of their own, one per
+        // token. It signs only on the target's mount and with a token; its
+        // other requests still omit cookies, so they go out on another
+        // transport, never the signed one or the page's. Asked as each read
+        // is keyed and sent, so it follows the page between mounts. With no
+        // app origin, every request passes through unchanged.
+        var signedTransport = null;
+        var unsignedTransport = {};
+        window.fetch[Symbol.for(${JSON.stringify(FETCH_TRANSPORT_SYMBOL_KEY)})] = function() {
+          if (!appOrigin()) return pageFetch;
+          var token = activeConfig().token;
+          if (!token || authorizedTargetPath() === null) {
+            return unsignedTransport;
+          }
+          if (!signedTransport || signedTransport.token !== token) {
+            signedTransport = { token: token, transport: {} };
+          }
+          return signedTransport.transport;
+        };
+        // Requests now go out signed by this runtime: the app reads the
+        // session again over it.
+        if (typeof window.dispatchEvent === "function") {
+          window.dispatchEvent(
+            new Event(${JSON.stringify(FETCH_TRANSPORT_CHANGED_EVENT)})
+          );
+        }
       }
       if (typeof XMLHttpRequest !== "undefined") {
         const originalOpen = XMLHttpRequest.prototype.open;
@@ -1270,11 +1328,13 @@ export function embedApp(
       if (!isEmbedStartUrl(src)) {
         return { url: new URL(src), response: null };
       }
+      // A fetch has no document context, so the start route answers with its
+      // redirect, and the app serves that page only to a request for HTML.
       const response = await fetch(src, {
         credentials: "omit",
         redirect: "follow",
         headers: {
-          Accept: "application/json",
+          Accept: "text/html",
           "X-Agent-Native-Embed-Transplant": "1"
         }
       });
@@ -1293,6 +1353,8 @@ export function embedApp(
     }
 
     async function transplantAppDocument(src) {
+      window[${JSON.stringify(EMBED_SESSION_RENEWAL_WINDOW_KEY)}] =
+        renewTransplantedEmbedSession;
       rememberActiveEmbedSessionTicket(src);
       clearFrameReadyTimer();
       clearFrameLoadTimer();
@@ -1851,6 +1913,30 @@ export function embedApp(
       }
     }
 
+    // An app running in this window has the chat as its parent, not this shell,
+    // so it asks for a renewal by calling this rather than by posting a message.
+    async function renewTransplantedEmbedSession() {
+      if (embedSessionRefreshAttempts >= maxEmbedSessionRefreshAttempts) {
+        return false;
+      }
+      embedSessionRefreshAttempts += 1;
+      try {
+        const args = embedSessionArgsFor(
+          openStartUrl || openUrl,
+          true,
+          activeEmbedSessionTicket,
+        );
+        if (!args.sourceTicket) return false;
+        const data = parseToolResult(await callEmbedSessionTool(args));
+        if (data.renewed !== true) return false;
+        embedSessionRefreshAttempts = 0;
+        return true;
+      } catch (err) {
+        console.warn("[agent-native] embedded session renewal failed", err);
+        return false;
+      }
+    }
+
     function shouldSelfNavigateToApp() {
       const render = renderModeSource();
       const mode = render.mode;
@@ -1986,6 +2072,14 @@ export function embedApp(
       return sections.filter(Boolean).join("\\n\\n");
     }
 
+    // "noopener" would hide whether the browser blocked the tab, so it's cleared
+    // on the tab instead.
+    function openBlankTab(url) {
+      const tab = window.open(url, "_blank");
+      if (tab) tab.opener = null;
+      return Boolean(tab);
+    }
+
     async function openHostLink(data) {
       const url = typeof (data && data.url) === "string" ? data.url : "";
       if (!url) return { isError: true };
@@ -1995,8 +2089,7 @@ export function embedApp(
       if (app && typeof app.openLink === "function") {
         return await app.openLink({ url });
       }
-      window.open(url, "_blank", "noopener,noreferrer");
-      return { ok: true };
+      return openBlankTab(url) ? { ok: true } : { isError: true };
     }
 
     function notifyHostHeight() {
@@ -2728,8 +2821,7 @@ export function embedApp(
           } catch (err) {
             console.warn("[agent-native] MCP host open-link request failed", err);
           }
-          const opened = window.open(url, "_blank", "noopener,noreferrer");
-          return opened ? { ok: true } : { isError: true };
+          return openBlankTab(url) ? { ok: true } : { isError: true };
         },
         async requestDisplayMode(params) {
           await nativeApp.connect();

@@ -60,7 +60,7 @@ export default defineAction({
   run: (args, context) => {
     if (context?.caller === "mcp") agentSchema.parse(args);
     return withContentWebhookDelivery(context, () =>
-      upsertDatabaseRow(canonicalizeDatabasePropertyInput(args)),
+      upsertDatabaseRow(canonicalizeDatabasePropertyInput(args), context),
     );
   },
   link: ({ result }) => {

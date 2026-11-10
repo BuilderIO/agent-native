@@ -1469,6 +1469,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
           const sourceNode = session.view.state.doc.nodeAt(sourceStart);
           if (sourceNode) {
             let dropCommitted = false;
+            let caretPos = dropPos;
             const sourceRegistration = registrationForView(session.view);
             const transferData = sourceRegistration?.getDragTransferData?.({
               view: session.view,
@@ -1497,11 +1498,14 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             } else if (target.view === session.view) {
               const insertPos =
                 dropPos > sourceStart ? dropPos - sourceNode.nodeSize : dropPos;
+              // Deleting the old copy shifts later blocks up, so a block moved
+              // down starts at insertPos, not dropPos. The caret follows it.
+              caretPos = insertPos;
               const tr = session.view.state.tr
                 .delete(sourceStart, sourceEnd)
                 .insert(insertPos, sourceNode);
 
-              session.view.dispatch(markUserAction(tr).scrollIntoView());
+              session.view.dispatch(markUserAction(tr));
               dropCommitted = true;
             } else {
               try {
@@ -1533,7 +1537,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             }
 
             if (dropCommitted) {
-              collapseAndBlurEditorAfterDrop(target.view, dropPos);
+              collapseAndBlurEditorAfterDrop(target.view, caretPos);
               if (target.view !== session.view) {
                 collapseAndBlurEditorAfterDrop(session.view, sourceStart);
               }

@@ -2349,6 +2349,8 @@ describe("roundGeometryStylesPx in a transformed containing block", () => {
     ).toEqual({ left: "32.93px", top: "32.93px", width: "20px" });
     expect(keepsPixelGrid(rotated)).toBe(false);
     expect(keepsPixelGrid({ a: 1.5, b: 0, c: 0, d: 1.5 })).toBe(false);
+    // Whole local px at 10x would move a layer in 10px steps.
+    expect(keepsPixelGrid({ a: 10, b: 0, c: 0, d: 10 })).toBe(false);
   });
 
   it("still rounds positions in an axis-aligned or quarter-turned block", () => {

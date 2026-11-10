@@ -10,9 +10,14 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyDeckComment } from "../server/lib/comment-notifications.js";
 import {
+  AGENT_AUTHOR_NAME,
+  commentAuthorKind,
+} from "../shared/comment-author.js";
+import {
   serializeSlideCommentAnchor,
   slideCommentAnchorSchema,
 } from "../shared/slide-comment-anchor.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 
 function displayNameFromEmail(email: string): string {
   const local = email.split("@")[0] || email;
@@ -64,6 +69,12 @@ export default defineAction({
     resourceType: "deck",
     resourceId: deckId,
   }),
+  audit: {
+    target: (_args, result) => ({
+      type: "slide-comment",
+      id: (result as { id: string }).id,
+    }),
+  },
   run: async (args, ctx) => {
     const {
       deckId,
@@ -94,9 +105,10 @@ export default defineAction({
     const threadId = requestedThreadId ?? id;
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) throw new Error("no authenticated user");
+    const authorKind = commentAuthorKind(ctx?.caller);
     const authorName =
-      ctx?.caller === "tool"
-        ? "AI Agent"
+      authorKind === "agent"
+        ? AGENT_AUTHOR_NAME
         : getRequestUserName()?.trim() || displayNameFromEmail(authorEmail);
 
     const db = getDb();
@@ -112,7 +124,10 @@ export default defineAction({
           statusCode: 404,
         });
       }
-      const deckData: unknown = JSON.parse(deck.data);
+      const deckData: unknown = withUniqueSlideIds(
+        deckId,
+        JSON.parse(deck.data),
+      );
       const slides = (deckData as { slides?: unknown } | null)?.slides;
       if (!Array.isArray(slides)) {
         throw new Error(`Deck has invalid slide data: ${deckId}`);
@@ -179,6 +194,7 @@ export default defineAction({
         anchor: serializeSlideCommentAnchor(anchor),
         authorEmail,
         authorName,
+        authorKind,
       });
     });
 

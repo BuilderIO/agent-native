@@ -47,3 +47,9 @@ npx @agent-native/core@latest skills update scaffold --project
 also repairs Claude compatibility links (`CLAUDE.md` and `.claude/skills`) when
 the host filesystem supports them, with copy fallback where symlinks are
 blocked.
+
+## Telemetry
+
+This CLI collects anonymous usage data. [Telemetry](https://agent-native.com/docs/telemetry?utm_source=npm&utm_medium=referral&utm_content=skills-readme)
+lists what it sends. Run `npx @agent-native/core telemetry disable` to turn it
+off.

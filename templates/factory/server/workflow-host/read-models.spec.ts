@@ -674,6 +674,43 @@ describe("listItems", () => {
     });
   });
 
+  it("gives an item a person closed by hand a last event with no step, so it is not read as untouched", async () => {
+    const { wf, run } = await seedItems();
+    await addEvents(world, SCOPE, [
+      {
+        workflowId: wf,
+        runId: run.id,
+        itemId: "item-carol",
+        nodeId: "post",
+        kind: "ended",
+        outcome: "needsManual",
+        at: minute(0.1),
+        summary:
+          "needsManual: Slack rejected the message (status needs_manual)",
+      },
+      // The event dismissing an item writes: it names no step.
+      {
+        workflowId: wf,
+        runId: run.id,
+        itemId: "item-carol",
+        kind: "ended",
+        outcome: "dismissed",
+        at: minute(0.2),
+        summary: "dismissed: Dismissed by enzo (status dismissed)",
+      },
+    ]);
+    const carol = (await world.models.listItems(SCOPE, { search: "Carol" }))
+      .items[0];
+    expect(carol).toMatchObject({
+      status: "dismissed",
+      lastNode: null,
+      lastEvent: { kind: "ended", nodeId: null },
+    });
+    const dan = (await world.models.listItems(SCOPE, { search: "Dan" }))
+      .items[0];
+    expect(dan).toMatchObject({ lastNode: null, lastEvent: null });
+  });
+
   it("says whether an item's lease is still live", async () => {
     const workflow = await addWorkflow(world);
     world.at(minute(0));
@@ -1823,6 +1860,97 @@ describe("getNodeAudit", () => {
     expect(out?.items[1]?.summary).toHaveLength(READ_LIMITS.shortSummaryChars);
     expect(out?.items[1]?.summaryTruncated).toBe(true);
     expect(out?.items[2]?.summary).toBeNull();
+  });
+
+  describe("sampling the newest step that took items", () => {
+    // The newest run found nothing; the one before it took two pinnable items.
+    async function seedQuietNewestRun(options: { inbox: boolean }) {
+      const workflow = await addWorkflow(world);
+      const wf = workflow.id;
+      if (options.inbox) {
+        for (const [id, title] of [
+          ["item-a", "Alice report"],
+          ["item-b", "Bob report"],
+        ] as const) {
+          await addInboxItem(world, { id, title });
+        }
+      }
+      const step = (count: number, itemIds: string[]) => [
+        {
+          nodeId: "feedback",
+          status: "succeeded" as const,
+          ports: { out: { count, itemIds } },
+        },
+        {
+          nodeId: "assess",
+          status: "succeeded" as const,
+          ports: { out: { count, itemIds } },
+        },
+      ];
+      const older = await addRun(world, {
+        workflowId: wf,
+        tickKey: minute(0),
+        startedAt: minute(0),
+        status: "succeeded",
+        steps: step(2, ["item-a", "item-b"]),
+      });
+      const quiet = await addRun(world, {
+        workflowId: wf,
+        tickKey: minute(10),
+        startedAt: minute(10),
+        status: "succeeded",
+        steps: step(0, []),
+      });
+      return { wf, older, quiet };
+    }
+
+    it("samples the newest step by default, even when it took nothing", async () => {
+      const { wf, quiet } = await seedQuietNewestRun({ inbox: true });
+      const audit = await world.models.getNodeAudit(SCOPE, {
+        workflowId: wf,
+        nodeId: "assess",
+      });
+      expect(audit.latest?.runId).toBe(quiet.id);
+      expect(audit.latest?.in[0]).toMatchObject({ count: 0, items: [] });
+    });
+
+    it("samples the newest earlier step that took items, and the steps still name the newest run", async () => {
+      const { wf, older, quiet } = await seedQuietNewestRun({ inbox: true });
+      const audit = await world.models.getNodeAudit(SCOPE, {
+        workflowId: wf,
+        nodeId: "assess",
+        limit: 10,
+        sampleStepWithItems: true,
+      });
+      expect(audit.latest?.runId).toBe(older.id);
+      expect(audit.latest?.in[0]?.items.map((item) => item.title)).toEqual([
+        "Alice report",
+        "Bob report",
+      ]);
+      expect(audit.steps[0]?.runId).toBe(quiet.id);
+    });
+
+    it("looks back only as far as the limit it was given", async () => {
+      const { wf, quiet } = await seedQuietNewestRun({ inbox: true });
+      const audit = await world.models.getNodeAudit(SCOPE, {
+        workflowId: wf,
+        nodeId: "assess",
+        limit: 1,
+        sampleStepWithItems: true,
+      });
+      expect(audit.latest?.runId).toBe(quiet.id);
+    });
+
+    it("does not count items that are not in the inbox, since a test cannot pin them", async () => {
+      const { wf, quiet } = await seedQuietNewestRun({ inbox: false });
+      const audit = await world.models.getNodeAudit(SCOPE, {
+        workflowId: wf,
+        nodeId: "assess",
+        limit: 10,
+        sampleStepWithItems: true,
+      });
+      expect(audit.latest?.runId).toBe(quiet.id);
+    });
   });
 
   it("bounds the sample per port and says when it cut", async () => {

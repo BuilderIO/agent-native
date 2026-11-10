@@ -71,6 +71,7 @@ export function engineToolToAnthropic(
     name: providerName,
     description: tool.description,
     input_schema: normalizeAnthropicInputSchema(tool.name, tool.inputSchema),
+    ...(tool.eagerInputStreaming ? { eager_input_streaming: true } : {}),
   };
 }
 

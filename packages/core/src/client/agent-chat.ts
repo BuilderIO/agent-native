@@ -3,8 +3,10 @@ import {
   tryNormalizeAgentActionScope,
   type AgentActionScope,
   type AgentChatAttachment,
+  type AgentChatReference,
   type MentionItemMedia,
 } from "../agent/types.js";
+import { parseAgentChatReferences } from "../shared/agent-chat-references.js";
 import { formatAgentSelectionPreamble } from "../shared/agent-selection.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -58,6 +60,7 @@ export interface AgentChatMessage {
   uploadedReferenceImages?: string[];
   images?: string[];
   attachments?: AgentChatAttachment[];
+  references?: AgentChatReference[];
   /** Stable tab identifier — auto-generated if omitted */
   tabId?: string;
   targetTabId?: string;
@@ -196,16 +199,46 @@ export interface AgentChatSubmitTarget {
   tabId: string;
 }
 
+export interface AgentChatSubmitRoute {
+  tabId: string;
+  /** The conversation thread, when the chat that routed the submit knows it. */
+  threadId: string | null;
+}
+
+const SUBMIT_ROUTE_HISTORY_LIMIT = 100;
+const submitRoutes = new Map<string, AgentChatSubmitRoute>();
+
 export function reportAgentChatSubmitTarget(
   submitMessageId: string | undefined,
   tabId: string,
+  options: { threadId?: string } = {},
 ): void {
   if (!submitMessageId || !tabId || typeof window === "undefined") return;
+  submitRoutes.delete(submitMessageId);
+  submitRoutes.set(submitMessageId, {
+    tabId,
+    threadId: options.threadId?.trim() || null,
+  });
+  if (submitRoutes.size > SUBMIT_ROUTE_HISTORY_LIMIT) {
+    const oldest = submitRoutes.keys().next().value;
+    if (oldest !== undefined) submitRoutes.delete(oldest);
+  }
   window.dispatchEvent(
     new CustomEvent<AgentChatSubmitTarget>(AGENT_CHAT_SUBMIT_TARGET_EVENT, {
       detail: { submitMessageId, tabId },
     }),
   );
+}
+
+/**
+ * Where a submission was routed. The target event fires once, often before a
+ * lazily loaded route that tracks the submission has mounted, so late
+ * listeners read it here instead of waiting for an event that already passed.
+ */
+export function getAgentChatSubmitTarget(
+  submitMessageId: string,
+): AgentChatSubmitRoute | null {
+  return submitRoutes.get(submitMessageId) ?? null;
 }
 
 export function reportAgentChatSubmitResult(
@@ -869,6 +902,7 @@ function hasMcpAppLocalPayload(
     | "preset"
     | "projectSlug"
     | "referenceImagePaths"
+    | "references"
     | "reuseEmptyTab"
     | "submitMessageId"
     | "tabId"
@@ -882,6 +916,7 @@ function hasMcpAppLocalPayload(
   return Boolean(
     opts.attachments?.length ||
     opts.images?.length ||
+    opts.references?.length ||
     opts.referenceImagePaths?.length ||
     opts.uploadedReferenceImages?.length ||
     opts.usageLabel ||
@@ -981,6 +1016,7 @@ function hasMcpAppLocalOnlySemantics(
 ): boolean {
   return Boolean(
     content === null ||
+    opts.references?.length ||
     opts.referenceImagePaths?.length ||
     opts.uploadedReferenceImages?.length ||
     opts.usageLabel ||
@@ -1054,6 +1090,7 @@ export interface ParsedSubmitChat {
   targetTabId?: string;
   images?: string[];
   attachments?: AgentChatAttachment[];
+  references?: AgentChatReference[];
   requestMode?: AgentChatRequestMode;
   submitMessageId?: string;
   submissionExpiresAt?: number;
@@ -1192,6 +1229,11 @@ export function parseSubmitChatMessage(
     targetTabId: nonEmptyString(raw.targetTabId),
     images,
     attachments: parseSubmitChatAttachments(raw.attachments),
+    ...(raw.references === undefined
+      ? {}
+      : {
+          references: parseAgentChatReferences(raw.references),
+        }),
     requestMode: normalizeAgentChatRequestMode(raw.requestMode ?? raw.mode),
     submitMessageId:
       typeof raw.submitMessageId === "string" ? raw.submitMessageId : undefined,
@@ -1241,6 +1283,7 @@ function trackRoutedSend(
     surface: opts.preset ?? DEFAULT_TURN_SURFACE,
     submitMessageId,
     requestMode,
+    promptForMetadata: opts.message,
   });
 }
 

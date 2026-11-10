@@ -83,6 +83,7 @@ import {
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
+import { addWorkspaceConnectionMcpServers } from "./workspace-connection-servers.js";
 import { loadWorkspaceMcpServers } from "./workspace-servers.js";
 
 const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
@@ -339,6 +340,7 @@ export async function buildMergedConfig(
   for (const [mergedKey, cfg] of Object.entries(workspaceServers)) {
     servers[mergedKey] = cfg;
   }
+  await addWorkspaceConnectionMcpServers(servers, principal);
 
   // Hub-consume: if this app is configured to consume from a remote hub
   // (AGENT_NATIVE_MCP_HUB_URL + AGENT_NATIVE_MCP_HUB_TOKEN), pull its
@@ -988,8 +990,10 @@ async function handleList(
   role: string | null;
 }> {
   const { email, orgId, role } = await resolveContextForRequest(event);
-  const userServers = email ? await listRemoteServers("user", email) : [];
-  const orgServers = orgId ? await listRemoteServers("org", orgId) : [];
+  const [userServers, orgServers] = await Promise.all([
+    email ? listRemoteServers("user", email) : [],
+    orgId ? listRemoteServers("org", orgId) : [],
+  ]);
   return {
     user: userServers.map((s) =>
       projectForClient(

@@ -1,7 +1,7 @@
 import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
 import { useT } from "@agent-native/core/client/i18n";
 import { getOnboardingAppProfileForId } from "@agent-native/core/onboarding/app-profile-data";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { Button, type ButtonProps } from "@agent-native/toolkit/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -45,9 +45,12 @@ export interface BuilderConnectPopoverProps {
     };
   canProvisionAccount?: boolean;
   children: BuilderConnectTrigger;
+  cancelSize?: ButtonProps["size"];
   onConnect?: (provisionAccount: boolean) => void;
   onTriggerClick?: React.MouseEventHandler<HTMLElement>;
   openOnMount?: boolean;
+  /** For a trigger inside a menu, which refocuses itself as the pointer leaves; focus moving anywhere else still dismisses. */
+  keepOpenOnFocusOutside?: boolean;
   appId?: string;
   contentTestId?: string;
   primaryTestId?: string;
@@ -277,9 +280,11 @@ export function BuilderConnectPopover({
   flow,
   canProvisionAccount,
   children,
+  cancelSize = "sm",
   onConnect,
   onTriggerClick,
   openOnMount = false,
+  keepOpenOnFocusOutside = false,
   appId,
   contentTestId,
   primaryTestId,
@@ -322,7 +327,7 @@ export function BuilderConnectPopover({
       <Button
         type="button"
         variant="ghost"
-        size="sm"
+        size={cancelSize}
         className="shrink-0"
         onClick={flow.cancel}
       >
@@ -338,6 +343,21 @@ export function BuilderConnectPopover({
         side="right"
         sideOffset={8}
         aria-labelledby="builder-connect-popover-title"
+        onFocusOutside={
+          keepOpenOnFocusOutside
+            ? (event) => {
+                // Only the host menu taking focus back is ignored; tabbing
+                // elsewhere still dismisses.
+                const target = event.detail.originalEvent.target;
+                if (
+                  target instanceof Element &&
+                  target.closest('[role="menu"]')
+                ) {
+                  event.preventDefault();
+                }
+              }
+            : undefined
+        }
         className="z-[330] max-h-[min(640px,calc(100dvh-2rem),var(--radix-popover-content-available-height))] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto p-3 text-left"
       >
         <BuilderConnectChoicePanel

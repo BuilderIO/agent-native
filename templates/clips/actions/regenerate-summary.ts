@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { readEarlierAudioRemovedAt } from "../server/lib/earlier-audio-removal.js";
 import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import cleanupTranscript from "./cleanup-transcript.js";
@@ -32,6 +33,12 @@ export default defineAction({
     );
 
     const db = getDb();
+    // Read before anything the model sees: a removal after this read fails the
+    // check below, and one before it has already reset what is read next.
+    const earlierAudioRemovedAt = await readEarlierAudioRemovedAt(
+      db,
+      args.recordingId,
+    );
     const [rec] = await db
       .select({
         id: schema.recordings.id,
@@ -85,10 +92,35 @@ export default defineAction({
         await assertAccess("recording", args.recordingId, "editor"),
       );
 
-      await db
-        .update(schema.recordings)
-        .set({ description, updatedAt: new Date().toISOString() })
-        .where(eq(schema.recordings.id, args.recordingId));
+      const written = await db.transaction(async (tx) => {
+        // The removal locks this row first, so the stamp read next is either
+        // final or this write lands first and gets cleared by it.
+        await tx
+          .select({ id: schema.recordings.id })
+          .from(schema.recordings)
+          .where(eq(schema.recordings.id, args.recordingId))
+          .for("update");
+        if (
+          (await readEarlierAudioRemovedAt(tx, args.recordingId)) !==
+          earlierAudioRemovedAt
+        ) {
+          return false;
+        }
+        await tx
+          .update(schema.recordings)
+          .set({ description, updatedAt: new Date().toISOString() })
+          .where(eq(schema.recordings.id, args.recordingId));
+        return true;
+      });
+      if (!written) {
+        return {
+          updated: false,
+          skipped: true,
+          reason: "transcript_changed",
+          recordingId: args.recordingId,
+          provider: result.provider,
+        };
+      }
       await writeAppState("refresh-signal", { ts: Date.now() });
 
       return {
@@ -103,7 +135,7 @@ export default defineAction({
       `Regenerate the description for recording ${args.recordingId}. ` +
       `Read the transcript in this request's context and call ` +
       `\`update-recording --id=${args.recordingId} --description="..."\` with a 2–4 ` +
-      `sentence summary of what the recording covers. Title: "${rec.title}". ` +
+      `sentence summary of what the recording covers. Write in the transcript language unless the user requested another language. Title: "${rec.title}". ` +
       `Write the description the way the person who made this recording would ` +
       `describe it themselves: lead with the subject matter, and never use ` +
       `outside-narrator framing like "the speaker", "the presenter", "the video", ` +
@@ -131,6 +163,18 @@ export default defineAction({
         requestedAt,
       }),
     };
+
+    if (
+      (await readEarlierAudioRemovedAt(db, args.recordingId)) !==
+      earlierAudioRemovedAt
+    ) {
+      return {
+        updated: false,
+        skipped: true,
+        reason: "transcript_changed",
+        recordingId: args.recordingId,
+      };
+    }
 
     await queueAiRequest({
       recordingId: args.recordingId,

@@ -22,7 +22,10 @@ import {
 } from "./builder-oauth.js";
 import { readsOrgCredentialFirst } from "./credential-read-order.js";
 import { decideCredentialWriteScope } from "./credential-write-scope.js";
-import { isHostedWorkspaceRuntime } from "./deployment-protection.js";
+import {
+  isFusionPreviewRuntime,
+  isHostedWorkspaceRuntime,
+} from "./deployment-protection.js";
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
@@ -293,7 +296,7 @@ export function canUseDeployCredentialFallbackForRequest(
   }
   if (key && isNetlifyAiGatewayInjected(key)) return false;
   if (key && BUILDER_CREDITS_DEPLOY_ENV_KEYS.has(key)) {
-    return isTrustedSelfHostedRuntime();
+    return isBuilderCreditsPairAllowedInRuntime();
   }
   if (key && DEPLOY_LLM_PROVIDER_ENV_KEYS.has(key)) {
     const hostedWorkspace = isHostedWorkspaceRuntime();
@@ -341,6 +344,36 @@ export function isTrustedSelfHostedRuntime(): boolean {
   if (isHostedWorkspaceRuntime()) return false;
   if (!isProductionLikeRuntime()) return true;
   return isLocalDatabase();
+}
+
+// Fusion mints the preview pod's pair for the project's own space, so the
+// hosted-workspace block on deploy keys must not reach it.
+function isBuilderCreditsPairAllowedInRuntime(): boolean {
+  return isTrustedSelfHostedRuntime() || isFusionPreviewRuntime();
+}
+
+/** Deployed but refused by runtime policy, which is not the same as absent. */
+function isBuilderCreditsPairRefusedByRuntime(): boolean {
+  return (
+    Boolean(process.env[BUILDER_GATEWAY_TOKEN_ENV_VAR]?.trim()) &&
+    Boolean(process.env[BUILDER_GATEWAY_SPACE_ID_ENV_VAR]?.trim()) &&
+    !isBuilderCreditsPairAllowedInRuntime()
+  );
+}
+
+export function builderCreditsRefusalStatus(chatEligible: boolean): {
+  builderCreditsRefused?: true;
+} {
+  return !chatEligible && isBuilderCreditsPairRefusedByRuntime()
+    ? { builderCreditsRefused: true }
+    : {};
+}
+
+let warnedBuilderCreditsRefused = false;
+
+/** @internal Test isolation for the once-per-process refusal warning. */
+export function resetBuilderCreditsRefusedWarningForTests(): void {
+  warnedBuilderCreditsRefused = false;
 }
 
 function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
@@ -1334,7 +1367,18 @@ export async function resolveUsableBuilderGatewayDeployCredentials(): Promise<{
   )
     ? readDeployCredentialEnv(BUILDER_GATEWAY_SPACE_ID_ENV_VAR)
     : undefined;
-  if (!token || !spaceId) return null;
+  if (!token || !spaceId) {
+    if (
+      !warnedBuilderCreditsRefused &&
+      isBuilderCreditsPairRefusedByRuntime()
+    ) {
+      warnedBuilderCreditsRefused = true;
+      console.warn(
+        "[agent-native] BUILDER_GATEWAY_TOKEN and BUILDER_GATEWAY_SPACE_ID are set, but this runtime does not allow Builder.io credits, so chat will ask for an AI connection.",
+      );
+    }
+    return null;
+  }
   const failure = await getProviderCredentialAuthFailure({
     key: BUILDER_GATEWAY_TOKEN_ENV_VAR,
     value: token,
@@ -1343,6 +1387,8 @@ export async function resolveUsableBuilderGatewayDeployCredentials(): Promise<{
 }
 
 export function isBuilderGatewayDeployConfigured(): boolean {
+  // The preview carries the published site's token but is read by the owner.
+  if (isFusionPreviewRuntime()) return false;
   return (
     canUseDeployCredentialFallbackForRequest(BUILDER_GATEWAY_TOKEN_ENV_VAR) &&
     Boolean(readDeployCredentialEnv(BUILDER_GATEWAY_TOKEN_ENV_VAR))
@@ -1901,6 +1947,51 @@ export async function clearBuilderGatewayAuthFailure(creds: {
   });
 }
 
+function automaticSignupReceiptDescription(receipt: string): string {
+  return `Automatic Builder signup: ${receipt}`;
+}
+
+/** Recover only this provider attempt's completed authorized credential write. */
+export async function hasCompletedAutomaticBuilderSignup(
+  email: string,
+  receipt: string,
+  startedAt: number,
+  options?: { orgId?: string | null; role?: string | null },
+): Promise<boolean> {
+  const target = resolveCredentialWriteScope(
+    email,
+    options?.orgId ?? null,
+    options?.role ?? null,
+  );
+  const { readAppSecretMeta, readAppSecrets } =
+    await import("../secrets/storage.js");
+  const meta = await readAppSecretMeta({
+    key: "BUILDER_PRIVATE_KEY",
+    scope: target.scope,
+    scopeId: target.scopeId,
+  });
+  if (
+    !meta ||
+    !meta.last4 ||
+    meta.description !== automaticSignupReceiptDescription(receipt) ||
+    meta.updatedAt < startedAt
+  )
+    return false;
+  const keys = await readAppSecrets({
+    keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+    scope: target.scope,
+    scopeId: target.scopeId,
+  });
+  const privateKey = keys.get("BUILDER_PRIVATE_KEY");
+  const publicKey = keys.get("BUILDER_PUBLIC_KEY");
+  if (!privateKey || !publicKey || privateKey.updatedAt !== meta.updatedAt)
+    return false;
+  return !(await getBuilderCredentialAuthFailure({
+    privateKey: privateKey.value,
+    publicKey: publicKey.value,
+  }));
+}
+
 export async function writeBuilderCredentials(
   email: string,
   creds: {
@@ -1915,7 +2006,11 @@ export async function writeBuilderCredentials(
     isEnterprise?: boolean | null;
     isFreeAccount?: boolean | null;
   },
-  options?: { orgId?: string | null; role?: string | null },
+  options?: {
+    orgId?: string | null;
+    role?: string | null;
+    automaticSignupReceipt?: string;
+  },
 ): Promise<{ scope: "user" | "org"; scopeId: string }> {
   const privateKey = creds.privateKey.trim();
   const publicKey = creds.publicKey.trim();
@@ -1994,8 +2089,15 @@ export async function writeBuilderCredentials(
       value: String(creds.isFreeAccount),
     });
   }
-  await Promise.all(
-    entries.map(({ key, value }) =>
+  // For automatic signup, commit the private key last. Its atomic metadata
+  // receipt proves every other credential write finished before recovery
+  // releases the activation cover, even if the terminal settings write fails.
+  const receipt = options?.automaticSignupReceipt;
+  const firstEntries = receipt
+    ? entries.filter(({ key }) => key !== "BUILDER_PRIVATE_KEY")
+    : entries;
+  const writes = await Promise.allSettled(
+    firstEntries.map(({ key, value }) =>
       writeAppSecret({
         key,
         value,
@@ -2004,6 +2106,21 @@ export async function writeBuilderCredentials(
       }),
     ),
   );
+  const failedWrite = writes.find((result) => result.status === "rejected");
+  if (failedWrite?.status === "rejected") {
+    throw new Error("Could not persist Builder credentials", {
+      cause: failedWrite.reason,
+    });
+  }
+  if (receipt) {
+    await writeAppSecret({
+      key: "BUILDER_PRIVATE_KEY",
+      value: privateKey,
+      scope: target.scope,
+      scopeId: target.scopeId,
+      description: automaticSignupReceiptDescription(receipt),
+    });
+  }
   await clearBuilderCredentialAuthFailure({
     privateKey,
     publicKey,

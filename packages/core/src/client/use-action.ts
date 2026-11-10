@@ -5,12 +5,16 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type {
+  MutateOptions,
   Query,
   QueryClient,
-  UseQueryOptions,
+  UseMutateAsyncFunction,
+  UseMutateFunction,
   UseMutationOptions,
+  UseMutationResult,
+  UseQueryOptions,
 } from "@tanstack/react-query";
-import { useContext } from "react";
+import { useCallback, useContext, useRef } from "react";
 
 import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
 import {
@@ -63,10 +67,18 @@ import {
   ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
 } from "./embed-auth.js";
+import {
+  ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
+  reserveKeepaliveBytes,
+} from "./keepalive-budget.js";
 import { recordActionStart } from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
-import { currentSessionIdentity } from "./session-identity.js";
+import {
+  currentSessionIdentity,
+  onSessionIdentityPublished,
+} from "./session-identity.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
+import { reportWriteFailure } from "./write-failure-event.js";
 
 export { actionErrorCode };
 
@@ -76,7 +88,8 @@ function actionPrefix(): string {
 
 const DEFAULT_ACTION_TIMEOUT_MS = 60_000;
 
-function isActionTimeout(error: unknown): boolean {
+/** @internal shared with `classifyWriteFailure` */
+export function isActionTimeout(error: unknown): boolean {
   return (
     !!error &&
     typeof error === "object" &&
@@ -121,7 +134,8 @@ function isBrowserResourceExhaustion(error: unknown): boolean {
   return /ERR_INSUFFICIENT_RESOURCES|insufficient resources/i.test(message);
 }
 
-function isNetworkLevelFailure(error: unknown): boolean {
+/** @internal shared with `classifyWriteFailure` */
+export function isNetworkLevelFailure(error: unknown): boolean {
   return (
     error instanceof Error &&
     (error as { status?: unknown }).status === undefined &&
@@ -191,6 +205,7 @@ export interface ClientActionCallOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   headers?: Record<string, string>;
+  beforeSend?: () => Promise<void>;
   /** Set when the action is declared `uiOnly`, so its first request carries the UI capability. */
   uiOnly?: boolean;
   /** Sees each HTTP response, e.g. to pass to `recordActionQueryBrowserPersist`. */
@@ -242,6 +257,7 @@ export interface ActionFetchOptions {
   responseType?: "blob";
   includeRequestSource?: boolean;
   headers?: Record<string, string>;
+  beforeSend?: () => Promise<void>;
   uiOnly?: boolean;
 }
 
@@ -260,13 +276,72 @@ const UI_CAPABILITY_REUSE_MS = 9 * 60_000;
 const UI_CAPABILITY_MINT_TIMEOUT_MS = 10_000;
 
 let uiCapabilityRequest: Promise<void> | undefined;
+let abortUiCapabilityRequest: (() => void) | undefined;
 let uiCapability: { identity: string | null | undefined; at: number } | null =
   null;
+// Counts session changes, so a mint still in flight when the session changes
+// (a sign-out, or another account or org) neither keeps its answer nor serves
+// the callers that come after.
+let uiCapabilityGeneration = 0;
+// The account and org of the last published session. The remembered
+// capability is tied to it, so a reload in another org doesn't reuse it.
+let publishedSessionScope: string | null | undefined;
+
+// The capability is a cookie the browser keeps across reloads, so the tab
+// remembers when it minted one and a reload inside the reuse window skips the
+// mint. A cookie that went away anyway costs one retry: the server answers
+// `ui_capability_required` and the write re-mints.
+function uiCapabilityStorageKey(): string {
+  return `agent-native:ui-capability:${agentNativePath("/_agent-native/ui-capability")}`;
+}
+
+function identityFingerprint(identity: string): string {
+  const scope = publishedSessionScope ?? identity;
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < scope.length; index += 1) {
+    hash ^= scope.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function readRememberedUiCapability(identity: string): number | undefined {
+  try {
+    const raw = globalThis.sessionStorage.getItem(uiCapabilityStorageKey());
+    if (!raw) return undefined;
+    const remembered = JSON.parse(raw) as { identity?: unknown; at?: unknown };
+    return remembered.identity === identityFingerprint(identity) &&
+      typeof remembered.at === "number"
+      ? remembered.at
+      : undefined;
+  } catch {
+    // coercion-ok: storage that can't be read means nothing is remembered,
+    // and the next write mints as it would have on a first load.
+    return undefined;
+  }
+}
+
+function rememberUiCapability(identity: string, at: number): void {
+  try {
+    globalThis.sessionStorage.setItem(
+      uiCapabilityStorageKey(),
+      JSON.stringify({ identity: identityFingerprint(identity), at }),
+    );
+  } catch {
+    // coercion-ok: storage that is full, blocked or missing (outside a browser)
+    // only costs the mint after a reload; the in-memory capability still applies.
+  }
+}
 
 function hasFreshUiCapability(): boolean {
+  const identity = currentSessionIdentity();
+  if (uiCapability === null && typeof identity === "string") {
+    const at = readRememberedUiCapability(identity);
+    if (at !== undefined) uiCapability = { identity, at };
+  }
   return (
     uiCapability !== null &&
-    uiCapability.identity === currentSessionIdentity() &&
+    uiCapability.identity === identity &&
     Date.now() - uiCapability.at < UI_CAPABILITY_REUSE_MS
   );
 }
@@ -274,6 +349,23 @@ function hasFreshUiCapability(): boolean {
 /** Drop the remembered capability so the next call that needs one mints it. */
 export function forgetUiActionCapability(): void {
   uiCapability = null;
+  try {
+    globalThis.sessionStorage.removeItem(uiCapabilityStorageKey());
+  } catch {
+    // coercion-ok: storage that can't be reached holds nothing to forget.
+  }
+}
+
+// A mint in flight when the session changes was sent with the old session's
+// cookies, and the capability cookie it sets has one name for every session.
+// Aborting it keeps that cookie from replacing the new session's: a response
+// cut off before its headers sets no cookie, and one whose headers arrived
+// first set it before the new session's mint was sent.
+function abandonUiCapabilityMint(): void {
+  uiCapabilityGeneration += 1;
+  abortUiCapabilityRequest?.();
+  abortUiCapabilityRequest = undefined;
+  uiCapabilityRequest = undefined;
 }
 
 // The mint is shared by concurrent callers, so one caller's abort rejects only
@@ -283,8 +375,10 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
   const identity = currentSessionIdentity();
   const request = uiCapabilityRequest ?? (uiCapabilityRequest = mint());
   function mint(): Promise<void> {
+    const generation = uiCapabilityGeneration;
     const controller =
       typeof AbortController === "undefined" ? null : new AbortController();
+    abortUiCapabilityRequest = () => controller?.abort();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timedOut = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
@@ -296,16 +390,30 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
       credentials: "same-origin",
       cache: "no-store",
       signal: controller?.signal,
-    }).then((res) => {
+    }).then(async (res) => {
+      // The capability is the Set-Cookie header, but the body must still be
+      // read: an unread body keeps the request open so the page never reaches
+      // network idle, and a cancelled one is reported as an aborted request.
+      await res.arrayBuffer();
       if (!res.ok) {
         throw new Error("Could not establish the browser UI capability.");
       }
+      if (generation !== uiCapabilityGeneration) return;
       uiCapability = { identity, at: Date.now() };
+      if (typeof identity === "string") {
+        rememberUiCapability(identity, uiCapability.at);
+      }
     });
-    return Promise.race([response, timedOut]).finally(() => {
-      clearTimeout(timer);
-      uiCapabilityRequest = undefined;
-    });
+    const settled: Promise<void> = Promise.race([response, timedOut]).finally(
+      () => {
+        clearTimeout(timer);
+        if (uiCapabilityRequest === settled) {
+          uiCapabilityRequest = undefined;
+          abortUiCapabilityRequest = undefined;
+        }
+      },
+    );
+    return settled;
   }
   if (!signal) return request;
   return new Promise<void>((resolve, reject) => {
@@ -317,6 +425,53 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
       .finally(() => signal.removeEventListener("abort", onAbort));
   });
 }
+
+// A page that sends action writes as soon as it opens (a Content document) can
+// ask for the mint early, so it overlaps the page's reads instead of holding
+// its first write. Other pages mint on their first write, as before, so a
+// visit that never writes doesn't make the request.
+let uiCapabilityWanted = false;
+
+function mintWantedUiCapability(): void {
+  if (
+    !uiCapabilityWanted ||
+    typeof window === "undefined" ||
+    agentNativeApiDisabledReason() ||
+    isEmbedAuthActive() ||
+    typeof currentSessionIdentity() !== "string" ||
+    hasFreshUiCapability()
+  ) {
+    return;
+  }
+  ensureUiActionCapability().catch(() => {
+    // The first write that needs the capability mints it again.
+  });
+}
+
+/**
+ * Mint the UI write capability now, or as soon as a signed-in session is
+ * known, for a page that is about to send action writes. Pages that don't call
+ * this mint on their first write.
+ */
+export function prepareUiActionCapability(): void {
+  uiCapabilityWanted = true;
+  mintWantedUiCapability();
+}
+
+onSessionIdentityPublished((scope) => {
+  const previous = publishedSessionScope;
+  publishedSessionScope = scope;
+  // A capability minted for a session that signed out, or for another account
+  // or org, isn't this session's to reuse.
+  if (
+    scope === null ||
+    (previous !== undefined && previous !== null && previous !== scope)
+  ) {
+    abandonUiCapabilityMint();
+    forgetUiActionCapability();
+  }
+  mintWantedUiCapability();
+});
 
 /**
  * Every write from the signed-in app carries the UI capability, so an action
@@ -360,9 +515,7 @@ function presentUiCapability(
   });
 }
 
-export const ACTION_KEEPALIVE_BODY_BUDGET_BYTES = 48_000;
-
-let reservedKeepaliveBodyBytes = 0;
+export { ACTION_KEEPALIVE_BODY_BUDGET_BYTES };
 
 function utf8ByteLength(value: string): number {
   if (typeof TextEncoder !== "undefined") {
@@ -397,6 +550,28 @@ function canBatchActionGet(options?: InternalActionFetchOptions): boolean {
     options.headers === undefined &&
     !isEmbedAuthActive()
   );
+}
+
+function waitForActionSend(
+  gate: () => Promise<void>,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!signal) return gate();
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve()
+      .then(() => {
+        throwIfAborted(signal);
+        return gate();
+      })
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 async function performActionFetch<T>(
@@ -488,8 +663,9 @@ async function performActionFetch<T>(
   let readError: unknown;
   try {
     try {
-      const send = () =>
-        method === "GET" && canBatchActionGet(options)
+      const sendRequest = () => {
+        throwIfAborted(controller?.signal);
+        return method === "GET" && canBatchActionGet(options)
           ? fetchActionGet({
               name,
               query,
@@ -499,6 +675,13 @@ async function performActionFetch<T>(
               batchUrl: `${actionPrefix()}/${ACTION_BATCH_ACTION_NAME}`,
             })
           : fetch(url, init);
+      };
+      const send = () =>
+        options?.beforeSend
+          ? waitForActionSend(options.beforeSend, controller?.signal).then(
+              sendRequest,
+            )
+          : sendRequest();
       const capability = presentUiCapability(
         method,
         options,
@@ -928,6 +1111,7 @@ export function callAction<
     includeRequestSource: false,
     headers: options.headers,
     uiOnly: options.uiOnly,
+    beforeSend: options.beforeSend,
     onResponse: options.onResponse,
   });
 }
@@ -944,11 +1128,13 @@ export function callActionBlob<TName extends ActionName = ActionName>(
     headers: options.headers,
     responseType: "blob",
     uiOnly: options.uiOnly,
+    beforeSend: options.beforeSend,
     onResponse: options.onResponse,
   });
 }
 
-function isAbortError(error: unknown): boolean {
+/** @internal shared with `classifyWriteFailure` */
+export function isAbortError(error: unknown): boolean {
   return (
     !!error &&
     typeof error === "object" &&
@@ -1072,10 +1258,10 @@ export function tryCallActionKeepalive<
     };
   }
 
-  if (
-    reservedKeepaliveBodyBytes + bodyBytes >
-    ACTION_KEEPALIVE_BODY_BUDGET_BYTES
-  ) {
+  // Shared with application state's keepalive writes, which leave room for
+  // this call (see keepalive-budget).
+  const release = reserveKeepaliveBytes("action", bodyBytes);
+  if (!release) {
     return {
       accepted: false,
       bodyBytes,
@@ -1084,18 +1270,12 @@ export function tryCallActionKeepalive<
     };
   }
 
-  reservedKeepaliveBodyBytes += bodyBytes;
   const completion = actionFetch<R>(actionName, method, params, {
     signal: options.signal,
     timeoutMs: options.timeoutMs,
     keepalive: true,
     serializedBody,
-  }).finally(() => {
-    reservedKeepaliveBodyBytes = Math.max(
-      0,
-      reservedKeepaliveBodyBytes - bodyBytes,
-    );
-  });
+  }).finally(release);
 
   return { accepted: true, bodyBytes, completion };
 }
@@ -1351,6 +1531,8 @@ export function useActionQuery<
     UseQueryOptions<TResult extends undefined ? ActionResult<TName> : TResult>,
     "queryKey" | "queryFn"
   > & {
+    method?: "GET" | "POST";
+    beforeSend?: () => Promise<void>;
     queryKeyScope?: readonly unknown[];
     /**
      * The resource types this query reads (matching a write's `resources` and a
@@ -1376,6 +1558,8 @@ export function useActionQuery<
     queryKeyScope,
     resources,
     batchRefetches,
+    method = "GET",
+    beforeSend,
     ...restOptions
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
@@ -1401,9 +1585,10 @@ export function useActionQuery<
       let lastResponse: Response | undefined;
       let result: R;
       try {
-        result = await actionFetch<R>(actionName, "GET", params, {
+        result = await actionFetch<R>(actionName, method, params, {
           signal,
-          batch: canBatchActionQueryFetch(query),
+          ...(beforeSend ? { beforeSend } : {}),
+          batch: method === "GET" && canBatchActionQueryFetch(query),
           onResponse: (response) => {
             lastResponse = response;
           },
@@ -1488,6 +1673,87 @@ function actionQueryInvalidation(resources: readonly string[] | undefined) {
   };
 }
 
+/**
+ * How a failed `useActionMutation` reaches the shared write-failure toast.
+ * `mutate` toasts unless an `onError` handles it. `mutateAsync` toasts only
+ * when its rejection ends up unhandled (an `await` with no `catch` anywhere up
+ * the chain, a dropped promise); a caller that wraps the error in a new `Error`
+ * is not reported. `"shared"` toasts every failure even beside the caller's own
+ * handling, `"caller"` never toasts.
+ */
+export type ActionMutationErrorNotification = "auto" | "shared" | "caller";
+
+// A rejection that nobody handled arrives at `unhandledrejection` on whichever
+// promise ended the chain (`await p` with no catch ends it on the async
+// function's promise, not on `p`), but with the same error object. So the
+// error object is the key, not the promise.
+let unhandledMutationErrors = new WeakMap<object, string | undefined>();
+let unhandledMutationBackstop: ((event: PromiseRejectionEvent) => void) | null =
+  null;
+
+function reportUnhandledMutationError(event: PromiseRejectionEvent): void {
+  const reason: unknown = event.reason;
+  if (typeof reason !== "object" || reason === null) return;
+  if (!unhandledMutationErrors.has(reason)) return;
+  const label = unhandledMutationErrors.get(reason);
+  unhandledMutationErrors.delete(reason);
+  reportWriteFailure(reason, { label });
+}
+
+function trackUnhandledMutationError(
+  error: unknown,
+  label: string | undefined,
+): void {
+  if (typeof window === "undefined") return;
+  if (typeof error !== "object" || error === null) return;
+  unhandledMutationErrors.set(error, label);
+  if (unhandledMutationBackstop) return;
+  unhandledMutationBackstop = reportUnhandledMutationError;
+  window.addEventListener("unhandledrejection", unhandledMutationBackstop);
+}
+
+/** @internal exported for tests */
+export function resetUnhandledMutationBackstopForTests(): void {
+  if (unhandledMutationBackstop && typeof window !== "undefined") {
+    window.removeEventListener("unhandledrejection", unhandledMutationBackstop);
+  }
+  unhandledMutationBackstop = null;
+  unhandledMutationErrors = new WeakMap();
+}
+
+function shouldReportWriteFailure(
+  mode: ActionMutationErrorNotification,
+  handled: boolean,
+): boolean {
+  if (mode === "caller") return false;
+  return mode === "shared" || !handled;
+}
+
+/**
+ * TanStack runs a per-call onError only for the latest mutate call, so a
+ * superseded call's callback never runs. Wrap it so the caller can tell whether
+ * this call's callback actually ran.
+ */
+function trackCallOnError<D, V>(
+  options: MutateOptions<D, Error, V> | undefined,
+): {
+  options: MutateOptions<D, Error, V> | undefined;
+  ranCallOnError: () => boolean;
+} {
+  let ran = false;
+  const callOnError = options?.onError;
+  const tracked: MutateOptions<D, Error, V> | undefined = callOnError
+    ? {
+        ...options,
+        onError: (...args) => {
+          ran = true;
+          return callOnError(...args);
+        },
+      }
+    : options;
+  return { options: tracked, ranCallOnError: () => ran };
+}
+
 export function useActionMutation<
   TData = undefined,
   TVariables = undefined,
@@ -1516,8 +1782,23 @@ export function useActionMutation<
             ? ActionParams<TName>
             : TVariables,
         ) => Record<string, string> | undefined);
+    /**
+     * Whether a failed write shows the shared failure toast. Default `"auto"`:
+     * `mutate` toasts unless an `onError` (hook-level or per-call) handles it;
+     * `mutateAsync` toasts only when the rejection ends up unhandled (a caller
+     * that wraps the error in a new `Error` is not reported). Use `"shared"`
+     * when your `onError` or `catch` only rolls back or logs, `"caller"` for
+     * background saves and deliberate silent swallows.
+     */
+    errorNotification?: ActionMutationErrorNotification;
+    /** Already-translated toast title, for example `t("design.renameFailed")`. */
+    errorLabel?: string;
   },
-) {
+): UseMutationResult<
+  TData extends undefined ? ActionResult<TName> : TData,
+  Error,
+  TVariables extends undefined ? ActionParams<TName> : TVariables
+> {
   const queryClient = useQueryClient();
   const {
     method: methodOpt,
@@ -1527,6 +1808,8 @@ export function useActionMutation<
     timeoutMs,
     uiOnly,
     headers,
+    errorNotification = "auto",
+    errorLabel,
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
@@ -1534,7 +1817,7 @@ export function useActionMutation<
   type D = TData extends undefined ? ActionResult<TName> : TData;
   type V = TVariables extends undefined ? ActionParams<TName> : TVariables;
 
-  return useMutation<D, Error, V>({
+  const mutation = useMutation<D, Error, V>({
     ...restOptions,
     mutationFn: async (params) => {
       let markerFailed = false;
@@ -1573,4 +1856,65 @@ export function useActionMutation<
       return (onSuccess as Function)?.(...args);
     },
   });
+
+  // The wrappers outlive renders and the component, so a failure that lands
+  // after unmount still reports. They read this ref instead of closing over
+  // options, which keeps their identity stable.
+  const reporting = useRef({
+    errorNotification,
+    errorLabel,
+    hookHandled: false,
+  });
+  reporting.current = {
+    errorNotification,
+    errorLabel,
+    hookHandled: typeof restOptions.onError === "function",
+  };
+  const attemptAsync = mutation.mutateAsync;
+
+  const mutate = useCallback<UseMutateFunction<D, Error, V>>(
+    (variables, mutateOptions) => {
+      const call = trackCallOnError(mutateOptions);
+      attemptAsync(variables, call.options).catch((error: unknown) => {
+        const { errorNotification, errorLabel, hookHandled } =
+          reporting.current;
+        const handled = hookHandled || call.ranCallOnError();
+        if (shouldReportWriteFailure(errorNotification, handled)) {
+          reportWriteFailure(error, { label: errorLabel });
+        }
+      });
+    },
+    [attemptAsync],
+  );
+
+  const mutateAsync = useCallback<UseMutateAsyncFunction<D, Error, V>>(
+    (variables, mutateOptions) => {
+      const call = trackCallOnError(mutateOptions);
+      const attempt = attemptAsync(variables, call.options);
+      const { errorNotification, errorLabel, hookHandled } = reporting.current;
+      // Only reports; the caller still receives the rejection.
+      if (errorNotification === "shared") {
+        attempt.catch((error: unknown) =>
+          reportWriteFailure(error, { label: errorLabel }),
+        );
+        return attempt;
+      }
+      if (errorNotification === "auto" && !hookHandled) {
+        return attempt.then(
+          (data) => data,
+          (error: unknown) => {
+            // A per-call onError that ran already handled this rejection.
+            if (!call.ranCallOnError()) {
+              trackUnhandledMutationError(error, errorLabel);
+            }
+            throw error;
+          },
+        );
+      }
+      return attempt;
+    },
+    [attemptAsync],
+  );
+
+  return { ...mutation, mutate, mutateAsync };
 }

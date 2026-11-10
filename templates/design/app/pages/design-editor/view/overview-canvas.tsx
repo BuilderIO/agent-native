@@ -8,6 +8,7 @@ import { shouldRenderOverviewReviewCanvas } from "@/components/design/multi-scre
 import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { ReviewCanvasPins } from "@/components/visual-editor";
 
+import { resolveCodeLayerNodeFromElementInfo } from "../code-layer-state";
 import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "../domains/use-editor-canvas-and-screens";
 import type { EditorClipboard } from "../domains/use-editor-clipboard";
@@ -118,6 +119,10 @@ export function renderOverviewCanvas({
   } = editorHistory;
   const {
     canEditDesign,
+    onSourceDemandChange,
+    retrySources,
+    generating,
+    pendingGenerationActive,
     pinMode,
     canCommentDesign,
     reviewSendingThreadId,
@@ -128,7 +133,6 @@ export function renderOverviewCanvas({
   } = editorGenerationAndAccess;
   const {
     overviewScreens,
-    files,
     pendingNodeRewriteScreenIds,
     displayedCanvasFrameGeometryById,
     optimisticFrameGeometryById,
@@ -237,6 +241,7 @@ export function renderOverviewCanvas({
     selectedBoardCanvasSourceId,
     getLayerSelectorsForFile,
     selectedLayerSelectorGroupsByScreen,
+    codeLayerOwnerByNodeId,
   } = editorLayerModels;
   const { canvasBackground } = editorScreenInspector;
   const {
@@ -266,6 +271,8 @@ export function renderOverviewCanvas({
     <>
       <MultiScreenCanvas
         screens={overviewScreens}
+        onSourceDemandChange={onSourceDemandChange}
+        onSourceRetry={retrySources}
         zoom={
           responsiveInteractActive && overviewInteractScreenId
             ? interactZoom
@@ -284,8 +291,10 @@ export function renderOverviewCanvas({
             hasExplicitOverviewZoomCommand &&
             explicitOverviewCanvasZoom === null,
           initialFitScreenId: widgetEmbed
-            ? (findDesignFileByScreenTarget(files, initialRouteScreenTarget)
-                ?.id ?? null)
+            ? (findDesignFileByScreenTarget(
+                overviewScreens,
+                initialRouteScreenTarget,
+              )?.id ?? null)
             : undefined,
           fitFocusedViewport: widgetEmbed,
           chromeInsetLeft,
@@ -473,6 +482,19 @@ export function renderOverviewCanvas({
           onBoardImagePaste: handleCanvasImagePaste,
           onBoardIframeContextMenu: handleIframeContextMenu,
           onBoardTextEditingStateChange: handleBoardTextEditingStateChange,
+          onBoardFrameLabelRename:
+            boardFileId && canEditDesign
+              ? (info, name) => {
+                  const nodes = [...codeLayerOwnerByNodeId.values()]
+                    .filter((owner) => owner.fileId === boardFileId)
+                    .map((owner) => owner.node);
+                  const node = resolveCodeLayerNodeFromElementInfo(
+                    { nodes, source: { fileId: boardFileId } },
+                    info,
+                  );
+                  if (node) layerPanelCallbacks.onRename(node.id, name);
+                }
+              : undefined,
           onBoardElementDblClickText: boardFileId
             ? handleBoardElementDblClickText
             : undefined,
@@ -493,6 +515,8 @@ export function renderOverviewCanvas({
             : undefined,
         }}
         canvasBackground={canvasBackground}
+        generatingDesignId={generating || pendingGenerationActive ? id : null}
+        activeDesignId={id}
         onDeleteSelection={handleDeleteOverviewSelection}
         screenRootComputedStylesById={screenRootComputedStylesById}
         onPick={handleOverviewScreenPick}

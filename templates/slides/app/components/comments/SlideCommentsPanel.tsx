@@ -4,7 +4,12 @@ import {
   useReconciledState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
+import {
+  CommentBody,
+  isComposingKey,
+  isCommentSendKey,
+} from "@agent-native/toolkit/app/review";
+import { isAgentAuthoredComment } from "@shared/comment-author";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import {
   IconX,
@@ -222,13 +227,8 @@ export function CommentItem({
                 if (error) setError(null);
               }}
               onKeyDown={(event) => {
-                if (
-                  event.nativeEvent.isComposing ||
-                  event.nativeEvent.keyCode === 229
-                ) {
-                  return;
-                }
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                if (isComposingKey(event)) return;
+                if (isCommentSendKey(event)) {
                   event.preventDefault();
                   void save();
                 }
@@ -259,8 +259,8 @@ export function CommentItem({
             </div>
           </div>
         ) : (
-          <InlineMarkdown
-            content={comment.content}
+          <CommentBody
+            body={comment.content}
             className="mt-0.5 text-[12px] leading-relaxed text-foreground/90"
           />
         )}
@@ -355,6 +355,8 @@ function PendingCommentInput({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Enter repeats while held, so send each comment once until it settles.
+  const submittingRef = useRef(false);
   const createComment = useCreateSlideComment();
 
   useEffect(() => {
@@ -363,7 +365,8 @@ function PendingCommentInput({
 
   const submit = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || submittingRef.current) return;
+    submittingRef.current = true;
     setError(null);
     try {
       await onBeforeSubmit?.();
@@ -378,6 +381,8 @@ function PendingCommentInput({
       onDone();
     } catch (err) {
       setError(actionErrorMessage(err) ?? t("comments.saveCommentFailed"));
+    } finally {
+      submittingRef.current = false;
     }
   };
 
@@ -396,9 +401,11 @@ function PendingCommentInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
-            return;
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
+          if (isComposingKey(e)) return;
+          if (isCommentSendKey(e)) {
+            e.preventDefault();
+            void submit();
+          }
           if (e.key === "Escape") onCancel();
         }}
         placeholder={t("comments.addCommentPlaceholder")}
@@ -450,6 +457,8 @@ export function ReplyInput({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Enter repeats while held, so send each reply once until it settles.
+  const submittingRef = useRef(false);
   const createComment = useCreateSlideComment();
 
   useEffect(() => {
@@ -458,7 +467,8 @@ export function ReplyInput({
 
   const submit = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || submittingRef.current) return;
+    submittingRef.current = true;
     setError(null);
     try {
       await onBeforeSubmit?.();
@@ -473,6 +483,8 @@ export function ReplyInput({
       onDone();
     } catch (err) {
       setError(actionErrorMessage(err) ?? t("comments.saveReplyFailed"));
+    } finally {
+      submittingRef.current = false;
     }
   };
 
@@ -486,9 +498,11 @@ export function ReplyInput({
           if (error) setError(null);
         }}
         onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
-            return;
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
+          if (isComposingKey(e)) return;
+          if (isCommentSendKey(e)) {
+            e.preventDefault();
+            void submit();
+          }
           if (e.key === "Escape") onDone();
         }}
         placeholder={t("comments.replyPlaceholder")}
@@ -762,15 +776,17 @@ export function SlideCommentsPanel({
   const normalizedCurrentUserEmail = currentUserEmail?.trim().toLowerCase();
   const audienceThreads = threads.filter((thread) => {
     if (audience === "for-you") {
-      const hasViewerComment = thread.comments.some(
-        (comment) =>
-          comment.author_email.trim().toLowerCase() ===
-          normalizedCurrentUserEmail,
-      );
+      // Agent comments carry the viewer's email, so they must be excluded explicitly.
+      const isViewerComment = (comment: (typeof thread.comments)[number]) =>
+        !isAgentAuthoredComment({
+          authorKind: comment.author_kind,
+          authorName: comment.author_name,
+        }) &&
+        comment.author_email.trim().toLowerCase() ===
+          normalizedCurrentUserEmail;
+      const hasViewerComment = thread.comments.some(isViewerComment);
       const hasNonViewerComment = thread.comments.some(
-        (comment) =>
-          comment.author_email.trim().toLowerCase() !==
-          normalizedCurrentUserEmail,
+        (comment) => !isViewerComment(comment),
       );
       const hasViewerMention = normalizedCurrentUserEmail
         ? thread.comments.some((comment) =>

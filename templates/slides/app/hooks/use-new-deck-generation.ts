@@ -1,4 +1,7 @@
-import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
+import {
+  getAgentChatSubmitTarget,
+  sendToAgentChatAndConfirm,
+} from "@agent-native/core/client/agent-chat";
 import { nanoid } from "nanoid";
 import {
   useCallback,
@@ -6,6 +9,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 
 import {
@@ -13,6 +17,8 @@ import {
   nextNewDeckGenerationPhase,
   type NewDeckGenerationPhase,
 } from "@/lib/generation-state";
+import { IMPORT_ACTION_TIMEOUT_MS } from "@/lib/import-uploaded-deck";
+import { REFERENCE_HYDRATION_DEADLINE_MS } from "@/lib/reference-document-hydration";
 
 import { CHAT_STOP_DEBOUNCE_MS } from "./use-agent-generating";
 
@@ -20,6 +26,52 @@ export const NEW_DECK_GENERATION_SUBMIT_TARGET_EVENT =
   "agentNative.chatSubmitTarget";
 const NEW_DECK_GENERATION_RUN_CLEARED_EVENT =
   "slides:new-deck-generation:cleared";
+
+// Home opens the editor before it sends: attached references are read (bounded
+// by their hydration deadline) and a source deck may be imported first. This
+// only bounds a setup that never settles.
+export const NEW_DECK_GENERATION_SETUP_TIMEOUT_MS =
+  REFERENCE_HYDRATION_DEADLINE_MS +
+  IMPORT_ACTION_TIMEOUT_MS +
+  NEW_DECK_GENERATION_START_TIMEOUT_MS;
+
+const pendingSetupSubmitIds = new Set<string>();
+const setupListeners = new Set<() => void>();
+
+function notifySetupListeners(): void {
+  for (const listener of setupListeners) listener();
+}
+
+function subscribeToSetup(listener: () => void): () => void {
+  setupListeners.add(listener);
+  return () => setupListeners.delete(listener);
+}
+
+/**
+ * Marks a new deck's pre-send setup as running in this page. Call the returned
+ * function once setup has sent the prompt or given up.
+ */
+export function beginNewDeckGenerationSetup(
+  submitMessageId: string,
+): () => void {
+  pendingSetupSubmitIds.add(submitMessageId);
+  notifySetupListeners();
+  return () => {
+    if (pendingSetupSubmitIds.delete(submitMessageId)) notifySetupListeners();
+  };
+}
+
+/** False after a reload: setup runs in the page that started it. */
+export function useNewDeckGenerationSetupPending(
+  submitMessageId: string | null,
+): boolean {
+  return useSyncExternalStore(
+    subscribeToSetup,
+    () =>
+      submitMessageId !== null && pendingSetupSubmitIds.has(submitMessageId),
+    () => false,
+  );
+}
 
 type NewDeckGenerationLifecycle = {
   deckId: string;
@@ -34,12 +86,15 @@ export function useNewDeckGeneration({
   generating,
   waitingOnQuestions,
   slideCount,
+  setupPending = false,
 }: {
   deckId: string;
   isNewDeckRoute: boolean;
   generating: boolean;
   waitingOnQuestions: boolean;
   slideCount: number;
+  /** Home is still preparing this deck's prompt and has not sent it yet. */
+  setupPending?: boolean;
 }) {
   const [lifecycle, setLifecycle] = useState<NewDeckGenerationLifecycle>(() =>
     createLifecycle(deckId, isNewDeckRoute),
@@ -79,28 +134,34 @@ export function useNewDeckGeneration({
       return;
     }
 
-    const timer = setTimeout(() => {
-      setLifecycle((current) => {
-        if (current.deckId !== deckId || current.phase !== "pending") {
-          return current;
-        }
-        return {
-          ...current,
-          phase: nextNewDeckGenerationPhase({
-            phase: current.phase,
-            generating: false,
-            waitingOnQuestions: false,
-            waitExpired: true,
-          }),
-        };
-      });
-    }, NEW_DECK_GENERATION_START_TIMEOUT_MS);
+    const timer = setTimeout(
+      () => {
+        setLifecycle((current) => {
+          if (current.deckId !== deckId || current.phase !== "pending") {
+            return current;
+          }
+          return {
+            ...current,
+            phase: nextNewDeckGenerationPhase({
+              phase: current.phase,
+              generating: false,
+              waitingOnQuestions: false,
+              waitExpired: true,
+            }),
+          };
+        });
+      },
+      setupPending
+        ? NEW_DECK_GENERATION_SETUP_TIMEOUT_MS
+        : NEW_DECK_GENERATION_START_TIMEOUT_MS,
+    );
     return () => clearTimeout(timer);
   }, [
     currentLifecycle.isNewDeckCreation,
     currentLifecycle.phase,
     deckId,
     generating,
+    setupPending,
     waitingOnQuestions,
   ]);
 
@@ -150,12 +211,14 @@ type NewDeckGenerationRunReference = {
 
 const runTabIds = new Map<string, string>();
 const runConversationThreadIds = new Map<string, string>();
+const clearedRunKeys = new Set<string>();
 
 export function clearNewDeckGenerationRun(
   deckId: string,
   submitMessageId: string,
 ): void {
   const key = getRunTabStorageKey(deckId, submitMessageId);
+  clearedRunKeys.add(key);
   runTabIds.delete(key);
   runConversationThreadIds.delete(key);
   window.sessionStorage.removeItem(key);
@@ -621,8 +684,26 @@ function getRunTabId(deckId: string, submitMessageId: string): string | null {
   const inMemory = runTabIds.get(key);
   if (inMemory) return inMemory;
   const stored = window.sessionStorage.getItem(key);
-  if (stored) runTabIds.set(key, stored);
-  return stored;
+  if (stored) {
+    runTabIds.set(key, stored);
+    return stored;
+  }
+  const reported = reportedRunRoute(deckId, submitMessageId)?.tabId ?? null;
+  if (reported) {
+    rememberNewDeckGenerationRunTab(deckId, submitMessageId, reported);
+  }
+  return reported;
+}
+
+// The chat's route history outlives this tracker's storage, so a run that was
+// cleared, or that another run has since replaced, must not come back from it.
+function reportedRunRoute(deckId: string, submitMessageId: string) {
+  if (clearedRunKeys.has(getRunTabStorageKey(deckId, submitMessageId))) {
+    return null;
+  }
+  const activeRun = getActiveRun(deckId);
+  if (activeRun && activeRun.submitMessageId !== submitMessageId) return null;
+  return getAgentChatSubmitTarget(submitMessageId);
 }
 
 function getRunConversationThreadId(
@@ -636,7 +717,18 @@ function getRunConversationThreadId(
   const stored = window.sessionStorage.getItem(
     getRunConversationThreadStorageKey(deckId, submitMessageId),
   );
-  if (stored === null) return null;
+  if (stored === null) {
+    const reported =
+      reportedRunRoute(deckId, submitMessageId)?.threadId ?? null;
+    if (reported) {
+      rememberNewDeckGenerationRunConversationThread(
+        deckId,
+        submitMessageId,
+        reported,
+      );
+    }
+    return reported;
+  }
   if (!stored.trim()) {
     throw new Error(
       `Cannot restore Slides generation ownership for deck ${deckId}: invalid session data.`,
@@ -652,6 +744,7 @@ export function rememberNewDeckGenerationRunTab(
   tabId: string,
 ): void {
   const key = getRunTabStorageKey(deckId, submitMessageId);
+  clearedRunKeys.delete(key);
   runTabIds.set(key, tabId);
   window.sessionStorage.setItem(key, tabId);
   const conversationThreadId = getRunConversationThreadId(

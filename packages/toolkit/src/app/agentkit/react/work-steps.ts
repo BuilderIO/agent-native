@@ -100,6 +100,27 @@ export function agentWorkTimeline({
   const messages = new Map<string, AgentMessage>();
   const seenCalls = new Set<string>();
   for (const event of events) {
+    if (event.type === "message.replaced") {
+      // A discarded draft keeps only a prefix of what streamed, so chunks
+      // past it are gone and later deltas resume at its end.
+      const id = event.message.id;
+      const kept = event.message.parts
+        .filter(isVisibleReasoning)
+        .map((part) => part.text)
+        .join("");
+      const text = streamed.get(id);
+      if (text?.startsWith(kept)) {
+        streamed.set(id, kept);
+        const dropped = tokens.filter(
+          (token) =>
+            token.kind === "reasoning" &&
+            token.messageId === id &&
+            token.start >= kept.length,
+        );
+        for (const token of dropped) tokens.splice(tokens.indexOf(token), 1);
+      }
+      continue;
+    }
     const message = reasoningOf(event);
     if (message) {
       messages.set(message.id, message);

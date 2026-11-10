@@ -55,6 +55,7 @@ import { agentNativePath } from "./api-path.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { clientBuildId } from "./build-compatibility.js";
+import { installAgentChatPageLeaveTracking } from "./chat/page-leave-telemetry.js";
 import {
   consentAllowsNow,
   consentDecision,
@@ -1817,6 +1818,7 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
       ? _contentCaptureForPath(window.location.pathname)
       : options.contentCapture !== false;
   if (typeof window !== "undefined") {
+    installAgentChatPageLeaveTracking(trackEvent);
     ensureSentry();
     ensureAmplitude();
     captureFirstTouchAttribution();
@@ -1852,6 +1854,10 @@ export function setTrackingContentCaptureEnabled(enabled: boolean): void {
   } else {
     void stopSessionReplay("content-capture-disabled");
   }
+}
+
+export function isTrackingContentCaptureEnabled(): boolean {
+  return _trackingContentCaptureEnabled;
 }
 
 function syncTrackingContentCaptureForLocation(): void {
@@ -2340,7 +2346,7 @@ function inferTemplateName(properties: Record<string, unknown>): string | null {
  * Events that name their page only by route template. A path can hold a slug
  * or an email, so it never rides along, not even from an app's default props.
  */
-const ROUTE_ONLY_EVENT_NAMES = new Set(["web_vitals"]);
+const ROUTE_ONLY_EVENT_NAMES = new Set(["agent_chat_page_left", "web_vitals"]);
 
 function resolveProps(
   name: string,

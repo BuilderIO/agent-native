@@ -18,6 +18,14 @@ registerDataProgramsShareable();
 
 registerIdentityColumns([
   {
+    table: "analytics_bigquery_usage",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "retain",
+    reason:
+      "Query-submitter attribution stays with the original job on offboarding, including personal rows, until the daily 90-day expiry sweep removes it; it is not transferred to a successor. Outages or backlog may extend retention.",
+  },
+  {
     table: "bi_migration_external_dashboards",
     column: "original_migrator_email",
     emailChange: "rekey",
@@ -60,6 +68,8 @@ registerIdentityColumns([
 
 registerShareableResource({
   type: "dashboard",
+  // Only SQL dashboards offer Share, and get-sql-dashboard is the MCP tool.
+  agentRead: { actions: ["get-sql-dashboard"] },
   resourceTable: schema.dashboards,
   sharesTable: schema.dashboardShares,
   displayName: "Dashboard",
@@ -113,6 +123,7 @@ registerShareableResource({
 
 registerShareableResource({
   type: "analysis",
+  agentRead: { actions: ["get-analysis"] },
   resourceTable: schema.analyses,
   sharesTable: schema.analysisShares,
   displayName: "Analysis",

@@ -1,3 +1,8 @@
+import {
+  isMovableSvgShapeTag,
+  parseSvgShapeTranslate,
+} from "@shared/svg-shape-offset";
+
 import type { ElementInfo } from "@/components/design/types";
 
 type PositionCoordinateContext = Pick<
@@ -5,6 +10,7 @@ type PositionCoordinateContext = Pick<
   | "positionReferenceRect"
   | "positionContainingBlockOrigin"
   | "positionContainingBlockTransform"
+  | "svgShapeOffset"
 >;
 
 type PositionTransform = NonNullable<
@@ -16,6 +22,30 @@ type BoxQuad = { p1: Point; p2: Point; p3: Point; p4: Point };
 export type PositionCoordinateRenderOffset = { x: number; y: number };
 
 const IDENTITY_TRANSFORM: PositionTransform = { a: 1, b: 0, c: 0, d: 1 };
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * The parent of a shape inside an editable SVG, which moves by its CSS
+ * `translate` in that parent's user units. Boolean operands and other
+ * editor-built SVGs place their children themselves, so they get null.
+ */
+export function editableSvgShapeParent(
+  element: Element,
+): SVGGraphicsElement | null {
+  const parent = element.parentElement;
+  if (
+    element.namespaceURI !== SVG_NS ||
+    parent?.namespaceURI !== SVG_NS ||
+    !isMovableSvgShapeTag(element.tagName)
+  ) {
+    return null;
+  }
+  let root = (element as SVGElement).ownerSVGElement;
+  while (root?.ownerSVGElement) root = root.ownerSVGElement;
+  return root?.getAttribute("data-an-primitive") === "pasted-svg"
+    ? (parent as unknown as SVGGraphicsElement)
+    : null;
+}
 const BOARD_CONTENT_OFFSET_X_ATTRIBUTE = "data-agent-native-content-offset-x";
 const BOARD_CONTENT_OFFSET_Y_ATTRIBUTE = "data-agent-native-content-offset-y";
 
@@ -677,6 +707,23 @@ export function measurePositionCoordinateContext(
     width: rawPositionReferenceRect.width,
     height: rawPositionReferenceRect.height,
   };
+  const svgShapeParent = editableSvgShapeParent(element);
+  if (svgShapeParent) {
+    const matrix = svgShapeParent.getScreenCTM();
+    return {
+      positionReferenceRect,
+      positionContainingBlockOrigin: {
+        x: positionReferenceRect.x,
+        y: positionReferenceRect.y,
+      },
+      positionContainingBlockTransform: matrix
+        ? { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d }
+        : IDENTITY_TRANSFORM,
+      svgShapeOffset: matrix
+        ? parseSvgShapeTranslate(view.getComputedStyle(element).translate)
+        : null,
+    };
+  }
   if (!containingBlock) {
     return {
       positionReferenceRect,

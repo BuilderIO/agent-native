@@ -168,6 +168,7 @@ export function renderSingleScreenCanvas({
     handleActiveRuntimeLayerSnapshot,
     handleActiveRuntimeVerificationSnapshot,
     designFusionUrl,
+    fusionAppStarting,
     motionTracksWire,
     motionPathTargetNodeId,
     motionPathTrackId,
@@ -257,6 +258,8 @@ export function renderSingleScreenCanvas({
   } = editorLayerActions;
   const { handleIframeHotkey, handleKScaleStyleBatchChange } =
     editorScreenRendering;
+
+  if (!activeFile) return null;
 
   const visibleCursorOthers = multiplayerCursors
     ? othersWithAgentCursor
@@ -433,6 +436,7 @@ export function renderSingleScreenCanvas({
             : undefined
         }
         fusionUrl={designFusionUrl}
+        appStarting={fusionAppStarting}
         previewWidthPx={
           responsiveInteractActive
             ? interactDeviceSize.width

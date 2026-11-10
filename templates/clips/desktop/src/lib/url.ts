@@ -1,8 +1,12 @@
-import { loadString } from "./storage";
+import { loadDesktopAuthToken } from "./desktop-auth-token";
+import {
+  LEGACY_PRODUCTION_SERVER_URL,
+  normalizeServerUrl,
+  resolveDesktopServerUrl,
+} from "./desktop-server-url";
+import { loadStringAllowEmpty, saveString } from "./storage";
 
-export function normalizeServerUrl(serverUrl: string): string {
-  return serverUrl.trim().replace(/\/+$/, "");
-}
+export { normalizeServerUrl } from "./desktop-server-url";
 
 export const SERVER_URL_STORAGE_KEY = "clips:server-url";
 
@@ -17,7 +21,19 @@ export const DEFAULT_SERVER_URL = import.meta.env.DEV
     );
 
 export function loadStoredServerUrl(): string {
-  return normalizeServerUrl(
-    loadString(SERVER_URL_STORAGE_KEY, DEFAULT_SERVER_URL),
-  );
+  return resolveDesktopServerUrl({
+    storedServerUrl: loadStringAllowEmpty(SERVER_URL_STORAGE_KEY, ""),
+    defaultServerUrl: DEFAULT_SERVER_URL,
+    hasLegacyProductionToken: Boolean(
+      loadDesktopAuthToken(LEGACY_PRODUCTION_SERVER_URL).trim(),
+    ),
+    hasDefaultServerToken: Boolean(
+      loadDesktopAuthToken(DEFAULT_SERVER_URL).trim(),
+    ),
+  });
+}
+
+export function persistStoredServerUrl(serverUrl: string): void {
+  const normalized = normalizeServerUrl(serverUrl);
+  if (normalized) saveString(SERVER_URL_STORAGE_KEY, normalized);
 }

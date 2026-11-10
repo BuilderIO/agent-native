@@ -1,3 +1,4 @@
+import { AsyncResource } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 
@@ -423,6 +424,7 @@ import {
 } from "../agent/tool-approval-store.js";
 import {
   createThread,
+  getThread,
   getQueuedSubmissionReceipt,
   grantThreadUserShare,
   listQueuedSubmissionReceipts,
@@ -2281,6 +2283,297 @@ describe("queued submission inbox recurring sweep", () => {
     } finally {
       clock.mockRestore();
       consoleError.mockRestore();
+    }
+  }, 20_000);
+
+  it("admits a completion-drain receipt that waited out a busy thread without a sweep", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const headMessageId = "busy-completion-head";
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: headMessageId, threadId, text: headMessageId },
+      },
+      { actor },
+    );
+    inboxHarness.admit = async (body) => {
+      const receipt = await getQueuedSubmissionReceipt(
+        String(body.threadId),
+        String(body.agentKitMessageId),
+      );
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId: receipt.threadId,
+          messageId: receipt.messageId,
+          runId: `run-${receipt.messageId}`,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return `run-${receipt.messageId}`;
+    };
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      await createSweepHandler();
+      inboxHarness.activeRun = {
+        runId: "run-busy-at-completion",
+        threadId,
+        turnId: "turn-busy-at-completion",
+        status: "running",
+        inFlight: true,
+      };
+      const completeRun = inboxHarness.completeRun;
+      if (!completeRun) throw new Error("Run completion callback not captured");
+      await completeRun(
+        {
+          events: [],
+          runId: "run-busy-at-completion",
+          startedAt: Date.now() - 1_000,
+          status: "completed",
+          threadId,
+          turnId: "turn-busy-at-completion",
+        },
+        threadId,
+      );
+      // The thread stays busy longer than the drain's stable-idle window.
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      expect(inboxHarness.admissions).toEqual([]);
+      inboxHarness.activeRun = null;
+
+      await vi.waitFor(
+        () => {
+          expect(
+            inboxHarness.admissions.map((body) => body.agentKitMessageId),
+          ).toEqual([headMessageId]);
+        },
+        { timeout: 5_000 },
+      );
+    } finally {
+      inboxHarness.activeRun = null;
+      consoleError.mockRestore();
+    }
+  }, 20_000);
+
+  it("logs and leaves a receipt queued once its thread stays busy past the retry limit", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const headMessageId = "busy-forever-head";
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: headMessageId, threadId, text: headMessageId },
+      },
+      { actor },
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const start = Date.now();
+    let offset = 0;
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockImplementation(() => start + offset);
+    try {
+      await createSweepHandler();
+      inboxHarness.activeRun = {
+        runId: "run-busy-forever",
+        threadId,
+        turnId: "turn-busy-forever",
+        status: "running",
+        inFlight: true,
+      };
+      const completeRun = inboxHarness.completeRun;
+      if (!completeRun) throw new Error("Run completion callback not captured");
+      await completeRun(
+        {
+          events: [],
+          runId: "run-busy-forever",
+          startedAt: Date.now() - 1_000,
+          status: "completed",
+          threadId,
+          turnId: "turn-busy-forever",
+        },
+        threadId,
+      );
+      // Let the first busy check defer the receipt, then pass the retry limit
+      // (10 minutes, matching QUEUED_SUBMISSION_BUSY_RETRY_LIMIT_MS).
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      offset = 10 * 60_000 + 1;
+
+      await vi.waitFor(
+        () => {
+          expect(consoleError).toHaveBeenCalledWith(
+            expect.stringContaining("stayed behind a busy thread"),
+          );
+        },
+        { timeout: 8_000 },
+      );
+      expect(inboxHarness.admissions).toEqual([]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, headMessageId),
+      ).resolves.toMatchObject({ state: "queued" });
+    } finally {
+      inboxHarness.activeRun = null;
+      clock.mockRestore();
+      consoleError.mockRestore();
+    }
+  }, 20_000);
+
+  it("renews a promotion claim while queued admission is pending", async () => {
+    const threadId = "queued-promotion-renewal-thread";
+    const messageId = "queued-promotion-renewal-message";
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    // raw-sql-ok: createThread binds this fixture id through the shared store.
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: messageId, threadId, text: messageId },
+      },
+      { actor },
+    );
+
+    let signalAdmissionStarted!: () => void;
+    const admissionStarted = new Promise<void>((resolve) => {
+      signalAdmissionStarted = resolve;
+    });
+    let finishAdmission!: () => void;
+    const admissionPaused = new Promise<void>((resolve) => {
+      finishAdmission = resolve;
+    });
+    inboxHarness.admit = async (body) => {
+      signalAdmissionStarted();
+      await admissionPaused;
+      const receipt = await getQueuedSubmissionReceipt(threadId, messageId);
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId,
+          messageId,
+          runId: `run-${String(body.queuedMessageId)}`,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return `run-${messageId}`;
+    };
+
+    const sweep = await createSweepHandler();
+    let sweepPromise: ReturnType<typeof sweep> | undefined;
+    const scheduleInterval = globalThis.setInterval;
+    const cancelInterval = globalThis.clearInterval;
+    const renewalTimer = {} as ReturnType<typeof setInterval>;
+    const renewalCallbacks: Array<() => void> = [];
+    let renewalTimerCleared = false;
+    const setIntervalSpy = vi
+      .spyOn(globalThis, "setInterval")
+      .mockImplementation((handler, delay, ...args) => {
+        if (delay === 20_000) {
+          renewalCallbacks.push(
+            AsyncResource.bind(handler as () => void, "queued-claim-renewal"),
+          );
+          return renewalTimer;
+        }
+        return scheduleInterval(handler, delay, ...args);
+      });
+    const clearIntervalSpy = vi
+      .spyOn(globalThis, "clearInterval")
+      .mockImplementation((timer) => {
+        if (timer === renewalTimer) {
+          renewalTimerCleared = true;
+          return;
+        }
+        cancelInterval(timer);
+      });
+    const claimStartedAt = Date.now();
+    let now = claimStartedAt;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const readClaimExpiry = async () => {
+      const thread = await getThread(threadId);
+      const threadData = JSON.parse(thread?.threadData ?? "{}") as {
+        queuedMessages?: Array<{ promotionClaim?: { expiresAt?: number } }>;
+      };
+      return threadData.queuedMessages?.[0]?.promotionClaim?.expiresAt;
+    };
+    const waitForClaimExpiry = async (expected: number) => {
+      let actual: number | undefined;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        actual = await readClaimExpiry();
+        if (actual === expected) return;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error(
+        `Promotion claim was not renewed to ${expected}; got ${actual}`,
+      );
+    };
+    try {
+      sweepPromise = sweep();
+      await admissionStarted;
+      expect(renewalCallbacks).toHaveLength(1);
+      const renewClaim = renewalCallbacks[0];
+      if (!renewClaim)
+        throw new Error("Claim renewal timer was not registered");
+      now += 20_000;
+      renewClaim();
+      await waitForClaimExpiry(claimStartedAt + 80_000);
+      now += 20_000;
+      renewClaim();
+      await waitForClaimExpiry(claimStartedAt + 100_000);
+      now = claimStartedAt + 60_000;
+      renewClaim();
+      expect(renewalTimerCleared).toBe(true);
+      expect(await readClaimExpiry()).toBe(claimStartedAt + 100_000);
+
+      now = claimStartedAt + 100_001;
+      const expiredReceipt = await getQueuedSubmissionReceipt(
+        threadId,
+        messageId,
+      );
+      if (!expiredReceipt)
+        throw new Error("Queued receipt disappeared before claim recovery");
+      const replacementClaim = await mutateThreadQueuedMessages(threadId, {
+        type: "claimFromInbox",
+        receipt: expiredReceipt,
+        claimId: "recovery-sweeper",
+      });
+      expect(replacementClaim?.claimedMessage?.promotionClaim).toMatchObject({
+        id: "recovery-sweeper",
+        expiresAt: claimStartedAt + 160_001,
+      });
+      await mutateThreadQueuedMessages(threadId, {
+        type: "release",
+        messageId,
+        claimId: "recovery-sweeper",
+      });
+
+      finishAdmission();
+      expect((await sweepPromise).status).toBe(200);
+      expect(renewalTimerCleared).toBe(true);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, messageId),
+      ).resolves.toMatchObject({
+        state: "submitted",
+        submittedRunId: `run-${messageId}`,
+      });
+    } finally {
+      finishAdmission();
+      await sweepPromise?.catch(() => undefined);
+      clock.mockRestore();
+      setIntervalSpy.mockRestore();
+      clearIntervalSpy.mockRestore();
     }
   }, 20_000);
 

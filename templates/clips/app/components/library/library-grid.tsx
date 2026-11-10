@@ -6,12 +6,8 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
-import {
-  IconAlertTriangle,
-  IconFolderPlus,
-  IconLink,
-  IconUpload,
-} from "@tabler/icons-react";
+import { sendRecordingBatches } from "@shared/recording-batch";
+import { IconAlertTriangle, IconPhoto } from "@tabler/icons-react";
 import {
   type DragEvent,
   type ReactElement,
@@ -64,7 +60,7 @@ import { resolveVideoMimeType } from "@/lib/video-metadata";
 
 import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
 import { DroppedUploadCard } from "./dropped-upload-card";
-import { EmptyState } from "./empty-state";
+import { AppEmptyState, EmptyState } from "./empty-state";
 import { FilterChips, type FilterChip } from "./filter-chips";
 import { FolderCard } from "./folder-card";
 import { buildLibraryActionHrefs } from "./library-action-hrefs";
@@ -156,7 +152,6 @@ function LibraryCanvasContextMenu({
             setTimeout(onCreateFolder, 0);
           }}
         >
-          <IconFolderPlus className="me-2 size-4" />
           {t("navigation.newFolder")}
         </ContextMenuItem>
         <ContextMenuSeparator />
@@ -166,14 +161,10 @@ function LibraryCanvasContextMenu({
             openUploadPicker(uploadHref);
           }}
         >
-          <IconUpload />
           {t("preRecord.uploadVideo")}
         </ContextMenuItem>
         <ContextMenuItem asChild>
-          <Link to={importLoomHref}>
-            <IconLink />
-            {t("preRecord.importLoom")}
-          </Link>
+          <Link to={importLoomHref}>{t("preRecord.importLoom")}</Link>
         </ContextMenuItem>
       </ContextMenuContent>
       {input}
@@ -767,7 +758,7 @@ export function LibraryGrid({
             />
           )}
           <div className="ms-auto flex shrink-0 items-center gap-2 lg:col-start-3 lg:ms-0 lg:justify-self-end">
-            {!isEmptyState && extraActions}
+            {(!isEmptyState || kind === "image") && extraActions}
             {!isEmptyState && (
               <SortMenu value={sort} onChange={handleSortChange} />
             )}
@@ -844,11 +835,18 @@ export function LibraryGrid({
               ) : recordings.length === 0 &&
                 visibleFolders.length === 0 &&
                 uploads.length === 0 ? (
-                <EmptyState
-                  kind={resolvedEmptyKind}
-                  spaceId={spaceId}
-                  folderId={folderId}
-                />
+                kind === "image" ? (
+                  <AppEmptyState
+                    icon={IconPhoto}
+                    title={t("navigation.screenshots")}
+                  />
+                ) : (
+                  <EmptyState
+                    kind={resolvedEmptyKind}
+                    spaceId={spaceId}
+                    folderId={folderId}
+                  />
+                )
               ) : (
                 <div className="flex flex-col gap-8">
                   {visibleFolders.length > 0 && (
@@ -1014,18 +1012,12 @@ export function LibraryGrid({
                 onArchive={async () => {
                   setIsBulkPending(true);
                   try {
-                    const ids = Array.from(selected);
-                    const results = await Promise.allSettled(
-                      ids.map((id) =>
+                    const { succeededIds, failedCount, firstError } =
+                      await sendRecordingBatches(Array.from(selected), (ids) =>
                         view === "archive"
-                          ? restoreRecording.mutateAsync({ id })
-                          : archiveRecording.mutateAsync({ id }),
-                      ),
-                    );
-                    const succeededIds = ids.filter(
-                      (_, i) => results[i].status === "fulfilled",
-                    );
-                    const failed = ids.length - succeededIds.length;
+                          ? restoreRecording.mutateAsync({ ids })
+                          : archiveRecording.mutateAsync({ ids }),
+                      );
                     if (succeededIds.length > 0) {
                       toast.success(
                         t(
@@ -1041,14 +1033,15 @@ export function LibraryGrid({
                         return next;
                       });
                     }
-                    if (failed > 0) {
+                    if (failedCount > 0) {
                       toast.error(
                         t(
                           view === "archive"
                             ? "trashRoute.clipsRestoreFailed"
                             : "libraryGrid.clipsArchiveFailed",
-                          { count: failed },
+                          { count: failedCount },
                         ),
+                        { description: firstError ?? undefined },
                       );
                     }
                   } finally {
@@ -1058,14 +1051,10 @@ export function LibraryGrid({
                 onTrash={async () => {
                   setIsBulkPending(true);
                   try {
-                    const ids = Array.from(selected);
-                    const results = await Promise.allSettled(
-                      ids.map((id) => trashRecording.mutateAsync({ id })),
-                    );
-                    const succeededIds = ids.filter(
-                      (_, i) => results[i].status === "fulfilled",
-                    );
-                    const failed = ids.length - succeededIds.length;
+                    const { succeededIds, failedCount, firstError } =
+                      await sendRecordingBatches(Array.from(selected), (ids) =>
+                        trashRecording.mutateAsync({ ids }),
+                      );
                     if (succeededIds.length > 0) {
                       toast.success(
                         t("libraryGrid.clipsMovedToTrash", {
@@ -1078,9 +1067,12 @@ export function LibraryGrid({
                         return next;
                       });
                     }
-                    if (failed > 0) {
+                    if (failedCount > 0) {
                       toast.error(
-                        t("libraryGrid.clipsTrashFailed", { count: failed }),
+                        t("libraryGrid.clipsTrashFailed", {
+                          count: failedCount,
+                        }),
+                        { description: firstError ?? undefined },
                       );
                     }
                   } finally {

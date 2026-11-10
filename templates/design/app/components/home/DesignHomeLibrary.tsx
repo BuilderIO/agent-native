@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { DesignHomeLibraryTab } from "@/home-library-state";
+
+export type { DesignHomeLibraryTab } from "@/home-library-state";
 
 const TAB_CLASS =
   "h-auto px-0 py-0 text-lg leading-[27px] font-medium group-data-[variant=line]/tabs-list:h-auto group-data-[variant=line]/tabs-list:border-b group-data-[variant=line]/tabs-list:text-muted-foreground";
-
-export type DesignHomeLibraryTab = "templates" | "recent";
 
 interface DesignHomeLibraryProps {
   value: DesignHomeLibraryTab;
@@ -49,6 +50,7 @@ export function DesignHomeLibrary({
           <TabsList variant="line" className="gap-2 border-b-0">
             <TabsTrigger
               value="templates"
+              data-design-home-library-tab="templates"
               className={TAB_CLASS}
               onClick={() => {
                 if (activeValue === "templates") onValueChange("templates");
@@ -56,7 +58,11 @@ export function DesignHomeLibrary({
             >
               {labels.templates}
             </TabsTrigger>
-            <TabsTrigger value="recent" className={TAB_CLASS}>
+            <TabsTrigger
+              value="recent"
+              data-design-home-library-tab="recent"
+              className={TAB_CLASS}
+            >
               {labels.recent}
             </TabsTrigger>
           </TabsList>

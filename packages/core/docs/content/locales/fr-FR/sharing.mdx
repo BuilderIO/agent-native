@@ -118,13 +118,12 @@ Quelques zones sont intentionnellement en dehors du système de partage :
 
 Chaque ressource partageable reçoit un bouton de partage dans son en-tête. Cliquer dessus ouvre un popover ancré au bouton (pas un modal) avec :
 
-- Sélecteur de visibilité (`Private` / `Organization` / `Public link`).
-- Saisie automatique « Ajouter des personnes ou des équipes » : recherchez des utilisateurs dans l'organisation ou collez un e-mail.
-- Une case à cocher `Notifier les personnes` pour les autorisations individuelles par e-mail.
-- Une liste des subventions actuelles avec des sélecteurs de rôles et un contrôle de suppression.
-- Un bouton copier-lien qui respecte la visibilité actuelle.
+- Un champ d'invitation pour les personnes, les groupes de l'organisation et les agents de l'organisation, avec un sélecteur de rôle et Inviter. Une adresse saisie affiche aussi la case `Notify people`.
+- Personnes ayant accès : le propriétaire, les personnes, les groupes et les agents dans une seule liste. Les rôles sont Peut afficher, Peut commenter, Peut modifier et Peut gérer l'accès. Retirer l'accès est le dernier élément du menu de rôle de chaque ligne.
+- Accès général : Seules les personnes invitées / Toute personne de l'organisation / Toute personne disposant du lien. Toute personne de l'organisation dispose d'un sélecteur de rôle (Peut afficher, Peut commenter, Peut modifier), tout comme Toute personne disposant du lien (Peut afficher, Peut commenter).
+- Copier le lien, et un menu Envoyer vers : Ouvrir dans Claude, Claude Code ou Codex, Copier le prompt de l'agent, Copier le lien pour agents, Paramètres du serveur MCP et les destinations ajoutées par l'app.
 
-Passer une ressource de `Private` à `Organization` demande d'abord une confirmation. Rien ne change tant que la personne n'a pas confirmé. Annuler ou Échap conserve l'accès actuel. Si l'enregistrement échoue, la boîte de dialogue affiche l'erreur et la personne peut réessayer. Les autres changements de visibilité sont enregistrés immédiatement. La confirmation existe uniquement dans l'UI de partage. `set-resource-visibility` ne change pas : l'agent et tout autre appelant modifient donc toujours la visibilité directement, et la politique de partage de la ressource décide toujours de ce qui est autorisé.
+Les changements de visibilité sont enregistrés immédiatement. Un type de ressource dont le contenu passe facilement inaperçu peut demander d'abord une confirmation : les chats définissent `confirmOrgVisibility: true` dans leur déclaration, donc passer un chat de `Private` à `Organization` attend que la personne confirme. Annuler ou Échap conserve l'accès actuel. Si l'enregistrement échoue, la boîte de dialogue affiche l'erreur et la personne peut réessayer. La confirmation existe uniquement dans l'UI de partage : l'agent et tout autre appelant modifient donc toujours la visibilité directement via `set-resource-visibility`, et la politique de partage de la ressource décide toujours de ce qui est autorisé.
 
 Le bouton de partage est une importation unique :
 
@@ -136,6 +135,8 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
   resourceTitle={deck.title}
 />;
 ```
+
+Les agents apparaissent dans le champ d'invitation quand l'organisation a des agents de service (identités `svc-<name>@service.<orgId>` issues des jetons de service de l'organisation). Ils sont partagés comme des utilisateurs ordinaires et ne reçoivent jamais d'e-mail. Les agents qui se connectent par MCP ou OAuth agissent au nom de la personne qui les a connectés, ils n'ont donc pas de ligne. Transmettez-leur la ressource depuis Envoyer vers.
 
 Pour les listes, déposez un `<VisibilityBadge visibility={row.visibility} />` à côté de chaque ligne afin que les utilisateurs puissent voir en un coup d'œil ce qui est privé ou partagé.
 
@@ -179,13 +180,13 @@ Les épingles sont personnelles : `pinnedAt` désigne celle de l'appelant, même
 
 Le framework monte automatiquement ces actions dans chaque modèle : l'agent les appelle en tant qu'outils et le UI les appelle via `useActionQuery` / `useActionMutation` :
 
-| Actions                      | Ce qu'il fait                                                                                                                              |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `share-resource`             | Accorder à un utilisateur ou à une organisation l'accès à un rôle spécifique. Le `notify` en option contrôle les notifications par e-mail. |
-| `unshare-resource`           | Révoquer l'accès d'un utilisateur ou d'une organisation.                                                                                   |
-| `list-resource-shares`       | Afficher la visibilité actuelle ainsi que toutes les autorisations explicites.                                                             |
-| `set-resource-visibility`    | Passez à `private`, `org` ou `public`.                                                                                                     |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                    |
+| Actions                      | Ce qu'il fait                                                                                                                                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | Accorder à un utilisateur ou à une organisation l'accès à un rôle spécifique. Le `notify` en option contrôle les notifications par e-mail.                                                      |
+| `unshare-resource`           | Révoquer l'accès d'un utilisateur ou d'une organisation.                                                                                                                                        |
+| `list-resource-shares`       | Afficher la visibilité actuelle ainsi que toutes les autorisations explicites.                                                                                                                  |
+| `set-resource-visibility`    | Passez à `private`, `org` ou `public`. Le `role` facultatif définit ce que peut faire l'organisation (afficher, commenter, modifier) ou toute personne disposant du lien (afficher, commenter). |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                                                                         |
 
 Dites à l'agent "Partagez cette conception avec l'équipe marketing en tant qu'éditeurs" et il appellera `share-resource` sur le même point de terminaison que celui utilisé par UI. Le résultat apparaît dans la boîte de dialogue de partage lors du prochain rendu.
 
@@ -193,7 +194,7 @@ Dites à l'agent "Partagez cette conception avec l'équipe marketing en tant qu'
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
 
-Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`. Declare `agentRead: { actions: ["get-<thing>"] }` (and `idParam` when the tool's id argument is not `id`) so the share panel's Send to menu offers Open in Claude, Claude Code, and Codex with a prompt that calls that MCP tool with the person's own permissions.
 
 ## L'intégrer dans un nouveau modèle {#building}
 

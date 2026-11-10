@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-27T03:19:22.106Z",
+  "generatedAt": "2026-10-31T19:23:31.929Z",
   "epsilon": 0.005,
   "classes": {
     "known-item": {
@@ -22,12 +22,12 @@
     },
     "typo": {
       "count": 6,
-      "top1": 0,
+      "top1": 0.8333333333333334,
       "top1Count": 6,
-      "top3": 0,
-      "mrr": 0,
-      "zeroResults": 6,
-      "gating": false
+      "top3": 0.8333333333333334,
+      "mrr": 0.8666666666666667,
+      "zeroResults": 0,
+      "gating": true
     },
     "question": {
       "count": 9,
@@ -50,10 +50,10 @@
   },
   "overall": {
     "count": 38,
-    "top1": 0.5945945945945946,
+    "top1": 0.7297297297297297,
     "top1Count": 37,
-    "top3": 0.6052631578947368,
-    "mrr": 0.6052631578947368,
-    "zeroResults": 15
+    "top3": 0.7368421052631579,
+    "mrr": 0.7421052631578947,
+    "zeroResults": 9
   }
 }

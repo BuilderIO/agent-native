@@ -293,9 +293,10 @@ List at most 3 new or changed pull requests by passing needsReview true, source
 github, and limit 3. Never list the full queue or use the action's default page
 size.
 
-For each open factory-repository PR, inspect the item and classify whether it is a
-clear bug fix or has product or UX implications. Avoid duplicate review noise
-when no commit, review, comment, or check result changed. Call
+For each surfaced PR that remains after the review-prs selection filters,
+inspect the item and classify whether it is a clear bug fix or has product or
+UX implications. Avoid duplicate review noise when no commit, review, comment,
+or check result changed. Call
 govern-factory-pull-request with the item id, repository, pull request
 number, clearBug, productUxImplications, and a short reason. The action fetches
 fresh GitHub CI, review, and changed-file evidence before approving. For a verified current BuilderIO

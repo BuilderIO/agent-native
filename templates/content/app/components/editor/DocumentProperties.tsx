@@ -2,6 +2,7 @@ import { emailToName } from "@agent-native/core/client/collab";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   closestCenter,
   DndContext,
@@ -35,9 +36,11 @@ import {
   documentPropertyDateIncludesTime,
   documentPropertyDateKey,
   documentPropertyDatePart,
+  isAppLinkUrl,
   isEmptyPropertyValue,
   isComputedPropertyType,
   isOnlyBlocksFieldDeletion,
+  isUrlPropertyValue,
   MAX_RELATION_TARGETS,
   normalizeDatePropertyValue,
   type DocumentPropertyDateValue,
@@ -49,23 +52,18 @@ import {
 import {
   IconAlignLeft,
   IconArrowLeft,
-  IconArrowDown,
-  IconArrowRight,
-  IconArrowUp,
-  IconArrowsSort,
   IconAt,
   IconCalendar,
   IconCheck,
   IconCircleChevronDown,
   IconCircleDotted,
+  IconChevronDown,
+  IconChevronRight,
   IconClockFilled,
-  IconCopy,
   IconDatabase,
   IconEdit,
-  IconEye,
   IconEyeOff,
   IconFileText,
-  IconFilter,
   IconGripVertical,
   IconHash,
   IconLink,
@@ -80,7 +78,6 @@ import {
   IconPlugConnected,
   IconSearch,
   IconSquareCheck,
-  IconTrash,
   IconUpload,
   IconX,
   IconUserCircle,
@@ -113,6 +110,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -166,12 +168,17 @@ import {
   upsertDatabaseQuickFilter,
   upsertDatabaseSort,
 } from "./database/filter-sort";
+import {
+  type DatabaseRowView,
+  databaseRowPropertyLayout,
+} from "./database/row-view-layout";
 import type { DatabaseFilter, DatabaseSort } from "./database/types";
 import { EmojiPicker } from "./EmojiPicker";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 import {
   PropertyCommentControl,
   usePropertyCommentRowState,
+  usePropertyComments,
 } from "./property-comments";
 import {
   formatPropertyDate,
@@ -195,7 +202,17 @@ interface DocumentPropertiesProps {
   documentId: string;
   databaseId: string | null;
   databaseDocumentId: string | null;
+  /** The view this row was opened from, which lays out its Properties. */
+  rowView?: DatabaseRowView | null | undefined;
+  /** The view isn't read yet, so the Properties don't draw out of order. */
+  rowViewPending?: boolean;
   canEdit: boolean;
+  /**
+   * Draw the rows an editor of the collection gets until the row's own read
+   * answers, and on through a wait for canEdit once it grants them, so they
+   * don't arrive later and push the page down.
+   */
+  schemaRowsExpected?: boolean;
   popoversPortalled?: boolean;
   popoverContainer?: HTMLElement | null;
 }
@@ -322,9 +339,11 @@ function propertyValueTextClass(presentation: PropertyValuePresentation) {
     : "truncate whitespace-nowrap";
 }
 
-/** A URL property's value as a link target: only http(s) addresses open. */
+/** A URL property's value as a link target: web addresses and named app links open. */
 export function propertyUrlHref(value: DocumentProperty["value"]) {
-  return typeof value === "string" && isHttpUrl(value) ? value.trim() : null;
+  return typeof value === "string" && isUrlPropertyValue(value)
+    ? value.trim()
+    : null;
 }
 
 /**
@@ -347,7 +366,10 @@ const keepEventOnLink = {
   onKeyDown: (event: ReactKeyboardEvent) => event.stopPropagation(),
 };
 
-/** A web address that opens in a new tab. */
+/**
+ * A web address opens in a new tab. An app link stays in this one, which hands
+ * it to the app without leaving a blank tab behind.
+ */
 export function PropertyUrlLink({
   href,
   className,
@@ -360,8 +382,9 @@ export function PropertyUrlLink({
   return (
     <a
       href={href}
-      target="_blank"
-      rel="noopener noreferrer"
+      {...(isAppLinkUrl(href)
+        ? {}
+        : { target: "_blank", rel: "noopener noreferrer" })}
       title={href}
       // Ringed inside, since cells, rows and cards clip what overflows them.
       className={cn(
@@ -981,12 +1004,18 @@ export function DocumentProperties({
   documentId,
   databaseId,
   databaseDocumentId,
+  rowView,
+  rowViewPending = false,
   canEdit,
+  schemaRowsExpected = false,
   popoversPortalled = true,
   popoverContainer,
 }: DocumentPropertiesProps) {
   const t = useT();
-  const { data, isLoading } = useDocumentProperties(documentId, databaseId);
+  const { data, isLoading, isError, dataUpdatedAt } = useDocumentProperties(
+    documentId,
+    databaseId,
+  );
   const loaded = documentPropertiesResponseMatchesScope(
     documentId,
     databaseId,
@@ -1003,58 +1032,76 @@ export function DocumentProperties({
     databaseId !== null &&
     databaseDocumentId !== null &&
     data.canManageSchema === true;
+  const showSchemaRows =
+    canManageSchema ||
+    (schemaRowsExpected &&
+      ((!dataUpdatedAt && !isError) ||
+        (loaded && data.canManageSchema === true)));
   const properties = (loaded ? data.properties : []).filter(
     (property) => property.definition.type !== "blocks",
   );
-  const visibleProperties = properties.filter(isPropertyVisible);
+  const layout = databaseRowPropertyLayout(properties, rowView);
+  const visibleProperties = layout.listed.filter(isPropertyVisible);
+  const hiddenInViewProperties = layout.hiddenInView.filter(isPropertyVisible);
   const hiddenProperties = properties.filter(
     (property) => !isPropertyVisible(property),
+  );
+  const propertyRow = (property: DocumentProperty) => (
+    <PropertyRow
+      key={property.definition.id}
+      property={property}
+      documentId={documentId}
+      databaseDocumentId={databaseDocumentId ?? documentId}
+      canEditValues={canEditValues}
+      canManageSchema={canManageSchema}
+      popoversPortalled={popoversPortalled}
+      popoverContainer={popoverContainer}
+      t={t}
+    />
   );
 
   return (
     <div className="mt-5 border-y border-transparent py-1">
-      {isLoading || !loaded ? (
+      {isLoading || !loaded || rowViewPending ? (
         <div className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-3.5" />
           {t("editor.properties.loadingProperties")}
         </div>
       ) : visibleProperties.length > 0 ? (
-        <div className="grid gap-0.5">
-          {visibleProperties.map((property) => (
-            <PropertyRow
-              key={property.definition.id}
-              property={property}
-              documentId={documentId}
-              databaseDocumentId={databaseDocumentId ?? documentId}
-              canEditValues={canEditValues}
-              canManageSchema={canManageSchema}
-              popoversPortalled={popoversPortalled}
-              popoverContainer={popoverContainer}
-              t={t}
-            />
-          ))}
-        </div>
+        <div className="grid gap-0.5">{visibleProperties.map(propertyRow)}</div>
       ) : null}
 
-      {loaded && canManageSchema && hiddenProperties.length > 0 ? (
-        <HiddenPropertiesMenu
-          databaseDocumentId={databaseDocumentId ?? documentId}
-          documentId={documentId}
-          databaseId={databaseId}
-          properties={hiddenProperties}
-          popoverContainer={popoverContainer}
+      {loaded && !rowViewPending && hiddenInViewProperties.length > 0 ? (
+        <HiddenInViewProperties
+          properties={hiddenInViewProperties}
+          renderRow={propertyRow}
           t={t}
         />
       ) : null}
 
-      {loaded && canManageSchema && databaseId ? (
-        <AddProperty
-          databaseDocumentId={databaseDocumentId ?? documentId}
-          documentId={documentId}
-          databaseId={databaseId}
-          popoversPortalled={popoversPortalled}
-          popoverContainer={popoverContainer}
-        />
+      {showSchemaRows && databaseId ? (
+        // Rows drawn on expectation hold their place, even before any
+        // Property answer, and can't be used until this viewer's rights are
+        // confirmed.
+        <div className="contents" inert={!canManageSchema || undefined}>
+          {hiddenProperties.length > 0 ? (
+            <HiddenPropertiesMenu
+              databaseDocumentId={databaseDocumentId ?? documentId}
+              documentId={documentId}
+              databaseId={databaseId}
+              properties={hiddenProperties}
+              popoverContainer={popoverContainer}
+              t={t}
+            />
+          ) : null}
+          <AddProperty
+            databaseDocumentId={databaseDocumentId ?? documentId}
+            documentId={documentId}
+            databaseId={databaseId}
+            popoversPortalled={popoversPortalled}
+            popoverContainer={popoverContainer}
+          />
+        </div>
       ) : null}
     </div>
   );
@@ -1069,6 +1116,55 @@ function isPropertyVisible(property: DocumentProperty) {
   return true;
 }
 
+/**
+ * The Properties this row's view hides, a click away. Opening it changes
+ * nothing about the view or the collection, and a Comment being written or
+ * read on one of them opens it so the Property is there to point at.
+ */
+function HiddenInViewProperties({
+  properties,
+  renderRow,
+  t,
+}: {
+  properties: DocumentProperty[];
+  renderRow: (property: DocumentProperty) => ReactNode;
+  t: TFunction;
+}) {
+  const comments = usePropertyComments();
+  const [open, setOpen] = useState(false);
+  const holdsCurrentComment =
+    !!comments &&
+    properties.some(
+      (property) =>
+        comments.pendingPropertyId === property.definition.id ||
+        comments.selectedPropertyId === property.definition.id,
+    );
+  useEffect(() => {
+    if (holdsCurrentComment) setOpen(true);
+  }, [holdsCurrentComment]);
+  const Chevron = open ? IconChevronDown : IconChevronRight;
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="mt-1 flex h-8 items-center gap-2 rounded px-1 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+        >
+          <Chevron className="size-4" />
+          {t("editor.properties.hiddenInThisView")}
+          <span className="text-xs text-muted-foreground/70">
+            {properties.length}
+          </span>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="grid gap-0.5">{properties.map(renderRow)}</div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 function HiddenPropertiesMenu({
   documentId,
   databaseDocumentId = documentId,
@@ -1081,7 +1177,7 @@ function HiddenPropertiesMenu({
   databaseDocumentId?: string;
   databaseId: string;
   properties: DocumentProperty[];
-  popoverContainer?: HTMLElement | null;
+  popoverContainer?: HTMLElement | null | undefined;
   t: TFunction;
 }) {
   const configure = useConfigureDocumentProperty(
@@ -1164,7 +1260,7 @@ function PropertyRow({
   canEditValues: boolean;
   canManageSchema: boolean;
   popoversPortalled: boolean;
-  popoverContainer?: HTMLElement | null;
+  popoverContainer?: HTMLElement | null | undefined;
   t: TFunction;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
@@ -1662,10 +1758,16 @@ export function PropertyManagementPopover({
   }
 
   async function deleteProperty() {
-    await remove.mutateAsync({
-      documentId,
-      propertyId: property.definition.id,
-    });
+    // The hook's own `onError` rolls back, so the shared toast needs this.
+    try {
+      await remove.mutateAsync({
+        documentId,
+        propertyId: property.definition.id,
+      });
+    } catch (error) {
+      reportWriteFailure(error);
+      return;
+    }
     setOpen(false);
   }
 
@@ -1762,13 +1864,11 @@ export function PropertyManagementPopover({
                   setView("edit");
                 }}
               >
-                <IconEdit className="mr-2 size-4 text-muted-foreground" />
                 {t("editor.properties.editField")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <IconFilter className="mr-2 size-4 text-muted-foreground" />
                   {t("database.filter")}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent
@@ -1790,7 +1890,6 @@ export function PropertyManagementPopover({
                         );
                       }}
                     >
-                      <IconFilter className="mr-2 size-4 text-muted-foreground" />
                       {quickFilter.label}
                     </DropdownMenuItem>
                   ))}
@@ -1806,7 +1905,6 @@ export function PropertyManagementPopover({
                         );
                       }}
                     >
-                      <IconX className="mr-2 size-4 text-muted-foreground" />
                       {t("editor.properties.clearFilters", {
                         count: columnFilterCount,
                       })}
@@ -1816,7 +1914,6 @@ export function PropertyManagementPopover({
               </DropdownMenuSub>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <IconArrowsSort className="mr-2 size-4 text-muted-foreground" />
                   {t("database.sort")}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent
@@ -1836,7 +1933,6 @@ export function PropertyManagementPopover({
                       );
                     }}
                   >
-                    <IconArrowUp className="mr-2 size-4 text-muted-foreground" />
                     <span className="min-w-0 flex-1">
                       {t("database.sortAscending")}
                     </span>
@@ -1857,7 +1953,6 @@ export function PropertyManagementPopover({
                       );
                     }}
                   >
-                    <IconArrowDown className="mr-2 size-4 text-muted-foreground" />
                     <span className="min-w-0 flex-1">
                       {t("database.sortDescending")}
                     </span>
@@ -1874,7 +1969,6 @@ export function PropertyManagementPopover({
                         );
                       }}
                     >
-                      <IconX className="mr-2 size-4 text-muted-foreground" />
                       {t("database.clearSort")}
                     </DropdownMenuItem>
                   ) : null}
@@ -1886,14 +1980,12 @@ export function PropertyManagementPopover({
                 disabled={!onMoveLeft}
                 onSelect={() => void onMoveLeft?.()}
               >
-                <IconArrowLeft className="mr-2 size-4 text-muted-foreground" />
                 {t("editor.properties.moveColumnLeft")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={!onMoveRight}
                 onSelect={() => void onMoveRight?.()}
               >
-                <IconArrowRight className="mr-2 size-4 text-muted-foreground" />
                 {t("editor.properties.moveColumnRight")}
               </DropdownMenuItem>
               {onHide ? (
@@ -1906,7 +1998,6 @@ export function PropertyManagementPopover({
                       void onHide();
                     }}
                   >
-                    <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
                     {t("database.hideInView")}
                   </DropdownMenuItem>
                 </>
@@ -1920,9 +2011,8 @@ export function PropertyManagementPopover({
                     event.preventDefault();
                     setView("quick");
                   }}
-                  className="gap-1.5 py-1 text-xs text-muted-foreground focus:text-foreground"
+                  className="text-muted-foreground focus:text-foreground"
                 >
-                  <IconArrowLeft className="size-3.5" />
                   {t("editor.properties.backToColumnMenu")}
                 </DropdownMenuItem>
               ) : null}
@@ -1994,7 +2084,6 @@ export function PropertyManagementPopover({
                       propertyType !== "relation" ||
                       property.definition.type === "relation",
                   ).map((propertyType) => {
-                    const TypeIcon = TYPE_ICONS[propertyType];
                     const selected = property.definition.type === propertyType;
                     const disabled = typeIsLocked && !selected;
                     return (
@@ -2006,7 +2095,6 @@ export function PropertyManagementPopover({
                           void updateType(propertyType);
                         }}
                       >
-                        <TypeIcon className="mr-2 size-4 text-muted-foreground" />
                         <span className="flex-1">
                           {t(`editor.propertyTypes.${propertyType}`)}
                         </span>
@@ -2021,7 +2109,6 @@ export function PropertyManagementPopover({
 
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <IconEye className="mr-2 size-4 text-muted-foreground" />
                   <span className="flex-1">
                     {t("editor.properties.visibility")}
                   </span>
@@ -2162,8 +2249,7 @@ export function PropertyManagementPopover({
                     )}
                     {bindableSourceFields.length > 0 ? (
                       <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="mt-0.5 rounded px-1.5 py-1 text-xs">
-                          <IconPlus className="mr-1.5 size-3.5 text-muted-foreground" />
+                        <DropdownMenuSubTrigger className="mt-0.5">
                           {t("database.bindAFieldFromASource")}
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent
@@ -2184,7 +2270,6 @@ export function PropertyManagementPopover({
                                   });
                                 }}
                               >
-                                <IconLink className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
                                 <span className="min-w-0 flex-1 truncate">
                                   {field.sourceFieldLabel}
                                 </span>
@@ -2237,7 +2322,6 @@ export function PropertyManagementPopover({
                   void duplicateProperty();
                 }}
               >
-                <IconCopy className="mr-2 size-4 text-muted-foreground" />
                 {t("editor.properties.duplicateProperty")}
               </DropdownMenuItem>
               <DropdownMenuItem
@@ -2249,7 +2333,6 @@ export function PropertyManagementPopover({
                   setConfirmDeleteOpen(true);
                 }}
               >
-                <IconTrash className="mr-2 size-4" />
                 {t("editor.properties.deleteProperty")}
               </DropdownMenuItem>
             </>
@@ -3032,8 +3115,9 @@ function RelationValueEditor({
       setQuery("");
       // Build on the latest list: other rows may have been picked meanwhile.
       add(newId);
-    } catch {
-      // coercion-ok: useActionMutation surfaces the failure; keep the typed title.
+    } catch (error) {
+      // Keep the typed title so the person can retry.
+      reportWriteFailure(error);
     }
   }
 
@@ -4170,7 +4254,7 @@ export function AddProperty({
   variant?: "default" | "header" | "icon";
   label?: string;
   popoversPortalled?: boolean;
-  popoverContainer?: HTMLElement | null;
+  popoverContainer?: HTMLElement | null | undefined;
   source?: ContentDatabaseSource | null;
   sources?: ContentDatabaseSource[];
   onConnectSource?: () => void;

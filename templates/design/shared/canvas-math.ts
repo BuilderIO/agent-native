@@ -602,8 +602,10 @@ export interface LinearTransform {
 }
 
 /**
- * Whether whole px written inside this containing block land on whole screen
- * px: true for no transform, flips, quarter turns and integer scales.
+ * Whether one local px is one screen px, so whole px written inside this
+ * containing block land on whole screen px: true for no transform, flips and
+ * quarter turns. A scale is false even when whole: at 10× (a 24-unit SVG icon
+ * drawn at 240px) whole local px would move a layer in 10px steps.
  */
 export function keepsPixelGrid(
   transform: LinearTransform | null | undefined,
@@ -611,7 +613,9 @@ export function keepsPixelGrid(
   if (!transform) return true;
   return [transform.a, transform.b, transform.c, transform.d].every(
     (entry) =>
-      Number.isFinite(entry) && Math.abs(entry - Math.round(entry)) < 1e-6,
+      Number.isFinite(entry) &&
+      [-1, 0, 1].includes(Math.round(entry)) &&
+      Math.abs(entry - Math.round(entry)) < 1e-6,
   );
 }
 

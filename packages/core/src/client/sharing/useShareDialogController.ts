@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { trackEvent } from "../analytics.js";
 import { useT } from "../i18n.js";
+import { reportWriteFailure } from "../write-failure-event.js";
 import {
   extractShareErrorMessage,
   notifyShareChanged,
@@ -38,7 +39,11 @@ export interface ResourceSharesResponse {
   role?: "owner" | ShareRole;
   agentReadable?: boolean;
   shares: ResourceShare[];
-  policy?: { allowPublic: boolean; requireOrgMemberForUserShares?: boolean };
+  policy?: {
+    allowPublic: boolean;
+    requireOrgMemberForUserShares?: boolean;
+    confirmOrgVisibility?: boolean;
+  };
 }
 
 export interface ShareDialogControllerOptions {
@@ -320,10 +325,14 @@ export function useShareDialogController({
     resourceId,
     current: visibility,
     orgId: data?.orgId ?? null,
+    confirmOrgVisibility: data?.policy?.confirmOrgVisibility === true,
     canManage,
     active: open,
     apply: applyVisibility,
-    onDirectError: (error) => setMutationError(extractShareErrorMessage(error)),
+    onDirectError: (error) => {
+      setMutationError(extractShareErrorMessage(error));
+      reportWriteFailure(error);
+    },
   });
   const requestVisibility = visibilityTransition.request;
   // A void setter: callers that return it from a handler must not end up
@@ -373,6 +382,7 @@ export function useShareDialogController({
         onError: (error: unknown) => {
           rollbackShareCache(queryClient, shareQueryKey, previous);
           setMutationError(extractShareErrorMessage(error));
+          reportWriteFailure(error);
         },
       },
     );
@@ -426,6 +436,7 @@ export function useShareDialogController({
           onError: (error: unknown) => {
             rollbackShareCache(queryClient, shareQueryKey, previous);
             setMutationError(extractShareErrorMessage(error));
+            reportWriteFailure(error);
           },
         },
       );

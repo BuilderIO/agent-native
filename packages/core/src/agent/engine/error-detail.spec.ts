@@ -8,6 +8,7 @@ import {
   describeErrorWithCauses,
   isBareProviderRejectionMessage,
   isBuilderGatewayInternalErrorMessage,
+  isGenericInternalServerErrorMessage,
   isInvalidAttachmentProviderMessage,
   isProviderConnectionError,
   isProviderConnectionErrorMessage,
@@ -46,6 +47,26 @@ describe("describeErrorWithCauses", () => {
 
   it("handles non-Error values", () => {
     expect(describeErrorWithCauses("boom")).toBe("boom");
+  });
+});
+
+describe("isGenericInternalServerErrorMessage", () => {
+  it("recognizes generic HTTP 500 stream messages", () => {
+    expect(isGenericInternalServerErrorMessage("Internal Server Error")).toBe(
+      true,
+    );
+    expect(
+      isGenericInternalServerErrorMessage("HTTP 500 Internal Server Error"),
+    ).toBe(true);
+    expect(isGenericInternalServerErrorMessage("500")).toBe(true);
+  });
+
+  it("does not classify arbitrary messages that mention an internal error", () => {
+    expect(
+      isGenericInternalServerErrorMessage(
+        "The internal server error was fixed",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -194,6 +215,15 @@ describe("isProviderConnectionErrorMessage", () => {
     expect(canonicalizeBuilderGatewayErrorCode("rate_limited", envelope)).toBe(
       "rate_limited",
     );
+    expect(
+      canonicalizeBuilderGatewayErrorCode(
+        "invalid_request",
+        "Internal Server Error",
+      ),
+    ).toBe(BUILDER_GATEWAY_INTERNAL_ERROR_CODE);
+    expect(
+      canonicalizeBuilderGatewayErrorCode("invalid_request", "Bad request"),
+    ).toBe("invalid_request");
   });
 
   it("classifies a provider error identically however it arrived", () => {

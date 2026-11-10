@@ -36,6 +36,11 @@ import {
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
 import {
+  type CallProvenance,
+  isAgentCall,
+  lockPagesAndAssertAgentsMayEditText,
+} from "./_document-agent-lock.js";
+import {
   nextAppendPosition,
   propertyDefinitionsPositionScope,
   withPositionLock,
@@ -126,6 +131,7 @@ const legacyConfigureDocumentPropertySchema = z
   .strict();
 
 export default defineAction({
+  searchHints: ["add a column", "table column", "database field"],
   description:
     "Create an ordinary Content collection property (a `blocks` property adds a tab to every row's page) or safely update its metadata, select options, and natural-key role using an exact target, fresh schema revision, and idempotency key.",
   mcpTool: true,
@@ -314,15 +320,40 @@ export default defineAction({
             "The primary Content (Blocks) field cannot change type. Delete it from the database view to remove the body.",
           );
         }
+        // Renaming or hiding a Blocks field renames or hides every row's tab.
+        if (
+          lockedDefinition.type === type &&
+          isBlocksPropertyType(type) &&
+          (name !== lockedDefinition.name ||
+            (args.visibility !== undefined &&
+              normalizePropertyVisibility(args.visibility) !==
+                normalizePropertyVisibility(lockedDefinition.visibility)))
+        )
+          await lockRowsAndAssertAgentsMayEditTabs(tx, database.id, context);
         if (lockedDefinition.type !== type) {
           const memberships = await tx
-            .select({ id: schema.contentDatabaseItems.id })
+            .select({
+              id: schema.contentDatabaseItems.id,
+              documentId: schema.contentDatabaseItems.documentId,
+            })
             .from(schema.contentDatabaseItems)
             .where(eq(schema.contentDatabaseItems.databaseId, database.id));
           await lockDatabaseMemberships(
             tx,
             memberships.map((membership) => membership.id),
           );
+          // Leaving Blocks deletes the text this field holds on every row, and
+          // entering it adds a tab to every row.
+          if (
+            isBlocksPropertyType(
+              lockedDefinition.type as DocumentPropertyType,
+            ) !== isBlocksPropertyType(type)
+          )
+            await lockPagesAndAssertAgentsMayEditText(
+              tx as unknown as ReturnType<typeof getDb>,
+              memberships.map((membership) => membership.documentId),
+              context,
+            );
           [lockedDefinition] = await tx
             .select()
             .from(schema.documentPropertyDefinitions)
@@ -446,6 +477,13 @@ export default defineAction({
               .from(schema.contentDatabases)
               .where(eq(schema.contentDatabases.id, database.id));
             if (!lockedDatabase) throw new Error("Database not found.");
+            // A new Blocks field adds a tab to every row.
+            if (isBlocksPropertyType(type))
+              await lockRowsAndAssertAgentsMayEditTabs(
+                tx,
+                database.id,
+                context,
+              );
             const [maxPos] = await tx
               .select({
                 max: sql<unknown>`COALESCE(MAX(position), -1)`,
@@ -536,6 +574,31 @@ export default defineAction({
     };
   },
 });
+
+/** Every row shows a Blocks field as a tab, so an agent's change to one waits for, and is held to, each row's lock. */
+async function lockRowsAndAssertAgentsMayEditTabs(
+  tx: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0],
+  databaseId: string,
+  context: CallProvenance | undefined,
+) {
+  if (!isAgentCall(context)) return;
+  const memberships = await tx
+    .select({
+      id: schema.contentDatabaseItems.id,
+      documentId: schema.contentDatabaseItems.documentId,
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  await lockDatabaseMemberships(
+    tx,
+    memberships.map((membership) => membership.id),
+  );
+  await lockPagesAndAssertAgentsMayEditText(
+    tx as unknown as ReturnType<typeof getDb>,
+    memberships.map((membership) => membership.documentId),
+    context,
+  );
+}
 
 async function configureNaturalKey(
   tx: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0],

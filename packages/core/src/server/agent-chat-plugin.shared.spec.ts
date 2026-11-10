@@ -837,7 +837,9 @@ describe("agent chat process-run failure finalization", () => {
     await expect(
       finalizeClaimedAgentChatProcessRunFailure(
         "run-claimed",
-        new Error("setup exploded"),
+        Object.assign(new Error("setup exploded"), {
+          code: "missing_execution_fence",
+        }),
         d,
       ),
     ).resolves.toBe(true);
@@ -845,7 +847,12 @@ describe("agent chat process-run failure finalization", () => {
     expect(d.recordRunDiagnostic).toHaveBeenCalledWith(
       "run-claimed",
       "route_threw",
-      "setup exploded",
+      "errorName=Error errorCode=missing_execution_fence failure=setup exploded",
+      {
+        format: "route_failure_v1",
+        errorName: "Error",
+        errorCode: "missing_execution_fence",
+      },
     );
     expect(d.finalizeClaimedBackgroundRunFailure).toHaveBeenCalledWith(
       "run-claimed",
@@ -886,7 +893,8 @@ describe("agent chat process-run failure finalization", () => {
     expect(d.recordRunDiagnostic).toHaveBeenCalledWith(
       "run-unclaimed",
       "route_threw",
-      "pre-claim failure",
+      "errorName=Error failure=pre-claim failure",
+      { format: "route_failure_v1", errorName: "Error" },
     );
     expect(d.finalizeClaimedBackgroundRunFailure).not.toHaveBeenCalled();
   });

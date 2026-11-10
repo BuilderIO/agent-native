@@ -48,7 +48,12 @@ import {
   buildShareContinuationQuery,
   CLIP_SHARE_REF,
 } from "@shared/share-attribution";
-import { isDefaultTitle } from "@shared/title-source";
+import {
+  isDefaultTitle,
+  shouldPollGeneratedTitle,
+  titleRegenerationSkipDisposition,
+  type RegenerateTitleResult,
+} from "@shared/title-source";
 import { isTranscriptExistsError } from "@shared/transcript-import";
 import {
   isWorkflowRequester,
@@ -67,9 +72,7 @@ import {
   IconCalendar,
   IconAlertTriangle,
   IconEdit,
-  IconHelpCircle,
   IconBolt,
-  IconMessage,
   IconExternalLink,
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
@@ -77,7 +80,6 @@ import {
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   Link,
   useParams,
@@ -88,6 +90,7 @@ import {
 import { toast } from "sonner";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
+import { ClipsComposerContextProvider } from "@/components/ClipsComposerContext";
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
 import { RecordingEditorBoundary } from "@/components/editor/recording-editor-boundary";
@@ -706,7 +709,21 @@ export default function RecordingPage() {
       storageKey: "clips:share-sidebar-collapsed",
     });
   const [theaterMode, setTheaterMode] = useState(false);
-  const [editing, setEditing] = useState(false);
+  // Lives in the URL so the editor can be linked to and survives a reload.
+  const editing = searchParams.get("edit") === "1";
+  const setEditing = useCallback(
+    (next: boolean) => {
+      const nextParams = new URLSearchParams(searchParams);
+      if (next) nextParams.set("edit", "1");
+      else nextParams.delete("edit");
+      setSearchParams(nextParams, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+  const [chapterEditRequest, setChapterEditRequest] = useState(0);
+  const [tagEditRequest, setTagEditRequest] = useState(0);
+  const openingMetadataEditor = useRef(false);
+  const recordingOptionsRef = useRef<HTMLButtonElement>(null);
   const [currentMs, setCurrentMs] = useState(startMs);
   const requestedPlaybackRef = useRef<{
     recordingId: string;
@@ -734,7 +751,7 @@ export default function RecordingPage() {
   const [editorRedactions, setEditorRedactions] = useState(0);
   const isCompactLayout = useIsCompactRecordingLayout();
   const openSidePanel = useCallback(
-    (next: ToolbarPanel) => {
+    (next: ToolbarPanel, options?: { leaveEditor?: boolean }) => {
       if (panel !== next) {
         trackEvent("clip_panel_opened", {
           app_name: "clips",
@@ -747,6 +764,9 @@ export default function RecordingPage() {
       setSidePanelCollapsed(false);
       const nextParams = new URLSearchParams(searchParams);
       nextParams.set("panel", next);
+      // One write: a separate setEditing(false) would copy the same params
+      // snapshot and this write would put `edit` back.
+      if (options?.leaveEditor) nextParams.delete("edit");
       setSearchParams(nextParams, { replace: true });
       if (!isCompactLayout) return;
       requestAnimationFrame(() => {
@@ -792,19 +812,22 @@ export default function RecordingPage() {
     setSearchParams,
     setSidePanelCollapsed,
   ]);
-  const openAgentPanel = useCallback(() => {
-    if (recordingId) {
-      trackEvent("builtin_agent_used", {
-        app_name: "clips",
-        template_name: "clips",
-        output_id: recordingId,
-        output_type: "clip",
-        query_type: "clip",
-        surface: "recording_page",
-      });
-    }
-    openSidePanel("agent");
-  }, [openSidePanel, recordingId]);
+  const openAgentPanel = useCallback(
+    (options?: { leaveEditor?: boolean }) => {
+      if (recordingId) {
+        trackEvent("builtin_agent_used", {
+          app_name: "clips",
+          template_name: "clips",
+          output_id: recordingId,
+          output_type: "clip",
+          query_type: "clip",
+          surface: "recording_page",
+        });
+      }
+      openSidePanel("agent", options);
+    },
+    [openSidePanel, recordingId],
+  );
   const transcriptKickedRef = useRef<string | null>(null);
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [retryingFinalize, setRetryingFinalize] = useState(false);
@@ -929,7 +952,7 @@ export default function RecordingPage() {
           return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
         }
         if (data?.transcript?.status === "pending") return 3000;
-        if (shouldShowGeneratedTitleSkeleton(rec, data?.transcript?.status))
+        if (shouldPollGeneratedTitle(rec, data?.transcript?.status))
           return 3000;
         if (Date.now() < metadataRefreshUntil) return 2000;
         return false;
@@ -1334,14 +1357,10 @@ export default function RecordingPage() {
     recording &&
     isDefaultTitle(recording.title),
   );
-  const showTitleSkeleton = recording
-    ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus, {
-        titleGenerationPaused,
-      })
-    : false;
-  const visibleTitle = recording
-    ? displayRecordingTitle(recording.title)
-    : "Untitled Clip";
+  const visibleTitle =
+    recording && !isDefaultTitle(recording.title)
+      ? (recording.title ?? "").trim()
+      : t("editableTitle.untitled");
   // A loose screenshot belongs under Screenshots, not Library. Both are views
   // of the same list, but the sidebar gives stills their own entry and that is
   // where someone who just took one goes looking. Anything filed in a space or
@@ -2125,8 +2144,6 @@ export default function RecordingPage() {
     }
   }, [isLoomRecording, playerDataQ, recording?.sourceWindowTitle, recordingId]);
   const firstCta = ctas[0] ?? null;
-  const handleAiError = (err: Error) =>
-    toast.error(err?.message ?? t("recordingPage.aiRequestFailed"));
   const beginAiRequest = (kind: ClipsAiRequestKind) => {
     activeAiRequestRef.current = { kind, requestedAt: null };
     primeCompletionCue();
@@ -2297,6 +2314,7 @@ export default function RecordingPage() {
     },
   });
   const setEmbedDuration = useActionMutation("set-embed-duration" as any, {
+    errorNotification: "caller",
     onSuccess: () => void playerDataQ.refetch(),
     onError: (err: Error) => {
       console.warn("[clips] Could not save the YouTube clip's duration", err);
@@ -2320,8 +2338,11 @@ export default function RecordingPage() {
     },
     [canEdit, embedProvider, recording, setEmbedDuration],
   );
-  const regenerateTitle = useActionMutation("regenerate-title" as any, {
-    onSuccess: (result: any) => {
+  const regenerateTitle = useActionMutation<
+    RegenerateTitleResult,
+    { recordingId: string }
+  >("regenerate-title", {
+    onSuccess: (result) => {
       if (result?.queued === true && recording?.id) {
         notifyAiRequestQueued(recording.id);
         const kind: ClipsAiRequestKind =
@@ -2341,18 +2362,23 @@ export default function RecordingPage() {
         activeAiRequestRef.current = null;
         completeAiRequestToast(t("recordingPage.titleUpdated"));
         playCompletionCue();
-      } else if (result?.reason === "builder_credits_paused") {
-        activeAiRequestRef.current = null;
-        cancelCompletionCue();
-        stopAiRequestToast(t("builderCredits.pausedTitle"), {
-          description: t("builderCredits.titleDescription"),
-        });
       } else if (result?.skipped) {
         activeAiRequestRef.current = null;
         cancelCompletionCue();
-        stopAiRequestToast(t("recordingPage.transcriptNotReady"), {
-          description: t("recordingPage.tryAfterTranscription"),
-        });
+        const disposition = titleRegenerationSkipDisposition(result.reason);
+        if (disposition === "dismiss") {
+          dismissAiRequestToast();
+        } else if (disposition === "credits") {
+          stopAiRequestToast(t("builderCredits.pausedTitle"), {
+            description: t("builderCredits.titleDescription"),
+          });
+        } else if (disposition === "transcript") {
+          stopAiRequestToast(t("recordingPage.transcriptNotReady"), {
+            description: t("recordingPage.tryAfterTranscription"),
+          });
+        } else {
+          stopAiRequestToast(t("recordingPage.aiRequestFailed"));
+        }
       }
     },
     onError: handleBackgroundAiError,
@@ -2476,7 +2502,8 @@ export default function RecordingPage() {
     { retry: false },
   );
   const updateAiPrefs = useActionMutation("update-clips-ai-prefs" as any, {
-    onError: handleAiError,
+    errorNotification: "shared",
+    errorLabel: t("recordingPage.aiRequestFailed"),
   });
   const [includeFullVideoOverride, setIncludeFullVideoOverride] = useState<
     boolean | null
@@ -2504,8 +2531,7 @@ export default function RecordingPage() {
   function handleGenerateWorkflow(kind: WorkflowKind) {
     if (!recording) return;
     if (aiRequestBusy || isRecentWorkflowGeneration(generatedWorkflow)) return;
-    setEditing(false);
-    openAgentPanel();
+    openAgentPanel({ leaveEditor: true });
     workflowLifecycleActiveRef.current = true;
     primeCompletionCue();
     startWorkflowToast(t("recordingPage.workflowQueued"));
@@ -2525,8 +2551,8 @@ export default function RecordingPage() {
   }, [canEdit, panel, recording]);
 
   useEffect(() => {
-    if (!canUseNativeEditor && editing) setEditing(false);
-  }, [canUseNativeEditor, editing]);
+    if (recording && !canUseNativeEditor && editing) setEditing(false);
+  }, [canUseNativeEditor, editing, recording, setEditing]);
 
   useEffect(() => {
     if (!recording) return;
@@ -3120,6 +3146,7 @@ export default function RecordingPage() {
           ref={agentPanelContentRef}
         >
           <AgentPanel
+            composerContextProvider={ClipsComposerContextProvider}
             emptyStateText={t("recordingPage.askAboutClip")}
             dynamicSuggestions={false}
             scope={{ type: "recording", id: recording.id }}
@@ -3251,6 +3278,13 @@ export default function RecordingPage() {
         {canEdit && !editing ? (
           <RecordingOptionsMenu
             recordingId={recording.id}
+            triggerRef={recordingOptionsRef}
+            onCloseAutoFocus={(event) => {
+              if (openingMetadataEditor.current) {
+                event.preventDefault();
+                openingMetadataEditor.current = false;
+              }
+            }}
             canDelete={canDelete}
             canDownload={canDownloadRecording}
             downloadPending={downloading}
@@ -3259,78 +3293,35 @@ export default function RecordingPage() {
           >
             {canUseNativeEditor ? (
               <DropdownMenuItem onSelect={() => setEditing(true)}>
-                <IconEdit className="size-4" />
                 {t("recordingPage.edit")}
               </DropdownMenuItem>
             ) : null}
+            {isImage ? null : (
+              <DropdownMenuItem
+                onSelect={() => {
+                  openingMetadataEditor.current = true;
+                  setTimeout(() => setChapterEditRequest((n) => n + 1), 0);
+                }}
+              >
+                {t("chapterList.add")}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              onSelect={() => {
+                openingMetadataEditor.current = true;
+                setTimeout(() => setTagEditRequest((n) => n + 1), 0);
+              }}
+            >
+              {t("recordingPage.addTag")}
+            </DropdownMenuItem>
             {/* Everything here reads the transcript or the timeline: asking
                 the agent about the clip, cleanup, filler words, silences,
                 chapters, an AI description, transcription. A screenshot has
-                none of those, so the menu keeps only what applies to it —
-                download and delete. */}
+                none of those, so those actions are hidden. */}
             {isImage ? null : (
               <>
-                <DropdownMenuItem onSelect={openAgentPanel}>
-                  <IconMessage className="h-4 w-4" />
+                <DropdownMenuItem onSelect={() => openAgentPanel()}>
                   {t("recordingPage.askAboutClip")}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                {isEmbedBacked ? null : (
-                  <>
-                    <DropdownMenuItem
-                      disabled={
-                        backgroundAiBusy ||
-                        !canAttemptTranscriptCleanup(transcriptStatus)
-                      }
-                      onSelect={() => {
-                        beginAiRequest("remove-filler-words");
-                        removeFillerWords.mutate({
-                          recordingId: recording.id,
-                        } as any);
-                      }}
-                    >
-                      {t("recordingPage.removeFillerWords")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={
-                        backgroundAiBusy ||
-                        !canAttemptTranscriptCleanup(transcriptStatus)
-                      }
-                      onSelect={() => {
-                        beginAiRequest("remove-silences");
-                        removeSilences.mutate({
-                          recordingId: recording.id,
-                          thresholdMs: 1200,
-                        } as any);
-                      }}
-                    >
-                      {t("recordingPage.removeSilences")}
-                    </DropdownMenuItem>
-                  </>
-                )}
-                <DropdownMenuItem
-                  disabled={backgroundAiBusy}
-                  onSelect={() => {
-                    beginAiRequest("regenerate-chapters");
-                    regenerateChapters.mutate({
-                      recordingId: recording.id,
-                      openInChat: true,
-                    } as any);
-                  }}
-                >
-                  {t("recordingPage.autoChapters")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={backgroundAiBusy}
-                  onSelect={() => {
-                    beginAiRequest("regenerate-summary");
-                    regenerateSummary.mutate({
-                      recordingId: recording.id,
-                      openInChat: true,
-                    } as any);
-                  }}
-                >
-                  {t("recordingPage.regenerateDescription")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuSub>
@@ -3338,6 +3329,63 @@ export default function RecordingPage() {
                     {t("recordingPage.enhanceRecording")}
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="w-56 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto">
+                    {isEmbedBacked ? null : (
+                      <>
+                        <DropdownMenuItem
+                          disabled={
+                            backgroundAiBusy ||
+                            !canAttemptTranscriptCleanup(transcriptStatus)
+                          }
+                          onSelect={() => {
+                            beginAiRequest("remove-filler-words");
+                            removeFillerWords.mutate({
+                              recordingId: recording.id,
+                            });
+                          }}
+                        >
+                          {t("recordingPage.removeFillerWords")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={
+                            backgroundAiBusy ||
+                            !canAttemptTranscriptCleanup(transcriptStatus)
+                          }
+                          onSelect={() => {
+                            beginAiRequest("remove-silences");
+                            removeSilences.mutate({
+                              recordingId: recording.id,
+                              thresholdMs: 1200,
+                            });
+                          }}
+                        >
+                          {t("recordingPage.removeSilences")}
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                    <DropdownMenuItem
+                      disabled={backgroundAiBusy}
+                      onSelect={() => {
+                        beginAiRequest("regenerate-chapters");
+                        regenerateChapters.mutate({
+                          recordingId: recording.id,
+                          openInChat: true,
+                        } as any);
+                      }}
+                    >
+                      {t("recordingPage.autoChapters")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={backgroundAiBusy}
+                      onSelect={() => {
+                        beginAiRequest("regenerate-summary");
+                        regenerateSummary.mutate({
+                          recordingId: recording.id,
+                          openInChat: true,
+                        } as any);
+                      }}
+                    >
+                      {t("recordingPage.regenerateDescription")}
+                    </DropdownMenuItem>
                     {canTranscribe ? (
                       <DropdownMenuItem
                         disabled={requestTranscript.isPending}
@@ -3355,7 +3403,7 @@ export default function RecordingPage() {
                         beginAiRequest("regenerate-title");
                         regenerateTitle.mutate({
                           recordingId: recording.id,
-                        } as any);
+                        });
                       }}
                     >
                       {t("recordingPage.regenerateTitle")}
@@ -3373,20 +3421,8 @@ export default function RecordingPage() {
                           key={item.kind}
                           disabled={backgroundAiBusy}
                           onSelect={() => handleGenerateWorkflow(item.kind)}
-                          className={
-                            item.tooltipKey
-                              ? "justify-between gap-3"
-                              : undefined
-                          }
                         >
                           <span>{t(item.labelKey)}</span>
-                          {item.tooltipKey ? (
-                            // guard:allow-large-help-icon - menu item tooltip icon
-                            <IconHelpCircle
-                              aria-hidden="true"
-                              className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
-                            />
-                          ) : null}
                         </DropdownMenuItem>
                       );
 
@@ -3663,32 +3699,26 @@ export default function RecordingPage() {
                         }}
                         className="h-full w-full rounded-none sm:rounded-2xl"
                       />
-                      {commentOpen && canComment
-                        ? (() => {
-                            const composer = (
-                              <TimestampedCommentBar
-                                recordingId={recording.id}
-                                atMs={commentAtMs}
-                                draft={commentDraft}
-                                onDraftChange={setCommentDraft}
-                                onClose={() => setCommentOpen(false)}
-                                onAdded={() => {
-                                  if (isCompactLayout) setPanel("comments");
-                                  void playerDataQ.refetch();
-                                }}
-                              />
-                            );
-                            // The Fullscreen API only paints the player's own
-                            // element, so portal the composer there instead of
-                            // exiting fullscreen when it's open.
-                            const fullscreenContainer =
-                              isPlayerFullscreen &&
-                              playerRef.current?.container;
-                            return fullscreenContainer
-                              ? createPortal(composer, fullscreenContainer)
-                              : composer;
-                          })()
-                        : null}
+                      <TimestampedCommentBar
+                        open={commentOpen && canComment}
+                        recordingId={recording.id}
+                        atMs={commentAtMs}
+                        draft={commentDraft}
+                        onDraftChange={setCommentDraft}
+                        onClose={() => setCommentOpen(false)}
+                        onAdded={() => {
+                          if (isCompactLayout) setPanel("comments");
+                          void playerDataQ.refetch();
+                        }}
+                        // The Fullscreen API only paints the player's own
+                        // element, so the composer moves there instead of
+                        // exiting fullscreen when it's open.
+                        portalContainer={
+                          isPlayerFullscreen
+                            ? playerRef.current?.container
+                            : undefined
+                        }
+                      />
                     </div>
                   )}
                 </div>
@@ -3704,10 +3734,8 @@ export default function RecordingPage() {
                           title={recording.title}
                           canEdit={canEdit}
                           displayTitle={visibleTitle}
-                          showPendingSkeleton={showTitleSkeleton}
                           className="text-xl font-semibold leading-tight tracking-[-0.02em] sm:text-2xl"
                           inputClassName="h-9 text-xl font-semibold sm:text-2xl"
-                          skeletonClassName="h-7 w-72 max-w-full"
                         />
                         <div className="mt-2 flex min-w-0 items-center gap-2">
                           <ClipsAvatar
@@ -3791,6 +3819,11 @@ export default function RecordingPage() {
                         editsJson={recording.editsJson}
                         durationMs={recording.durationMs}
                         canEdit={canEdit}
+                        editRequest={chapterEditRequest}
+                        hideAddButton
+                        onReturnFocus={() =>
+                          recordingOptionsRef.current?.focus()
+                        }
                         onSeek={(ms) => playerRef.current?.seek(ms)}
                       />
                     )}
@@ -3798,6 +3831,8 @@ export default function RecordingPage() {
                       recordingId={recording.id}
                       tags={playerDataQ.data?.tags ?? []}
                       canEdit={canEdit}
+                      editRequest={tagEditRequest}
+                      onReturnFocus={() => recordingOptionsRef.current?.focus()}
                     />
                   </div>
                 </div>
@@ -3881,10 +3916,6 @@ function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function displayRecordingTitle(title: string | null | undefined): string {
-  return isDefaultTitle(title) ? "Untitled Clip" : (title ?? "").trim();
-}
-
 function sanitizeFilename(name: string): string {
   return (
     name
@@ -3893,27 +3924,6 @@ function sanitizeFilename(name: string): string {
       .replace(/^-+|-+$/g, "")
       .slice(0, 80) || "clip"
   );
-}
-
-function shouldShowGeneratedTitleSkeleton(
-  recording: { title: string | null | undefined; createdAt?: string | null },
-  transcriptStatus?: string,
-  options: { titleGenerationPaused?: boolean } = {},
-): boolean {
-  if (options.titleGenerationPaused) return false;
-  if (!isDefaultTitle(recording.title)) return false;
-  if (transcriptStatus === "failed") return false;
-
-  const createdAtMs = Date.parse(recording.createdAt ?? "");
-  if (
-    Number.isFinite(createdAtMs) &&
-    Date.now() - createdAtMs > 2 * 60 * 1000 &&
-    transcriptStatus !== "pending"
-  ) {
-    return false;
-  }
-
-  return true;
 }
 
 function BuilderCreditsTitleNotice({ className }: { className?: string }) {

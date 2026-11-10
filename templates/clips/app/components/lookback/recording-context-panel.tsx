@@ -1,5 +1,5 @@
 import { captureClientException } from "@agent-native/core/client/analytics";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
@@ -7,6 +7,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { IconArrowsMaximize, IconTrash } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -65,7 +66,7 @@ export function contextVideoSrc(
   mediaRecordingId: string,
   accessToken?: string,
 ): string {
-  const src = `${appBasePath()}/api/video/${encodeURIComponent(mediaRecordingId)}`;
+  const src = appApiPath(`/api/video/${encodeURIComponent(mediaRecordingId)}`);
   return accessToken ? `${src}?t=${encodeURIComponent(accessToken)}` : src;
 }
 
@@ -347,7 +348,10 @@ function ContextItemCard({
           onRemoved(item.id);
           toast.success(t("lookbackContext.removed"));
         },
-        onError: () => toast.error(t("lookbackContext.removeFailedAction")),
+        onError: (error) =>
+          reportWriteFailure(error, {
+            label: t("lookbackContext.removeFailedAction"),
+          }),
       },
     );
   }
@@ -361,7 +365,10 @@ function ContextItemCard({
       },
       {
         onSuccess: () => toast.success(t("lookbackContext.savingEarlierTime")),
-        onError: () => toast.error(t("lookbackContext.editFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, {
+            label: t("lookbackContext.editFailed"),
+          }),
       },
     );
   }

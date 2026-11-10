@@ -299,12 +299,28 @@ describe("new comment responsive draft", () => {
 
   it("lets focus moved away right after opening stay put", async () => {
     await show(1280);
-    await act(async () => start(selected));
-    const outside =
-      container.querySelector<HTMLButtonElement>("[data-outside]")!;
-    outside.focus();
-    await settle();
-    expect(document.activeElement).toBe(outside);
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "requestAnimationFrame",
+        "cancelAnimationFrame",
+      ],
+    });
+    try {
+      await act(async () => start(selected));
+      const outside =
+        container.querySelector<HTMLButtonElement>("[data-outside]");
+      if (!outside) throw new Error("Outside focus target was not rendered");
+      outside.focus();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+        vi.advanceTimersToNextFrame();
+      });
+      expect(document.activeElement).toBe(outside);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retains a failed submission, clears success and explicitly starts a fresh selection", async () => {

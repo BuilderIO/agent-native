@@ -262,10 +262,8 @@ templates/clips/app/i18n/es-ES|dictateRoute.vocabularyRemoveFailed|Couldn't remo
 templates/clips/app/i18n/es-ES|dictateRoute.voiceToTextDescription|Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.
 templates/clips/app/i18n/es-ES|editableTitle.editLabel|Edit clip title
 templates/clips/app/i18n/es-ES|editableTitle.emptyTitle|Title cannot be empty
-templates/clips/app/i18n/es-ES|editableTitle.generatingTitle|Generating title
 templates/clips/app/i18n/es-ES|editableTitle.placeholder|Clip title
 templates/clips/app/i18n/es-ES|editableTitle.renameFailed|Failed to rename clip
-templates/clips/app/i18n/es-ES|editableTitle.untitled|Untitled Clip
 templates/clips/app/i18n/es-ES|editorToolbar.clearAllEditsDescription|This removes every trim, blur, and the custom thumbnail from this recording. The original video is never modified.
 templates/clips/app/i18n/es-ES|editorToolbar.clearAllEditsTitle|Clear all edits?
 templates/clips/app/i18n/es-ES|editorToolbar.clearAllEdits|Clear all edits
@@ -431,10 +429,8 @@ templates/clips/app/i18n/pt-BR|dictateRoute.vocabularyRemoveFailed|Couldn't remo
 templates/clips/app/i18n/pt-BR|dictateRoute.voiceToTextDescription|Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.
 templates/clips/app/i18n/pt-BR|editableTitle.editLabel|Edit clip title
 templates/clips/app/i18n/pt-BR|editableTitle.emptyTitle|Title cannot be empty
-templates/clips/app/i18n/pt-BR|editableTitle.generatingTitle|Generating title
 templates/clips/app/i18n/pt-BR|editableTitle.placeholder|Clip title
 templates/clips/app/i18n/pt-BR|editableTitle.renameFailed|Failed to rename clip
-templates/clips/app/i18n/pt-BR|editableTitle.untitled|Untitled Clip
 templates/clips/app/i18n/pt-BR|editorToolbar.clearAllEditsDescription|This removes every trim, blur, and the custom thumbnail from this recording. The original video is never modified.
 templates/clips/app/i18n/pt-BR|editorToolbar.clearAllEditsTitle|Clear all edits?
 templates/clips/app/i18n/pt-BR|editorToolbar.clearAllEdits|Clear all edits
@@ -575,14 +571,6 @@ templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationFigTitle|Have 
 templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
 templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
 templates/design/app/i18n/ar-SA|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
-templates/design/app/i18n/ar-SA|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
-templates/design/app/i18n/ar-SA|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
-templates/design/app/i18n/ar-SA|designEditor.import.rateLimitAlternatives|No-quota alternatives:
-templates/design/app/i18n/ar-SA|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
-templates/design/app/i18n/ar-SA|designEditor.import.rateLimitTitle|Figma paused this import
-templates/design/app/i18n/ar-SA|designEditor.import.rateLimitUpgrade|View Figma plan options →
-templates/design/app/i18n/ar-SA|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
-templates/design/app/i18n/ar-SA|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/ar-SA|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/ar-SA|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/ar-SA|designEditor.tokens.applying|Applying…
@@ -598,14 +586,6 @@ templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationFigTitle|Have 
 templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
 templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
 templates/design/app/i18n/de-DE|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
-templates/design/app/i18n/de-DE|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
-templates/design/app/i18n/de-DE|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
-templates/design/app/i18n/de-DE|designEditor.import.rateLimitAlternatives|No-quota alternatives:
-templates/design/app/i18n/de-DE|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
-templates/design/app/i18n/de-DE|designEditor.import.rateLimitTitle|Figma paused this import
-templates/design/app/i18n/de-DE|designEditor.import.rateLimitUpgrade|View Figma plan options →
-templates/design/app/i18n/de-DE|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
-templates/design/app/i18n/de-DE|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/de-DE|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/de-DE|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/de-DE|designEditor.tokens.applying|Applying…
@@ -621,14 +601,6 @@ templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationFigTitle|Have 
 templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
 templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
 templates/design/app/i18n/es-ES|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
-templates/design/app/i18n/es-ES|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
-templates/design/app/i18n/es-ES|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
-templates/design/app/i18n/es-ES|designEditor.import.rateLimitAlternatives|No-quota alternatives:
-templates/design/app/i18n/es-ES|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
-templates/design/app/i18n/es-ES|designEditor.import.rateLimitTitle|Figma paused this import
-templates/design/app/i18n/es-ES|designEditor.import.rateLimitUpgrade|View Figma plan options →
-templates/design/app/i18n/es-ES|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
-templates/design/app/i18n/es-ES|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/es-ES|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/es-ES|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/es-ES|designEditor.tokens.applying|Applying…
@@ -644,14 +616,6 @@ templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationFigTitle|Have 
 templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
 templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
 templates/design/app/i18n/fr-FR|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
-templates/design/app/i18n/fr-FR|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
-templates/design/app/i18n/fr-FR|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
-templates/design/app/i18n/fr-FR|designEditor.import.rateLimitAlternatives|No-quota alternatives:
-templates/design/app/i18n/fr-FR|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
-templates/design/app/i18n/fr-FR|designEditor.import.rateLimitTitle|Figma paused this import
-templates/design/app/i18n/fr-FR|designEditor.import.rateLimitUpgrade|View Figma plan options →
-templates/design/app/i18n/fr-FR|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
-templates/design/app/i18n/fr-FR|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/fr-FR|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/fr-FR|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/fr-FR|designEditor.tokens.applying|Applying…
@@ -667,14 +631,6 @@ templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationFigTitle|Have 
 templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
 templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
 templates/design/app/i18n/hi-IN|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
-templates/design/app/i18n/hi-IN|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
-templates/design/app/i18n/hi-IN|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
-templates/design/app/i18n/hi-IN|designEditor.import.rateLimitAlternatives|No-quota alternatives:
-templates/design/app/i18n/hi-IN|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
-templates/design/app/i18n/hi-IN|designEditor.import.rateLimitTitle|Figma paused this import
-templates/design/app/i18n/hi-IN|designEditor.import.rateLimitUpgrade|View Figma plan options →
-templates/design/app/i18n/hi-IN|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
-templates/design/app/i18n/hi-IN|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/hi-IN|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/hi-IN|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/hi-IN|designEditor.tokens.applying|Applying…
@@ -690,14 +646,6 @@ templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationFigTitle|Have 
 templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
 templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
 templates/design/app/i18n/ja-JP|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
-templates/design/app/i18n/ja-JP|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
-templates/design/app/i18n/ja-JP|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
-templates/design/app/i18n/ja-JP|designEditor.import.rateLimitAlternatives|No-quota alternatives:
-templates/design/app/i18n/ja-JP|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
-templates/design/app/i18n/ja-JP|designEditor.import.rateLimitTitle|Figma paused this import
-templates/design/app/i18n/ja-JP|designEditor.import.rateLimitUpgrade|View Figma plan options →
-templates/design/app/i18n/ja-JP|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
-templates/design/app/i18n/ja-JP|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/ja-JP|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/ja-JP|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/ja-JP|designEditor.tokens.applying|Applying…
@@ -713,14 +661,6 @@ templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationFigTitle|Have 
 templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
 templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
 templates/design/app/i18n/ko-KR|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
-templates/design/app/i18n/ko-KR|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
-templates/design/app/i18n/ko-KR|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
-templates/design/app/i18n/ko-KR|designEditor.import.rateLimitAlternatives|No-quota alternatives:
-templates/design/app/i18n/ko-KR|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
-templates/design/app/i18n/ko-KR|designEditor.import.rateLimitTitle|Figma paused this import
-templates/design/app/i18n/ko-KR|designEditor.import.rateLimitUpgrade|View Figma plan options →
-templates/design/app/i18n/ko-KR|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
-templates/design/app/i18n/ko-KR|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/ko-KR|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/ko-KR|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/ko-KR|designEditor.tokens.applying|Applying…
@@ -736,14 +676,6 @@ templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationFigTitle|Have 
 templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
 templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
 templates/design/app/i18n/pt-BR|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
-templates/design/app/i18n/pt-BR|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
-templates/design/app/i18n/pt-BR|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
-templates/design/app/i18n/pt-BR|designEditor.import.rateLimitAlternatives|No-quota alternatives:
-templates/design/app/i18n/pt-BR|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
-templates/design/app/i18n/pt-BR|designEditor.import.rateLimitTitle|Figma paused this import
-templates/design/app/i18n/pt-BR|designEditor.import.rateLimitUpgrade|View Figma plan options →
-templates/design/app/i18n/pt-BR|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
-templates/design/app/i18n/pt-BR|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/pt-BR|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/pt-BR|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/pt-BR|designEditor.tokens.applying|Applying…
@@ -759,14 +691,6 @@ templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationFigTitle|Have 
 templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationInvalidFig|Choose a .fig file exported from Figma.
 templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationOrToken|Or fetch from Figma
 templates/design/app/i18n/zh-CN|designEditor.import.figmaHydrationRateLimit|Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.
-templates/design/app/i18n/zh-CN|designEditor.import.figmaPasteBodyImages|Image fills may be missing without a token. Upload the .fig file to include embedded images.
-templates/design/app/i18n/zh-CN|designEditor.import.figmaPasteBodyUnlimited|Works without a Figma token — geometry, layout, and text import immediately.
-templates/design/app/i18n/zh-CN|designEditor.import.rateLimitAlternatives|No-quota alternatives:
-templates/design/app/i18n/zh-CN|designEditor.import.rateLimitGeneric|Figma rate-limited this import. The quota resets automatically.
-templates/design/app/i18n/zh-CN|designEditor.import.rateLimitTitle|Figma paused this import
-templates/design/app/i18n/zh-CN|designEditor.import.rateLimitUpgrade|View Figma plan options →
-templates/design/app/i18n/zh-CN|designEditor.import.rateLimitUseFig|Upload .fig — unlimited
-templates/design/app/i18n/zh-CN|designEditor.import.rateLimitUsePaste|Paste from Figma — unlimited
 templates/design/app/i18n/zh-CN|designEditor.toasts.componentCreateFailed|Could not create component
 templates/design/app/i18n/zh-CN|designEditor.toasts.componentCreated|Component created
 templates/design/app/i18n/zh-CN|designEditor.tokens.applying|Applying…

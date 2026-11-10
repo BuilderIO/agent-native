@@ -2,6 +2,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOnboardingPreviewMode } from "@agent-native/core/client/onboarding";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { OnboardingStepLayout } from "@agent-native/toolkit/app/onboarding";
 import {
   ONBOARDING_PRIMARY_BUTTON_CLASS,
@@ -713,9 +714,9 @@ export function AiInboxSetup({
       clearPendingSetupBackfill();
       onOpenChange?.(false);
       return true;
-    } catch {
+    } catch (error) {
       keepOpen();
-      toast.error(t("mail.aiFilter.settingsFailed"));
+      reportWriteFailure(error, { label: t("mail.aiFilter.settingsFailed") });
       return false;
     }
   };
@@ -912,8 +913,8 @@ export function AiInboxSetup({
       setStep(3);
       try {
         await updateSettings.mutateAsync({ aiSetupCompleted: true });
-      } catch {
-        toast.error(t("mail.aiFilter.settingsFailed"));
+      } catch (error) {
+        reportWriteFailure(error, { label: t("mail.aiFilter.settingsFailed") });
       }
     } catch (error) {
       toast.error(
@@ -1043,8 +1044,8 @@ export function AiInboxSetup({
         runId: backfillRunId,
         undoToken,
       });
-    } catch {
-      toast.error(t("mail.sort.aiSetupUndoFailed"));
+    } catch (error) {
+      reportWriteFailure(error, { label: t("mail.sort.aiSetupUndoFailed") });
       return;
     }
     try {
@@ -1099,6 +1100,8 @@ export function AiInboxSetup({
         disabled={
           saving ||
           (step === 0 && customTagIncomplete) ||
+          (step === 1 && !importantPrompt.trim()) ||
+          (step === 2 && !archivePrompt.trim()) ||
           (step === 2 && !firstRunPreferences && automationSettingsUnknown)
         }
         aria-busy={saving}
@@ -1205,8 +1208,10 @@ export function AiInboxSetup({
         disabled={
           saving ||
           (step === 0 && customTagIncomplete) ||
+          (step === 1 && !importantPrompt.trim()) ||
           (step === 2 &&
-            (rulesLoading ||
+            (!archivePrompt.trim() ||
+              rulesLoading ||
               (!firstRunPreferences && automationSettingsUnknown)))
         }
         aria-busy={saving}

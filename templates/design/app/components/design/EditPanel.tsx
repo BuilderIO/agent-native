@@ -456,10 +456,12 @@ interface EditPanelProps {
     Record<InteractionState, Record<string, string>>
   >;
   activeFileUpdatedAt?: string | null;
-  getComponentExpectedFiles?: () => Array<{
-    fileId: string;
-    versionHash: string;
-  }>;
+  getComponentExpectedFiles?: () => Promise<
+    Array<{
+      fileId: string;
+      versionHash: string;
+    }>
+  >;
   files?: DocumentColorSourceFile[];
   designId?: string;
   onComponentPropApplied?: (

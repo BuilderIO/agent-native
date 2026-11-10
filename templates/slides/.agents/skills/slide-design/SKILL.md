@@ -43,9 +43,9 @@ it instead of silently using this skill's defaults.
 
 Type does most of the work.
 
-- **Only fonts the renderer maps load.** `SlideRenderer` loads the Google
-  families it knows; anything else falls back silently. Quote the family in
-  `font-family`. Static-weight families ship only 400 and 700.
+- **Any Google Fonts family loads; nothing else does.** Quote the exact
+  family in `font-family`. Unsure of a name or its weights? Check it with
+  `list-google-fonts` (`q`); other families fall back silently.
 - **Extreme scale contrast.** Let one element dominate. On 960x540: statement
   or big number 72-120px, headline 32-56px, body 16-20px, labels 12-14px. A
   96px number over 13px labels is striking; 40px over 28px is flat. Body never
@@ -63,7 +63,7 @@ Type does most of the work.
 ## Composition
 
 - **Grid:** 12 columns inside the wrapper padding, 16-24px gutters. Snap every
-  edge.
+  edge to the 8px grid; whole px only, never fractional.
 - **Asymmetry over centering.** Headline in 5-7 columns, evidence large in the
   rest. Center only title and statement slides.
 - **Negative space is a material.** One line of type in the lower-left third of

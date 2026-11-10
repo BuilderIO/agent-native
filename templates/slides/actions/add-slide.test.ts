@@ -215,6 +215,37 @@ beforeEach(() => {
   updatedFields = undefined;
 });
 
+describe("add-slide silent success", () => {
+  it("rejects a slideId another slide already uses", async () => {
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        slideId: "slide-1",
+        content: "<div>Clash</div>",
+      }),
+    ).rejects.toThrow(/slide-1/);
+    expect(updatedFields).toBeUndefined();
+  });
+
+  it("saves background, transition, and skipped from the add-slide fields", async () => {
+    await action.run({
+      deckId: "deck-1",
+      content: "<div>Two copy</div>",
+      background: "#112233",
+      transition: "fade",
+      transitionSpeed: 20,
+      skipped: true,
+    });
+    const saved = JSON.parse(String(updatedFields?.data));
+    expect(saved.slides.at(-1)).toMatchObject({
+      background: "#112233",
+      transition: "fade",
+      transitionSpeed: 20,
+      skipped: true,
+    });
+  });
+});
+
 describe("add-slide", () => {
   it("does not advertise parallel execution for deck writes", () => {
     expect(action.parallelSafe).toBeUndefined();
@@ -1108,6 +1139,29 @@ describe("add-slide", () => {
       });
       expect(updateFn).not.toHaveBeenCalled();
     });
+  });
+
+  it("adds the slide and saves no target when a deck without one gets an override", async () => {
+    await action.run(
+      {
+        deckId: "deck-1",
+        slideId: "slide-new",
+        content: "<div>New</div>",
+        targetSlideCountOverride: 3,
+      },
+      { caller: "tool" },
+    );
+
+    const savedDeck = JSON.parse(String(updatedFields?.data)) as {
+      slides: { id: string }[];
+      generationContext?: unknown;
+    };
+    expect(savedDeck.slides.map((slide) => slide.id)).toEqual([
+      "slide-1",
+      "slide-2",
+      "slide-new",
+    ]);
+    expect(savedDeck.generationContext).toBeUndefined();
   });
 
   it.each([

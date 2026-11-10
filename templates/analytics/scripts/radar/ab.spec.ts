@@ -88,6 +88,23 @@ describe("configured experiment variants", () => {
 });
 
 describe("A/B readout arguments", () => {
+  it("selects the reusable Design question-intake readout", () => {
+    expect(
+      parseAbReadoutArgs([
+        "--experiment",
+        "design_no_questions",
+        "--start",
+        "2026-10-27",
+        "--end",
+        "2026-10-27",
+      ]),
+    ).toEqual({
+      experiment: "design_no_questions",
+      startDate: "2026-10-27",
+      endDate: "2026-10-27",
+    });
+  });
+
   it.each([
     [["--start"]],
     [["--end", "--as-of", "2026-10-26T00:00:00Z"]],

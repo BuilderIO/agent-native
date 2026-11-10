@@ -3,6 +3,7 @@ import {
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { IconAlertTriangle, IconSend } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -85,7 +86,9 @@ export default function NotificationsRoute() {
   async function handleSendReply() {
     if (!replyFor) return;
     const content = replyText.trim();
-    if (!content) return;
+    // Enter sends, so a second press while the first reply is on its way
+    // would send it again.
+    if (!content || addComment.isPending) return;
     try {
       await addComment.mutateAsync({
         recordingId: replyFor.recordingId,
@@ -100,9 +103,7 @@ export default function NotificationsRoute() {
       void qc.invalidateQueries({ queryKey: ["action", "list-notifications"] });
       void qc.invalidateQueries({ queryKey: ["action", "list-comments"] });
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : t("notificationsRoute.sendFailed"),
-      );
+      reportWriteFailure(err, { label: t("notificationsRoute.sendFailed") });
     }
   }
 
@@ -209,7 +210,6 @@ export default function NotificationsRoute() {
                 onSubmit={() => void handleSendReply()}
                 placeholder={t("notificationsRoute.replyPlaceholder")}
                 autoFocus
-                submitOnEnter
                 className="min-h-10 flex-1 resize-none bg-background text-sm"
               />
               <Button

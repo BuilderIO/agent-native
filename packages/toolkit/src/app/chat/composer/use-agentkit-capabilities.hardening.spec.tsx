@@ -71,8 +71,9 @@ describe("AgentKit capability lifecycle", () => {
   let container: HTMLDivElement;
   let result: ReturnType<typeof useAgentKitCapabilities>;
   let unmounted: boolean;
+  let enabled = true;
   function Harness() {
-    result = useAgentKitCapabilities();
+    result = useAgentKitCapabilities({ enabled });
     return null;
   }
   async function render() {
@@ -102,12 +103,36 @@ describe("AgentKit capability lifecycle", () => {
     document.body.append(container);
     root = createRoot(container);
     unmounted = false;
+    enabled = true;
   });
   afterEach(async () => {
     if (!unmounted) await act(async () => root.unmount());
     client.clear();
     container.remove();
     vi.unstubAllGlobals();
+  });
+
+  it("loads only on demand while preserving identity and cached results when the menu closes", async () => {
+    enabled = false;
+    await render();
+    const identity = result.scopeKey;
+    expect(mocks.call).not.toHaveBeenCalled();
+    expect(result.integrationsLoading).toBe(false);
+    enabled = true;
+    await render();
+    await settle();
+    expect(result.data).toEqual(catalog);
+    enabled = false;
+    await render();
+    expect(result.scopeKey).toBe(identity);
+    expect(result.data).toEqual(catalog);
+    mocks.call.mockResolvedValueOnce(empty);
+    await act(async () => {
+      await result.refetchIntegrations();
+    });
+    await settle();
+    expect(result.scopeKey).toBe(identity);
+    expect(result.data).toEqual(empty);
   });
 
   it.each(["account", "organization", "app"] as const)(
