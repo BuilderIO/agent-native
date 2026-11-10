@@ -501,6 +501,23 @@ function buildAltTextArticleContext({
     .join("\n\n");
 }
 
+/**
+ * Sets or clears a block's upload id outside undo history, like the upload's
+ * own steps. Undo bringing back a picker id would hold the page's saves, and
+ * taking one back would stop the upload it starts.
+ */
+function setUploadIdOutsideHistory(
+  editor: NodeViewProps["editor"],
+  position: number,
+  uploadId: string | null,
+) {
+  editor.view.dispatch(
+    editor.state.tr
+      .setNodeAttribute(position, "uploadId", uploadId)
+      .setMeta("addToHistory", false),
+  );
+}
+
 export function ImageBlock({
   node,
   editor,
@@ -555,11 +572,7 @@ export function ImageBlock({
     if (!uploadFinished || !isEditable || typeof getPos !== "function") return;
     const position = getPos();
     if (typeof position !== "number") return;
-    editor.view.dispatch(
-      editor.state.tr
-        .setNodeAttribute(position, "uploadId", null)
-        .setMeta("addToHistory", false),
-    );
+    setUploadIdOutsideHistory(editor, position, null);
   }, [editor, getPos, isEditable, uploadFinished]);
   // A file this browser can't draw, such as HEIC outside Safari, leaves the
   // block in its plain uploading state.
@@ -610,11 +623,13 @@ export function ImageBlock({
       ) {
         return;
       }
+      const position = typeof getPos === "function" ? getPos() : undefined;
       if (
         !src &&
+        typeof position === "number" &&
         String(node.attrs.uploadId ?? "").startsWith("image-picker-")
       ) {
-        updateAttributes({ uploadId: null });
+        setUploadIdOutsideHistory(editor, position, null);
       }
       setSourcePanelOpen(false);
       setSourcePanelDismissed(true);
@@ -623,7 +638,7 @@ export function ImageBlock({
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () =>
       document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [node.attrs.uploadId, selected, sourcePanelOpen, src, updateAttributes]);
+  }, [editor, getPos, node.attrs.uploadId, selected, sourcePanelOpen, src]);
 
   function handleComment() {
     if (!options.onImageComment) return;
@@ -861,7 +876,9 @@ export function ImageBlock({
     const pickerId = currentId.startsWith("image-picker-")
       ? currentId
       : createImagePickerId();
-    if (pickerId !== currentId) updateAttributes({ uploadId: pickerId });
+    if (pickerId !== currentId) {
+      setUploadIdOutsideHistory(editor, position, pickerId);
+    }
     options.onImageFilePickerRequest?.({
       pickerId,
       position,

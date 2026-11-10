@@ -158,6 +158,7 @@ import {
   parseNfmForCollabReconcile,
   parseMarkdownClipboardSlice,
   ensurePendingImageUpload,
+  type PendingImagePicker,
   restorePendingImagePicker,
   runIfMediaCreationAllowed,
   runImageUpload,
@@ -551,7 +552,10 @@ const EMPTY_TOGGLE_BODY_SELECTOR =
 // React node views render only under a mounted EditorContent; a headless
 // editor gives them an empty placeholder element, so tests that read their DOM
 // must mount.
-async function mountVisualEditor(content: JSONContent) {
+async function mountVisualEditor(
+  content: JSONContent,
+  extensionOptions?: Parameters<typeof createVisualEditorExtensions>[0],
+) {
   const actEnvironment = globalThis as typeof globalThis & {
     IS_REACT_ACT_ENVIRONMENT?: boolean;
   };
@@ -562,7 +566,7 @@ async function mountVisualEditor(content: JSONContent) {
   const root = createRoot(container);
   const queryClient = new QueryClient();
   const editor = new Editor({
-    extensions: createVisualEditorExtensions(),
+    extensions: createVisualEditorExtensions(extensionOptions),
     content,
   });
   await act(async () =>
@@ -4000,6 +4004,7 @@ describe("image upload previews", () => {
   async function withMountedEditor(
     test: (editor: Editor) => Promise<void>,
     content: JSONContent = { type: "doc", content: [{ type: "paragraph" }] },
+    extensionOptions?: Parameters<typeof createVisualEditorExtensions>[0],
   ) {
     const restoreImages = pretendImagesDraw();
     let nextUrl = 0;
@@ -4007,7 +4012,7 @@ describe("image upload previews", () => {
       () => `blob:preview-${++nextUrl}`,
     );
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-    const mounted = await mountVisualEditor(content);
+    const mounted = await mountVisualEditor(content, extensionOptions);
     try {
       await test(mounted.editor);
     } finally {
@@ -4227,6 +4232,126 @@ describe("image upload previews", () => {
         }),
       );
     });
+  });
+
+  // An empty image block, as the slash menu adds one, and an editor that
+  // records what it would hand the native file picker.
+  const emptyImageBlock: JSONContent = {
+    type: "doc",
+    content: [
+      { type: "image", attrs: { src: null, alt: "", uploadId: null } },
+      { type: "paragraph" },
+    ],
+  };
+
+  function recordPicks(picks: PendingImagePicker[]) {
+    return {
+      onImageFilePickerRequest: (request: PendingImagePicker) => {
+        picks.push(request);
+      },
+      usesPrivateImageUploads: () => true,
+    };
+  }
+
+  // Opens the empty block's file picker the way the user does.
+  async function openEmptyBlockPicker(editor: Editor) {
+    const dom = editor.view.dom;
+    await act(async () =>
+      dom
+        .querySelector<HTMLButtonElement>(".media-empty-block__trigger")
+        ?.click(),
+    );
+    await act(async () =>
+      dom
+        .querySelector<HTMLButtonElement>(".media-source-panel__body button")
+        ?.click(),
+    );
+  }
+
+  it("keeps a pick going when undo follows it", async () => {
+    const picks: PendingImagePicker[] = [];
+    await withMountedEditor(
+      async (editor) => {
+        // An earlier edit of the user's, which undo takes back on its own.
+        await act(async () => {
+          const { state } = editor.view;
+          editor.view.dispatch(
+            closeHistory(
+              state.tr.insertText("Note", state.doc.content.size - 1),
+            ),
+          );
+        });
+        await openEmptyBlockPicker(editor);
+        const request = picks[0];
+        expect(request?.pickerId).toMatch(/^image-picker-/);
+        expect(images(editor)[0]?.attrs?.uploadId).toBe(request?.pickerId);
+
+        await act(async () => {
+          expect(editor.commands.undo()).toBe(true);
+        });
+        expect(editor.getText()).not.toContain("Note");
+        expect(images(editor)[0]?.attrs?.uploadId).toBe(request?.pickerId);
+
+        // The file the user picks then uploads into the block.
+        holdImageUploadPreview("image-upload-test", file, {});
+        expect(
+          ensurePendingImageUpload(editor.view, request!, "image-upload-test"),
+        ).toBe(true);
+        let outcome: Awaited<ReturnType<typeof runImageUpload>> | undefined;
+        await act(async () => {
+          outcome = await runImageUpload({
+            view: editor.view,
+            file,
+            uploadId: "image-upload-test",
+            request: request!,
+            upload: () => Promise.resolve(uploadedSrc),
+            persist: () => true,
+            messages,
+          });
+        });
+        expect(outcome?.status).not.toBe("failed");
+        expect(images(editor)).toHaveLength(1);
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: uploadedSrc,
+          uploadId: null,
+        });
+      },
+      emptyImageBlock,
+      recordPicks(picks),
+    );
+  });
+
+  it("doesn't bring a cancelled pick back on undo", async () => {
+    const picks: PendingImagePicker[] = [];
+    await withMountedEditor(
+      async (editor) => {
+        await act(async () => {
+          const { state } = editor.view;
+          editor.view.dispatch(
+            closeHistory(
+              state.tr.insertText("Note", state.doc.content.size - 1),
+            ),
+          );
+        });
+        await openEmptyBlockPicker(editor);
+        const request = picks[0];
+        expect(request?.pickerId).toMatch(/^image-picker-/);
+        await act(async () => {
+          expect(restorePendingImagePicker(editor.view, request!)).toBe(true);
+        });
+        expect(images(editor)[0]?.attrs?.uploadId).toBeNull();
+
+        await act(async () => {
+          expect(editor.commands.undo()).toBe(true);
+        });
+        expect(editor.getText()).not.toContain("Note");
+        // A pick's id holds the page's saves, with nothing left to finish it.
+        expect(images(editor)[0]?.attrs?.uploadId).toBeNull();
+        expect(serializeEditorDraftForPersistence(editor)).not.toBeNull();
+      },
+      emptyImageBlock,
+      recordPicks(picks),
+    );
   });
 
   // A later delete, which undo takes back on its own.

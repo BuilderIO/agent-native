@@ -2832,7 +2832,11 @@ export function restorePendingImagePicker(
 
   if (found && nodePosition !== null) {
     tr = tr.setSelection(NodeSelection.create(tr.doc, nodePosition));
-    view.dispatch(tr.setMeta(IMAGE_UPLOAD_STEP_META, true));
+    // Like the pick it closes, undo leaves this alone: bringing the pick's id
+    // back would hold the page's saves with nothing left to finish it.
+    view.dispatch(
+      tr.setMeta(IMAGE_UPLOAD_STEP_META, true).setMeta("addToHistory", false),
+    );
     view.focus();
     return true;
   }
