@@ -8,6 +8,7 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
+import { SignJWT } from "jose";
 
 import { e2eBaseURL } from "./base-url";
 import { designE2eRunRoot } from "./global-teardown";
@@ -347,6 +348,29 @@ async function seedMentionMember(
     if (!registration.ok() && registration.status() !== 409) {
       throw new Error(
         `mention member registration failed: ${registration.status()} ${await registration.text()}`,
+      );
+    }
+
+    // Accepting an invitation requires a verified email, and test identities
+    // never receive mail, so verify through the endpoint the email links to.
+    const authSecret = process.env.BETTER_AUTH_SECRET;
+    if (!authSecret) {
+      throw new Error(
+        "BETTER_AUTH_SECRET is unset, so setup cannot verify the mention member's email",
+      );
+    }
+    const verificationToken = await new SignJWT({ email: E2E_MENTION_EMAIL })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime("10m")
+      .sign(new TextEncoder().encode(authSecret));
+    const verification = await memberContext.request.get(
+      `${baseURL}/_agent-native/auth/ba/verify-email?token=${encodeURIComponent(verificationToken)}`,
+      { maxRedirects: 0 },
+    );
+    if (!verification.ok()) {
+      throw new Error(
+        `verify mention member email failed: ${verification.status()} ${await verification.text()}`,
       );
     }
 

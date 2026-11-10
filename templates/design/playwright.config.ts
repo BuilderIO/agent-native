@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { randomInt, randomUUID } from "node:crypto";
+import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
@@ -45,6 +45,7 @@ const E2E_RESULTS_DIR = path.join(
   E2E_RUN_ID,
 );
 process.env.E2E_RUN_RESULTS_DIR ??= E2E_RESULTS_DIR; // guard:allow-env-mutation - teardown removes only this Playwright run
+process.env.BETTER_AUTH_SECRET ??= randomBytes(32).toString("hex"); // guard:allow-env-mutation - setup signs the mention member's email verification with the server's secret
 const ATTACHMENT_STORAGE_HTTPS_PORT = Number(
   process.env.E2E_ATTACHMENT_STORAGE_HTTPS_PORT ?? LOOPBACK_PORT + 1,
 );
