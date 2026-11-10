@@ -98,6 +98,20 @@ describe("browser tab id", () => {
     expect(reloaded.getBrowserTabId()).toBe("link-tab");
   });
 
+  it("adopts a later open link's tab ID in a window that already has one", async () => {
+    stubNavigationType("navigate");
+    const { getBrowserTabId } = await loadTabId();
+    const first = getBrowserTabId();
+
+    window.history.replaceState({}, "", "/home?agentNativeTab=relaunch-tab");
+
+    expect(getBrowserTabId()).toBe("relaunch-tab");
+    expect(first).not.toBe("relaunch-tab");
+    expect(window.location.search).toBe("");
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBe("relaunch-tab");
+    expect(getBrowserTabId()).toBe("relaunch-tab");
+  });
+
   it("drops a malformed linked tab ID and makes its own", async () => {
     stubNavigationType("navigate");
     window.history.replaceState({}, "", "/home?agentNativeTab=bad%2Ftab");

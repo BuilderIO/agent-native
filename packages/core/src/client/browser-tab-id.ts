@@ -48,7 +48,9 @@ function generate(): string {
 // route wrote its `navigate` command under. Take it once and drop it from the
 // URL, so a copied link doesn't give a second tab the same ID.
 function takeIdFromUrl(): string | null {
-  const url = new URL(window.location.href);
+  const href = window.location?.href;
+  if (!href || !URL.canParse(href)) return null;
+  const url = new URL(href);
   const id = url.searchParams.get(BROWSER_TAB_QUERY_PARAM);
   if (id === null) return null;
   url.searchParams.delete(BROWSER_TAB_QUERY_PARAM);
@@ -64,8 +66,21 @@ function takeIdFromUrl(): string | null {
   return SAFE_BROWSER_TAB_ID_RE.test(id) ? id : null;
 }
 
-function newTabId(): string {
-  return takeIdFromUrl() ?? generate();
+// The linked ID replaces any ID this window already holds: an embed can load
+// a new open link into the same window, and the old ID's command is spent.
+function adoptLinkedTabId(key: string, id: string): string {
+  const pending = browserTabIdState.pendingId;
+  if (pending && pending !== id) {
+    browserTabIdAliases.set(pending, { storageKey: key, id });
+  }
+  browserTabIdState.pendingId = null;
+  browserTabIdState.ids.set(key, id);
+  try {
+    sessionStorage.setItem(key, id);
+  } catch {
+    // coercion-ok: without storage the ID lives in memory for this document, as a generated one does.
+  }
+  return id;
 }
 
 function shouldReuseStoredTabId(): boolean {
@@ -89,6 +104,9 @@ export function getBrowserTabId(): string {
   } catch {
     return getOrCreatePendingId();
   }
+
+  const linked = takeIdFromUrl();
+  if (linked) return adoptLinkedTabId(key, linked);
 
   const cached = browserTabIdState.ids.get(key);
   if (cached) {
@@ -144,7 +162,7 @@ export function getBrowserTabId(): string {
     return existing;
   }
 
-  const id = newTabId();
+  const id = generate();
   try {
     sessionStorage.setItem(key, id);
   } catch {
@@ -185,12 +203,12 @@ export function isBrowserTabIdForCurrentDocument(tabId?: string): boolean {
 function getOrCreateMemoryId(key: string): string {
   const cached = browserTabIdState.ids.get(key);
   if (cached) return cached;
-  const id = newTabId();
+  const id = generate();
   browserTabIdState.ids.set(key, id);
   return id;
 }
 
 function getOrCreatePendingId(): string {
-  browserTabIdState.pendingId ??= newTabId();
+  browserTabIdState.pendingId ??= takeIdFromUrl() ?? generate();
   return browserTabIdState.pendingId;
 }

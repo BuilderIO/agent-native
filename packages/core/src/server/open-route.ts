@@ -214,7 +214,8 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
       // the user to the view; nothing to scope the navigate write to.
     }
 
-    if (session?.email) {
+    // A HEAD response loads no page that could take the command.
+    if (session?.email && method === "GET") {
       try {
         // Tabs read only their own `navigate:<tabId>` row, and the tab this
         // link opens doesn't exist yet. Pick its ID here and hand it over on

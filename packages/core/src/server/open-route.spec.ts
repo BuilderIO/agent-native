@@ -277,6 +277,22 @@ describe("createOpenRouteHandler", () => {
     expect(appStatePut).not.toHaveBeenCalled();
   });
 
+  it("redirects a HEAD request without writing a command no page will read", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/_agent-native/open?app=mail&view=inbox&threadId=abc123",
+        "HEAD",
+      ),
+    );
+
+    expect(appStatePut).not.toHaveBeenCalled();
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/inbox?agentSidebar=closed");
+  });
+
   it("rejects non-GET methods with 405", async () => {
     getSession.mockResolvedValue({ email: "user@example.com" });
     const handler = createOpenRouteHandler();
