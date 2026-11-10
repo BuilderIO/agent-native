@@ -74,6 +74,10 @@ import {
   VAULT_SYNC_DESCRIPTION_PREFIX,
   type SecretMeta,
 } from "./storage.js";
+import {
+  registeredUrlAllowlist,
+  validateUrlAllowlist,
+} from "./substitution.js";
 import { describeSecretUsage } from "./usage.js";
 
 export type SecretSource = "personal" | "workspace" | "vault";
@@ -409,7 +413,10 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
 
   let urlAllowlist: string | undefined;
   if (body.urlAllowlist !== undefined) {
-    const normalized = normalizeUrlAllowlist(body.urlAllowlist);
+    const normalized = normalizeUrlAllowlist(
+      body.urlAllowlist,
+      registeredUrlAllowlist(secret.key),
+    );
     if (normalized.ok === false) {
       setResponseStatus(event, 400);
       return { error: normalized.error };
@@ -1009,6 +1016,7 @@ function extractAdHocName(event: H3Event): string | null {
 
 function normalizeUrlAllowlist(
   input: unknown,
+  maximum: readonly string[] | null = null,
 ): { ok: true; origins: string[] } | { ok: false; error: string } {
   if (!Array.isArray(input) || !input.every((v) => typeof v === "string")) {
     return { ok: false, error: "urlAllowlist must be an array of strings" };
@@ -1043,6 +1051,15 @@ function normalizeUrlAllowlist(
       };
     }
     if (!origins.includes(url.origin)) origins.push(url.origin);
+  }
+  if (
+    maximum &&
+    origins.some((origin) => !validateUrlAllowlist(origin, maximum))
+  ) {
+    return {
+      ok: false,
+      error: "urlAllowlist exceeds the registered provider policy",
+    };
   }
   return { ok: true, origins };
 }

@@ -68,6 +68,14 @@ export function useExtensionChatSubmission() {
           </AlertDialogTitle>
           <AlertDialogDescription className="max-h-48 overflow-auto whitespace-pre-wrap break-words">
             {pending?.input.message}
+            {pending?.input.context !== undefined && (
+              <span className="mt-3 block border-t pt-3">
+                <span className="block font-medium">
+                  {t("agentChat.extensions.context")}
+                </span>
+                <span className="block">{pending.input.context}</span>
+              </span>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

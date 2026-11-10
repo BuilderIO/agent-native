@@ -98,6 +98,9 @@ describe("InlineExtensionFrame", () => {
 
     expect(sendToAgentChat).not.toHaveBeenCalled();
     expect(iframe?.getAttribute("aria-disabled")).toBeNull();
+    expect(
+      document.querySelector('[role="alertdialog"]')?.textContent,
+    ).toContain('Context{"threshold":42}');
     await confirmPendingMessage();
     expect(sendToAgentChat).toHaveBeenCalledWith({
       message: "Use this threshold",

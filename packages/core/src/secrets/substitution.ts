@@ -27,6 +27,7 @@
 
 import { resolveCredentialForScope } from "../credentials/index.js";
 import { orderCredentialScopes } from "../server/credential-read-order.js";
+import { isLoopbackHost } from "../server/origin-allowlist.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -226,7 +227,7 @@ const DEFAULT_PROVIDER_ORIGINS: Partial<Record<string, readonly string[]>> = {
   TWITTER_BEARER_TOKEN: ["https://api.x.com", "https://api.twitter.com"],
 };
 
-function registeredUrlAllowlist(name: string): string[] | null {
+export function registeredUrlAllowlist(name: string): string[] | null {
   const configured = getRequiredSecret(name)?.urlAllowlist;
   const origins =
     configured ??
@@ -238,12 +239,14 @@ function registeredUrlAllowlist(name: string): string[] | null {
 
 export function validateUrlAllowlist(
   url: string,
-  allowlist: string[] | null,
+  allowlist: readonly string[] | null,
 ): boolean {
   if (!allowlist || allowlist.length === 0) return false;
   let origin: string;
   try {
-    origin = new URL(url).origin;
+    const target = new URL(url);
+    if (!usesSecureSecretTransport(target)) return false;
+    origin = target.origin;
   } catch {
     return false;
   }
@@ -252,7 +255,7 @@ export function validateUrlAllowlist(
     try {
       const policyUrl = new URL(entry);
       if (
-        (policyUrl.protocol !== "https:" && policyUrl.protocol !== "http:") ||
+        !usesSecureSecretTransport(policyUrl) ||
         policyUrl.username ||
         policyUrl.password
       ) {
@@ -264,6 +267,23 @@ export function validateUrlAllowlist(
     }
   }
   return matched;
+}
+
+function usesSecureSecretTransport(url: URL): boolean {
+  return (
+    url.protocol === "https:" ||
+    (url.protocol === "http:" && isLoopbackHost(url.host))
+  );
+}
+
+function effectiveUrlAllowlist(
+  name: string,
+  stored: string[] | null | undefined,
+): string[] | null {
+  const registered = registeredUrlAllowlist(name);
+  if (!registered) return stored ?? null;
+  if (!stored) return registered;
+  return stored.filter((origin) => validateUrlAllowlist(origin, registered));
 }
 
 /**
@@ -289,7 +309,7 @@ export async function getKeyAllowlist(
       scopeId: getWorkspaceScopeId(scopeId),
     });
   }
-  return meta?.urlAllowlist ?? registeredUrlAllowlist(name);
+  return effectiveUrlAllowlist(name, meta?.urlAllowlist);
 }
 
 export async function getResolvedKeyAllowlist(
@@ -300,7 +320,7 @@ export async function getResolvedKeyAllowlist(
     scope: ref.scope,
     scopeId: ref.scopeId,
   });
-  return meta?.urlAllowlist ?? registeredUrlAllowlist(ref.name);
+  return effectiveUrlAllowlist(ref.name, meta?.urlAllowlist);
 }
 
 function getWorkspaceScopeId(userScopeId: string): string {

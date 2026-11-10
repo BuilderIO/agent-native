@@ -187,6 +187,28 @@ describe("secrets routes", () => {
     });
   });
 
+  it("rejects a registered provider origin outside its fixed policy", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "OPENAI_API_KEY",
+      label: "OpenAI API key",
+      scope: "user",
+      kind: "api-key",
+    });
+
+    await expect(
+      createWriteSecretHandler()(
+        event("/OPENAI_API_KEY", "POST", {
+          value: "fake-token",
+          urlAllowlist: ["https://other.example.test"],
+        }),
+      ),
+    ).resolves.toEqual({
+      error: "urlAllowlist exceeds the registered provider policy",
+    });
+    expect(lastStatus).toBe(400);
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
   it("uses the registered user secret scope and ignores caller-supplied scopeId", async () => {
     mockGetRequiredSecret.mockReturnValue({
       key: "API_TOKEN",

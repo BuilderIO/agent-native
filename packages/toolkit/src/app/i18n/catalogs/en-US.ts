@@ -9,6 +9,7 @@ const messages = {
   "settingsApiKeys.originsCount_other": "{{count}} approved origins",
   "settingsApiKeys.noApprovedOrigins": "No approved origins",
   "extensions.cancel": "Cancel",
+  "extensions.context": "Context",
   "extensions.confirmAgentMessage": "Send extension message to agent?",
   "extensions.sendToAgent": "Send to agent",
   "auth.logOutFailed": "Log out failed",

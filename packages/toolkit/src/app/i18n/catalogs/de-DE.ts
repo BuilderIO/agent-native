@@ -12,6 +12,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsApiKeys.originsCount_other": "{{count}} genehmigte Ursprünge",
   "settingsApiKeys.noApprovedOrigins": "Keine genehmigten Ursprünge",
   "extensions.cancel": "Abbrechen",
+  "extensions.context": "Kontext",
   "extensions.confirmAgentMessage":
     "Nachricht der Erweiterung an den Agenten senden?",
   "extensions.sendToAgent": "An Agenten senden",

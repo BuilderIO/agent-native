@@ -12,6 +12,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsApiKeys.originsCount_other": "승인된 출처 {{count}}개",
   "settingsApiKeys.noApprovedOrigins": "승인된 출처 없음",
   "extensions.cancel": "취소",
+  "extensions.context": "컨텍스트",
   "extensions.confirmAgentMessage": "확장 기능 메시지를 에이전트에게 보낼까요?",
   "extensions.sendToAgent": "에이전트에게 보내기",
   "auth.logOutFailed": "로그아웃하지 못했습니다",

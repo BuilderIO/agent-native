@@ -15,6 +15,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsApiKeys.originsCount_other": "{{count}} مصادر معتمدة",
   "settingsApiKeys.noApprovedOrigins": "لا توجد مصادر معتمدة",
   "extensions.cancel": "إلغاء",
+  "extensions.context": "السياق",
   "extensions.confirmAgentMessage": "هل تريد إرسال رسالة الإضافة إلى الوكيل؟",
   "extensions.sendToAgent": "إرسال إلى الوكيل",
   "auth.logOutFailed": "تعذّر تسجيل الخروج",

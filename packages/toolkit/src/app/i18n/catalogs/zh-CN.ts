@@ -11,6 +11,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsApiKeys.originsCount_other": "{{count}} 个已批准的来源",
   "settingsApiKeys.noApprovedOrigins": "没有已批准的来源",
   "extensions.cancel": "取消",
+  "extensions.context": "上下文",
   "extensions.confirmAgentMessage": "将扩展消息发送给智能体？",
   "extensions.sendToAgent": "发送给智能体",
   "auth.logOutFailed": "退出登录失败",

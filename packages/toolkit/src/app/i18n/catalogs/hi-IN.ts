@@ -11,6 +11,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsApiKeys.originsCount_other": "{{count}} स्वीकृत मूल",
   "settingsApiKeys.noApprovedOrigins": "कोई स्वीकृत मूल नहीं",
   "extensions.cancel": "रद्द करें",
+  "extensions.context": "संदर्भ",
   "extensions.confirmAgentMessage": "एक्सटेंशन का संदेश एजेंट को भेजें?",
   "extensions.sendToAgent": "एजेंट को भेजें",
   "auth.logOutFailed": "साइन आउट नहीं हो सका",

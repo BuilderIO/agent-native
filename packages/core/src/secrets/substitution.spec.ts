@@ -274,6 +274,19 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
       }),
     ).resolves.toEqual(["https://api.github.com"]);
   });
+
+  it("intersects a saved provider policy with its fixed destinations", async () => {
+    mockReadAppSecretMeta.mockResolvedValue({
+      urlAllowlist: ["https://api.github.com", "https://other.example.test"],
+    });
+    await expect(
+      getResolvedKeyAllowlist({
+        name: "GITHUB_TOKEN",
+        scope: "org",
+        scopeId: "org_123",
+      }),
+    ).resolves.toEqual(["https://api.github.com"]);
+  });
 });
 
 describe("resolveKeyReferences", () => {
@@ -445,6 +458,19 @@ describe("validateUrlAllowlist", () => {
     ).toBe(false);
   });
 
+  it("blocks saved public HTTP origins at request time while allowing loopback", () => {
+    expect(
+      validateUrlAllowlist("http://api.example.test/data", [
+        "http://api.example.test",
+      ]),
+    ).toBe(false);
+    expect(
+      validateUrlAllowlist("http://localhost:3000/data", [
+        "http://localhost:3000",
+      ]),
+    ).toBe(true);
+  });
+
   it("returns false for a malformed target URL", () => {
     expect(validateUrlAllowlist("not a url", ["https://api.test"])).toBe(false);
   });
@@ -472,6 +498,16 @@ describe("getKeyAllowlist", () => {
   it("returns the configured allowlist for the requested scope", async () => {
     mockReadAppSecretMeta.mockResolvedValue({
       urlAllowlist: ["https://api.openai.com"],
+    });
+
+    await expect(
+      getKeyAllowlist("OPENAI_API_KEY", "user", "alice@example.test"),
+    ).resolves.toEqual(["https://api.openai.com"]);
+  });
+
+  it("does not return an added origin for a known provider key", async () => {
+    mockReadAppSecretMeta.mockResolvedValue({
+      urlAllowlist: ["https://api.openai.com", "https://other.example.test"],
     });
 
     await expect(
@@ -517,10 +553,10 @@ describe("getKeyAllowlist", () => {
     );
 
     await expect(
-      getKeyAllowlist("OPENAI_API_KEY", "user", "alice@example.test"),
+      getKeyAllowlist("CUSTOM_TOKEN", "user", "alice@example.test"),
     ).resolves.toEqual(["https://workspace.test"]);
     expect(mockReadAppSecretMeta).toHaveBeenCalledWith({
-      key: "OPENAI_API_KEY",
+      key: "CUSTOM_TOKEN",
       scope: "workspace",
       scopeId: "org_555",
     });

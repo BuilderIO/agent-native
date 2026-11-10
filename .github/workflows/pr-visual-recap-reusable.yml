@@ -518,8 +518,8 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -uo pipefail
-          CLAUDE_ALLOWED_TOOLS="Read(./recap.diff),Read(./recap.stat),Read(./recap-blocks.md),Read(./recap-prompt.md),Edit(./recap-source.json)"
-          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --bare --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
+          CLAUDE_ALLOWED_TOOLS="Read(./recap.diff),Read(./recap.stat),Read(./recap-blocks.md),Read(./recap-prompt.md),Edit(./recap-source.json),Write(./recap-source.json)"
+          CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --bare --tools "Read,Edit,Write" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
           CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5-5}")
           rm -f recap-source.json recap-url.txt recap-url-reason.txt claude-result.json claude-stderr.log
           for input in recap.diff recap.stat recap-blocks.md recap-prompt.md; do
@@ -599,7 +599,7 @@ jobs:
           run_openai_compatible() {
             set +e
             mkdir -p "$RUNNER_TEMP/recap-agent-home"
-            env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
+            env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" OPENAI_BASE_URL="$OPENAI_BASE_URL" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
             OPENAI_COMPATIBLE_STATUS="$?"
             set -e
             echo "$OPENAI_COMPATIBLE_STATUS" > openai-compatible-exit-code.txt
@@ -689,8 +689,8 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -uo pipefail
-          CLAUDE_ALLOWED_TOOLS="Read(./recap-source.initial.json),Read(./recap-source.json),Read(./recap-url-reason.txt),Read(./recap-repair-prompt.md),Edit(./recap-source.json)"
-          CLAUDE_ARGS=(-p "$(cat recap-repair-prompt.md)" --bare --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
+          CLAUDE_ALLOWED_TOOLS="Read(./recap-source.initial.json),Read(./recap-source.json),Read(./recap-url-reason.txt),Read(./recap-repair-prompt.md),Edit(./recap-source.json),Write(./recap-source.json)"
+          CLAUDE_ARGS=(-p "$(cat recap-repair-prompt.md)" --bare --tools "Read,Edit,Write" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
           CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5-5}")
           rm -f claude-repair-result.json claude-repair-stderr.log
           for input in recap-source.initial.json recap-source.json recap-url-reason.txt recap-repair-prompt.md; do
@@ -747,7 +747,7 @@ jobs:
           rm -f openai-compatible-repair-result.txt openai-compatible-repair-usage.json openai-compatible-repair-stderr.log
           set +e
           mkdir -p "$RUNNER_TEMP/recap-agent-home"
-          env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > openai-compatible-repair-result.txt 2> openai-compatible-repair-stderr.log
+          env -i CI=true PATH="$PATH" HOME="$RUNNER_TEMP/recap-agent-home" OPENAI_API_KEY="$OPENAI_API_KEY" OPENAI_BASE_URL="$OPENAI_BASE_URL" AGENT_ENGINE="$AGENT_ENGINE" AGENT_MODEL="$AGENT_MODEL" AGENT_NATIVE_CODE_TOOL_PROFILE="$AGENT_NATIVE_CODE_TOOL_PROFILE" AGENT_NATIVE_CODE_USAGE_FILE="$AGENT_NATIVE_CODE_USAGE_FILE" $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > openai-compatible-repair-result.txt 2> openai-compatible-repair-stderr.log
           OPENAI_COMPATIBLE_REPAIR_STATUS="$?"
           set -e
           echo "$OPENAI_COMPATIBLE_REPAIR_STATUS" > openai-compatible-repair-exit-code.txt

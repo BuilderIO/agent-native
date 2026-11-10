@@ -1,4 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useAppearance } from "@agent-native/core/client/appearance";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
