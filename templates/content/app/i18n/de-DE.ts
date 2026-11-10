@@ -709,6 +709,7 @@ const editor = {
     "Nur Ansicht. Diese Seite folgt einer Datei in GitHub und wird nach jedem Push aktualisiert.",
   githubSourceOpenFile: "In GitHub öffnen",
   textColor: "Textfarbe",
+  resizeColumns: "Spaltenbreite ändern",
   backgroundColor: "Hintergrundfarbe",
   defaultColor: "Standard",
   color: {
@@ -1055,6 +1056,10 @@ const editor = {
     bulletedListDescription: "Ungeordnete Liste",
     callout: "Hinweis",
     calloutDescription: "Hervorgehobener Infoblock",
+    columnsDescription: "Blöcke nebeneinander anordnen",
+    twoColumns: "2 Spalten",
+    threeColumns: "3 Spalten",
+    fourColumns: "4 Spalten",
     codeBlock: "Codeblock",
     codeBlockDescription: "Codeausschnitt",
     collapsibleBlockDescription: "Zusammenklappbarer Block",

@@ -1219,6 +1219,10 @@ const editorSlashMessages = {
   bulletedListDescription: "Unordered list",
   callout: "Callout",
   calloutDescription: "Highlighted info block",
+  columnsDescription: "Put blocks side by side",
+  twoColumns: "2 columns",
+  threeColumns: "3 columns",
+  fourColumns: "4 columns",
   codeBlock: "Code Block",
   codeBlockDescription: "Code snippet",
   collapsibleBlockDescription: "Collapsible block",
@@ -1530,6 +1534,7 @@ const enUS = {
     strikethrough: "Strikethrough",
     code: "Code",
     textColor: "Text color",
+    resizeColumns: "Resize columns",
     backgroundColor: "Background color",
     defaultColor: "Default",
     color: {

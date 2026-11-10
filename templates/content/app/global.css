@@ -1361,15 +1361,19 @@ div[data-notion-callout-content] > :last-child {
   margin-bottom: 0;
 }
 
+/* Columns share the row by their ratio (each column's flex-grow), or equally
+   without one. A row too narrow for every column's minimum wraps, and a phone
+   stacks them. */
 div[data-notion-columns] {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   margin: 1rem 0;
 }
 
 div[data-notion-column] {
-  min-width: 0;
+  flex: 1 1 0%;
+  min-width: min(100%, 8rem);
   border: 1px solid hsl(var(--border));
   border-radius: 12px;
   padding: 0.85rem 0.95rem;
@@ -1382,6 +1386,12 @@ div[data-notion-column] > :first-child {
 
 div[data-notion-column] > :last-child {
   margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  div[data-notion-column] {
+    flex-basis: 100%;
+  }
 }
 
 .content-atom {

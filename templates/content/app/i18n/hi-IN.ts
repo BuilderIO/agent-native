@@ -671,6 +671,7 @@ const editor = {
     "केवल देखने के लिए। यह पेज GitHub की एक फ़ाइल का अनुसरण करता है और हर push के बाद अपडेट होता है।",
   githubSourceOpenFile: "GitHub में खोलें",
   textColor: "टेक्स्ट का रंग",
+  resizeColumns: "कॉलम का आकार बदलें",
   backgroundColor: "पृष्ठभूमि का रंग",
   defaultColor: "डिफ़ॉल्ट",
   color: {
@@ -1006,6 +1007,10 @@ const editor = {
     bulletedListDescription: "अव्यवस्थित सूची",
     callout: "कॉलआउट",
     calloutDescription: "हाइलाइट किया गया जानकारी ब्लॉक",
+    columnsDescription: "ब्लॉक को अगल-बगल रखें",
+    twoColumns: "2 कॉलम",
+    threeColumns: "3 कॉलम",
+    fourColumns: "4 कॉलम",
     codeBlock: "कोड ब्लॉक",
     codeBlockDescription: "कोड स्निपेट",
     collapsibleBlockDescription: "बंधनेवाला ब्लॉक",

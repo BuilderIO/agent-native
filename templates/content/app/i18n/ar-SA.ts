@@ -678,6 +678,7 @@ const editor = {
     "للعرض فقط. تتبع هذه الصفحة ملفًا في GitHub وتتحدث بعد كل دفع.",
   githubSourceOpenFile: "فتح في GitHub",
   textColor: "لون النص",
+  resizeColumns: "تغيير حجم الأعمدة",
   backgroundColor: "لون الخلفية",
   defaultColor: "افتراضي",
   color: {
@@ -1011,6 +1012,10 @@ const editor = {
     bulletedListDescription: "قائمة غير مرتبة",
     callout: "وسيلة الشرح",
     calloutDescription: "كتلة المعلومات المميزة",
+    columnsDescription: "ضع الكتل جنبًا إلى جنب",
+    twoColumns: "عمودان",
+    threeColumns: "3 أعمدة",
+    fourColumns: "4 أعمدة",
     codeBlock: "كتلة الكود",
     codeBlockDescription: "مقتطف الكود",
     collapsibleBlockDescription: "كتلة قابلة للطي",
