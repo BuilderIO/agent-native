@@ -1209,6 +1209,9 @@ test("custom Size axes round-trip through source, reopen, and reload", async ({
 
   await page.keyboard.press("Escape");
   await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(
+    page.locator('[data-design-top-bar] [data-design-mode="edit"]'),
+  ).toBeVisible({ timeout: 30_000 });
   await waitForDesignPreviewReady(page);
   await selectByText(page, "Motion Rectangle Two", {
     screenId: fileId,

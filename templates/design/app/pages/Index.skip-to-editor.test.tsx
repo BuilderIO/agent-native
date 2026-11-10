@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   },
   promptProps: null as Record<string, any> | null,
   toastError: vi.fn(),
+  reportWriteFailure: vi.fn(),
   writePendingGeneration: vi.fn(),
   clearPendingGeneration: vi.fn(),
   fullAppBuilding: false,
@@ -321,6 +322,10 @@ vi.mock("react-router", () => ({
 
 vi.mock("nanoid", () => ({
   nanoid: () => mocks.nanoid(),
+}));
+
+vi.mock("@agent-native/core/client/write-failure", () => ({
+  reportWriteFailure: (...args: unknown[]) => mocks.reportWriteFailure(...args),
 }));
 
 vi.mock("sonner", () => ({
@@ -1038,7 +1043,10 @@ describe("Index skip to editor", () => {
     });
 
     expect(mocks.navigate).not.toHaveBeenCalled();
-    expect(mocks.toastError).toHaveBeenCalledWith("Failed to create design");
+    expect(mocks.reportWriteFailure).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ message: "database unavailable" }),
+      { label: "Failed to create design" },
+    );
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
     expect(mocks.generateTitle).not.toHaveBeenCalled();
 

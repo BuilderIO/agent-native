@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { CLIPS_MEETINGS } from "@shared/labs";
 import {
@@ -508,7 +509,9 @@ export default function MeetingDetailRoute() {
 
   const updateMeeting = useActionMutation<any, any>("update-meeting");
   const deleteMeeting = useActionMutation<any, any>("delete-meeting");
-  const finalize = useActionMutation<any, any>("finalize-meeting");
+  const finalize = useActionMutation("finalize-meeting", {
+    errorNotification: "caller",
+  });
   const stopMeetingRecording = useActionMutation<any, any>(
     "stop-meeting-recording",
   );
@@ -728,7 +731,9 @@ export default function MeetingDetailRoute() {
         ) {
           patchCachedMeeting({ title: meetingTitleDraftRef.current.value });
         }
-        toast.error(t("transcriptPanel.saveFailed", { status: "title" }));
+        reportWriteFailure(error, {
+          label: t("transcriptPanel.saveFailed", { status: "title" }),
+        });
       })();
     });
   };
@@ -776,9 +781,11 @@ export default function MeetingDetailRoute() {
               patchCachedMeeting(nextPending.patch);
               continue;
             }
-            toast.error(
-              t("transcriptPanel.saveFailed", { status: current.label }),
-            );
+            reportWriteFailure(error, {
+              label: t("transcriptPanel.saveFailed", {
+                status: current.label,
+              }),
+            });
           }
         }
       })
@@ -833,11 +840,11 @@ export default function MeetingDetailRoute() {
     meetingContentSaveQueueRef.current = save
       .catch(async (error) => {
         console.error("[clips] action-item save failed", error);
-        toast.error(
-          t("transcriptPanel.saveFailed", {
+        reportWriteFailure(error, {
+          label: t("transcriptPanel.saveFailed", {
             status: t("meetingDetail.actionItems"),
           }),
-        );
+        });
         const hasNewerDraft = actionItemsSaveRevisionRef.current !== revision;
         const refreshed = await refetchMeetingAfterSaveFailure();
         if (hasNewerDraft) {

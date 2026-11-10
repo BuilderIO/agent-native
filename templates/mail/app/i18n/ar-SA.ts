@@ -463,6 +463,15 @@ const messages = {
       scheduledCancelFailed: "فشل إلغاء البريد المجدول",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "فشل تحميل الصورة",
+      storageBuilderRefused:
+        "رفض Builder.io اتصال تخزين الملفات الخاص بـ Mail، لذا لم يتم إرفاق الملف. أعد ربط Builder.io أو استخدم مساحة التخزين الخاصة بك، ثم حاول مرة أخرى.",
+      storageRefused:
+        "رفضت حاوية التخزين الخاصة بك هذا التحميل، لذا لم يتم إرفاق الملف. تحقق من الحاوية ومفاتيحها، ثم حاول مرة أخرى.",
+      storageNotConfigured:
+        "لم يتم إعداد تخزين الملفات، لذا لم يتم إرفاق الملف. اربط Builder.io أو حاوية التخزين الخاصة بك، ثم حاول مرة أخرى.",
+      openStorageSettings: "فتح إعدادات التخزين",
+      reconnectBuilderStorage: "إعادة ربط Builder.io",
+      useOwnStorage: "استخدام مساحة التخزين الخاصة بك",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "تم إرسال الرسالة.",
       failedToSaveDraft: "تعذر حفظ المسودة.",

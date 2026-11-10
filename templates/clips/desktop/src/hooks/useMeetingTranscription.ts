@@ -26,6 +26,7 @@ import {
   transcriptFullText,
   transcriptLineFromSegment,
   transcriptSegments,
+  type LocalTranscriptionModel,
   type SourcedTranscriptSegment,
   type TranscriptionEngine,
   type TranscriptLine,
@@ -54,6 +55,7 @@ interface MeetingTranscriptionSession {
     actualEnd: string | null;
   } | null;
   lines: TranscriptLine[];
+  transcriptionFailure: string | null;
   unlisten: Array<() => void>;
   flushTimer: ReturnType<typeof setTimeout> | null;
   stopping: boolean;
@@ -107,6 +109,7 @@ interface Props {
   selectedMicId: string | null;
   selectedMicLabel: string | null;
   enabled: boolean;
+  localModel: LocalTranscriptionModel | null;
 }
 
 const MEETING_START_CANCELLED = Symbol("meeting-start-cancelled");
@@ -176,8 +179,13 @@ export function useMeetingTranscription({
   selectedMicId,
   selectedMicLabel,
   enabled,
+  localModel,
 }: Props): void {
   const sessionRef = useRef<MeetingTranscriptionSession | null>(null);
+  // Read when audio starts or resumes, so changing the engine mid-meeting
+  // applies from the next resume rather than restarting capture.
+  const localModelRef = useRef(localModel);
+  localModelRef.current = localModel;
   const pendingStartRef = useRef<MeetingTranscriptionPayload | null>(null);
   const recoveryRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -238,6 +246,9 @@ export function useMeetingTranscription({
               segments: transcriptSegments(session.lines),
               source: session.engine,
               overwriteReady: true,
+              ...(session.transcriptionFailure
+                ? { failureReason: session.transcriptionFailure }
+                : {}),
             },
             { signal },
           ),
@@ -313,7 +324,9 @@ export function useMeetingTranscription({
             ),
           );
           for (const result of stopResults) {
-            if (result.status === "rejected") {
+            if (result.status === "fulfilled") {
+              session.transcriptionFailure ??= result.value.failure;
+            } else {
               console.warn(
                 "[clips-popover] meeting audio stop failed:",
                 result.reason,
@@ -330,7 +343,11 @@ export function useMeetingTranscription({
             () => null,
           );
           if (engineWasStarting && startedEngine) {
-            await stopTranscriptionEngine(startedEngine, stoppingRunId);
+            const stopped = await stopTranscriptionEngine(
+              startedEngine,
+              stoppingRunId,
+            );
+            session.transcriptionFailure ??= stopped.failure;
           }
           if (!session.paused) {
             session.settlingRunDeadlines.set(
@@ -674,6 +691,7 @@ export function useMeetingTranscription({
           settlingRunDeadlines: new Map(),
           recordingId: null,
           lines: [],
+          transcriptionFailure: null,
           unlisten: [],
           flushTimer: null,
           stopping: false,
@@ -778,9 +796,9 @@ export function useMeetingTranscription({
         }
         const enginePromise = startTranscriptionEngine({
           mic: { deviceId: selectedMicId, label: selectedMicLabel },
-          voiceProcessing: false,
           runId: session.audioRunId,
           canContinue: sessionIsActive,
+          localModel: localModelRef.current,
         });
         engineStarting = enginePromise;
         session.engineStarting = enginePromise;
@@ -856,9 +874,9 @@ export function useMeetingTranscription({
                 label: selectedMicLabel,
               },
               true,
-              false,
               true,
               runId,
+              localModelRef.current,
             );
           } catch (err) {
             if (session.resumingRunId === runId) {
@@ -902,7 +920,11 @@ export function useMeetingTranscription({
                   if (!sessionIsActive()) return;
                   session.engine = engine;
                   const pausedRunId = session.audioRunId;
-                  await stopTranscriptionEngine(engine, pausedRunId);
+                  const stopped = await stopTranscriptionEngine(
+                    engine,
+                    pausedRunId,
+                  );
+                  session.transcriptionFailure ??= stopped.failure;
                   session.settlingRunDeadlines.set(
                     pausedRunId,
                     Date.now() + TRANSCRIPTION_STOP_SETTLE_MS,
@@ -1008,6 +1030,12 @@ export function useMeetingTranscription({
           starting: true,
         };
 
+        // Restarted notes reload the lines they already saved, which hold the
+        // same speech Rewind recovers from the meeting's start. Whichever
+        // arrives second yields to the saved lines, so it is kept only once.
+        const savedLinesLoadedRef: { current: boolean } = { current: false };
+        let rewindLines: TranscriptLine[] = [];
+
         callClipsAction<{
           meeting?: { userNotesMd?: string; title?: string | null };
           transcript?: { segmentsJson?: string | null } | null;
@@ -1055,6 +1083,15 @@ export function useMeetingTranscription({
                       recovered: s.recovered,
                     }),
                   );
+                  savedLinesLoadedRef.current = true;
+                  if (rewindLines.length) {
+                    const duplicates = new Set(rewindLines);
+                    session.lines = session.lines.filter(
+                      (line) => !duplicates.has(line),
+                    );
+                    rewindLines = [];
+                    if (!session.stopping) scheduleFlush();
+                  }
                   session.lines = [...storedLines, ...session.lines];
                   const preloadedLines = pillTranscriptLines(session.lines);
                   if (
@@ -1136,17 +1173,26 @@ export function useMeetingTranscription({
           meetingId: resolvedMeetingId,
         }).catch(() => {});
 
-        if (historyPreparedRef.current) {
+        if (historyPreparedRef.current && savedLinesLoadedRef.current) {
+          invoke("rewind_meeting_history_cancel", {
+            token: historyPreparedRef.current.token,
+          }).catch(() => {});
+        } else if (historyPreparedRef.current) {
           const prepared = historyPreparedRef.current;
           const historyPromise = invoke<{
             segments: SourcedTranscriptSegment[];
           }>("rewind_meeting_history_collect", { token: prepared.token })
             .then((history) => {
-              if (sessionRef.current !== session) return;
-              const historyLines = history.segments.map((segment) =>
+              if (
+                sessionRef.current !== session ||
+                savedLinesLoadedRef.current
+              ) {
+                return;
+              }
+              rewindLines = history.segments.map((segment) =>
                 transcriptLineFromSegment({ ...segment, recovered: true }),
               );
-              session.lines = [...historyLines, ...session.lines];
+              session.lines = [...rewindLines, ...session.lines];
               const preloadedLines = pillTranscriptLines(session.lines);
               if (pendingPillInitRef.current?.meetingId === resolvedMeetingId) {
                 pendingPillInitRef.current = {
@@ -1165,6 +1211,8 @@ export function useMeetingTranscription({
               });
             })
             .catch((error) => {
+              // The saved lines already hold the earlier speech.
+              if (savedLinesLoadedRef.current) return;
               const message =
                 typeof error === "string"
                   ? error

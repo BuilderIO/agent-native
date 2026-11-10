@@ -560,6 +560,32 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["local-file-source-truth"],
   },
   {
+    id: "sharing.agent-text-lock",
+    surface: "sharing",
+    label: "Lock a page's text against agents",
+    uiEntrypoints: [
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/AgentsShareTab.tsx",
+    ],
+    durableEffect:
+      "The lock is stored on the document, and every action that writes a page's text refuses an agent's call while it is on. The exception is a GitHub folder sync an agent starts: pages following a GitHub file are view-only in Content anyway, and it doesn't name one page.",
+    uiImplementation:
+      "The Share panel's Agents tab calls the set-document-agent-text-lock Action: Can comment turns the lock on and Can edit turns it off.",
+    status: "action-backed",
+    actions: ["set-document-agent-text-lock"],
+    exception:
+      "set-document-agent-text-lock is hidden with agentTool: false because the lock has to hold against agents, so only a person can change it.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/agent-text-lock.db.test.ts",
+      "app/components/editor/AgentLevel.ui.test.tsx",
+      "app/components/editor/AgentsShareTab.ui.test.tsx",
+    ],
+  },
+  {
     id: "header.import-markdown-files",
     surface: "header",
     label: "Import Markdown files as pages and undo the import",

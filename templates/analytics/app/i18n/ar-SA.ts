@@ -1378,6 +1378,7 @@ export default {
     drilldownOverByteCap:
       "قد تقرأ هذه السجلات أكثر من {{gib}} غيغابايت، لذلك لم تُحمَّل. ضيّق عوامل تصفية لوحة المعلومات أو نطاقها الزمني ثم حاول مرة أخرى.",
     filterSeries: "Filter",
+    noXValue: "بلا قيمة",
     chartTimeRangeOverride: "تجاوز النطاق الزمني لهذه الرسمة البيانية",
     chartTimeRangeInherit: "نطاق لوحة المعلومات",
     hide: "Hide",

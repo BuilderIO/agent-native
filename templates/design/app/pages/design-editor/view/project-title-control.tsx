@@ -3,6 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   composerSourceReferenceSchema,
   composerWebsiteUrlSchema,
@@ -14,7 +15,7 @@ import {
   IconFileText,
 } from "@tabler/icons-react";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -172,7 +173,11 @@ function ProjectTitleControl({
         if (!result?.id) throw new Error("Missing copied design id");
         void navigate(`/design/${result.id}`);
       })
-      .catch(() => toast.error(t("designEditor.toasts.saveCopyError")));
+      .catch((error) =>
+        reportWriteFailure(error, {
+          label: t("designEditor.toasts.saveCopyError"),
+        }),
+      );
   }, [duplicateDesignMutation, hasPendingVisualStyleEdits, id, navigate, t]);
 
   const handleMoveToTrash = useCallback(() => {
@@ -191,7 +196,11 @@ function ProjectTitleControl({
         clearPendingEditSessionMarker(id);
         void navigate("/home");
       })
-      .catch(() => toast.error(t("designEditor.fileMenu.deleteError")));
+      .catch((error) =>
+        reportWriteFailure(error, {
+          label: t("designEditor.fileMenu.deleteError"),
+        }),
+      );
   }, [
     clearPendingLiveEditState,
     deleteDesignMutation,
@@ -314,6 +323,11 @@ function ProjectTitleControl({
               </DropdownMenuItem>
               <DropdownMenuItem onClick={openImportFilePicker}>
                 {t("designEditor.fileMenu.import")}
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to="/visual-edit" target="_blank" rel="noreferrer">
+                  {t("designEditor.fileMenu.connectLocalApp")}
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
