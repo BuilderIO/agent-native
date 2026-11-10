@@ -17,6 +17,7 @@ Playfair Display
 ~/.claude/ on a local disk
 302 + signed JWT
 401 · WWW-Authenticate
+A → Z
 A2A
 adapter.sendResponse
 Agent-Native
@@ -151,6 +152,7 @@ X-Request-Source: TAB_ID
 Y.Doc
 Y.Doc update
 Yjs CRDT
+Z → A
 Docs Components
 Microsoft Foundry
 Gemini Enterprise
