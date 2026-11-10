@@ -1616,6 +1616,7 @@ const overrides = {
     commandSearchHeading: "खोजें",
     searchScope: "दायरा",
     searchAllWorkspaces: "सभी कार्यक्षेत्र",
+    searchThisPage: "यह पेज",
     searchFields: "खोज फ़ील्ड",
     searchAllText: "पूरा पाठ",
     searchTitleOnly: "केवल शीर्षक",

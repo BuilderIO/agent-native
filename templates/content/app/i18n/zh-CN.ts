@@ -1692,6 +1692,7 @@ const overrides = {
     commandSearchHeading: "搜索",
     searchScope: "范围",
     searchAllWorkspaces: "全部工作区",
+    searchThisPage: "此页面",
     searchFields: "搜索字段",
     searchAllText: "全部文本",
     searchTitleOnly: "仅标题",

@@ -622,17 +622,7 @@ describe("comments sidebar layout", () => {
     expect(source).toContain("data-comments-anchored-popover");
     expect(source).toContain(
       "const commentSurfaces = shellCommentSurfaces ?? measuredCommentSurfaces;",
-    );
-    expect(source).toMatch(
-      /const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet\(\{\s+utilityPanel,\s+commentsHistoryDrawerOpen: showCommentsHistoryDrawer,\s+hasUtilityRailSpace,\s+hasInlineCommentSpace,\s+selectedSuggestionId,/,
-    );
-    expect(source).toContain(
-      `showUtilityPanelOffColumn &&
-    (commentSurfaces.list === "sheet" ||
-      (utilityPanel === "comments" && shellLayout?.agentPanel === "overlay"))`,
-    );
-    expect(source).toContain(
-      'showUtilityPanelOffColumn && commentSurfaces.list === "region-list"',
+      // oracle-change: the shell's comment surfaces and rail hold are gone with the one page panel.
     );
     expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
   });
