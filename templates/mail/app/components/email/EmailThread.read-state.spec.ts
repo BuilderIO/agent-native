@@ -27,6 +27,9 @@ describe("EmailThread trash shortcuts", () => {
       '{ key: "#", shift: "either", handler: handleTrash }',
     );
     expect(MAIL_ACTION_KEYS.trash).toEqual(["#"]);
+    expect(source).toMatch(
+      /label=\{t\("mail\.actions\.moveToTrash"\)\}\s+keys=\{MAIL_ACTION_KEYS\.trash\}/,
+    );
   });
 
   it("shows importance feedback in Inbox and the Filtered review view", () => {
