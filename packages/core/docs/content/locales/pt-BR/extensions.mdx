@@ -283,18 +283,18 @@ A galeria acima descreve _o que_ uma extensão faz. Os slots descrevem _onde_ el
 
 Por padrão, uma extensão fica em sua própria página na lista de Extensões – abra-a como um pequeno aplicativo. Isso é adequado para painéis, calculadoras e widgets independentes.
 
-Mas o caso de uso com formato mais QBO é diferente: o usuário deseja que seu widget seja fixado _dentro_ do UI do modelo – abaixo das informações de contato na barra lateral do Mail, no canto de um painel do Analytics, no lado direito de um evento do Calendário. É para isso que servem os **slots**.
+Slots nomeados existem onde o app host renderiza um `<ExtensionSlot>` e fornece o contexto da página atual. Destinos de slot e instalações conectam extensões a esses locais existentes. Eles não criam um painel, uma aba ou uma rota.
 
 Um slot é um widget nomeado onde um modelo é enviado:
 
 | Modelo         | Exemplo de espaço              | Onde aparece                                                       |
 | -------------- | ------------------------------ | ------------------------------------------------------------------ |
 | **E-mail**     | `mail.contact-sidebar.bottom`  | Abaixo das informações de contato em todas as conversas por e-mail |
-| **Análise**    | `analytics.dashboard.tiles`    | Juntamente com os painéis integrados do painel                     |
 | **Calendário** | `calendar.event-detail.bottom` | Abaixo do evento aberto                                            |
-| **Clipes**     | `clips.right-panel.tabs`       | Uma nova guia no painel de revisão de clipes                       |
+| **Tarefas**    | `tasks.task-detail.bottom`     | Abaixo dos campos da tarefa                                        |
+| **Conteúdo**   | `content.sidebar.bottom`       | Na parte inferior da barra lateral do documento                    |
 
-Quando uma extensão é **instalada em um slot**, o host envia o contexto relevante — o e-mail do contato, o ID do painel, o ID do evento — para o iframe. A extensão lê `window.slotContext` para saber o que o usuário está vendo.
+Quando uma extensão é **instalada em um slot**, o host envia ao iframe o contexto que escolheu, como o e-mail do contato, o ID da tarefa ou o ID do documento. A extensão lê `window.slotContext` para saber o que o usuário está vendo.
 
 <Diagram id="doc-block-1mbdamx" title="Os slots empurram o contexto para o widget" summary={"O modelo de host possui slots nomeados; instalar uma extensão em um alimenta window.slotContext para tudo o que o usuário está visualizando no momento."}>
 

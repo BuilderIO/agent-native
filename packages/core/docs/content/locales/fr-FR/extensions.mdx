@@ -284,18 +284,18 @@ La galerie ci-dessus décrit _ce que_ fait une extension. Les emplacements décr
 
 Par défaut, une extension se trouve sur sa propre page dans la liste des extensions : ouvrez-la comme une petite application. C'est parfait pour les tableaux de bord, les calculatrices et les widgets autonomes.
 
-Mais le cas d'utilisation le plus proche de QBO est différent : l'utilisateur souhaite que son widget soit épinglé _à l'intérieur_ du UI du modèle — sous les informations de contact dans la barre latérale de Mail, dans le coin d'un tableau de bord Analytics, sur le côté droit d'un événement de calendrier. C'est à cela que servent les **emplacements**.
+Les emplacements nommés existent là où l'application hôte affiche un `<ExtensionSlot>` et fournit le contexte de la page actuelle. Les cibles et installations d'emplacement relient les extensions à ces emplacements existants. Elles ne créent ni panneau, ni onglet, ni route.
 
 Un emplacement est une zone de widget nommée fournie par un modèle :
 
-| Modèle         | Exemple d'emplacement          | Où il apparaît                                         |
-| -------------- | ------------------------------ | ------------------------------------------------------ |
-| **Courrier**   | `mail.contact-sidebar.bottom`  | Sous les coordonnées sur chaque fil de discussion      |
-| **Analyses**   | `analytics.dashboard.tiles`    | À côté des panneaux intégrés du tableau de bord        |
-| **Calendrier** | `calendar.event-detail.bottom` | Sous l'événement ouvert                                |
-| **Extraits**   | `clips.right-panel.tabs`       | Un nouvel onglet dans le panneau de révision des clips |
+| Modèle         | Exemple d'emplacement          | Où il apparaît                                    |
+| -------------- | ------------------------------ | ------------------------------------------------- |
+| **Courrier**   | `mail.contact-sidebar.bottom`  | Sous les coordonnées sur chaque fil de discussion |
+| **Calendrier** | `calendar.event-detail.bottom` | Sous l'événement ouvert                           |
+| **Tâches**     | `tasks.task-detail.bottom`     | Sous les champs de la tâche                       |
+| **Contenu**    | `content.sidebar.bottom`       | En bas de la barre latérale du document           |
 
-Lorsqu'une extension est **installée dans un emplacement**, l'hôte envoie le contexte pertinent (l'adresse e-mail du contact, l'identifiant du tableau de bord, l'identifiant de l'événement) dans l'iframe. L'extension lit `window.slotContext` pour savoir ce que l'utilisateur regarde.
+Lorsqu'une extension est **installée dans un emplacement**, l'hôte transmet à l'iframe le contexte qu'il a choisi, par exemple l'adresse e-mail du contact, l'ID de la tâche ou l'ID du document. L'extension lit `window.slotContext` pour savoir ce que l'utilisateur regarde.
 
 <Diagram id="doc-block-1t87u8e" title="Les emplacements poussent le contexte dans le widget" summary={"Le modèle hôte possède des emplacements nommés ; l'installation d'une extension dans une extension l'alimente window.slotContext pour tout ce que l'utilisateur consulte actuellement."}>
 

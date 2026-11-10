@@ -506,18 +506,18 @@ The gallery above describes _what_ an extension does. Slots describe _where_ it 
 
 By default, an extension lives on its own page in the Extensions list — open it like a small app. That's fine for dashboards, calculators, and standalone widgets.
 
-But the most QBO-shaped use case is different: the user wants their widget pinned _inside_ the template's UI — under the contact info in Mail's sidebar, in the corner of an Analytics dashboard, on the right side of a Calendar event. That's what **slots** are for.
+Named slots exist where the host app renders `<ExtensionSlot>` and supplies its current-page context. Slot targets and installs connect extensions to those existing locations. They do not create a panel, tab, or route.
 
-A slot is a named widget area a template ships:
+A slot is a named widget area the host app places in its UI:
 
-| Template      | Example slot                   | Where it shows up                            |
-| ------------- | ------------------------------ | -------------------------------------------- |
-| **Mail**      | `mail.contact-sidebar.bottom`  | Below the contact info on every email thread |
-| **Analytics** | `analytics.dashboard.tiles`    | Alongside the dashboard's built-in panels    |
-| **Calendar**  | `calendar.event-detail.bottom` | Below the open event                         |
-| **Clips**     | `clips.right-panel.tabs`       | A new tab in the clip review panel           |
+| Template     | Example slot                   | Where it shows up                            |
+| ------------ | ------------------------------ | -------------------------------------------- |
+| **Mail**     | `mail.contact-sidebar.bottom`  | Below the contact info on every email thread |
+| **Calendar** | `calendar.event-detail.bottom` | Below the open event                         |
+| **Tasks**    | `tasks.task-detail.bottom`     | Below the task fields                        |
+| **Content**  | `content.sidebar.bottom`       | At the bottom of the document sidebar        |
 
-When an extension is **installed into a slot**, the host pushes the relevant context — the contact's email, the dashboard id, the event id — into the iframe. The extension reads `window.slotContext` to know what the user is looking at.
+When an extension is **installed into a slot**, the host pushes its chosen context, such as a contact email, task id, or document id, into the iframe. The extension reads `window.slotContext` to know what the user is looking at.
 
 <Diagram id="doc-block-18p3btl" title="Slots push context into the widget" summary={"The host template owns named slots; installing an extension into one feeds it window.slotContext for whatever the user is currently viewing."}>
 

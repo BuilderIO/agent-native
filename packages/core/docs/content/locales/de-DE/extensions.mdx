@@ -283,18 +283,18 @@ In der Galerie oben wird beschrieben, was eine Erweiterung bewirkt. Slots beschr
 
 Standardmäßig befindet sich eine Erweiterung auf einer eigenen Seite in der Erweiterungsliste – öffnen Sie sie wie eine kleine App. Das ist für Dashboards, Taschenrechner und eigenständige Widgets in Ordnung.
 
-Aber der QBO-typischste Anwendungsfall ist anders: Der Benutzer möchte, dass sein Widget _innerhalb_ des UI der Vorlage angeheftet wird – unter den Kontaktinformationen in der Seitenleiste von Mail, in der Ecke eines Analytics-Dashboards, auf der rechten Seite eines Kalenderereignisses. Dafür sind **Slots** da.
+Benannte Slots gibt es dort, wo die Host-App ein `<ExtensionSlot>` rendert und den aktuellen Seitenkontext übergibt. Slot-Ziele und Installationen verbinden Erweiterungen mit diesen vorhandenen Stellen. Sie erstellen kein Panel, keinen Tab und keine Route.
 
 Ein Slot ist ein benannter Widget-Bereich, den eine Vorlage enthält:
 
 | Vorlage      | Beispielslot                   | Wo es angezeigt wird                                  |
 | ------------ | ------------------------------ | ----------------------------------------------------- |
 | **Mail**     | `mail.contact-sidebar.bottom`  | Unter den Kontaktinformationen in jedem E-Mail-Thread |
-| **Analysen** | `analytics.dashboard.tiles`    | Neben den integrierten Panels des Dashboards          |
 | **Kalender** | `calendar.event-detail.bottom` | Unterhalb der offenen Veranstaltung                   |
-| **Clips**    | `clips.right-panel.tabs`       | Eine neue Registerkarte im Clip-Überprüfungsfenster   |
+| **Aufgaben** | `tasks.task-detail.bottom`     | Unter den Aufgabenfeldern                             |
+| **Inhalte**  | `content.sidebar.bottom`       | Unten in der Dokument-Seitenleiste                    |
 
-Wenn eine Erweiterung **in einem Steckplatz installiert** wird, schiebt der Host den relevanten Kontext – die E-Mail-Adresse des Kontakts, die Dashboard-ID, die Ereignis-ID – in den Iframe. Die Erweiterung lautet `window.slotContext`, um zu wissen, was der Benutzer sieht.
+Wenn eine Erweiterung **in einem Slot installiert** wird, übergibt der Host seinen gewählten Kontext, etwa Kontakt-E-Mail, Aufgaben-ID oder Dokument-ID, an den Iframe. Die Erweiterung liest `window.slotContext`, um zu wissen, was der Benutzer gerade sieht.
 
 <Diagram id="doc-block-4kt9b8" title={"Slots übertragen Kontext in das Widget"} summary={"Die Host-Vorlage besitzt benannte Slots; Durch die Installation einer Erweiterung in einem wird window.slotContext für alles eingespeist, was der Benutzer gerade ansieht."}>
 
