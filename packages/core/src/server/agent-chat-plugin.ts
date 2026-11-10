@@ -2223,7 +2223,7 @@ export function createAgentChatPlugin(
                   requireCurrentRunOwner("validate URL allowlist"),
                   { getKeyAllowlist, getResolvedKeyAllowlist },
                 );
-                if (allowlist && !validateUrlAllowlist(url, allowlist)) {
+                if (!validateUrlAllowlist(url, allowlist)) {
                   return false;
                 }
               }

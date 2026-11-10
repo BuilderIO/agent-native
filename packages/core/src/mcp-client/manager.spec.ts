@@ -266,6 +266,76 @@ describe("McpClientManager", () => {
     }
   });
 
+  it("keeps substituted workspace MCP credentials on their approved origin", async () => {
+    const origin = "https://93.184.216.34";
+    const mgr = new McpClientManager({
+      servers: {
+        guarded: {
+          type: "http",
+          url: `${origin}/mcp`,
+          headers: { Authorization: "Bearer fake-token" },
+          secretRequestOrigin: origin,
+        },
+      },
+    });
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeHttp;
+    const fetchImpl = transport.fetchImpl!;
+    await expect(
+      fetchImpl("https://93.184.216.35/collect", {
+        headers: transport.requestInit?.headers,
+      }),
+    ).rejects.toThrow("Workspace MCP destination changed origin");
+
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://93.184.216.35/collect" },
+      }),
+    );
+    const response = (await fetchImpl(`${origin}/mcp`, {
+      headers: transport.requestInit?.headers,
+    })) as Response;
+    expect(response.status).toBe(302);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    await mgr.stop();
+  });
+
+  it("replaces the HTTP transport when its credential origin guard changes", async () => {
+    const configFor = (secretRequestOrigin?: string) => ({
+      servers: {
+        guarded: {
+          type: "http" as const,
+          url: "https://mcp.example.test/mcp",
+          headers: { Authorization: "Bearer fake-token" },
+          ...(secretRequestOrigin ? { secretRequestOrigin } : {}),
+        },
+      },
+    });
+    const mgr = new McpClientManager(configFor());
+    await mgr.start();
+    const initial = fakeClients[0]!.getTransport() as FakeHttp;
+    expect(initial.fetchImpl).toBeUndefined();
+
+    for (const [index, origin] of [
+      "https://mcp.example.test",
+      "https://other.example.test",
+      undefined,
+    ].entries()) {
+      const previous = fakeClients[index]!.getTransport() as FakeHttp;
+      const result = await mgr.reconfigure(configFor(origin));
+
+      expect(result.reconnected).toEqual(["guarded"]);
+      expect(fakeClients).toHaveLength(index + 2);
+      const replacement = fakeClients[index + 1]!.getTransport() as FakeHttp;
+      expect(previous.closed).toBe(true);
+      expect(replacement).not.toBe(previous);
+      expect(Boolean(replacement.fetchImpl)).toBe(Boolean(origin));
+    }
+
+    await mgr.stop();
+  });
+
   it("is disabled when config is null", async () => {
     const mgr = new McpClientManager(null);
     await mgr.start();

@@ -31,7 +31,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
-import type { SecretScope } from "./register.js";
+import { getRequiredSecret, type SecretScope } from "./register.js";
 import { readAppSecret, readAppSecretMeta } from "./storage.js";
 
 const KEY_REFERENCE_REGEX = /\$\{keys\.([A-Za-z0-9_-]+)\}/g;
@@ -209,24 +209,61 @@ function requestSecretCandidates(
   ];
 }
 
+const DEFAULT_PROVIDER_ORIGINS: Partial<Record<string, readonly string[]>> = {
+  OPENAI_API_KEY: ["https://api.openai.com"],
+  ANTHROPIC_API_KEY: ["https://api.anthropic.com"],
+  GITHUB_TOKEN: ["https://api.github.com"],
+  STRIPE_SECRET_KEY: ["https://api.stripe.com"],
+  SLACK_BOT_TOKEN: ["https://slack.com"],
+  NOTION_API_KEY: ["https://api.notion.com"],
+  BUILDER_PUBLIC_KEY: ["https://cdn.builder.io"],
+  HUBSPOT_PRIVATE_APP_TOKEN: ["https://api.hubapi.com"],
+  HUBSPOT_ACCESS_TOKEN: ["https://api.hubapi.com"],
+  CLAY_PUBLIC_API_KEY: ["https://api.clay.com"],
+  GONG_ACCESS_KEY: ["https://api.gong.io"],
+  GONG_ACCESS_SECRET: ["https://api.gong.io"],
+  SENTRY_AUTH_TOKEN: ["https://sentry.io"],
+  TWITTER_BEARER_TOKEN: ["https://api.x.com", "https://api.twitter.com"],
+};
+
+function registeredUrlAllowlist(name: string): string[] | null {
+  const configured = getRequiredSecret(name)?.urlAllowlist;
+  const origins =
+    configured ??
+    (Object.hasOwn(DEFAULT_PROVIDER_ORIGINS, name)
+      ? DEFAULT_PROVIDER_ORIGINS[name]
+      : undefined);
+  return origins ? [...origins] : null;
+}
+
 export function validateUrlAllowlist(
   url: string,
   allowlist: string[] | null,
 ): boolean {
-  if (!allowlist || allowlist.length === 0) return true;
+  if (!allowlist || allowlist.length === 0) return false;
   let origin: string;
   try {
     origin = new URL(url).origin;
   } catch {
     return false;
   }
-  return allowlist.some((entry) => {
+  let matched = false;
+  for (const entry of allowlist) {
     try {
-      return new URL(entry).origin === origin;
+      const policyUrl = new URL(entry);
+      if (
+        (policyUrl.protocol !== "https:" && policyUrl.protocol !== "http:") ||
+        policyUrl.username ||
+        policyUrl.password
+      ) {
+        return false;
+      }
+      matched ||= policyUrl.origin === origin;
     } catch {
       return false;
     }
-  });
+  }
+  return matched;
 }
 
 /**
@@ -252,7 +289,7 @@ export async function getKeyAllowlist(
       scopeId: getWorkspaceScopeId(scopeId),
     });
   }
-  return meta?.urlAllowlist ?? null;
+  return meta?.urlAllowlist ?? registeredUrlAllowlist(name);
 }
 
 export async function getResolvedKeyAllowlist(
@@ -263,7 +300,7 @@ export async function getResolvedKeyAllowlist(
     scope: ref.scope,
     scopeId: ref.scopeId,
   });
-  return meta?.urlAllowlist ?? null;
+  return meta?.urlAllowlist ?? registeredUrlAllowlist(ref.name);
 }
 
 function getWorkspaceScopeId(userScopeId: string): string {

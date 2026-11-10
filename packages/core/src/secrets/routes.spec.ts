@@ -158,6 +158,31 @@ describe("secrets routes", () => {
     expect(mockWriteAppSecret).toHaveBeenCalledTimes(1);
   });
 
+  it("stores an approved origin with a registered shared secret", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "CUSTOM_PROVIDER_TOKEN",
+      label: "Custom provider token",
+      scope: "org",
+      kind: "api-key",
+    });
+
+    await expect(
+      createWriteSecretHandler()(
+        event("/CUSTOM_PROVIDER_TOKEN", "POST", {
+          value: "fake-token",
+          urlAllowlist: ["https://provider.example.test/path"],
+        }),
+      ),
+    ).resolves.toEqual({ ok: true, status: "set" });
+    expect(mockWriteAppSecret).toHaveBeenCalledWith({
+      key: "CUSTOM_PROVIDER_TOKEN",
+      value: "fake-token",
+      scope: "org",
+      scopeId: "org-qa",
+      urlAllowlist: JSON.stringify(["https://provider.example.test"]),
+    });
+  });
+
   it("uses the registered user secret scope and ignores caller-supplied scopeId", async () => {
     mockGetRequiredSecret.mockReturnValue({
       key: "API_TOKEN",

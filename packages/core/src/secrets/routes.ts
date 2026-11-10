@@ -396,12 +396,23 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
   }
   const body = (await readBody(event).catch(() => ({}))) as {
     value?: unknown;
+    urlAllowlist?: unknown;
   };
 
   const value = typeof body.value === "string" ? body.value.trim() : "";
   if (!value) {
     setResponseStatus(event, 400);
     return { error: "value is required" };
+  }
+
+  let urlAllowlist: string | undefined;
+  if (body.urlAllowlist !== undefined) {
+    const normalized = normalizeUrlAllowlist(body.urlAllowlist);
+    if (normalized.ok === false) {
+      setResponseStatus(event, 400);
+      return { error: normalized.error };
+    }
+    urlAllowlist = JSON.stringify(normalized.origins);
   }
 
   const { scopeId, reason } = await resolveScopeId(event, secret.scope);
@@ -488,6 +499,7 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
       value,
       scope: secret.scope,
       scopeId,
+      ...(urlAllowlist === undefined ? {} : { urlAllowlist }),
     });
   } catch (err) {
     setResponseStatus(event, 500);
