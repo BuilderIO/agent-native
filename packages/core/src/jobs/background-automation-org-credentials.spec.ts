@@ -23,6 +23,9 @@ const store = vi.hoisted(() => ({
   settings: new Map<string, Record<string, unknown>>(),
   orgIdsSeenByReads: [] as Array<string | undefined>,
   orgMembersFailure: undefined as Error | undefined,
+  // Builder.io sign-ins by owner (`user:<email>` or `org:<orgId>`). An empty
+  // token is a grant that is stored but needs reconnecting.
+  builderGrants: new Map<string, string>(),
 }));
 
 afterAll(async () => {
@@ -80,6 +83,52 @@ vi.mock("../secrets/storage.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../oauth-tokens/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../oauth-tokens/store.js")>()),
+  getOAuthTokens: async (_provider: string, _key: string, owner: string) => {
+    const token = store.builderGrants.get(owner);
+    if (token === undefined) return null;
+    return token ? { access_token: token } : {};
+  },
+}));
+
+vi.mock("../mcp-client/oauth-client.js", async (importOriginal) => {
+  const issuer = "https://mcp.builder.io";
+  const resource = "https://api.builder.io";
+  const grant = (options: { scope: string; scopeId: string }) => {
+    const token = store.builderGrants.get(
+      `${options.scope}:${options.scopeId}`,
+    );
+    if (!token) return null;
+    return {
+      serverUrl: resource,
+      clientInformation: { client_id: "client", issuer },
+      discoveryState: {
+        authorizationServerUrl: issuer,
+        authorizationServerMetadata: { issuer },
+        resourceMetadata: { resource },
+      },
+      tokens: { access_token: token, scope: "builder:ai:invoke", issuer },
+      tokenExpiresAt: Date.now() + 3_600_000,
+    };
+  };
+  return {
+    ...(await importOriginal<typeof import("../mcp-client/oauth-client.js")>()),
+    getMcpOAuthAccessToken: async (options: any) =>
+      grant(options)?.tokens.access_token ?? null,
+    readMcpOAuthCredentials: async (options: any) => grant(options),
+    resolveMcpOAuthCredentialAccess: async (options: any) => {
+      const credential = grant(options);
+      return credential
+        ? {
+            state: { kind: "connected", credential },
+            accessToken: credential.tokens.access_token,
+          }
+        : { state: { kind: "missing" }, accessToken: null };
+    },
+  };
+});
+
 vi.mock("../extensions/url-safety.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../extensions/url-safety.js")>()),
   isBlockedExtensionUrlWithDns: async () => false,
@@ -91,7 +140,7 @@ const {
 } = await import("./background-automation-runner.js");
 const { automationRunScopeContext } = await import("../automations/service.js");
 const { resolveEngine } = await import("../agent/engine/index.js");
-const { resolveSecretDetailed } =
+const { resolveBuilderGatewayAuth, resolveSecretDetailed } =
   await import("../server/credential-provider.js");
 const { getRequestContext, getRequestOrgId, runWithRequestContext } =
   await import("../server/request-context.js");
@@ -204,6 +253,7 @@ beforeEach(async () => {
   store.settings.clear();
   store.orgIdsSeenByReads.length = 0;
   store.orgMembersFailure = undefined;
+  store.builderGrants.clear();
   await pglite.exec(`DELETE FROM org_members`);
   vi.unstubAllEnvs();
   for (const name of [
@@ -517,5 +567,129 @@ describe("the organization's key is the last resort of a personal automation", (
 
     expect(forMember).toMatchObject({ value: "sk-ant-org" });
     expect(forOther).toMatchObject({ value: null });
+  });
+});
+
+describe("a personal automation whose Builder.io connection is the organization's", () => {
+  async function builderAuthForRun(owner: string) {
+    const resolved = await resolveBackgroundAutomationIdentity(
+      personalAutomation(owner),
+    );
+    if (!resolved.ok) throw new Error(resolved.reason);
+    return inRun(resolved.identity, () => resolveBuilderGatewayAuth());
+  }
+
+  it("runs on the organization's Builder sign-in when its creator has none", async () => {
+    store.builderGrants.set(`org:${ORG}`, "bat-org");
+
+    const { check } = await credentialCheckFor(MEMBER);
+
+    expect(check).toMatchObject({ ok: true });
+    expect((check as any).engine.name).toBe("builder");
+    expect(await builderAuthForRun(MEMBER)).toMatchObject({
+      authorization: "Bearer bat-org",
+    });
+  });
+
+  it.each(["org", "workspace"])(
+    "runs on the organization's Builder key pair saved at %s scope",
+    async (scope) => {
+      secret(scope, ORG, "BUILDER_PRIVATE_KEY", "bpk-org");
+      secret(scope, ORG, "BUILDER_PUBLIC_KEY", "pub-org");
+
+      const { check } = await credentialCheckFor(MEMBER);
+      store.orgIdsSeenByReads.length = 0;
+      const auth = await builderAuthForRun(MEMBER);
+
+      expect(check).toMatchObject({ ok: true });
+      expect((check as any).engine.name).toBe("builder");
+      expect(auth).toMatchObject({
+        authorization: "Bearer bpk-org",
+        spaceId: "pub-org",
+      });
+      expect(
+        store.orgIdsSeenByReads.every((orgId) => orgId === undefined),
+      ).toBe(true);
+    },
+  );
+
+  it("keeps the creator's own Builder key pair", async () => {
+    secret("user", MEMBER, "BUILDER_PRIVATE_KEY", "bpk-member");
+    secret("user", MEMBER, "BUILDER_PUBLIC_KEY", "pub-member");
+    store.builderGrants.set(`org:${ORG}`, "bat-org");
+    secret("org", ORG, "BUILDER_PRIVATE_KEY", "bpk-org");
+    secret("org", ORG, "BUILDER_PUBLIC_KEY", "pub-org");
+
+    expect(await builderAuthForRun(MEMBER)).toMatchObject({
+      authorization: "Bearer bpk-member",
+      spaceId: "pub-member",
+    });
+  });
+
+  it("keeps the creator's own Builder sign-in", async () => {
+    store.builderGrants.set(`user:${MEMBER}`, "bat-member");
+    store.builderGrants.set(`org:${ORG}`, "bat-org");
+
+    expect(await builderAuthForRun(MEMBER)).toMatchObject({
+      authorization: "Bearer bat-member",
+    });
+  });
+
+  it("asks the creator to reconnect their own sign-in rather than borrowing the organization's", async () => {
+    store.builderGrants.set(`user:${MEMBER}`, "");
+    store.builderGrants.set(`org:${ORG}`, "bat-org");
+
+    expect(await builderAuthForRun(MEMBER)).toBeNull();
+  });
+
+  it("leaves a restricted member's personal Builder key pair in use", async () => {
+    store.settings.set(policyKey(ORG), { restricted: true });
+    secret("user", MEMBER, "BUILDER_PRIVATE_KEY", "bpk-member");
+    secret("user", MEMBER, "BUILDER_PUBLIC_KEY", "pub-member");
+    secret("org", ORG, "BUILDER_PRIVATE_KEY", "bpk-org");
+    secret("org", ORG, "BUILDER_PUBLIC_KEY", "pub-org");
+
+    expect(await builderAuthForRun(MEMBER)).toMatchObject({
+      authorization: "Bearer bpk-member",
+    });
+  });
+
+  it("uses only personal connections when the creator chose no organization", async () => {
+    store.settings.set(activeOrgKey(MEMBER), { orgId: null });
+    store.builderGrants.set(`org:${ORG}`, "bat-org");
+
+    const { check } = await credentialCheckFor(MEMBER);
+
+    expect(check).toMatchObject({
+      ok: false,
+      failure: { code: "missing_credentials" },
+    });
+  });
+
+  it("pauses for credentials once the creator left the organization", async () => {
+    store.builderGrants.set(`org:${ORG}`, "bat-org");
+
+    const { check } = await credentialCheckFor(OUTSIDER);
+
+    expect(check).toMatchObject({
+      ok: false,
+      failure: { code: "missing_credentials" },
+    });
+  });
+
+  it("gives a lookup that asks for no organization nothing", async () => {
+    store.builderGrants.set(`org:${ORG}`, "bat-org");
+    secret("org", ORG, "BUILDER_PRIVATE_KEY", "bpk-org");
+    secret("org", ORG, "BUILDER_PUBLIC_KEY", "pub-org");
+    const resolved = await resolveBackgroundAutomationIdentity(
+      personalAutomation(MEMBER),
+    );
+    if (!resolved.ok) throw new Error(resolved.reason);
+
+    expect(
+      await inRun(resolved.identity, () =>
+        resolveBuilderGatewayAuth({ userEmail: MEMBER, orgId: null }),
+      ),
+    ).toBeNull();
   });
 });

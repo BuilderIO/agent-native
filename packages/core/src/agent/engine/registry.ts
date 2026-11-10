@@ -21,7 +21,9 @@ import {
   prefetchSecrets,
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
+  isPersonalRunBuilderLookup,
   resolveBuilderGatewayCredentialsDetailed,
+  resolvePersonalRunBuilderOrgId,
   resolveSecretDetailed,
   type BuilderCredentialLookupIdentity,
 } from "../../server/credential-provider.js";
@@ -806,9 +808,23 @@ async function builderOAuthLaneUsable(
     identity?.userEmail?.trim().toLowerCase() || getRequestUserEmail();
   const orgId =
     identity?.orgId !== undefined ? identity.orgId : getRequestOrgId();
-  const requestOrgId = orgId ?? null;
-  if (!ownerEmail || !(await hasBuilderOAuthSession(ownerEmail, requestOrgId)))
-    return null;
+  let requestOrgId = orgId ?? null;
+  if (!ownerEmail) return null;
+  if (!(await hasBuilderOAuthSession(ownerEmail, requestOrgId))) {
+    // A personal automation run with no sign-in of its own uses its org's.
+    const fallbackOrgId = isPersonalRunBuilderLookup(identity)
+      ? await resolvePersonalRunBuilderOrgId(identity)
+      : undefined;
+    if (
+      !fallbackOrgId ||
+      !(await hasBuilderOAuthSession(ownerEmail, fallbackOrgId, {
+        orgOnly: true,
+      }))
+    ) {
+      return null;
+    }
+    requestOrgId = fallbackOrgId;
+  }
   try {
     return Boolean(
       await resolveBuilderOAuthRequestAccess({
@@ -831,7 +847,16 @@ async function hasUsableBuilderConnection(
   if (oauthLane !== null) return oauthLane;
   const creds = await resolveBuilderCredentialsDetailed(identity);
   assertCredentialStoreReadable(creds);
-  return Boolean(creds.privateKey && creds.publicKey);
+  if (creds.privateKey && creds.publicKey) return true;
+  if (
+    !isPersonalRunBuilderLookup(identity) ||
+    !(await resolvePersonalRunBuilderOrgId(identity))
+  ) {
+    return false;
+  }
+  const orgCreds = await resolveBuilderGatewayCredentialsDetailed(identity);
+  assertCredentialStoreReadable(orgCreds);
+  return Boolean(orgCreds.privateKey && orgCreds.publicKey);
 }
 
 async function canRunBuilderEngine(

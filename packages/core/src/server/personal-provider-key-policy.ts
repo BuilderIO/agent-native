@@ -83,6 +83,27 @@ export function personalRunProviderKeyOrgId(
   return fromOrg ? orgId : undefined;
 }
 
+/**
+ * The org whose Builder.io connection a personal run's model calls may fall
+ * back to: the one chat would use for `email`. Only the model gateway asks, so
+ * the run's data, sharing and identity-bearing Builder calls stay personal.
+ */
+export function personalRunBuilderGatewayOrgId(
+  email: string | null | undefined,
+): string | undefined {
+  const decision = getRequestContext()?.providerKeyOrg;
+  const normalized = email?.trim().toLowerCase();
+  if (
+    !decision ||
+    !normalized ||
+    decision.userEmail.trim().toLowerCase() !== normalized ||
+    getRequestOrgId()
+  ) {
+    return undefined;
+  }
+  return decision.orgId;
+}
+
 export function listPersonalProviderPolicyKeys(): string[] {
   return [...PERSONAL_PROVIDER_POLICY_KEYS];
 }

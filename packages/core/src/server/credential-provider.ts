@@ -19,6 +19,7 @@ import {
   BUILDER_OAUTH_SCOPE,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
+  hasStoredBuilderOAuthGrantForUse,
 } from "./builder-oauth.js";
 import { readsOrgCredentialFirst } from "./credential-read-order.js";
 import { decideCredentialWriteScope } from "./credential-write-scope.js";
@@ -29,6 +30,7 @@ import {
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
+  personalRunBuilderGatewayOrgId,
   personalRunProviderKeyOrgId,
 } from "./personal-provider-key-policy.js";
 export {
@@ -1403,14 +1405,121 @@ export function gatewayLaneUnavailableMessage(ownerFacing: string): string {
 }
 
 /**
+ * A personal automation run, with no org of its own, for the user a Builder
+ * lookup is for: `identity` (or the request) names neither an org nor
+ * explicitly none. The org is the one chat would use for that user.
+ */
+function personalRunBuilderCandidate(
+  identity?: BuilderCredentialLookupIdentity,
+): { email: string; orgId: string } | undefined {
+  if (identity?.orgId !== undefined) return undefined;
+  const email =
+    identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
+  const orgId = personalRunBuilderGatewayOrgId(email);
+  if (!email || !orgId) return undefined;
+  if (
+    identity === undefined &&
+    getRequestBuilderCredentialScope().storageOnly
+  ) {
+    return undefined;
+  }
+  return { email, orgId };
+}
+
+/**
+ * Whether a Builder lookup is for a personal automation run that may fall back
+ * to its org's connection. Synchronous, so every other request skips
+ * `resolvePersonalRunBuilderOrgId` without waiting on it.
+ */
+export function isPersonalRunBuilderLookup(
+  identity?: BuilderCredentialLookupIdentity,
+): boolean {
+  return personalRunBuilderCandidate(identity) !== undefined;
+}
+
+function hasOwnBuilderGatewayCredentials(
+  own: BuilderGatewayCredentialsDetailed,
+): boolean {
+  return (
+    own.lookupFailed ||
+    own.hostManagedWithoutCredential === true ||
+    Boolean(own.privateKey && own.publicKey)
+  );
+}
+
+async function personalRunBuilderFallbackOrgId(
+  identity: BuilderCredentialLookupIdentity | undefined,
+  own: BuilderGatewayCredentialsDetailed,
+): Promise<string | undefined> {
+  if (hasOwnBuilderGatewayCredentials(own)) return undefined;
+  const candidate = personalRunBuilderCandidate(identity);
+  if (!candidate) return undefined;
+  // Even an expired personal sign-in is the run's own: it asks to reconnect.
+  if (await hasStoredBuilderOAuthGrantForUse(candidate.email, null)) {
+    return undefined;
+  }
+  return candidate.orgId;
+}
+
+/**
+ * The org whose Builder.io connection a personal automation run's model calls
+ * use when the run has none of its own: no personal sign-in, even an expired
+ * one, and no key pair it can use. It is the org chat would use for the run's
+ * creator, so its connection runs their personal automations too, while a run
+ * with a connection of its own keeps it.
+ */
+export async function resolvePersonalRunBuilderOrgId(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<string | undefined> {
+  if (!personalRunBuilderCandidate(identity)) return undefined;
+  return personalRunBuilderFallbackOrgId(
+    identity,
+    await resolveOwnBuilderGatewayCredentialsDetailed(identity),
+  );
+}
+
+/** An org's own Builder.io key pair: its org row, else its workspace row. */
+async function readOrgBuilderConnection(
+  orgId: string,
+): Promise<BuilderResolvedCredentials | null> {
+  const { readAppSecrets } = await import("../secrets/storage.js");
+  for (const scope of ["org", "workspace"] as const) {
+    const creds = await readBuilderCredentialScope(
+      readAppSecrets,
+      scope,
+      orgId,
+    );
+    if (await isCompleteBuilderConnection(creds)) return creds;
+  }
+  return null;
+}
+
+/**
  * Gateway-lane credentials. Fall-through: the request's own Builder connection,
- * then the deployment's credits pair, then the legacy pair.
+ * then the deployment's credits pair, then the legacy pair, then, for a
+ * personal automation run with none of those, its org's connection.
  *
  * Identity-bearing calls (asset upload, design systems, Admin GraphQL, browser
  * agent) must keep using `resolveBuilderCredentials`: a `['gateway']` token 403s
  * on all of them.
  */
 export async function resolveBuilderGatewayCredentialsDetailed(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<BuilderGatewayCredentialsDetailed> {
+  if (!isPersonalRunBuilderLookup(identity)) {
+    return resolveOwnBuilderGatewayCredentialsDetailed(identity);
+  }
+  const own = await resolveOwnBuilderGatewayCredentialsDetailed(identity);
+  try {
+    const orgId = await personalRunBuilderFallbackOrgId(identity, own);
+    const org = orgId ? await readOrgBuilderConnection(orgId) : null;
+    return org ? { ...org, lookupFailed: false, lane: "identity" } : own;
+  } catch (cause) {
+    return { ...own, lookupFailed: true, cause };
+  }
+}
+
+async function resolveOwnBuilderGatewayCredentialsDetailed(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<BuilderGatewayCredentialsDetailed> {
   const scoped = await resolveBuilderCredentialsDetailed(identity);
@@ -1534,20 +1643,32 @@ export async function resolveBuilderGatewayAuth(
     identity === undefined
       ? getRequestBuilderCredentialScope()
       : { orgId: identity.orgId, storageOnly: false };
-  const orgId = credentialScope.orgId;
+  let orgId = credentialScope.orgId;
+  let orgOnly = credentialScope.storageOnly;
   let hasOAuthSession = false;
   if (ownerEmail) {
     try {
-      hasOAuthSession = credentialScope.storageOnly
+      hasOAuthSession = orgOnly
         ? await hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
         : await hasBuilderOAuthSession(ownerEmail, orgId);
+      const fallbackOrgId =
+        hasOAuthSession || !isPersonalRunBuilderLookup(identity)
+          ? undefined
+          : await resolvePersonalRunBuilderOrgId(identity);
+      if (fallbackOrgId) {
+        orgId = fallbackOrgId;
+        orgOnly = true;
+        hasOAuthSession = await hasBuilderOAuthSession(ownerEmail, orgId, {
+          orgOnly: true,
+        });
+      }
     } catch (error) {
       throw new BuilderCredentialLookupError(error);
     }
   }
   if (ownerEmail && hasOAuthSession) {
     try {
-      const session = credentialScope.storageOnly
+      const session = orgOnly
         ? await getBuilderOAuthSession(ownerEmail, orgId, BUILDER_OAUTH_SCOPE, {
             orgOnly: true,
           })
