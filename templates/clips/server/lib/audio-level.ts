@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  deleteAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -414,6 +415,46 @@ export async function boostQuietAudio(input: {
   }
 }
 
+export function audioLevelPendingUploadKey(recordingId: string): string {
+  return `recording-audio-level-pending-upload-${recordingId}`;
+}
+
+/**
+ * An upload whose row update failed in an unclear way. It is not deleted at
+ * the time, because the update may still commit. The next run, once the row
+ * can be read, deletes it if the row does not point at it.
+ */
+async function cleanUpPendingUpload(rec: {
+  id: string;
+  videoUrl: string | null;
+  storageMode: "own" | "hosted" | null;
+}): Promise<void> {
+  const key = audioLevelPendingUploadKey(rec.id);
+  const raw = await readAppState(key).catch(() => null);
+  const url =
+    raw &&
+    typeof raw === "object" &&
+    typeof (raw as { url?: unknown }).url === "string"
+      ? (raw as { url: string }).url
+      : null;
+  if (!url) return;
+  if (url !== rec.videoUrl) {
+    const cleanup = await deleteRecordingMediaObjects(
+      { id: rec.id, storageMode: rec.storageMode, videoUrl: url },
+      { protectedUrls: rec.videoUrl ? [rec.videoUrl] : [] },
+    ).catch((err: unknown) => {
+      console.warn("[audio-level] could not delete a pending upload", {
+        recordingId: rec.id,
+        url,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
+    if (!cleanup || cleanup.errors.length > 0) return;
+  }
+  await deleteAppState(key).catch(() => {});
+}
+
 export function audioLevelMarkerKey(recordingId: string): string {
   return `recording-audio-level-${recordingId}`;
 }
@@ -507,6 +548,7 @@ export async function ensureRecordingAudioLevel(params: {
   if (rec.videoSizeBytes > AUDIO_LEVEL_MAX_BYTES) {
     return { recordingId, status: "skipped-too-large", changed: false };
   }
+  await cleanUpPendingUpload(rec);
   if (!isFfmpegAvailable()) {
     return { recordingId, status: "skipped-no-ffmpeg", changed: false };
   }
@@ -651,17 +693,20 @@ export async function ensureRecordingAudioLevel(params: {
       )
       .returning({ videoUrl: schema.recordings.videoUrl });
   } catch (err) {
-    // The update may still commit after this error, so the upload is never
-    // deleted here: removing media the row ends up pointing at would break
-    // playback. It is logged so an unused copy can be cleaned up later.
-    console.warn(
-      "[audio-level] row update failed; leaving the leveled upload in place",
-      {
+    // The update may still commit after this error, so the upload is not
+    // deleted now. It is saved as pending; the next run deletes it once the
+    // row shows it is not in use.
+    await writeAppState(audioLevelPendingUploadKey(recordingId), {
+      recordingId,
+      url: upload.url,
+      at: new Date().toISOString(),
+    }).catch((stateErr: unknown) => {
+      console.warn("[audio-level] could not save the pending upload", {
         recordingId,
         uploadedUrl: upload.url,
-        error: err instanceof Error ? err.message : String(err),
-      },
-    );
+        error: stateErr instanceof Error ? stateErr.message : String(stateErr),
+      });
+    });
     throw err;
   }
 
