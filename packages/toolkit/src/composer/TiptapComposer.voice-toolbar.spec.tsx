@@ -559,6 +559,22 @@ describe("TiptapComposer voice chat", () => {
     expect(voice.start).not.toHaveBeenCalled();
   });
 
+  it("leaves the dictation key to a page that has already used it", async () => {
+    await act(async () => root.render(<Harness />));
+
+    const event = new KeyboardEvent("keydown", {
+      key: "m",
+      metaKey: true,
+      shiftKey: true,
+      cancelable: true,
+    });
+    event.preventDefault();
+    act(() => {
+      window.dispatchEvent(event);
+    });
+    expect(voice.start).not.toHaveBeenCalled();
+  });
+
   it("shows a failed session as an amber composer notice with a retry", async () => {
     activate("error");
     realtime.errorMessage = "The realtime voice connection failed.";

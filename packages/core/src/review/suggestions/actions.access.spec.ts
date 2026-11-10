@@ -233,6 +233,38 @@ describe("suggestion action access", () => {
     expectNoReviewWrites();
   });
 
+  it("asks a suggester for the role the resource asks of commenters", async () => {
+    registerReviewableResource({
+      type: "doc",
+      resolveAccess: () => ({
+        role: "commenter",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+      }),
+      comments: { minimumRole: "editor" },
+    });
+
+    await expect(
+      createResourceSuggestion.run(createArgs, {
+        userEmail: suggestion.authorEmail,
+      }),
+    ).rejects.toThrow("Not allowed to access doc:doc-1");
+    await expect(
+      decideResourceSuggestion.run(
+        {
+          id: suggestion.id,
+          decision: "withdrawn",
+          idempotencyKey: "withdraw-policy-1",
+          observedBase: suggestion.baseRevision,
+        },
+        { userEmail: suggestion.authorEmail },
+      ),
+    ).rejects.toThrow("Not allowed to access doc:doc-1");
+    expect(validateProposal).not.toHaveBeenCalled();
+    expect(client.transaction).not.toHaveBeenCalled();
+    expectNoReviewWrites();
+  });
+
   it("replays the original creation receipt before canonical validation", async () => {
     vi.mocked(suggestionStore.getSuggestionByCreationKey).mockResolvedValueOnce(
       creationReceipt,
