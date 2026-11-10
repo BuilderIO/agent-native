@@ -70,6 +70,10 @@ function outbox(from: Y.Doc, to: Y.Doc) {
         Y.applyUpdate(to, update, "remote");
       }
     },
+    /** Delivers every queued update as one, as when a connection catches up. */
+    deliverMerged() {
+      Y.applyUpdate(to, Y.mergeUpdates(pending.splice(0)), "remote");
+    },
   };
 }
 
@@ -216,6 +220,28 @@ describe("cursor after a collaborator's change", () => {
       $head.parent.textContent,
       $head.parentOffset,
     ]).toEqual([0, texts[1], texts[1]!.length]);
+  });
+
+  it("stays in its block when a collaborator edits it and adds a copy of its old text", () => {
+    // Nothing moved, though the block's old text now sits in another block.
+    const texts = ["Alpha one.", "Gamma three."];
+    const [a, b] = twoEditors(texts.join("\n\n"));
+    const toA = outbox(b.ydoc, a.ydoc);
+    placeCursor(a.editor, blockStart(a.editor, 1) + texts[1]!.length);
+
+    const copy = b.editor.state.doc.child(1);
+    placeCursor(b.editor, blockStart(b.editor, 1));
+    type(b.editor, "Note: ");
+    const { state } = b.editor;
+    b.editor.view.dispatch(state.tr.insert(state.doc.content.size, copy));
+    toA.deliverMerged();
+
+    const edited = `Note: ${texts[1]}`;
+    expect(cursorBlock(a.editor)).toEqual({
+      index: 1,
+      text: edited,
+      offset: edited.length,
+    });
   });
 
   it.each([

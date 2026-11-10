@@ -75,13 +75,23 @@ function textblockPositions(
   return found;
 }
 
+/** Matches textblocks with the same type, attributes and text, sizes first. */
+function copiesOf(block: ProseMirrorNode) {
+  const text = block.textContent;
+  return (node: ProseMirrorNode) =>
+    node.sameMarkup(block) &&
+    node.content.size === block.content.size &&
+    node.textContent === text;
+}
+
 /**
  * Finds the cursor's textblock after a collaborator moved it. y-sync can send
  * a textblock moved among others of the same type as each one's text
  * rewritten in place, and a rewrite keeps the cursor's character when the two
- * texts share it, such as a closing period. So the cursor's old textblock,
- * text and attributes alike, must now sit in exactly one textblock other than
- * the one the Yjs position landed in.
+ * texts share it, such as a closing period. A move shows as the textblock the
+ * Yjs position landed in now holding another textblock's old text, which a
+ * collaborator typing in it doesn't produce. The cursor's old textblock, text
+ * and attributes alike, must then sit in exactly one textblock elsewhere.
  */
 function positionInMovedBlock(
   oldDoc: ProseMirrorNode,
@@ -90,14 +100,22 @@ function positionInMovedBlock(
   $resolved: ResolvedPos,
 ) {
   const block = $old.parent;
-  const text = block.textContent;
-  // Sizes first: this runs on every keystroke a collaborator sends.
-  const isBlock = (node: ProseMirrorNode) =>
-    node.sameMarkup(block) &&
-    node.content.size === block.content.size &&
-    node.textContent === text;
-  if (!block.isTextblock || !text || isBlock($resolved.parent)) return null;
-  if (textblockPositions(oldDoc, isBlock).length !== 1) return null;
+  const isBlock = copiesOf(block);
+  if (!block.isTextblock || !block.textContent || isBlock($resolved.parent)) {
+    return null;
+  }
+  // This runs on every keystroke a collaborator sends, so typing stops after
+  // one pass over the old doc, and only a move reads the new one.
+  const isLanded = copiesOf($resolved.parent);
+  let copies = 0;
+  let sources = 0;
+  oldDoc.descendants((node) => {
+    if (!node.isTextblock) return true;
+    if (isBlock(node)) copies += 1;
+    else if (isLanded(node)) sources += 1;
+    return false;
+  });
+  if (sources === 0 || copies !== 1) return null;
   const found = textblockPositions(newDoc, isBlock);
   const start = found.length === 1 ? found.at(0) : undefined;
   return start === undefined ? null : start + 1 + $old.parentOffset;
@@ -167,22 +185,22 @@ export function collabSelectionPlugin(): Plugin {
       if (!binding || !saved) return null;
 
       const restored = change.selection;
-      const anchor =
+      const endpoint = (position: Y.RelativePosition | null, oldPos: number) =>
         endpointAfterRemoteChange(
           binding,
-          saved.anchor,
+          position,
           change.before,
           change.doc,
-          saved.absAnchor,
-        ) ?? restored.anchor;
-      const head =
-        endpointAfterRemoteChange(
-          binding,
-          saved.head,
-          change.before,
-          change.doc,
-          saved.absHead,
-        ) ?? restored.head;
+          oldPos,
+        );
+      const anchorPos = endpoint(saved.anchor, saved.absAnchor);
+      // A collapsed cursor saved the same Yjs position twice.
+      const headPos =
+        saved.absHead === saved.absAnchor
+          ? anchorPos
+          : endpoint(saved.head, saved.absHead);
+      const anchor = anchorPos ?? restored.anchor;
+      const head = headPos ?? restored.head;
       if (anchor === restored.anchor && head === restored.head) return null;
 
       // Plugins may have appended changes of their own since.
