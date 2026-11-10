@@ -1198,6 +1198,11 @@ export async function beginCommentAiAttempt(request: RequestRow) {
   try {
     source = await readCommentAiSource(request);
     assertSubmittedCommentContext(request, source);
+    // A request started before someone set Can view, or retried after, stops
+    // here, and its thread says why. A finished one keeps its result.
+    if (!terminalSuccess(request.status)) {
+      assertAiMayAnswerOnPage(source.document);
+    }
   } catch (error) {
     const typed =
       error instanceof CommentAiOperationError
@@ -1354,6 +1359,8 @@ export async function verifyCommentAiAttempt(
   try {
     source = await readCommentAiSource(request);
     assertSubmittedCommentContext(request, source);
+    // Every reply, suggestion and edit Ask AI makes passes here first.
+    assertAiMayAnswerOnPage(source.document);
   } catch (error) {
     const typed =
       error instanceof CommentAiOperationError
