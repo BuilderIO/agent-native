@@ -95,7 +95,7 @@ export function assertAgentsMayEditPageText(
     throw agentsMayOnlyView();
   }
   throw new ActionContractError(
-    "A person has locked the text of this page against agents. Comment on it, or propose the change with suggest-document-edit for a person to accept.",
+    "A person has set agents to Can comment on this page, so agents can't change its text. Comment on it, or propose the change with suggest-document-edit for a person to accept. Agents can't unlock it: only a person can change that, from the page's Share panel.",
     { errorCode: "AGENT_TEXT_LOCKED", statusCode: 403 },
   );
 }
