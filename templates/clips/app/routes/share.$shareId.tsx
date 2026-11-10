@@ -937,6 +937,8 @@ export default function ShareRoute() {
   const transcriptStatus = dataQ.data?.data?.transcript?.status;
   const transcriptFailureReason =
     dataQ.data?.data?.transcript?.failureReason ?? null;
+  const transcriptUnreadable =
+    dataQ.data?.data?.transcript?.segmentsUnreadable === true;
   const ctas = dataQ.data?.data?.ctas ?? [];
   const apiStatus = dataQ.data?.status;
   const apiAccessDeniedStatus =
@@ -2172,6 +2174,7 @@ export default function ShareRoute() {
                 onSeek={(ms) => playerRef.current?.seek(ms)}
                 status={transcriptStatus}
                 failureReason={transcriptFailureReason}
+                unreadable={transcriptUnreadable}
                 recordingTitle={recording.title}
                 audience="viewer"
               />

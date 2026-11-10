@@ -264,6 +264,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
         { name: "Ada Lovelace", email: "ada@example.com", color: "#ff0000" },
       ],
       agentPresent: true,
+      showAgentTab: true,
       showCommentsControl: true,
       suggesting: true,
       canSuggest: true,
@@ -278,7 +279,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
     });
 
     for (const label of [
-      "agentPanel.toggleAgent",
+      "navigation.agent",
       "comments.discussion",
       "editor.toolbar.stopSuggesting",
       "editor.toolbar.undo",
@@ -314,16 +315,17 @@ describe("DocumentToolbar in an MCP App widget", () => {
     await renderToolbar(1040, {
       readOnly: false,
       agentPresent: true,
+      showAgentTab: true,
       showCommentsControl: true,
     });
 
     expect(byLabel(AI_AGENT_LABEL)).not.toBeNull();
-    expect(byLabel("agentPanel.toggleAgent")).not.toBeNull();
+    // oracle-change: the agent's toolbar button became the Agent tab.
+    expect(byLabel("navigation.agent")).not.toBeNull();
     expect(byLabel("comments.discussion")).not.toBeNull();
     expect(byLabel("editor.toolbar.openInAgentNative")).toBeNull();
     const trigger = byLabel("editor.toolbar.morePageActions");
-    expect(trigger?.className).toContain("h-9");
-    expect(trigger?.className).toContain("w-9");
+    expect(trigger?.className).toContain("size-9");
     expect(trigger?.className).not.toContain("size-11");
   });
 
@@ -348,9 +350,10 @@ describe("DocumentToolbar in an MCP App widget", () => {
     mocks.widget.write = false;
     await renderToolbar(1040, { readOnly: false });
     const app = measure();
-    expect(app.share).toEqual(widget.share);
+    expect(app.share).not.toEqual(widget.share);
     expect(app.bar).toEqual(widget.bar);
-    expect(app.copy).toEqual(widget.copy);
+    expect(app.copy).toContain("size-8");
+    expect(widget.copy).toContain("size-8");
   });
 
   describe("the Open link", () => {

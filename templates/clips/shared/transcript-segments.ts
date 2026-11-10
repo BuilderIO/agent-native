@@ -24,6 +24,17 @@ export function parseSegmentsArray(raw: string | null | undefined) {
 }
 
 /**
+ * Whether a transcript has saved lines that can't be parsed. That isn't having
+ * none: a reader must say the transcript couldn't be read, not that there is
+ * no transcript, and must not build lines of its own in their place.
+ */
+export function storedSegmentsUnreadable(
+  raw: string | null | undefined,
+): boolean {
+  return Boolean(raw) && parseSegmentsArray(raw) === null;
+}
+
+/**
  * Every entry of stored segments JSON as written, with its times read the way
  * the player reads them, for a writer that must not turn unreadable cues into
  * none. Null when the JSON isn't an array or any entry's times can't be read:

@@ -32,6 +32,7 @@ import { parseStoredChapters } from "../../../shared/stored-chapters.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  storedSegmentsUnreadable,
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
@@ -580,6 +581,9 @@ export default defineEventHandler(async (event) => {
           fullText: transcript.fullText,
           failureReason: transcriptPresentation.failureReason,
           segments: transcriptSegments,
+          ...(storedSegmentsUnreadable(transcript.segmentsJson)
+            ? { segmentsUnreadable: true as const }
+            : {}),
         }
       : null,
     comments: hydratedComments.map((c) => ({

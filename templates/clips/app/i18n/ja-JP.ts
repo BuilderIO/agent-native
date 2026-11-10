@@ -714,6 +714,8 @@ const messages = {
     noMatches: "一致はありません。",
     noTranscript: "まだトランスクリプトはありません。",
     noTranscriptCaptured: "記録はキャプチャされませんでした。",
+    unreadableDescription:
+      "保存されている文字起こしが破損しています。再生成すると、クリップの音声から新しい文字起こしが作成されます。",
     partialTranscript:
       "一部のみの文字起こし: 録画が途中で途切れたため、欠けている部分があるかもしれません。",
     backupFailed:

@@ -81,6 +81,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { SaveStatusIndicator } from "@/components/visual-editor/SaveStatusIndicator";
 import { getDesignHostChannel } from "@/host/design-host-channel";
 import {
   DESIGN_IMPORT_FORMATS,
@@ -361,6 +362,8 @@ export function renderDesignEditorView({
     hasLocalhostScreens,
     editorShareUrl,
     canvasFrameGeometryById,
+    unsavedChangeCount,
+    retryUnsavedChanges,
   } = editorFilesAndSaving;
   const {
     responsiveEditScope,
@@ -1507,6 +1510,10 @@ export function renderDesignEditorView({
   };
   const topBarActions = (
     <>
+      <SaveStatusIndicator
+        unsavedChangeCount={unsavedChangeCount}
+        onRetry={retryUnsavedChanges}
+      />
       {renderPendingNodeRewriteControl(isMobileViewport)}
       {reviewFeedbackControl}
       {publishWaitlistControl}

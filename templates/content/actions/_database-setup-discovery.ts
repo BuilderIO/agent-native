@@ -43,9 +43,9 @@ export async function getDatabaseSetupContract(
       (role === "admin" || role === "owner") && !database.ownerDocumentId,
     sourceComposition: "unsupported",
     properties: mutationContract.properties.map((property) => {
-      const editableMetadata =
-        property.type === "blocks" ||
-        setupPropertyTypes.some((type) => type === property.type);
+      const editableMetadata = setupPropertyTypes.some(
+        (type) => type === property.type,
+      );
       const reason = !canEdit
         ? "Database edit access required"
         : property.systemRole

@@ -132,6 +132,8 @@ export interface ShareButtonProps {
     onCopy: () => Promise<boolean | void> | boolean | void;
     /** @deprecated Share controls always use the compact size. */
     size?: "default" | "sm";
+    /** `plain` draws Share as text, set apart from Copy link. */
+    appearance?: "joined" | "plain";
     className?: string;
   };
   /** Tooltip for the Copy link button: which link it copies. */
@@ -443,14 +445,15 @@ export function ShareButton(props: ShareButtonProps) {
           },
         }
       : undefined);
+  const plainQuickCopy = quickCopy?.appearance === "plain";
   const trigger = (
     <ShareTrigger
       label={props.triggerContent ?? triggerLabel}
       className={props.triggerClassName}
       aria-label={triggerLabel}
       title={triggerLabel}
-      intent={quickCopy ? "primary" : undefined}
-      emphasis={quickCopy ? "solid" : undefined}
+      intent={quickCopy && !plainQuickCopy ? "primary" : undefined}
+      emphasis={plainQuickCopy ? "ghost" : quickCopy ? "solid" : undefined}
     />
   );
   if (isSmallScreen) {
@@ -462,6 +465,7 @@ export function ShareButton(props: ShareButtonProps) {
             copyLabel={quickCopy.label}
             copiedLabel={quickCopy.copiedLabel}
             onCopy={quickCopy.onCopy}
+            appearance={quickCopy.appearance}
             className={quickCopy.className}
           />
         ) : (
@@ -501,6 +505,7 @@ export function ShareButton(props: ShareButtonProps) {
             copyLabel={quickCopy.label}
             copiedLabel={quickCopy.copiedLabel}
             onCopy={quickCopy.onCopy}
+            appearance={quickCopy.appearance}
             className={quickCopy.className}
           />
         </PopoverAnchor>

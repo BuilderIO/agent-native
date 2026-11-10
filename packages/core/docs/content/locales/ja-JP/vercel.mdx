@@ -17,6 +17,8 @@ Node.js `22.22+` が必要です。
 
 Vercel アカウントも必要です。このガイドのコマンドは自分のコンピューター上で実行してください。完成したビルドは Vercel CLI が Vercel にアップロードします。
 
+エージェントのターンにはストリーミング時間を含む Vercel Functions の実行時間制限が適用されます。Function Max Duration を設定し、実際の設定と [Vercel の制限](https://vercel.com/docs/functions/configuring-functions/duration)を確認してください。制限を延ばしても完了は保証されません。
+
 ## ステップ 1: アプリを作成する {#step-1-create-the-app}
 
 新しいスタンドアロン アプリを作成します。以下の例では Chat テンプレートからアプリを作成していますが、どのテンプレートから始めてもかまいません。アプリのフォルダーに移動し、依存関係をインストールします。`corepack enable` はアプリが想定する `pnpm` のバージョンを有効にするため、`pnpm` を自分でインストールする必要はありません。

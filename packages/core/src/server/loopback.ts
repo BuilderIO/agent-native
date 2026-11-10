@@ -35,8 +35,9 @@ export function isDirectLoopbackRequest(event: H3Event): boolean {
   });
   if (
     !isLoopbackRequest(event) ||
+    !isLoopbackAddress(socket?.remoteAddress) ||
     typeof host !== "string" ||
-    !/^127\.0\.0\.1(?::\d{1,5})?$/.test(host) ||
+    !/^127\.0\.0\.1:\d{1,5}$/.test(host) ||
     hasForwardedHeader ||
     !socket ||
     ("encrypted" in socket && socket.encrypted) ||
@@ -51,6 +52,7 @@ export function isDirectLoopbackRequest(event: H3Event): boolean {
   const origin = new URL(originValue);
   return (
     origin.hostname === "127.0.0.1" &&
+    Number(origin.port) === socket.localPort &&
     origin.port !== "0" &&
     origin.pathname === "/" &&
     origin.search === "" &&

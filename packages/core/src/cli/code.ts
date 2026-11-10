@@ -10,6 +10,7 @@ import {
   renderProjectSlashCommandPrompt,
 } from "./code-agent-commands.js";
 import {
+  RECAP_SOURCE_TOOL_PROFILE,
   executeApproveAlwaysCodeAgentApproval,
   executeCodeAgentRun,
   executeDenyCodeAgentApproval,
@@ -509,6 +510,8 @@ Usage:
   agent-native code ui --last
   agent-native code run <runId>
   agent-native code goals
+
+Restricted tool profile: ${RECAP_SOURCE_TOOL_PROFILE}
 
 Interactive shell:
   /help        Show shell commands

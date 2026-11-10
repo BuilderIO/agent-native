@@ -589,26 +589,31 @@ export interface AgentPanelProps extends Omit<
   isFullscreen?: boolean;
   /** @deprecated Fullscreen sidebar controls are no longer rendered. */
   onToggleFullscreen?: () => void;
-  onFullViewRequest?: (threadId?: string) => void;
-  onSnapTo75Percent?: () => void;
+  onFullViewRequest?: ((threadId?: string) => void) | undefined;
+  onSnapTo75Percent?: (() => void) | undefined;
   isWideDrawer?: boolean;
-  onExitWideDrawer?: () => void;
-  onOpenSettings?: (section?: string) => void;
-  onNewCliTab?: () => void;
-  onNewUiTab?: () => void;
-  renderCliTab?: (input: { id: string; active: boolean }) => React.ReactNode;
+  onExitWideDrawer?: (() => void) | undefined;
+  onOpenSettings?: ((section?: string) => void) | undefined;
+  onNewCliTab?: (() => void) | undefined;
+  onNewUiTab?: (() => void) | undefined;
+  renderCliTab?:
+    | ((input: { id: string; active: boolean }) => React.ReactNode)
+    | undefined;
   newTabMode?: "ui" | "cli";
-  newCliTabLabel?: string;
-  newUiTabLabel?: string;
-  storageKey?: string;
+  newCliTabLabel?: string | undefined;
+  newUiTabLabel?: string | undefined;
+  storageKey?: string | undefined;
   preferEngineDefaultModel?: MultiTabAssistantChatProps["preferEngineDefaultModel"];
   restoreActiveThread?: boolean;
-  scope?: import("@agent-native/core/client/agent-chat").ChatThreadScope | null;
+  scope?:
+    | import("@agent-native/core/client/agent-chat").ChatThreadScope
+    | null
+    | undefined;
   isolateHistoryByScope?: boolean;
   composerAutoFocus?: MultiTabAssistantChatProps["composerAutoFocus"];
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
-  browserTabId?: string;
+  browserTabId?: string | undefined;
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
   chatNotice?: React.ReactNode;
   showTabBar?: boolean;
@@ -626,9 +631,9 @@ export interface AgentPanelProps extends Omit<
     | ((actions: AgentPanelPageToolbarActions) => React.ReactNode);
   onPageHeaderVisibilityChange?: (visible: boolean) => void;
   chatOnly?: boolean;
-  agentPageHref?: string;
+  agentPageHref?: string | undefined;
   codeAccess?: AgentPanelCodeAccess;
-  builderConnectTransport?: BuilderConnectTransport;
+  builderConnectTransport?: BuilderConnectTransport | undefined;
 }
 
 function useClientOnly() {

@@ -19,6 +19,8 @@ export interface JoinedShareControlProps {
   onCopy: () => Promise<boolean | void> | boolean | void;
   /** @deprecated Share controls always use the compact size. */
   size?: "default" | "sm";
+  /** `plain` sets the two apart, as quiet controls in a toolbar. */
+  appearance?: "joined" | "plain";
   disabled?: boolean;
   blocked?: boolean;
   className?: string;
@@ -29,7 +31,16 @@ export const JoinedShareControl = forwardRef<
   HTMLDivElement,
   JoinedShareControlProps
 >(function JoinedShareControl(
-  { trigger, copyLabel, copiedLabel, onCopy, disabled, blocked, className },
+  {
+    trigger,
+    copyLabel,
+    copiedLabel,
+    onCopy,
+    appearance = "joined",
+    disabled,
+    blocked,
+    className,
+  },
   ref,
 ) {
   const [copied, setCopied] = useState(false);
@@ -52,6 +63,48 @@ export const JoinedShareControl = forwardRef<
   };
 
   const label = copied ? copiedLabel : copyLabel;
+  const plain = appearance === "plain";
+  const copyButton = (
+    // A click closes a tooltip, so the confirmation holds it open.
+    <TooltipProvider>
+      <Tooltip {...(copied ? { open: true } : {})}>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant={plain ? "ghost" : "default"}
+            className={cn(
+              "shrink-0 shadow-none",
+              plain && "text-muted-foreground hover:text-foreground",
+              blocked && "opacity-50",
+            )}
+            aria-label={label}
+            disabled={disabled}
+            data-blocked={blocked ? "" : undefined}
+            onClick={() => void copy()}
+          >
+            {copied ? (
+              <IconCheck aria-hidden="true" />
+            ) : (
+              <IconLink aria-hidden="true" />
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+  if (plain) {
+    return (
+      <div
+        ref={ref}
+        className={cn("flex shrink-0 items-center gap-0.5", className)}
+      >
+        {trigger}
+        {copyButton}
+      </div>
+    );
+  }
   return (
     <ButtonGroup
       ref={ref}
@@ -61,29 +114,7 @@ export const JoinedShareControl = forwardRef<
       )}
     >
       {trigger}
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="default"
-              className={cn("shrink-0 shadow-none", blocked && "opacity-50")}
-              aria-label={label}
-              disabled={disabled}
-              data-blocked={blocked ? "" : undefined}
-              onClick={() => void copy()}
-            >
-              {copied ? (
-                <IconCheck aria-hidden="true" />
-              ) : (
-                <IconLink aria-hidden="true" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{label}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      {copyButton}
     </ButtonGroup>
   );
 });
