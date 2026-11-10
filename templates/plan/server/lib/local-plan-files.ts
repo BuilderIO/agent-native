@@ -3,6 +3,8 @@ import * as fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { noteExternalWrite } from "@agent-native/core/action";
+
 import type { PlanContent } from "../../shared/plan-content.js";
 import type { PlanComment } from "../../shared/types.js";
 import {
@@ -376,6 +378,7 @@ async function writePlanMdxFolderToDisk(
   mdx: PlanMdxFolder,
   existingFolders: string[] = [],
 ): Promise<{ written: boolean; folder: string; files: string[] }> {
+  noteExternalWrite("local-file");
   await fs.mkdir(folder, { recursive: true });
   const written: string[] = [];
 
@@ -450,6 +453,7 @@ async function clearExistingPlanMdxFolder(folder: string, targetPath: string) {
     );
   }
 
+  noteExternalWrite("local-file");
   await Promise.all([
     fs.rm(path.join(folder, "plan.mdx"), { force: true }),
     fs.rm(path.join(folder, "canvas.mdx"), { force: true }),
@@ -591,6 +595,7 @@ export async function writeLocalPlanComments(
   comments: PlanComment[],
 ): Promise<void> {
   const target = path.join(folder, LOCAL_COMMENTS_FILE);
+  noteExternalWrite("local-file");
   if (comments.length === 0) {
     await fs.rm(target, { force: true });
     return;

@@ -1108,6 +1108,29 @@ const editor = {
     hideInSearch: "検索で非表示にする",
     hideInSearchDescription:
       "組織から非表示にして検索します。リンクを知っている人は引き続き閲覧できます。",
+    sharePeopleTab: "ユーザー",
+    shareAgentsTab: "エージェント",
+    agentLevelHeading: "このページのエージェント",
+    agentLevelMenuLabel: "このページでエージェントができること",
+    agentLevelDefault: "(デフォルト)",
+    agentLevelCommentDescription:
+      "閲覧、コメント、編集の提案ができます。提案を承認できるのは人だけです。",
+    agentLevelEditDescription:
+      "閲覧、コメント、提案、本文・タイトル・タブの編集、ページのゴミ箱への移動ができます。",
+    agentLevelCommentConfirm:
+      "エージェントはこのページでコメントと編集の提案ができるようになりましたが、編集はできません。",
+    agentLevelEditConfirm: "エージェントは再びこのページを編集できます。",
+    agentLevelLimit:
+      "エージェントの権限が、代理で作業する人の権限を超えることはありません。",
+    agentLevelManagersOnly:
+      "これを変更できるのは、このページを管理している人だけです。",
+    agentLevelUpdateFailed:
+      "ここでエージェントができることを変更できませんでした。",
+    agentLevelNote: "エージェントはコメント可",
+    agentLevelNoteHint:
+      "エージェントはこのページにコメントできます。「シェアする」から変更できます。",
+    sendPageToAgent: "このページをエージェントに送信",
+    connectAgentOverMcp: "MCP でエージェントを接続",
     importingFromNotion: "Notion からインポートしています...",
     lastSynced: "最後に同期しました",
     linkedToNotion: "概念にリンク",
@@ -1181,7 +1204,8 @@ const rawLiterals = {
     previewDraftUseSaved: "保存済みバージョンを使用",
     previewDraftSaveSeparately: "自分のバージョンを別ページとして保存",
     previewDraftSavedToHistory: "編集内容をバージョン履歴に保存しました",
-    previewDraftSavedSeparately: "編集内容を別ページとして保存しました",
+    previewDraftSavedSeparately:
+      "編集内容をあなたのスペースに非公開ページとして保存しました",
     previewDraftOpenSavedPage: "ページを開く",
     previewDraftMoreOptions: "その他のオプション",
     previewDraftViewFullVersions: "全文を表示",
@@ -1791,6 +1815,28 @@ const overrides = {
     discardEditDescription: "コメントは元のまま残ります。",
     discard: "破棄",
     keepEditing: "編集を続ける",
+    deleteComment: "コメントを削除",
+    deleteThread: "スレッドを削除",
+    deleteCommentQuestion: "コメントを削除しますか？",
+    deleteCommentDescription:
+      "全員に対して削除され、元に戻すことはできません。",
+    deleteThreadQuestion: "スレッドを削除しますか？",
+    deleteThreadDescription:
+      "スレッドとその返信が全員に対して削除され、元に戻すことはできません。",
+    deleteThreadAiChangeDescription:
+      "スレッドとその返信が全員に対して削除され、元に戻すことはできません。AI によるページの変更は残りますが、スレッドから元に戻すことはできなくなります。",
+    delete: "削除",
+    deleting: "削除中…",
+    deleteRefusedReplied:
+      "他の人が返信しているため、このスレッドを削除できるのは編集者だけです。",
+    deleteRefusedNotion:
+      "このコメントは Notion と同期されています。Notion で削除してください。",
+    deleteRefusedAiWorking:
+      "AI がこのスレッドで作業中です。スレッドを削除する前に停止してください。",
+    deleteRefusedAiSuggestion:
+      "このスレッドの AI の提案が確認待ちです。スレッドを削除する前に、提案を承認または却下してください。",
+    deleteRefusedBusy:
+      "このスレッドは現在変更中です。少し待ってからもう一度削除してください。",
     submit: "コメント",
     askAi: "AI に質問",
     aiBadge: "AI",
@@ -1801,8 +1847,10 @@ const overrides = {
     mentionPeopleLoadFailed: "メンバーを読み込めませんでした。",
     mentionAgents: "エージェント",
     identityPerson: "ユーザー",
-    identityModel: "モデル",
     identityEffort: "推論の強度",
+    acceptAllAndResolve: "すべて承認して解決",
+    acceptAndResolve: "承認して解決",
+    suggestionLoadFailed: "この提案を読み込めませんでした",
     identityRan: "実行日時",
     identityNotRecorded: "記録なし",
     identityOpenRun: "実行を開く",
@@ -1835,7 +1883,6 @@ const overrides = {
     aiPromptApplyResolve: "このコメントの変更を適用して解決してください。",
     aiWorking: "AI が処理中…",
     aiReplied: "AI が返信しました",
-    aiSuggestionReady: "提案を確認",
     aiChangesApplied: "変更を適用しました",
     aiAppliedAndResolved: "適用して解決しました",
     aiChangeUndone: "変更を元に戻しました",

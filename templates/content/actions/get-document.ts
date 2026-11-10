@@ -446,6 +446,7 @@ export default defineAction({
       position: doc.position,
       isFavorite: favoriteIds.has(doc.id),
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
+      agentTextLocked: Boolean(doc.agentTextLocked),
       visibility: doc.visibility,
       source,
       accessRole: access.role,

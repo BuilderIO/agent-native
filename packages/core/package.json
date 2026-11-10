@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.223.0",
+  "version": "0.226.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -139,6 +139,14 @@
       "types": "./dist/action-ui.d.ts",
       "default": "./dist/action-ui.js"
     },
+    "./save-conflict": {
+      "types": "./dist/save-conflict/index.d.ts",
+      "default": "./dist/save-conflict/index.js"
+    },
+    "./save-conflict/server": {
+      "types": "./dist/save-conflict/server.d.ts",
+      "default": "./dist/save-conflict/server.js"
+    },
     "./authorization": {
       "types": "./dist/authorization/index.d.ts",
       "default": "./dist/authorization/index.js"
@@ -164,6 +172,7 @@
     "./client/agent-chat": "./dist/client/agent-chat/index.js",
     "./client/agent-engine-readiness": "./dist/client/agent-engine-readiness.js",
     "./client/agent-sidebar-state": "./dist/client/agent-sidebar-state.js",
+    "./client/auth/builder-signup": "./dist/client/auth/builder-signup.js",
     "./client/auth/auth-page-helpers": "./dist/client/auth/auth-page-helpers.js",
     "./client/assistant-chat-history-version": "./dist/client/chat/assistant-chat-history-version.js",
     "./client/agentkit-chat/integrity": "./dist/client/agentkit-chat/integrity.js",
@@ -175,6 +184,7 @@
     "./client/changelog": "./dist/client/changelog/index.js",
     "./client/markdown": "./dist/client/tombstone/markdown.js",
     "./client/collab": "./dist/client/collab/index.js",
+    "./client/collab/prefetch": "./dist/client/collab/prefetch.js",
     "./client/design-system-tier-limit": "./dist/client/design-system-tier-limit.js",
     "./client/dev-overlay": "./dist/client/dev-overlay/index.js",
     "./client/editor": "./dist/client/tombstone/editor.js",
@@ -235,6 +245,7 @@
     "./client/setup-connections": "./dist/client/setup-connections/index.js",
     "./client/setup-connections/runtime": "./dist/client/setup-connections/runtime.js",
     "./client/i18n": "./dist/client/i18n.js",
+    "./client/write-failure": "./dist/client/write-failure.js",
     "./embedding": "./dist/embedding/index.js",
     "./embedding/agent": "./dist/embedding/agent.js",
     "./embedding/bridge": "./dist/embedding/bridge.js",
@@ -256,6 +267,9 @@
       "default": "./dist/guards/index.js"
     },
     "./application-state": "./dist/application-state/index.js",
+    "./client/experience-profiles": "./dist/client/experience-profiles.js",
+    "./experience-profiles": "./dist/experience-profiles/index.js",
+    "./experience-profiles/server": "./dist/experience-profiles/server.js",
     "./settings": "./dist/settings/index.js",
     "./user-profile": "./dist/user-profile/index.js",
     "./user-profile/server": "./dist/user-profile/store.js",
@@ -304,6 +318,7 @@
     "./integrations/actions/manage-messaging-channel": "./dist/integrations/actions/manage-messaging-channel.js",
     "./private-blob": "./dist/private-blob/index.js",
     "./icon-assets": "./dist/icon-assets/index.js",
+    "./private-media": "./dist/private-media/index.js",
     "./agent/tool-result-images": "./dist/agent/tool-result-images.js",
     "./agent/context-xray/actions/context-manifest-get": "./dist/agent/context-xray/actions/context-manifest-get.js",
     "./agent/context-xray/actions/context-pin": "./dist/agent/context-xray/actions/context-pin.js",
@@ -407,6 +422,10 @@
     "./client/transcription/use-live-transcription": "./dist/client/transcription/use-live-transcription.js",
     "./transcription/builder": "./dist/transcription/builder-transcription.js",
     "./adapters/cli": "./dist/adapters/cli/index.js",
+    "./cli/telemetry": {
+      "types": "./dist/cli/telemetry.d.ts",
+      "default": "./dist/cli/telemetry.js"
+    },
     "./cli/skills": {
       "types": "./dist/cli/skills.d.ts",
       "default": "./dist/cli/skills.js"
@@ -423,6 +442,7 @@
     "./collab": "./dist/collab/index.js",
     "./collab/bounded-task-bundle": "./dist/collab/bounded-task-bundle.js",
     "./collab/live-copy-tasks": "./dist/collab/live-copy-tasks.js",
+    "./collab/outbox-keys": "./dist/collab/outbox-keys.js",
     "./a2a": "./dist/a2a/index.js",
     "./state-machine": "./dist/state-machine/index.js",
     "./action-properties": "./dist/action-properties.js",
@@ -608,6 +628,7 @@
     "./integrations/channel-settings": "./dist/integrations/channel-settings.js",
     "./jobs/actions/get-scheduled-trigger-status": "./dist/jobs/actions/get-scheduled-trigger-status.js",
     "./labs/core-labs": "./dist/labs/core-labs.js",
+    "./localization/workspace-integration-messages": "./dist/localization/workspace-integration-messages.js",
     "./localization/mcp-settings-messages": "./dist/localization/mcp-settings-messages.js",
     "./localization/shared": "./dist/localization/shared.js",
     "./navigation/settings-redirects": "./dist/navigation/settings-redirects.js",
@@ -632,6 +653,7 @@
     "./server/agent-chat/mcp-glue": "./dist/server/agent-chat/mcp-glue.js",
     "./server/deploy-environment": "./dist/server/deploy-environment.js",
     "./server/infrastructure-status": "./dist/server/infrastructure-status.js",
+    "./server/auth-guard-path": "./dist/server/auth-guard-path.js",
     "./server/onboarding-html": "./dist/server/onboarding-html.js",
     "./server/personal-provider-key-holders": "./dist/server/personal-provider-key-holders.js",
     "./shared/analytics-events": "./dist/shared/analytics-events.js",
@@ -809,6 +831,7 @@
     "botframework-connector": "^4.23.3",
     "drizzle-kit": "^0.31.10",
     "express": "^5.2.1",
+    "fake-indexeddb": "^6.2.5",
     "fast-check": "^4.10.2",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",

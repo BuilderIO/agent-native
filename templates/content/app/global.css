@@ -1295,6 +1295,46 @@
   margin-top: 0;
 }
 
+/* A titled Toggle's title is the first block of its content, beside the
+   chevron, and a closed Toggle hides the blocks after it. */
+.content-toggle--titled {
+  position: relative;
+  padding-left: calc(1rem + 0.5em);
+}
+
+.content-toggle--titled > .content-toggle__chevron {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.content-toggle__title {
+  font-weight: 500;
+}
+
+.content-toggle--titled:not(.content-toggle--open)
+  > .content-toggle__content
+  > [data-node-view-content-react]
+  > :not(.content-toggle__title) {
+  display: none;
+}
+
+.content-editor .content-toggle__title.is-empty::before,
+.content-toggle--title-empty
+  > .content-toggle__content
+  > [data-node-view-content-react]
+  > .content-toggle__title::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  height: 0;
+}
+
 div[data-notion-callout] {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -2146,10 +2186,13 @@ audio.media-block__content {
   background: hsl(0 0% 0% / 0.68);
 }
 
+/* The toolkit's dialog overlay sits at z-index 270, so the lightbox goes where
+   the toolkit puts a dialog's content, above it. Under it, the overlay dims
+   the media and takes its clicks. */
 .media-lightbox {
   position: fixed;
   inset: 0;
-  z-index: 251;
+  z-index: 280;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2761,6 +2804,11 @@ audio.media-block__content {
   color: hsl(var(--suggestion));
 }
 
+/* A line break has no ink of its own to highlight. */
+.content-editor .suggestion-line-break::before {
+  content: "↵";
+}
+
 .content-editor .suggestion-insert[data-suggestion-widget],
 .content-editor .suggestion-add-block[data-suggestion-widget] {
   border-radius: 0.2em;
@@ -3016,14 +3064,19 @@ audio.media-block__content {
   background: hsl(var(--accent));
 }
 
+/* A collaborator's selection: a tint in their colour, as strong as a local
+   selection, behind text left at full strength. */
 .content-editor .collaboration-carets__selection,
 .content-editor .collaboration-cursor__selection,
 .content-editor .ProseMirror-yjs-selection {
-  background-color: currentColor !important;
+  background-color: color-mix(
+    in srgb,
+    var(--collaboration-color, currentColor) 20%,
+    transparent
+  ) !important;
   border-radius: 2px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
-  opacity: 0.16;
 }
 
 .content-editor .collaboration-carets__selection,

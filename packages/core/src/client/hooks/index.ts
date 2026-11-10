@@ -32,6 +32,7 @@ export {
   useSession,
   type AuthSession,
 } from "../use-session.js";
+export { subscribeSessionInvalidation } from "../session-identity.js";
 export {
   registerSignOutCleanup,
   signOut,
@@ -46,6 +47,7 @@ export {
   callActionBlob,
   callActionWithRetry,
   currentActionQueryCacheBinding,
+  prepareUiActionCapability,
   recordActionQueryBrowserPersist,
   tryCallActionKeepalive,
   useActionQuery,

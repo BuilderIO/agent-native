@@ -1082,6 +1082,27 @@ const editor = {
     hideInSearch: "إخفاء في البحث",
     hideInSearchDescription:
       "إخفاء من المنظمة والبحث. لا يزال بإمكان الأشخاص الذين لديهم الرابط المشاهدة.",
+    sharePeopleTab: "الأشخاص",
+    shareAgentsTab: "الوكلاء",
+    agentLevelHeading: "الوكلاء في هذه الصفحة",
+    agentLevelMenuLabel: "ما يمكن للوكلاء فعله في هذه الصفحة",
+    agentLevelDefault: "(الافتراضي)",
+    agentLevelCommentDescription:
+      "يمكنهم القراءة والتعليق واقتراح التعديلات. ولا يقبلها إلا الأشخاص.",
+    agentLevelEditDescription:
+      "يمكنهم القراءة والتعليق والاقتراح وتعديل النص والعنوان وعلامات التبويب ونقل الصفحة إلى سلة المهملات.",
+    agentLevelCommentConfirm:
+      "يمكن للوكلاء الآن التعليق واقتراح التعديلات في هذه الصفحة، ولكن لا يمكنهم تعديلها.",
+    agentLevelEditConfirm: "يمكن للوكلاء تعديل هذه الصفحة مرة أخرى.",
+    agentLevelLimit:
+      "لا يحصل الوكيل أبدًا على صلاحيات تتجاوز صلاحيات الشخص الذي يعمل لصالحه.",
+    agentLevelManagersOnly:
+      "لا يمكن تغيير هذا إلا للأشخاص الذين يديرون هذه الصفحة.",
+    agentLevelUpdateFailed: "تعذّر تغيير ما يمكن للوكلاء فعله هنا.",
+    agentLevelNote: "يمكن للوكلاء التعليق",
+    agentLevelNoteHint: "يمكن للوكلاء التعليق في هذه الصفحة. غيّر ذلك من «شارك».",
+    sendPageToAgent: "إرسال هذه الصفحة إلى وكيل",
+    connectAgentOverMcp: "ربط وكيل عبر MCP",
     importingFromNotion: "الاستيراد من الفكرة...",
     lastSynced: "آخر مزامنة",
     linkedToNotion: "مرتبطة بالفكرة",
@@ -1153,7 +1174,7 @@ const rawLiterals = {
     previewDraftUseSaved: "استخدام الإصدار المحفوظ",
     previewDraftSaveSeparately: "حفظ إصداري كصفحة منفصلة",
     previewDraftSavedToHistory: "تم حفظ تعديلاتك في سجل الإصدارات",
-    previewDraftSavedSeparately: "تم حفظ تعديلاتك كصفحة منفصلة",
+    previewDraftSavedSeparately: "تم حفظ تعديلاتك كصفحة خاصة في مساحتك",
     previewDraftOpenSavedPage: "فتح الصفحة",
     previewDraftMoreOptions: "خيارات إضافية",
     previewDraftViewFullVersions: "عرض النسختين كاملتين",
@@ -1783,6 +1804,25 @@ const overrides = {
     discardEditDescription: "سيبقى تعليقك كما كان.",
     discard: "تجاهل",
     keepEditing: "متابعة التحرير",
+    deleteComment: "حذف التعليق",
+    deleteThread: "حذف السلسلة",
+    deleteCommentQuestion: "حذف التعليق؟",
+    deleteCommentDescription: "سيُحذف لدى الجميع، ولا يمكن التراجع عن ذلك.",
+    deleteThreadQuestion: "حذف السلسلة؟",
+    deleteThreadDescription:
+      "ستُحذف السلسلة وردودها لدى الجميع، ولا يمكن التراجع عن ذلك.",
+    deleteThreadAiChangeDescription:
+      "ستُحذف السلسلة وردودها لدى الجميع، ولا يمكن التراجع عن ذلك. يبقى تغيير الذكاء الاصطناعي في الصفحة، لكن لن تتمكن من التراجع عنه من السلسلة.",
+    delete: "حذف",
+    deleting: "جارٍ الحذف…",
+    deleteRefusedReplied: "ردّ شخص آخر، لذا لا يمكن حذف هذا الموضوع إلا لمحرر.",
+    deleteRefusedNotion: "هذا التعليق متزامن مع Notion. احذفه في Notion.",
+    deleteRefusedAiWorking:
+      "الذكاء الاصطناعي يعمل على هذا الموضوع. أوقفه قبل حذف الموضوع.",
+    deleteRefusedAiSuggestion:
+      "اقتراح الذكاء الاصطناعي في هذا الموضوع بانتظار المراجعة. اقبله أو ارفضه قبل حذف الموضوع.",
+    deleteRefusedBusy:
+      "يجري تغيير هذا الموضوع الآن. حاول حذفه مرة أخرى بعد قليل.",
     submit: "تعليق",
     askAi: "اسأل الذكاء الاصطناعي",
     aiBadge: "الذكاء الاصطناعي",
@@ -1793,8 +1833,10 @@ const overrides = {
     mentionPeopleLoadFailed: "تعذّر تحميل الأشخاص.",
     mentionAgents: "الوكلاء",
     identityPerson: "شخص",
-    identityModel: "النموذج",
     identityEffort: "مستوى الاستدلال",
+    acceptAllAndResolve: "قبول الكل والحل",
+    acceptAndResolve: "قبول وحل",
+    suggestionLoadFailed: "تعذّر تحميل هذا الاقتراح",
     identityRan: "وقت التشغيل",
     identityNotRecorded: "غير مسجل",
     identityOpenRun: "فتح التشغيل",
@@ -1827,7 +1869,6 @@ const overrides = {
     aiPromptApplyResolve: "طبّق تغييرات هذا التعليق وقم بحله.",
     aiWorking: "الذكاء الاصطناعي يعمل…",
     aiReplied: "رد الذكاء الاصطناعي",
-    aiSuggestionReady: "مراجعة الاقتراح",
     aiChangesApplied: "تم تطبيق التغييرات",
     aiAppliedAndResolved: "تم التطبيق والحل",
     aiChangeUndone: "تم التراجع عن التغيير",

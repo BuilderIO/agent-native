@@ -26,7 +26,7 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
-import { syncPrivateCalloutReferences } from "../server/lib/private-icon-references.js";
+import { syncPrivateBodyReferences } from "../server/lib/private-icon-references.js";
 import { CONTENT_LIVE_COPY_EDITS } from "../server/live-copy/binding.js";
 import { drizzleOverExec } from "../server/live-copy/exec-db.js";
 import { persistedContentBodyCommit } from "../server/live-copy/persist.js";
@@ -42,6 +42,7 @@ import {
 } from "./_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "./_content-database-lifecycle.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertEditableDocument,
   documentContentHash,
@@ -304,6 +305,12 @@ function restoreResult(updated: DocumentRow, softDeletedDatabaseIds: string[]) {
 }
 
 export default defineAction({
+  searchHints: [
+    "revert a page",
+    "previous version",
+    "roll back",
+    "page history",
+  ],
   description:
     "Restore a document to a saved version, snapshotting the current state first.",
   schema: z.object({
@@ -332,6 +339,7 @@ export default defineAction({
     if (isLinkedLocalSource(documentId, source))
       linkedLocalRestoreUnsupported();
     assertSourceAllowsPageEdit(access.resource);
+    assertAgentsMayEditPageText(access.resource, ctx);
     const db = getDb();
     const readCurrent = async () => {
       const [current] = await db
@@ -499,6 +507,7 @@ export default defineAction({
         linkedLocalRestoreUnsupported();
       }
       assertSourceAllowsPageEdit(current);
+      assertAgentsMayEditPageText(current, ctx);
       if (current.updatedAt !== expectedUpdatedAt) {
         restoreConflict(
           "The document changed after this restore was prepared.",
@@ -572,7 +581,7 @@ export default defineAction({
           "The document changed while the restore was committing.",
         );
       }
-      await syncPrivateCalloutReferences(
+      await syncPrivateBodyReferences(
         tx as unknown as ReturnType<typeof getDb>,
         {
           documentId,

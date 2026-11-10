@@ -299,6 +299,28 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["document-search-edit"],
   },
   {
+    id: "editor.page-open-read",
+    surface: "editor",
+    label: "Open a page, with a collection page's first rows, in one read",
+    uiEntrypoints: ["app/root.tsx", "app/hooks/use-documents.ts"],
+    durableEffect: null,
+    uiImplementation:
+      "Opening a page reads it once with get-page-open-read, which returns get-document's answer and, for a collection's own page, the collection, the reader's personal view and the first rows of the opening view.",
+    status: "action-backed",
+    actions: ["get-page-open-read"],
+    exception:
+      "Hidden from agent tools with agentTool: false because it only bundles reads for the browser's first paint; agents read the same data with get-document, get-content-database and query-content-database-items.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/get-page-open-read.db.test.ts",
+      "app/lib/page-open-collection.test.tsx",
+      "app/hooks/use-documents.page-open.test.tsx",
+    ],
+  },
+  {
     id: "editor.private-image-icons",
     surface: "editor",
     label:
@@ -531,6 +553,32 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: ["actions/_local-file-documents.test.ts"],
     evalScenarioIds: ["local-file-source-truth"],
+  },
+  {
+    id: "sharing.agent-text-lock",
+    surface: "sharing",
+    label: "Lock a page's text against agents",
+    uiEntrypoints: [
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/AgentsShareTab.tsx",
+    ],
+    durableEffect:
+      "The lock is stored on the document, and every action that writes a page's text refuses an agent's call while it is on. The exception is a GitHub folder sync an agent starts: pages following a GitHub file are view-only in Content anyway, and it doesn't name one page.",
+    uiImplementation:
+      "The Share panel's Agents tab calls the set-document-agent-text-lock Action: Can comment turns the lock on and Can edit turns it off.",
+    status: "action-backed",
+    actions: ["set-document-agent-text-lock"],
+    exception:
+      "set-document-agent-text-lock is hidden with agentTool: false because the lock has to hold against agents, so only a person can change it.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/agent-text-lock.db.test.ts",
+      "app/components/editor/AgentLevel.ui.test.tsx",
+      "app/components/editor/AgentsShareTab.ui.test.tsx",
+    ],
   },
   {
     id: "header.import-markdown-files",

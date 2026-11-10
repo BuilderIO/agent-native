@@ -1,7 +1,7 @@
 import type { PluralLocaleMessages } from "./en-US";
 
 const zhCN = {
-  campaign: {
+  siteContent: {
     recipeWhen: "何时使用",
     howOften: "使用频率",
     filterRole: "角色",
@@ -23,31 +23,28 @@ const zhCN = {
     whereItBreaks: "不足之处",
     updatedDate: "更新于 {{date}}",
     publishedDate: "发布于 {{date}}",
-    allArticles: "所有文章",
     useCases: "使用场景",
     useCasesDescription: "按应用分类的重复工作页面",
     useCasesTitle: "用 Agent-Native 应用和你的 AI 智能体完成日常重复工作",
     useCasesIntro:
       "选择你反复执行的工作，或浏览{{articles}}，查找模板和操作指南。",
     articles: "文章",
-    articlesIntro:
-      "关于与 AI 智能体一起完成重复工作的实用解答。如需查看针对单项工作的分步指南，请浏览{{useCases}}。",
-    useCasesLink: "使用场景",
+    articlesIntro: "借助 AI 智能体完成重复性工作的指南和讲解。",
     articleCount_other: "{{count}} 篇文章",
-    moreOnTopic: "更多关于{{topic}}的内容",
-    faqs: "常见问题",
     copyPage: "复制页面",
+    enlargeImage: "放大图片",
+    closeImage: "关闭图片",
+    copyPrompt: "复制提示词",
+    promptHint: "将提示词粘贴到 {{app}} 的输入框中。",
     copyLink: "复制链接",
     copied: "已复制",
     copyFailed: "无法复制，请重试。",
     breadcrumb: "面包屑导航",
     readTime_other: "阅读需 {{count}} 分钟",
     partOf: "所属场景：",
-    relatedResources: "相关资源",
     moreArticles: "更多 {{category}} 文章",
     genericMore: "更多文章",
     showMore: "显示更多文章",
-    allTopics: "所有主题",
     topics: {
       clips: "AI 智能体可使用的屏幕录制、会议和听写",
       design: "与 AI 智能体一起创建交互式原型",
@@ -2605,6 +2602,7 @@ const zhCN = {
     deploymentEnvironmentVariables: "部署：环境变量",
     updatingUiInProduction: "在生产环境中更新 UI",
     environmentVariables: "环境变量",
+    telemetry: "遥测",
     progress: "进度",
     authentication: "认证",
     multiTenancy: "多租户",

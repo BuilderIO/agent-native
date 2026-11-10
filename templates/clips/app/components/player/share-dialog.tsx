@@ -634,6 +634,10 @@ function AgentTab({
     ? t("shareDialog.agentPrompt", {
         agentContextUrl: agentLink,
         shareWithAgents: t("shareDialog.shareWithAgents"),
+        connectUrl: new URL(
+          "/mcp/connect",
+          apiBaseUrl() || window.location.origin,
+        ).toString(),
       })
     : "";
 
@@ -723,7 +727,9 @@ function RecordingAdvancedAccess({
   onExpiryChange: (expiresAt: string | null) => void;
 }) {
   const t = useT();
-  const updateRecording = useActionMutation("update-recording");
+  const updateRecording = useActionMutation("update-recording", {
+    errorNotification: "shared",
+  });
   const [passwordEnabled, setPasswordEnabled] = useState(hasPassword);
   const [password, setPassword] = useState("");
   const [expiryDraft, setExpiryDraft] = useState(expiresAt ?? "");

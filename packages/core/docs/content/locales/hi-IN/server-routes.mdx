@@ -111,6 +111,7 @@ server/routes/
     webhooks/
       stripe.post.ts       -> POST   /api/webhooks/stripe
   [...page].get.ts         -> सार्वजनिक पेजों के लिए SSR कैच-ऑल
+  index.get.ts             -> ऐप रूट के लिए SSR (कैच-ऑल को फिर से एक्सपोर्ट करता है)
 ```
 
 `defineEventHandler` एक रूट लिखने के लिए H3 प्रिमिटिव है। यह आपके हैंडलर फ़ंक्शन को लपेटता है और इसे `event` ऑब्जेक्ट तक पहुँच देता है, जो अनुरोध, प्रतिक्रिया, राउटर पैरामीटर, क्वेरी स्ट्रिंग, हेडर, और बॉडी वहन करता है। हैंडलर से एक मान लौटाना इसे प्रतिक्रिया के रूप में भेजता है - एक साधारण ऑब्जेक्ट स्वचालित रूप से JSON बन जाता है। एक `createError` थ्रो करना उपयुक्त HTTP एरर स्टेटस भेजता है।
@@ -187,6 +188,12 @@ import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
 export default createH3SSRHandler(
   () => import("virtual:react-router/server-build"),
 );
+```
+
+कैच-ऑल कभी भी ऐप रूट से मेल नहीं खाता, इसलिए `server/routes/index.get.ts` उसे फिर से एक्सपोर्ट करता है। दोनों फ़ाइलें रखें; इस री-एक्सपोर्ट के बिना, वर्कस्पेस में माउंट किया गया ऐप `/<app-id>` पर 404 लौटाता है:
+
+```ts filename="server/routes/index.get.ts"
+export { default } from "./[...page].get";
 ```
 
 हर SSR प्रतिक्रिया एक अवैयक्तिक, सार्वजनिक शेल है जो CDN पर कैश की गई है। इस हैंडलर में कभी भी कुकीज़, सत्र स्थिति, या auth शाखाएँ न पढ़ें। पर्सनलाइज़ेशन हाइड्रेशन के बाद क्लाइंट-साइड पर होता है।

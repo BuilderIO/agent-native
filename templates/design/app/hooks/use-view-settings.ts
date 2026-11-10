@@ -25,6 +25,7 @@ export function useViewSettings({ enabled }: { enabled: boolean }) {
   const pendingSavesRef = useRef(0);
   const { mutate } = useActionMutation("update-view-settings", {
     method: "PUT",
+    errorNotification: "shared",
     skipActionQueryInvalidation: true,
     onSuccess: (saved) => {
       // The server returns the full merged value, so a toggle made before the

@@ -98,6 +98,7 @@ vi.mock("../request-context.js", () => ({
   getRequestRunContext: () => mocks.requestRunContext(),
 }));
 
+import { registerAgentContextAgentFilter } from "../agent-context-agents.js";
 import {
   loadResourcesForPrompt,
   preloadJevContextForPrompt,
@@ -1195,6 +1196,88 @@ describe("preloadJevContextForPrompt", () => {
     );
     expect(appBlock).not.toContain("No apps were returned.");
     expect(appBlock).toContain("Treat app names, descriptions, aliases");
+  });
+
+  describe("agent context filter", () => {
+    const apps = [
+      {
+        id: "qr",
+        name: "QR Code Generator",
+        description: "Generate scannable QR code images.",
+        source: "workspace" as const,
+        url: "https://qr.example.test",
+        color: "#000000",
+      },
+      {
+        id: "mail",
+        name: "Mail",
+        description: "Read and send email.",
+        source: "builtin" as const,
+        url: "https://mail.example.test",
+        color: "#000000",
+      },
+    ];
+    let unregister: (() => void) | undefined;
+    afterEach(() => unregister?.());
+
+    it("drops filtered apps from available-apps and relevant-apps for that app only", async () => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: apps,
+        directory: { status: "available" },
+      });
+      unregister = registerAgentContextAgentFilter("dispatch", (agents) =>
+        agents.filter((agent) => agent.source !== "builtin"),
+      );
+
+      const prompt = await loadResourcesForPrompt(
+        "user@example.test",
+        false,
+        "dispatch",
+        null,
+      );
+      const appBlock = prompt.match(
+        /<available-apps>[\s\S]*?<\/available-apps>/,
+      )?.[0];
+      expect(appBlock).toContain("- QR Code Generator (qr)");
+      expect(appBlock).not.toContain("(mail)");
+
+      const relevant = await preloadJevContextWithStatus({
+        request: "Send an email",
+        dispatchToBackground: true,
+        selfAppId: "dispatch",
+      });
+      expect(relevant.relevantAppsContext ?? "").not.toContain("mail");
+
+      const otherApp = await loadResourcesForPrompt(
+        "user@example.test",
+        false,
+        "analytics",
+        null,
+      );
+      expect(otherApp).toContain("- Mail (mail)");
+    });
+
+    it("reports a failing filter as failed discovery, not the unfiltered list", async () => {
+      mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
+        agents: apps,
+        directory: { status: "available" },
+      });
+      unregister = registerAgentContextAgentFilter("dispatch", () => {
+        throw new Error("setting unreadable");
+      });
+
+      const prompt = await loadResourcesForPrompt(
+        "user@example.test",
+        false,
+        "dispatch",
+        null,
+      );
+      const appBlock = prompt.match(
+        /<available-apps>[\s\S]*?<\/available-apps>/,
+      )?.[0];
+      expect(appBlock).toContain("unavailable (discovery-failed)");
+      expect(appBlock).not.toContain("(mail)");
+    });
   });
 
   it("keeps app discovery within the prompt preload deadline", async () => {

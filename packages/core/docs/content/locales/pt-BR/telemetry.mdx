@@ -1,0 +1,179 @@
+---
+title: "Telemetria"
+description: "O que as CLIs do Agent-Native informam, o que nunca enviam e como desativar."
+---
+
+# Telemetria
+
+As ferramentas de linha de comando `@agent-native/core` e `@agent-native/skills` coletam dados de uso anônimos. Eles nos mostram quais partes da CLI funcionam e onde as pessoas travam, para sabermos o que corrigir.
+
+Nada aqui identifica você, seu projeto ou seu código, e você pode desativar com um comando. Esta página cobre as duas CLIs e lista tudo o que elas podem enviar. A análise dentro de um app que você cria é uma escolha separada que você mesmo configura; veja [Rastreamento](/docs/tracking).
+
+## Desativar {#turn-it-off}
+
+```bash
+npx @agent-native/core telemetry disable
+```
+
+Isso vale para as duas CLIs nesta máquina e também interrompe os relatórios de falhas.
+
+| Comando                                    | O que faz                                                          |
+| ------------------------------------------ | ------------------------------------------------------------------ |
+| `npx @agent-native/core telemetry status`  | Mostra se a telemetria está ativa e qual configuração a desativou. |
+| `npx @agent-native/core telemetry disable` | Desativa a telemetria nesta máquina.                               |
+| `npx @agent-native/core telemetry enable`  | Ativa de novo.                                                     |
+| `npx @agent-native/core telemetry reset`   | Substitui o ID aleatório desta máquina por um novo.                |
+
+A configuração fica em `~/.agent-native/telemetry.json`, ao lado do ID aleatório em `~/.agent-native/installation-id`.
+
+Você também pode desativar com qualquer uma destas variáveis de ambiente, que têm prioridade sobre a configuração. Use em CI ou em um perfil de shell compartilhado:
+
+```bash
+DO_NOT_TRACK=1
+AGENT_NATIVE_TELEMETRY_DISABLED=1
+```
+
+## Ver o que um comando enviaria {#see-what-a-command-would-send}
+
+Defina `AGENT_NATIVE_TELEMETRY_DEBUG=1` para imprimir cada evento em stderr, cada um em uma linha que começa com `[telemetry]`, sem enviar nada. Funciona também com a telemetria desativada e não cria um ID de máquina.
+
+```bash
+AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
+```
+
+## O aviso {#the-notice}
+
+Na primeira vez que um comando enviaria algo em uma máquina, ele imprime isto em stderr:
+
+```text
+▶ Agent-Native collects anonymous usage data.
+  It shows us which parts of the CLI work and where people get stuck.
+  Run "npx @agent-native/core telemetry disable" to opt out.
+  https://www.agent-native.com/docs/telemetry
+```
+
+É impresso uma vez por máquina. Não é impresso em CI nem com a telemetria desativada. Execuções de CI ainda enviam eventos, a menos que uma das variáveis acima esteja definida, e são marcadas com `ci`.
+
+## O que é enviado {#what-is-sent}
+
+Os eventos vão para o serviço de análise do próprio Agent-Native em `analytics.agent-native.com`, com uma chave somente de escrita que é pública no código-fonte da CLI. Os eventos são enviados em segundo plano. Um comando que os espera antes de sair espera no máximo 1,5 segundo. Um comando curto que não espera pode ficar aberto até que uma rede lenta ou que não responde responda ou desista.
+
+Cada evento tem um nome, um carimbo de data/hora, o ID da máquina e o ID da execução, além destas propriedades. O teste em `packages/core/src/cli/telemetry.spec.ts` falha se faltar na versão em inglês desta página uma propriedade que a CLI possa enviar.
+
+### Em todo evento {#on-every-event}
+
+| Propriedade   | O que é                                                                                                                    |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `cli`         | Qual CLI enviou: `core` ou `skills-installer`.                                                                             |
+| `cliVersion`  | A versão da CLI.                                                                                                           |
+| `command`     | O nome do comando, como `dev`. O que não for um comando, como um erro de digitação ou um prompt, é enviado como `unknown`. |
+| `node`        | A versão do Node.js.                                                                                                       |
+| `platform`    | O sistema operacional: `darwin`, `linux` ou `win32`.                                                                       |
+| `ci`          | Se o comando está rodando em CI.                                                                                           |
+| `interactive` | Se o comando está rodando em um terminal.                                                                                  |
+| `installId`   | O ID da máquina: um valor aleatório criado nesta máquina, sem vínculo com mais nada.                                       |
+| `runId`       | Um valor aleatório para esta execução do comando.                                                                          |
+
+Alguns eventos também são enviados com um segundo nome, mais recente, e `canonical_event_name` e `legacy_event_name` registram os dois nomes.
+
+### Comandos {#commands}
+
+| Evento                      | Quando                                        | Propriedades |
+| --------------------------- | --------------------------------------------- | ------------ |
+| `cli.run`                   | Um comando começa.                            | Nenhuma.     |
+| `cli.crash`                 | Um comando falha inesperadamente.             | `error`      |
+| `cli.scaffold.import_error` | O gerador de projetos não pode ser carregado. | `error`      |
+
+`error` é a dica curta da mensagem descrita em [Relatórios de falhas](#crash-reports).
+
+### Atividade dos projetos {#project-activity}
+
+Estes eventos mostram quantas máquinas que executaram `create` chegaram a iniciar um servidor de desenvolvimento e a concluir um build de produção, e com quais modelos.
+
+| Evento                | Quando                                                                                                                                                                              | Propriedades                                        |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `cli_create_finished` | `create` termina, é cancelado ou falha.                                                                                                                                             | `outcome`, `templates`, `projectKind`, `failedStep` |
+| `cli_dev_ready`       | O servidor de desenvolvimento começa a escutar pela primeira vez em uma execução de `dev`. Um reinício não o envia de novo e, em um workspace, só o primeiro app a iniciar o envia. | `workspace`, `appCount`, `readySeconds`             |
+| `cli_deploy_finished` | `build` ou `deploy` termina ou falha.                                                                                                                                               | `outcome`, `preset`, `failedStep`                   |
+
+| Propriedade    | O que é                                                                                                                                                                                                                           |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `outcome`      | `completed` ou `failed`. `create` também pode enviar `cancelled`.                                                                                                                                                                 |
+| `templates`    | Os modelos escolhidos, separados por vírgulas. Os modelos do próprio Agent-Native são enviados pelo nome. Um modelo da comunidade é enviado como `community` e qualquer outro nome como `unknown`, então uma URL nunca é enviada. |
+| `projectKind`  | O que `create` criou: `workspace`, `standalone`, `headless` ou `workspace-add` (um app adicionado a um workspace).                                                                                                                |
+| `failedStep`   | Onde uma execução com falha parou. `create`: `choose`, `scaffold` ou `finish`. `build`: `doctor`, `react-router-build`, `vite-build` ou `deploy-build`. `deploy`: `prepare`, `build` ou `package`.                                |
+| `workspace`    | Se `dev` está rodando em um workspace.                                                                                                                                                                                            |
+| `appCount`     | Quantos apps o workspace tem, ou 1 fora de um workspace.                                                                                                                                                                          |
+| `readySeconds` | Segundos entre o início de `dev` e o servidor começar a escutar.                                                                                                                                                                  |
+| `preset`       | O host que um build tem como alvo: `aws`, `azure`, `bun`, `cloudflare`, `deno`, `firebase`, `netlify`, `node` ou `vercel`. Um preset para qualquer outro host é enviado como `other`.                                             |
+
+`deploy` compila seu app e imprime o comando que o publica, então `completed` significa que o build terminou, não que algo foi ao ar. Os dois eventos de conclusão saem quando o comando termina, por meio de um processo auxiliar de curta duração que a saída espera por no máximo 1,5 segundo. Essa espera se soma a qualquer espera anterior por outros eventos. Ctrl+C em uma pergunta de `create` conta como `cancelled`. Parar `build` ou `deploy` com Ctrl+C não envia nenhum evento de conclusão.
+
+### Instalar skills {#installing-skills}
+
+Estes eventos acompanham `skills add` e `npx @agent-native/skills`, para vermos onde uma instalação para. Skills do catálogo do próprio Agent-Native são enviadas pelo nome. Uma skill de qualquer outro lugar, como um manifesto local ou outro repositório, é enviada como `custom`.
+
+| Evento                                                       | Quando                                            | Propriedades                                              |
+| ------------------------------------------------------------ | ------------------------------------------------- | --------------------------------------------------------- |
+| `skills_cli started`                                         | O comando começa.                                 | Nenhuma.                                                  |
+| `skills_cli skills listed`, `skills_cli skills prompted`     | As skills disponíveis são exibidas.               | `available`, `availableCount`                             |
+| `skills_cli skills selected`                                 | Skills são escolhidas.                            | `selected`, `selectedCount`, `selectedAll`, `preselected` |
+| `skills_cli plan mode selected`                              | Um modo de plano é escolhido.                     | `mode`                                                    |
+| `skills_cli clients selected`                                | Agentes de código são escolhidos.                 | `clients`, `clientCount`                                  |
+| `skills_cli scope selected`                                  | A instalação no projeto ou global é escolhida.    | `scope`                                                   |
+| `skills_cli install completed`                               | Os arquivos das skills são gravados.              | `skills`, `clients`, `scope`, `dryRun`, `writtenCount`    |
+| `skills_cli instructions updated`                            | Os arquivos de instruções são atualizados.        | `fileCount`                                               |
+| `skills_cli mcp registered`                                  | Um conector MCP é registrado.                     | `skills`, `serverName`, `clients`, `authenticated`        |
+| `skills_cli github action added`                             | O fluxo de trabalho PR Visual Recap é adicionado. | Nenhuma.                                                  |
+| `skills_cli connect started`, `skills_cli connect completed` | O login em um app começa ou termina.              | Nenhuma.                                                  |
+| `skills_cli connect failed`                                  | O login em um app falha.                          | `error`                                                   |
+| `skills_cli cancelled`                                       | A instalação é cancelada.                         | `step`                                                    |
+| `skills_cli completed`                                       | O comando termina.                                | `skills`, `clients`, `scope`, `dryRun`, `durationMs`      |
+| `skills_cli failed`                                          | O comando falha.                                  | `command`, `error`, `durationMs`                          |
+
+### Relatórios de falhas {#crash-reports}
+
+Quando um comando falha, o evento `$exception` informa o que quebrou no código do Agent-Native, e nada sobre o seu código:
+
+| Propriedade        | O que é                                                                                                                                                                                                                                                                                  |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `exceptionType`    | O tipo do erro, se for um tipo padrão, como `TypeError`. Qualquer outro tipo, como uma classe de erro própria, é enviado como `Error`.                                                                                                                                                   |
+| `exceptionCode`    | O código do erro, se for um código padrão, como `ENOENT`.                                                                                                                                                                                                                                |
+| `exceptionMessage` | Uma dica curta. Os erros conhecidos do próprio Agent-Native enviam seu texto fixo. Qualquer outra mensagem envia apenas suas primeiras palavras, até 20 caracteres, e para na primeira palavra que contenha algo além de letras, ou logo depois de uma palavra terminada em dois-pontos. |
+| `exceptionStack`   | Os quadros de pilha dos arquivos do próprio Agent-Native, com caminhos relativos ao pacote. Todos os outros quadros são removidos.                                                                                                                                                       |
+| `handled`          | `false` quando o erro interrompeu o comando.                                                                                                                                                                                                                                             |
+| `level`            | A gravidade.                                                                                                                                                                                                                                                                             |
+| `occurredAt`       | Quando aconteceu.                                                                                                                                                                                                                                                                        |
+| `release`          | A versão da CLI.                                                                                                                                                                                                                                                                         |
+| `app`              | Sempre `agent-native-cli`.                                                                                                                                                                                                                                                               |
+| `template`         | Sempre `cli`.                                                                                                                                                                                                                                                                            |
+| `runtime`          | Sempre `cli`.                                                                                                                                                                                                                                                                            |
+| `source`           | Sempre `cli`.                                                                                                                                                                                                                                                                            |
+| `exceptionTags`    | Onde a falha aconteceu; veja abaixo.                                                                                                                                                                                                                                                     |
+| `exceptionExtra`   | Como a falha terminou; veja abaixo.                                                                                                                                                                                                                                                      |
+
+Esses dois campos contêm apenas estes valores:
+
+- `exceptionTags`: `source` (a parte da CLI que falhou), `buildStep` (um dos nossos nomes de etapa de build), `template` (apenas um dos nossos nomes de modelo), `command` e `handled` (um rótulo da verificação que informou).
+- `exceptionExtra`: `exitCode` e `signal` (como uma etapa de build terminou), `stage` e `durationMs`.
+
+A dica é o início da mensagem, então uma mensagem que comece com palavras simples suas, como o nome de um projeto, pode levá-las. Um dígito, sublinhado, barra ou outro símbolo encerra a dica, assim como uma palavra longa demais, então caminhos, URLs, e-mails e a maioria dos tokens não passam.
+
+### Sentry {#sentry}
+
+Se `@sentry/node` estiver instalado junto com `@agent-native/core`, falhas e builds com erro também vão para o projeto do Sentry do Agent-Native, assim como dois avisos do servidor de desenvolvimento do workspace. Comandos de skills com falha não vão. Esses relatórios seguem todas as configurações desta página e levam o mesmo tipo de erro, dica, quadros de pilha e campos de `exceptionExtra`, com estas tags: os campos de `exceptionTags` acima, o `code` do erro, o nome de `command`, `nodeVersion` e `platform`. O ambiente é sempre `production`. Os relatórios também levam os campos habituais do Sentry: ID do evento, data e hora, gravidade, a versão da CLI e o nome e a versão do SDK do Sentry. A CLI não envia o nome do host, linhas de código-fonte, saída do console nem sua lista de dependências.
+
+## O que nunca é enviado {#what-is-never-sent}
+
+- Variáveis de ambiente
+- Caminhos de arquivos, conteúdo de arquivos ou código-fonte
+- Nomes de projetos, repositórios ou apps, e remotos do git
+- Logs ou saída de comandos
+- Argumentos de linha de comando ou prompts
+- E-mails, nomes de usuário ou nomes de host
+- Mensagens de erro brutas ou quadros de pilha do seu código
+- Nenhum ID do seu projeto
+
+O único limite desta lista é a dica de falha descrita acima, que pode levar as primeiras palavras de uma mensagem de erro.
+
+O serviço que recebe um evento pode ver o endereço IP da solicitação, como qualquer servidor web. A CLI não o coloca em nenhum evento.
