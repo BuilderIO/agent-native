@@ -3582,13 +3582,12 @@ export function CommentsSidebar({
           ) : undefined
         }
         onAiSubmit={
-          commentAi && !thread.field && !thread.clip
+          commentAi && !thread.clip
             ? (selection) => void submitAi(selection)
             : undefined
         }
-        aiModelStorageKey={
-          commentAi && !thread.field ? aiModelStorageKey : undefined
-        }
+        aiModelStorageKey={commentAi ? aiModelStorageKey : undefined}
+        aiSuggestOnly={Boolean(thread.field)}
         t={t}
       />
     );
@@ -4240,19 +4239,14 @@ export function CommentsSidebar({
                   }
                   onSubmit={() => void handlePendingSubmit()}
                   onAiSubmit={
-                    commentAi &&
-                    !displayedPendingComment.fieldId &&
-                    !displayedPendingComment.clip
+                    commentAi && !displayedPendingComment.clip
                       ? (selection) => void handlePendingAiSubmit(selection)
                       : undefined
                   }
                   aiDraft={pendingDraft.draft.aiDraft}
                   onAiDraftChange={pendingDraft.setAiDraft}
-                  aiModelStorageKey={
-                    commentAi && !displayedPendingComment.fieldId
-                      ? aiModelStorageKey
-                      : undefined
-                  }
+                  aiModelStorageKey={commentAi ? aiModelStorageKey : undefined}
+                  aiSuggestOnly={Boolean(displayedPendingComment.fieldId)}
                   onCancel={handlePendingCancel}
                   onEscape={handlePendingCancel}
                   confirmEscape={pendingText.trim() ? "comment" : false}
@@ -5173,6 +5167,7 @@ function ThreadView({
   canResolve,
   onAiSubmit,
   aiModelStorageKey,
+  aiSuggestOnly,
   expandLabel,
   firstEntryBody,
   threadActions,
@@ -5234,6 +5229,8 @@ function ThreadView({
   canResolve: boolean;
   onAiSubmit?: (payload: CommentAiSubmitPayload) => void;
   aiModelStorageKey?: string;
+  /** The AI can reply or suggest but not apply, as in a Blocks field tab. */
+  aiSuggestOnly?: boolean;
   expandLabel?: string;
   firstEntryBody?: ReactNode;
   threadActions?: ReactNode;
@@ -5644,6 +5641,7 @@ function ThreadView({
             aiDraft={aiDraft}
             onAiDraftChange={onAiDraftChange}
             aiModelStorageKey={aiModelStorageKey}
+            aiSuggestOnly={aiSuggestOnly}
             onEscape={() => {
               // A reply on its way out keeps its draft until the save lands.
               if (!isReplySubmitting) replyDrafts?.discard(thread.threadId);

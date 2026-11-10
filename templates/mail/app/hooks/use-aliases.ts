@@ -2,12 +2,15 @@ import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
 import type { Alias } from "@shared/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
+export const aliasesQueryOptions = {
+  queryKey: ["aliases"],
+  queryFn: () =>
+    callAction("list-aliases", {}, { method: "GET" }) as Promise<Alias[]>,
+  staleTime: 60_000,
+};
+
 export function useAliases() {
-  return useQuery<Alias[]>({
-    queryKey: ["aliases"],
-    queryFn: () => callAction("list-aliases", {}, { method: "GET" }),
-    staleTime: 60_000,
-  });
+  return useQuery<Alias[]>(aliasesQueryOptions);
 }
 
 export function useCreateAlias() {
