@@ -1,6 +1,21 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "承認済みオリジン",
+  "settingsApiKeys.originsHint":
+    "HTTPS オリジンを1行に1つ入力します。空欄では転送できません。ローカル HTTP は許可されます。",
+  "settingsApiKeys.invalidOrigins":
+    "HTTPS オリジンを1行に1つ正確に入力してください。",
+  "settingsApiKeys.editOrigins": "オリジンを編集",
+  "settingsApiKeys.originsSaved": "オリジンを保存しました",
+  "settingsApiKeys.originsCount_one": "承認済みオリジン {{count}} 件",
+  "settingsApiKeys.originsCount_other": "承認済みオリジン {{count}} 件",
+  "settingsApiKeys.noApprovedOrigins": "承認済みオリジンなし",
+  "extensions.cancel": "キャンセル",
+  "extensions.context": "コンテキスト",
+  "extensions.confirmAgentMessage":
+    "拡張機能のメッセージをエージェントに送信しますか？",
+  "extensions.sendToAgent": "エージェントに送信",
   "auth.logOutFailed": "ログアウトに失敗しました",
   "block.renderUnavailable": "このブロックは一時的に利用できません。",
   "block.loading": "ブロックを読み込み中です。",
