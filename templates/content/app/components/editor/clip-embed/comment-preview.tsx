@@ -1,4 +1,4 @@
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
+import { CommentBody } from "@agent-native/toolkit/app/review";
 import type { ClipCommentMarker } from "@shared/clips-peer-contract";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -39,8 +39,9 @@ export function CommentPreview({
               {author}
             </p>
           ) : null}
-          <InlineMarkdown
-            content={comment.content}
+          <CommentBody
+            compact
+            body={comment.content}
             className="line-clamp-3 text-sm leading-5 text-background dark:text-foreground"
             linkClassName="text-background underline decoration-background/60 hover:decoration-background dark:text-foreground dark:decoration-foreground/60 dark:hover:decoration-foreground"
             codeClassName="bg-background/15 text-background dark:bg-foreground/15 dark:text-foreground"

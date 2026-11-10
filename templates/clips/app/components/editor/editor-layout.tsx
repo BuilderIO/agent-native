@@ -1,5 +1,6 @@
 import {
   agentNativePath,
+  appApiPath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
 import {
@@ -7,7 +8,10 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+import type { SavedRecord } from "@agent-native/core/save-conflict";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
+import { useSaveConflictPrompt } from "@agent-native/toolkit/app/save-conflict";
 import { parseStoredChapters } from "@shared/stored-chapters";
 import {
   IconArrowLeft,
@@ -93,6 +97,7 @@ import {
   type EditsJson,
   type TrimRange,
 } from "@/lib/timestamp-mapping";
+import { saveNewestTrims, trimSaveFailureMessage } from "@/lib/trim-save";
 import { cn } from "@/lib/utils";
 import {
   extractFilmstripThumbnails,
@@ -296,10 +301,13 @@ function getWaveformMediaUrl({
 }): string | null {
   if (!videoUrl) return null;
   if (!shouldProxyWaveformUrl(videoUrl)) {
+    if (videoUrl === "/api" || videoUrl.startsWith("/api/")) {
+      return appApiPath(videoUrl);
+    }
     return videoUrl.startsWith("/") ? `${appBasePath()}${videoUrl}` : videoUrl;
   }
 
-  return `${appBasePath()}/api/video/${encodeURIComponent(recordingId)}`;
+  return appApiPath(`/api/video/${encodeURIComponent(recordingId)}`);
 }
 
 export function EditorLayout({
@@ -835,6 +843,31 @@ export function EditorLayout({
   ]);
 
   const setTrims = useActionMutation("set-recording-trims");
+  const savedTrimsRef = useRef<SavedRecord<TrimRange[]>>({
+    value: [],
+    revision: null,
+  });
+  // A refetch that lands mid-save is skipped here, so saveStatus brings the
+  // sync back once the last save finishes.
+  useEffect(() => {
+    if (!recording || editSaveLedgerRef.current.pending > 0) return;
+    savedTrimsRef.current = {
+      value: edits.trims,
+      revision: recording.trimsRevision ?? null,
+    };
+  }, [edits.trims, recording, saveStatus]);
+  const localTrimsRef = useRef<TrimRange[] | null>(null);
+  const commitEditsRef = useRef<
+    (next: EditsJson, options?: { record?: boolean }) => Promise<boolean>
+  >(async () => false);
+  const trimConflict = useSaveConflictPrompt<TrimRange[]>({
+    record: "clip_trims",
+    onRestore: (restoreOnto) =>
+      void commitEditsRef.current({
+        ...edits,
+        trims: restoreOnto(edits.trims),
+      }),
+  });
   const beginEditSave = useCallback((kind: EditSaveKind) => {
     const generation = beginEditorSave(editSaveLedgerRef.current, kind);
     setSaveStatus("saving");
@@ -879,18 +912,36 @@ export function EditorLayout({
       const historyEntry = record ? snapshotOf(savedEdits) : null;
       if (historyEntry) pushHistory(historyEntry);
       setPendingTrims(next.trims);
+      localTrimsRef.current = next.trims;
       const saveGeneration = beginEditSave("trims");
       let succeeded = false;
       try {
         await enqueueRecordingEditorSave(recordingId, "trims", async () => {
-          await setTrims.mutateAsync({ recordingId, trims: next.trims });
+          await saveNewestTrims({
+            saved: savedTrimsRef,
+            local: localTrimsRef,
+            resolveOverlap: trimConflict.resolveOverlap,
+            save: async ({ value, revision }) => {
+              const saved = await setTrims.mutateAsync({
+                recordingId,
+                trims: value,
+                expectedRevision: revision ?? undefined,
+              });
+              return { value: saved.editsJson.trims, revision: saved.revision };
+            },
+          });
+          setPendingTrims(localTrimsRef.current);
           await playerDataQuery.refetch();
         });
         succeeded = true;
         return true;
       } catch (err: any) {
         if (historyEntry) discardHistory(historyEntry);
-        toast.error(err?.message ?? t("editorLayout.editFailed"));
+        const message = trimSaveFailureMessage(
+          err,
+          t("editorLayout.editFailed"),
+        );
+        if (message) toast.error(message);
         return false;
       } finally {
         finishEditSave("trims", saveGeneration, succeeded);
@@ -898,6 +949,7 @@ export function EditorLayout({
           isLatestEditorSave(editSaveLedgerRef.current, "trims", saveGeneration)
         ) {
           setPendingTrims(null);
+          localTrimsRef.current = null;
         }
       }
     },
@@ -912,8 +964,10 @@ export function EditorLayout({
       savedEdits,
       setTrims,
       t,
+      trimConflict.resolveOverlap,
     ],
   );
+  commitEditsRef.current = commitEdits;
 
   const setOverlays = useActionMutation("set-recording-overlays");
   const burnRedactions = useActionMutation("burn-recording-redactions");
@@ -944,9 +998,11 @@ export function EditorLayout({
     void (async () => {
       try {
         const res = await fetch(
-          `${appBasePath()}/api/redaction-burn-progress?id=${encodeURIComponent(
-            recordingId,
-          )}`,
+          appApiPath(
+            `/api/redaction-burn-progress?id=${encodeURIComponent(
+              recordingId,
+            )}`,
+          ),
         );
         if (!res.ok) return;
         const data = (await res.json()) as { status?: string };
@@ -984,9 +1040,11 @@ export function EditorLayout({
     const poll = async () => {
       try {
         const res = await fetch(
-          `${appBasePath()}/api/redaction-burn-progress?id=${encodeURIComponent(
-            recordingId,
-          )}`,
+          appApiPath(
+            `/api/redaction-burn-progress?id=${encodeURIComponent(
+              recordingId,
+            )}`,
+          ),
         );
         if (!res.ok) {
           givingUp();
@@ -1078,9 +1136,9 @@ export function EditorLayout({
         });
         succeeded = true;
         return true;
-      } catch (err: any) {
+      } catch (err) {
         if (historyEntry) discardHistory(historyEntry);
-        toast.error(err?.message ?? t("editorLayout.editFailed"));
+        reportWriteFailure(err, { label: t("editorLayout.editFailed") });
         return false;
       } finally {
         finishEditSave("overlays", saveGeneration, succeeded);
@@ -1943,6 +2001,7 @@ export function EditorLayout({
         ) : null}
       </div>
 
+      {trimConflict.prompt}
       <ThumbnailPicker
         open={thumbOpen}
         onOpenChange={setThumbOpen}

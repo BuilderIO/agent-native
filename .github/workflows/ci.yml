@@ -167,7 +167,8 @@ jobs:
       - id: setup
         uses: ./.github/actions/setup-pnpm
         with:
-          install: no-scripts
+          install: ${{ needs.change-scope.outputs.has_reports == 'true' && 'full' || 'no-scripts' }}
+          restore-dist-cache: ${{ needs.change-scope.outputs.has_reports == 'true' && 'true' || 'false' }}
 
       - name: Check the full tree
         if: needs.change-scope.outputs.full == 'true'
@@ -361,11 +362,7 @@ jobs:
           status=0
           while IFS=$'\t' read -r name shard; do
             echo "::group::$name ($shard)"
-            if [[ "$name" == "slides-2" ]]; then
-              VITEST_CONCURRENCY=1 pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
-            else
-              pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
-            fi
+            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
             echo "::endgroup::"
           done < <(
             node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
@@ -493,11 +490,7 @@ jobs:
           status=0
           while IFS=$'\t' read -r name shard; do
             echo "::group::$name ($shard)"
-            if [[ "$name" == "slides-2" ]]; then
-              VITEST_CONCURRENCY=1 pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
-            else
-              pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
-            fi
+            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
             echo "::endgroup::"
           done < <(
             node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
@@ -1222,8 +1215,11 @@ jobs:
           CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
           CONTENT_BLOCK_ACTION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_block_action_test
 
-  content-convergence-tests:
-    name: Content convergence
+  # The convergence steps run as three isolated groups in parallel; each group
+  # has its own Postgres, build and server, so no group's pages or flags leak
+  # into another's. The Content convergence job below merges their reports.
+  content-convergence-groups:
+    name: Content convergence (${{ matrix.label }})
     needs: change-scope
     if: needs.change-scope.outputs.content_convergence == 'true'
     runs-on: ubuntu-latest
@@ -1231,6 +1227,16 @@ jobs:
     permissions:
       contents: read
       packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: regular-off
+            label: regular, gate off
+          - group: regular-on
+            label: regular, gate on
+          - group: known-loss
+            label: known loss, not blocking
     services:
       postgres:
         image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
@@ -1278,7 +1284,7 @@ jobs:
 
       - name: Run Content two-tab convergence lane
         id: convergence
-        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' && matrix.group == 'regular-off' }}
         working-directory: templates/content
         run: |
           BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
@@ -1292,14 +1298,14 @@ jobs:
           CONTENT_BASE_URL: http://127.0.0.1:8090
           CONTENT_LIVE_BODY_GATE: "off"
           CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
-          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/gate-off.json
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/gate-off.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       # Main still loses text in these. They report every run without failing
       # the PR until the fix that drops their @known-loss tag lands.
       - name: Run Content two-tab scenarios main still loses text in
-        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' && matrix.group == 'known-loss' }}
         continue-on-error: true
         working-directory: templates/content
         run: |
@@ -1311,15 +1317,15 @@ jobs:
           CONTENT_BASE_URL: http://127.0.0.1:8090
           CONTENT_LIVE_BODY_GATE: "off"
           CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
-          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/gate-off-known-loss.json
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/gate-off-known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       # The same scenarios on pages switched to the live-body writer (decision
       # D2). Each one skips, with its reason, until the build has the writer
       # flag and the per-page switch; a skip is reported, never counted a pass.
       - name: Run Content two-tab convergence lane with the live-body gate on
-        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' && matrix.group == 'regular-on' }}
         working-directory: templates/content
         run: |
           BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
@@ -1332,12 +1338,12 @@ jobs:
           CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
           AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test
           CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
-          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/gate-on.json
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/gate-on.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       - name: Run Content two-tab scenarios main still loses text in, with the live-body gate on
-        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' && matrix.group == 'known-loss' }}
         continue-on-error: true
         working-directory: templates/content
         run: |
@@ -1351,14 +1357,14 @@ jobs:
           CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
           AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test
           CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
-          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/gate-on-known-loss.json
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/gate-on-known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       # The stored-form acceptance checks (SF-02 to SF-12), on both sides of
       # the gate. Each creates its own pages, so two workers share the server.
       - name: Run Content stored-form acceptance checks
-        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' && matrix.group == 'regular-off' }}
         working-directory: templates/content
         run: |
           BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
@@ -1368,11 +1374,11 @@ jobs:
           CONTENT_E2E_SERVE_BUILD: "1"
           CONTENT_BASE_URL: http://127.0.0.1:8090
           CONTENT_LIVE_BODY_GATE: "off"
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-off.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/stored-form-gate-off.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       - name: Run Content stored-form checks main still fails
-        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' && matrix.group == 'known-loss' }}
         continue-on-error: true
         working-directory: templates/content
         run: |
@@ -1383,11 +1389,11 @@ jobs:
           CONTENT_E2E_SERVE_BUILD: "1"
           CONTENT_BASE_URL: http://127.0.0.1:8090
           CONTENT_LIVE_BODY_GATE: "off"
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-off-known-loss.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/stored-form-gate-off-known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       - name: Run Content stored-form acceptance checks with the live-body gate on
-        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' && matrix.group == 'regular-on' }}
         working-directory: templates/content
         run: |
           BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
@@ -1399,11 +1405,11 @@ jobs:
           CONTENT_LIVE_BODY_GATE: "on"
           CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
           AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test,e2e+autoz-live-body-gate-landing@content.test
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-on.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/stored-form-gate-on.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       - name: Run Content stored-form checks main still fails, with the live-body gate on
-        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' && matrix.group == 'known-loss' }}
         continue-on-error: true
         working-directory: templates/content
         run: |
@@ -1416,33 +1422,179 @@ jobs:
           CONTENT_LIVE_BODY_GATE: "on"
           CONTENT_E2E_EMAIL: e2e+autoz-live-body-gate@content.test
           AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS: e2e+autoz-live-body-gate@content.test,e2e+autoz-live-body-gate-landing@content.test
-          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/stored-form-gate-on-known-loss.json
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/${{ matrix.group }}/stored-form-gate-on-known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
+      - name: Collect the group's Playwright output
+        if: ${{ always() }}
+        env:
+          GROUP_DIR: ${{ runner.temp }}/content-convergence/${{ matrix.group }}
+        run: |
+          mkdir -p "$GROUP_DIR"
+          if [ -d templates/content/test-results ]; then
+            cp -R templates/content/test-results "$GROUP_DIR/test-results"
+          fi
+
+      - name: Upload Content convergence group report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: content-convergence-${{ matrix.group }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/content-convergence/
+          if-no-files-found: error
+          retention-days: 14
+
+  content-convergence-tests:
+    name: Content convergence
+    needs: [change-scope, content-convergence-groups]
+    if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          sparse-checkout: templates/content/e2e
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      # Absent artifacts are reported by the merge step, group by group.
+      - name: Download Content convergence group reports
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: content-convergence-*-attempt-*
+          path: .tmp/content-convergence-groups
+          merge-multiple: false
+
+      # Earlier attempts' artifacts stay downloadable, so the run's job list,
+      # not the newest artifact, names the attempt whose report counts. A rerun
+      # of failed jobs copies each job it does not rerun into the new attempt,
+      # with the new run_attempt but the original started_at; that copy never
+      # uploaded anything. So the job with the latest start time ran the group,
+      # and among equal start times the lowest attempt is the one that ran it.
+      # A page that fails mid-pagination would leave a list that can miss the
+      # newest attempts, so only a complete list reaches the merge.
+      - name: Read the attempt that last ran each group
+        id: jobs
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOBS_FILE: .tmp/content-convergence-jobs.tsv
+        run: |
+          mkdir -p .tmp
+          gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100" \
+            --jq '.jobs[] | select(.name | startswith("Content convergence (")) | [.name, .run_attempt, (.started_at // ""), (.conclusion // "none")] | @tsv' \
+            > "$JOBS_FILE.partial"
+          mv "$JOBS_FILE.partial" "$JOBS_FILE"
+
+      - name: Merge Content convergence group reports
+        id: merge
+        env:
+          JOBS_FILE: .tmp/content-convergence-jobs.tsv
+          GROUPS_DIR: .tmp/content-convergence-groups
+          REPORT_DIR: .tmp/content-convergence
+        run: |
+          mkdir -p "$REPORT_DIR"
+          : > "$REPORT_DIR/convergence.jsonl"
+          failed=""
+          {
+            echo "## Content convergence groups"
+            echo ""
+            echo "| Group | Attempt | Result |"
+            echo "| --- | --: | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for entry in "regular-off:regular, gate off" "regular-on:regular, gate on" "known-loss:known loss, not blocking"; do
+            group="${entry%%:*}"
+            # A newest attempt that never started has no start time to compare,
+            # so it must not let an older attempt's start time win.
+            latest="$(awk -F '\t' -v name="Content convergence (${entry#*:})" '
+              $1 != name { next }
+              { a = $2 + 0 }
+              a > maxAttempt { maxAttempt = a; maxStart = $3 }
+              !seen || $3 > start || ($3 == start && a < attempt) { seen = 1; start = $3; attempt = a; result = $4 }
+              END {
+                if (!seen) exit
+                if (maxStart == "") print maxAttempt, "not started"
+                else print attempt, result
+              }' "$JOBS_FILE" 2>/dev/null || true)"
+            attempt="${latest%% *}"
+            result="${latest#* }"
+            src="$GROUPS_DIR/content-convergence-$group-attempt-$attempt/$group"
+            if [ -z "$latest" ]; then
+              attempt="none"
+              result="no job found"
+            elif [ ! -d "$src" ]; then
+              result="$result, report missing"
+            else
+              if [ -f "$src/convergence.jsonl" ]; then
+                cat "$src/convergence.jsonl" >> "$REPORT_DIR/convergence.jsonl"
+              fi
+              for report in "$src"/*.json; do
+                [ -f "$report" ] && cp "$report" "$REPORT_DIR/"
+              done
+            fi
+            echo "| $group | $attempt | $result |" >> "$GITHUB_STEP_SUMMARY"
+            case "$group:$result" in
+              known-loss:*|*:success) ;;
+              *) failed="$failed $group" ;;
+            esac
+          done
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          [ -s "$REPORT_DIR/convergence.jsonl" ] || rm "$REPORT_DIR/convergence.jsonl"
+          echo "failed=${failed# }" >> "$GITHUB_OUTPUT"
+
       - name: Summarize Content two-tab convergence
-        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        if: ${{ !cancelled() }}
         working-directory: templates/content
+        env:
+          REPORT_DIR: ${{ github.workspace }}/.tmp/content-convergence
         run: >-
           node --experimental-strip-types e2e/convergence-summary.ts
-          "$RUNNER_TEMP/content-convergence/convergence.jsonl"
-          "$RUNNER_TEMP/content-convergence/gate-off.json"
-          "$RUNNER_TEMP/content-convergence/gate-off-known-loss.json"
-          "$RUNNER_TEMP/content-convergence/gate-on.json"
-          "$RUNNER_TEMP/content-convergence/gate-on-known-loss.json"
-          "$RUNNER_TEMP/content-convergence/stored-form-gate-off.json"
-          "$RUNNER_TEMP/content-convergence/stored-form-gate-off-known-loss.json"
-          "$RUNNER_TEMP/content-convergence/stored-form-gate-on.json"
-          "$RUNNER_TEMP/content-convergence/stored-form-gate-on-known-loss.json"
+          "$REPORT_DIR/convergence.jsonl"
+          --required "$REPORT_DIR/gate-off.json"
+          "$REPORT_DIR/gate-off-known-loss.json"
+          --required "$REPORT_DIR/gate-on.json"
+          "$REPORT_DIR/gate-on-known-loss.json"
+          --required "$REPORT_DIR/stored-form-gate-off.json"
+          "$REPORT_DIR/stored-form-gate-off-known-loss.json"
+          --required "$REPORT_DIR/stored-form-gate-on.json"
+          "$REPORT_DIR/stored-form-gate-on-known-loss.json"
           >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Require the regular groups to pass
+        if: ${{ !cancelled() }}
+        env:
+          JOBS_OUTCOME: ${{ steps.jobs.outcome }}
+          MERGE_OUTCOME: ${{ steps.merge.outcome }}
+          FAILED_GROUPS: ${{ steps.merge.outputs.failed }}
+        run: |
+          if [ "$JOBS_OUTCOME" != "success" ]; then
+            echo "::error::The run's job list could not be read in full, so no group's latest attempt is known"
+            exit 1
+          fi
+          if [ "$MERGE_OUTCOME" != "success" ]; then
+            echo "::error::The group reports could not be merged"
+            exit 1
+          fi
+          if [ -n "$FAILED_GROUPS" ]; then
+            echo "::error::Content convergence groups did not pass: $FAILED_GROUPS"
+            exit 1
+          fi
+
       - name: Upload Content two-tab convergence report
-        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: content-convergence-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/content-convergence/
-            templates/content/test-results/
+          path: .tmp/content-convergence/
           if-no-files-found: warn
           retention-days: 14
 
@@ -2131,37 +2283,102 @@ jobs:
       - name: Model-check the execution lease
         run: pnpm verify:execution-lease
 
-  mutation-changed:
-    name: Mutation test changed Core lines
+  mutation-plan:
+    name: Plan Core mutation workers
     needs: change-scope
-    # Required check: run when selected, and also when change-scope did not
-    # succeed so the check fails closed instead of reporting "skipped".
-    if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.core_mutation == 'true') }}
+    if: ${{ !cancelled() && needs.change-scope.result == 'success' && needs.change-scope.outputs.core_mutation == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has_ranges: ${{ steps.plan.outputs.has_ranges }}
     steps:
-      - name: Require a successful change scope
-        env:
-          CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
-        run: |
-          if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
-            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
-            exit 1
-          fi
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
           fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Plan complete mutation scope
+        id: plan
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: node scripts/mutation-changed.ts --plan
 
+  mutation-shards:
+    name: Core mutation report ${{ matrix.index }}
+    needs: [change-scope, mutation-plan]
+    if: ${{ !cancelled() && needs.mutation-plan.result == 'success' && needs.mutation-plan.outputs.has_ranges == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.mutation-plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
       - uses: ./.github/actions/setup-pnpm
         with:
           restore-dist-cache: "true"
-
-      - name: Mutation-test the Core lines this branch added
+      - name: Run owned mutants with the complete original test scope
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
-        run: pnpm mutation:changed
+        run: pnpm mutation:changed --shard '${{ matrix.index }}' '${{ matrix.count }}'
+      - name: Upload owner-only mutation receipt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutation-owner-${{ matrix.index }}-${{ github.run_attempt }}
+          path: .tmp/mutation-shards/shard-${{ matrix.index }}.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  mutation-changed:
+    name: Mutation test changed Core lines
+    needs: [change-scope, mutation-plan, mutation-shards]
+    # Required check also reports failed scope, planning, missing reports and cancelled workers.
+    if: ${{ always() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.core_mutation == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Require complete scope and workers
+        env:
+          SCOPE_RESULT: ${{ needs.change-scope.result }}
+          PLAN_RESULT: ${{ needs.mutation-plan.result }}
+          HAS_RANGES: ${{ needs.mutation-plan.outputs.has_ranges }}
+          SHARD_RESULT: ${{ needs.mutation-shards.result }}
+        run: |
+          if [ "$SCOPE_RESULT" != "success" ] || [ "$PLAN_RESULT" != "success" ]; then
+            echo "::error::Mutation scope or planning did not succeed"
+            exit 1
+          fi
+          case "$HAS_RANGES:$SHARD_RESULT" in
+            true:success|false:skipped) ;;
+            *) echo "::error::Mutation workers were incomplete ($HAS_RANGES:$SHARD_RESULT)"; exit 1 ;;
+          esac
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Download complete owner receipts
+        if: needs.mutation-plan.outputs.has_ranges == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: mutation-owner-*
+          path: .tmp/mutation-shards
+          merge-multiple: false
+      - name: Verify complete inventories and the original global threshold
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: node scripts/mutation-changed.ts --aggregate .tmp/mutation-shards
 
   guards:
     name: Security guards
@@ -2197,11 +2414,20 @@ jobs:
       - name: Test mobile build path guard
         run: pnpm test:mobile-build-paths
 
+      - name: Test bare pnpm spawn guard
+        run: pnpm test:no-bare-pnpm-spawn
+
+      - name: Test single S3 signer guard
+        run: pnpm test:single-s3-signer
+
       - name: Test source-reading tests guard
         run: pnpm test:no-source-reading-tests
 
       - name: Test legacy MCP hint baseline guard
         run: pnpm test:no-new-legacy-mcp-hints
+
+      - name: Test blocker-safe module names guard
+        run: pnpm test:blocker-safe-module-names
 
       - name: Test strictness ratchet guards
         run: pnpm test:strictness-guards

@@ -9,6 +9,8 @@ import {
   type H3Event,
 } from "h3";
 
+import { isExplicitCorsAllowedOrigin } from "../shared/mcp-embed-headers.js";
+
 function isLoopbackAddress(address: string | undefined): boolean {
   return Boolean(
     address === "::1" ||
@@ -138,8 +140,19 @@ function isLoopbackHost(host: string): boolean {
   return host.startsWith("localhost:") || host.startsWith("127.0.0.1:");
 }
 
+/**
+ * An origin the operator listed in `CORS_ALLOWED_ORIGINS` is the app's own UI
+ * served from elsewhere (`runtime.apiBaseUrl`), so the first-party checks
+ * below admit it.
+ */
+function isListedUiOrigin(event: H3Event): boolean {
+  const origin = getRequestHeader(event, "origin");
+  return !!origin && isExplicitCorsAllowedOrigin(origin);
+}
+
 /** Positive origin evidence must be paired with browser-cookie identity for UI proof. */
 export function hasSameOriginBrowserEvidence(event: H3Event): boolean {
+  if (isListedUiOrigin(event)) return true;
   const fetchSite = getRequestHeader(event, "sec-fetch-site");
   if (fetchSite) return fetchSite === "same-origin";
   const origin = getRequestHeader(event, "origin");
@@ -151,12 +164,23 @@ export function isSameOriginPost(event: H3Event): boolean {
   return hasSameOriginBrowserEvidence(event);
 }
 
+function isDesktopAppOrigin(origin: string | undefined): boolean {
+  if (!origin || !URL.canParse(origin)) return false;
+  const parsed = new URL(origin);
+  return parsed.protocol === "tauri:" && parsed.hostname === "localhost";
+}
+
 export function isSameOriginRequest(event: H3Event): boolean {
+  if (isListedUiOrigin(event)) return true;
+  const origin = getRequestHeader(event, "origin");
+  const host = getRequestHeader(event, "host");
+  // WebKit marks every request from the desktop app's tauri:// page
+  // Sec-Fetch-Site: cross-site, so this origin is admitted before fetch
+  // metadata decides. No web page can send it: browsers set Origin themselves.
+  if (host && isDesktopAppOrigin(origin)) return true;
   const fetchSite = getRequestHeader(event, "sec-fetch-site");
   if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
 
-  const host = getRequestHeader(event, "host");
-  const origin = getRequestHeader(event, "origin");
   if (origin) {
     if (!host) return false;
     try {
@@ -171,9 +195,6 @@ export function isSameOriginRequest(event: H3Event): boolean {
         : parsed.protocol === "https:" ||
           (parsed.protocol === "http:" && isLoopbackHost(host));
       if (parsed.host === host && matchesScheme) return true;
-      if (parsed.protocol === "tauri:" && parsed.hostname === "localhost") {
-        return true;
-      }
       if (
         (parsed.protocol === "http:" || parsed.protocol === "https:") &&
         parsed.hostname === "tauri.localhost" &&

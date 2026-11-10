@@ -342,6 +342,8 @@ export default {
   common: {
     loading: "Cargando...",
     genericError: "algo salió mal",
+    linkedSourceSizeLimit:
+      "Esta edición del componente vinculado supera el límite de tamaño del código fuente.",
   },
   editPanel: {
     colorInputLabel: "color",
@@ -1049,6 +1051,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "No se pudo cargar esta pantalla.",
+    selectionPublishFailed:
+      "Es posible que el agente no vea tu selección más reciente. Vuelve a seleccionarla.",
     liveCollaboration: {
       title: "Colaboración en directo",
       description:
@@ -1645,32 +1650,18 @@ export default {
       editColor: "Editar el color de {{name}}",
     },
     import: {
-      title: "Importar",
       description:
         "Trae HTML del portapapeles de Figma o HTML independiente como pantallas de Design.",
-      figmaUrlTitle: "URL de marco de Figma",
-      figmaUrlDescription:
-        "Importa un marco o archivo desde un enlace de Figma.",
       figmaUrlLabel: "URL de marco o archivo de Figma",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "Comprobando la conexión con Figma…",
-      figmaConnected: "Figma conectado",
-      figmaConnectedWithSuffix: "Figma conectado · ••••{{suffix}}",
       figmaTokenLabel: "Token de acceso de Figma",
       figmaTokenDocs: "Obtener un token",
       figmaTokenPlaceholder: "Pega tu token de acceso personal de Figma",
-      figmaTokenDescription:
-        "Se guarda de forma segura para importaciones y chat. El token nunca se añade al chat.",
-      importFigmaUrl: "Importar desde Figma",
-      saveKeyAndImport: "Guardar clave e importar",
       figmaUrlSuccess: "Importado desde Figma.",
       figmaImageFallbackWarning:
         "Alternativas de imagen: {{count}}. Se conserva la apariencia, pero estas capas no son totalmente editables.",
       figmaApproximationWarning:
         "Capas aproximadas: {{count}}. HTML/CSS no puede representar todas las propiedades de Figma con exactitud.",
-      figmaPasteTitle: "Pegar desde Figma",
-      figmaPasteDescription:
-        "Copia un marco o capa en Figma y pégalo en el lienzo de Design. Design importa el HTML visible del portapapeles.",
       figmaPasteTarget: "Pega en el lienzo",
       figmaPasteApiKeyHint:
         "Conecta tu token de acceso de Figma para importaciones exactas de nodos.",
@@ -1679,10 +1670,10 @@ export default {
       figmaPasteMatchGuidance:
         "No se pudo hacer coincidir con nodos específicos de Figma. Pega un enlace de marco para una importación exacta.",
       figmaPasteUnreadable:
-        "Ese portapapeles no contiene capas copiadas de Figma. Selecciona un marco en Figma, cópialo con Cmd+C y vuelve a pegar, o importa un enlace de Figma desde el panel Importar.",
+        "Ese portapapeles no contiene capas copiadas de Figma. Selecciona un marco en Figma, cópialo con Cmd+C y vuelve a pegar, o pega un enlace al marco en el chat.",
       figmaPasteRestLabel: "Importado mediante la API de Figma",
       figmaPasteHtmlLabel: "Importado desde la vista previa del portapapeles",
-      figmaPasteLocalKiwiLabel: "Importado sin token — solo geometría y texto",
+      figmaPasteLocalKiwiLabel: "Importado desde el portapapeles de Figma",
       figmaPasteImagesNeedToken:
         "{{count}} imagen{{plural}} necesita{{plural}} acceso a Figma para cargarse.",
       figmaPasteImagesDontShowAgain: "No mostrar de nuevo",
@@ -1714,74 +1705,30 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: "Subir .fig",
       figUploadDescription:
         "Experimental: el formato .fig de Figma es propietario y puede cambiar. Las capas compatibles se convierten en pantallas editables; algunas funciones pueden variar. Máximo {{max}} MB.",
-      chooseFigFile: "Elegir archivo .fig",
       figUploadUploading: "Subiendo {{progress}}%",
       figUploadProcessing: "Convirtiendo…",
-      figImportWarningTitle: "Importación .fig grande",
-      figImportWarningDescription:
-        "Este archivo contiene {{frames}} marcos y {{nodes}} capas. Importarlo todo puede ralentizar el editor. Elige las páginas que necesitas.",
-      figImportFrameCount: "{{selected}} de {{total}} marcos seleccionados",
-      figImportSelectAll: "Seleccionar todo",
-      figImportClearAll: "Borrar todo",
-      figImportCancel: "Cancelar",
-      figImportSelected: "Importar {{count}} seleccionados",
-      figImportAll: "Importar todo",
       figImportAnalyzing: "Analizando…",
       figImportSaving: "Guardando {{saved}} de {{total}} marcos",
-      figImportFrameLimit: "Elige páginas con {{max}} marcos o menos en total.",
       figImportFramesSkippedWarning:
         "Se omitieron {{count}} marcos demasiado complejos para importar: {{names}}",
-      figUploadLimits: "Hasta {{size}} GB · {{frames}} marcos por importación",
-      figUploadDescriptionShort:
-        "Importación local — sin cuota de la API de Figma. Se incluyen las imágenes incrustadas compatibles.",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "Design ha pausado esta importación",
-      quotaCooldownBody:
-        "Design está regulando sus propias solicitudes a Figma tras alcanzar un límite de cuota. Se restablece automáticamente.",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "Importar HTML",
       htmlDescription:
         "Pega o sube HTML independiente. Design lo guarda como una pantalla nueva sin inyectarlo en esta interfaz.",
-      htmlPlaceholder: "<main>Pega HTML independiente aquí...</main>",
-      importHtml: "Importar HTML",
-      chooseHtmlFile: "Elegir archivo HTML",
       allSupportedFiles: "Todos los archivos compatibles",
-      githubTitle: "GitHub",
       githubDescription:
         "Próximamente: importar pantallas y componentes directamente desde un repositorio.",
-      localTitle: "App local",
       localDescription:
         "Conecta cualquier app local en ejecución con /visual-edit.",
-      visualEditGuidance:
-        "Instala la skill /visual-edit, inicia cualquier app local y ejecuta el comando de puente desde ese repo para que tu agente añada pantallas con URL.",
-      comingSoon: "Próximamente",
       warningsToast: "La importación terminó con advertencias",
       figmaSuccess: "Pegado de Figma importado",
       htmlSuccess: "HTML importado",
       uploadSuccess: "Archivo importado",
-      lastImport: "Última importación",
       errors: {
         figmaTokenMustBeToken:
           "Pega un token de acceso de Figma, no un enlace a un archivo de Figma.",
-        figmaUrlRequired: "Pega una URL de marco o archivo de Figma.",
-        invalidFigmaUrl: "Introduce una URL válida de figma.com.",
         figmaImportFailed: "No se pudo importar desde Figma",
         notHtml: "Pega o elige HTML válido para importar.",
         importFailed: "Error al importar",
@@ -1790,9 +1737,11 @@ export default {
         invalidFigFile: "Elige un archivo que termine en .fig.",
         unsupportedFileType: "Elige un archivo .fig, .html o .htm.",
         importBusy:
-          "Hay otra importación en curso. Termínala o cancélala primero.",
+          "Hay otra importación en curso. Vuelve a intentarlo cuando termine.",
         figFileTooLarge:
-          "Ese .fig es demasiado grande: las subidas están limitadas a {{max}} MB. En Figma, copia solo el frame que quieras a un archivo nuevo y exporta ese archivo como .fig, o usa Pegar desde Figma.",
+          "Este archivo es demasiado grande para importarlo aquí. Pega un enlace a la página o al marco de Figma.",
+        figFileUnreadable:
+          "No se puede leer este archivo como archivo .fig. Guarda una nueva copia local desde Figma e impórtala.",
       },
     },
     generationMayHaveStopped:
@@ -1855,6 +1804,7 @@ export default {
       duplicate: "Duplicar",
       versionHistory: "Historial de versiones",
       import: "Importar…",
+      connectLocalApp: "Conectar app local",
       delete: "Eliminar",
       deleteError: "No se pudo eliminar este diseño",
     },
@@ -2707,9 +2657,9 @@ export default {
   },
   homeContext: {
     websiteReference: "Añadir sitio web",
+    websiteReferenceMenu: "Añadir sitio web…",
     websiteUrlLabel: "URL del sitio web",
     websiteUrl: "Pega la URL de un sitio web",
-    figmaUrlLabel: "Enlace de Figma",
     invalidFigmaUrl:
       "Introduce una URL válida de un marco o archivo de figma.com.",
     tooMany: "Elige hasta 20 referencias.",
@@ -2718,7 +2668,6 @@ export default {
     noSystems:
       "Aún no tienes un sistema de diseño. Crea uno a partir de un sitio web, archivos o Figma.",
     searchSystems: "Buscar sistemas de diseño…",
-    searchFrames: "Buscar marcos de Figma…",
     searchDesigns: "Buscar diseños…",
     searchPresentations: "Buscar presentaciones…",
     searchDesign: "Buscar diseño…",
@@ -2726,16 +2675,35 @@ export default {
     notReady:
       "La solicitud aún no está lista. Revisa el contexto seleccionado y la conexión, e inténtalo de nuevo.",
     search: "Buscar contexto…",
-    figmaUrl: "Pega un enlace de Figma",
-    browse: "Explorar marcos",
     loadFailed: "No se pudo cargar esta referencia.",
     retry: "Reintentar",
     empty: "No hay referencias coincidentes.",
     none: "Ninguno",
-    design: "Diseño",
+    design: "Referencias de diseño",
     slides: "Diapositivas",
     referenceDesign: "Usar un diseño como referencia",
-    figmaReference: "Añadir Figma",
+    connectFigma: "Conectar Figma",
+    figmaReference: "Diseño de Figma…",
+    figmaDialogTitle: "Añadir diseño de Figma",
+    figmaDropTitle: "Suelta un archivo .fig",
+    figmaChooseFile: "Elegir archivo",
+    figmaPasteHint:
+      "También puedes pegar un marco copiado directamente en la indicación.",
+    figmaAddToPrompt: "Añadir a la indicación",
+    figmaLinkNeedsConnection:
+      "Los enlaces necesitan una cuenta de Figma conectada. Suelta un archivo .fig o pega un marco copiado.",
+    figmaReferenceMore: "{{name}} y {{count}} más",
+    figmaReferenceEmpty:
+      "No llegó ningún marco. Copia un marco en Figma e inténtalo de nuevo.",
+    figmaSelection: "Selección de Figma",
+    figmaFileTooLarge:
+      "Este archivo es demasiado grande para leerlo aquí. Pega en su lugar un enlace a su página o marco.",
+    figmaSearch: "Buscar páginas y marcos",
+    figmaSelectedCount: "{{count}} seleccionados",
+    figmaShowFrames: "Mostrar los marcos de {{name}}",
+    figmaLinkNotFrame: "Enlaza a una página o un marco de Figma.",
+    figmaPageFrameCap:
+      "Añade los primeros {{limit}} marcos. Marca marcos para elegir cuáles.",
     referenceDeck: "Usar una presentación como referencia",
     quickSaas: "Crear una página de SaaS",
     quickDashboard: "Crear un panel",
@@ -2901,7 +2869,6 @@ export default {
     import: "Importar",
     importFromFigma: "Importar desde Figma",
     figmaFile: "Archivo de Figma (.fig)",
-    figmaFileMaxSize: "Hasta {{max}} GB",
     openImport: "Abrir importación",
     importSelectedFile: "Importar archivo seleccionado",
     starterSaasPrompt:

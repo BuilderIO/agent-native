@@ -10,6 +10,7 @@ import {
   mcpAppHostFillsContainer,
 } from "../shared/mcp-app-display.js";
 import { MCP_APP_WIDGET_EMBED_ATTRIBUTE } from "../shared/mcp-app-widget-embed.js";
+import { EXTERNAL_EMBED_WINDOW_KEY } from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   getEmbedAuthToken,
   hasMcpDirectoryWidgetCapabilityToken,
@@ -954,6 +955,22 @@ export function openMcpAppHostLink(url: string): Promise<boolean> | false {
   return postHostRequest(AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES.OPEN_LINK, {
     url,
   });
+}
+
+/**
+ * An app path as a full URL for the host or a new tab. An embed running in
+ * place sits on its host's address, so it takes the app's origin from the
+ * embed's config rather than from the page.
+ */
+export function mcpAppLinkUrl(path: string): string {
+  const embed = (window as unknown as Record<string, unknown>)[
+    EXTERNAL_EMBED_WINDOW_KEY
+  ] as { origin?: unknown } | undefined;
+  const origin =
+    typeof embed?.origin === "string" && embed.origin
+      ? embed.origin
+      : window.location.origin;
+  return new URL(path, origin).href;
 }
 
 export function requestMcpAppDisplayMode(

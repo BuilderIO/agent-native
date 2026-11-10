@@ -131,7 +131,7 @@ function render(suggestionIds: string[] = ["edit-0", "edit-1"]) {
 }
 
 // Accept and Reject are icons named by their aria-label.
-const button = (label: string, index = 0) =>
+const button = (label: string, index = 0): HTMLButtonElement | undefined =>
   [...host.querySelectorAll("button")].filter(
     (entry) =>
       entry.textContent === label || entry.getAttribute("aria-label") === label,
@@ -167,6 +167,67 @@ describe("SuggestionReviewCard", () => {
     );
   });
 
+  it("only rejects what's left of a unit with a stale piece", async () => {
+    const [first = null, second = null] = proposal();
+    if (!first || !second) throw new Error("The proposal has two edits");
+    const labeled = (
+      suggestion: ResourceSuggestion,
+      id: string,
+      reviewUnit: string,
+    ) => ({ ...suggestion, id, metadata: { reviewUnit } });
+    review.suggestions = [
+      { ...labeled(first, "edit-0", "key:0"), status: "stale" },
+      labeled(second, "edit-1", "key:0"),
+      labeled(second, "edit-2", "key:1"),
+    ] as ResourceSuggestion[];
+    render(["edit-1"]);
+
+    expect(button("comments.acceptRemaining")?.disabled).toBe(true);
+    expect(button("editor.acceptSuggestion")?.disabled).toBe(true);
+    await act(async () => button("editor.rejectSuggestion")?.click());
+
+    expect(review.decideProposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposalId: "proposal-1",
+        decision: "rejected",
+        members: [
+          { id: "edit-1", observedRevision: 3, observedBase: "base-1" },
+        ],
+      }),
+    );
+  });
+
+  it("decides a unit's pieces with one Accept and leaves the rest", async () => {
+    const [first = null, second = null] = proposal();
+    if (!first || !second) throw new Error("The proposal has two edits");
+    const labeled = (
+      suggestion: ResourceSuggestion,
+      id: string,
+      reviewUnit: string,
+    ) => ({ ...suggestion, id, metadata: { reviewUnit } });
+    review.suggestions = [
+      labeled(first, "edit-0", "key:0"),
+      labeled(second, "edit-1", "key:0"),
+      labeled(second, "edit-2", "key:1"),
+    ];
+    render(["edit-0"]);
+
+    expect(shownEdits()).toEqual(["edit-0", "edit-2"]);
+    await act(async () => button("editor.acceptSuggestion")?.click());
+
+    expect(review.decideProposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposalId: "proposal-1",
+        decision: "accepted",
+        members: [
+          { id: "edit-0", observedRevision: 3, observedBase: "base-1" },
+          { id: "edit-1", observedRevision: 3, observedBase: "base-1" },
+        ],
+      }),
+    );
+    expect(review.decide).not.toHaveBeenCalled();
+  });
+
   it("decides one edit against the revision the card showed", async () => {
     render();
 
@@ -199,6 +260,65 @@ describe("SuggestionReviewCard", () => {
     ).toContain("editor.suggestionUnplaceable");
     expect(button("editor.acceptSuggestion")!.disabled).toBe(true);
     expect(button("editor.rejectSuggestion")!.disabled).toBe(false);
+  });
+
+  it("turns off Accept on a unit the server refused, and leaves the rest", async () => {
+    const [first = null, second = null] = proposal();
+    if (!first || !second) throw new Error("The proposal has two edits");
+    const labeled = (
+      suggestion: ResourceSuggestion,
+      id: string,
+      reviewUnit: string,
+    ) => ({ ...suggestion, id, metadata: { reviewUnit } });
+    review.suggestions = [
+      labeled(first, "edit-0", "key:0"),
+      labeled(second, "edit-1", "key:0"),
+      labeled(second, "edit-2", "key:1"),
+    ];
+    review.decideProposal.mockRejectedValue({
+      errorCode: "suggestion_stale",
+    });
+    render(["edit-0"]);
+
+    await act(async () => button("editor.acceptSuggestion")?.click());
+
+    expect(
+      [...host.querySelectorAll('[role="alert"]')].map(
+        (alert) => alert.textContent,
+      ),
+    ).toContain("editor.suggestionUnplaceable");
+    expect(button("editor.acceptSuggestion", 0)?.disabled).toBe(true);
+    expect(button("editor.rejectSuggestion", 0)?.disabled).toBe(false);
+    expect(button("editor.acceptSuggestion", 1)?.disabled).toBe(false);
+    expect(button("comments.acceptAll")?.disabled).toBe(true);
+  });
+
+  it("doesn't blame any one unit when a whole group is refused", async () => {
+    const [first = null, second = null] = proposal();
+    if (!first || !second) throw new Error("The proposal has two edits");
+    const labeled = (
+      suggestion: ResourceSuggestion,
+      id: string,
+      reviewUnit: string,
+    ) => ({ ...suggestion, id, metadata: { reviewUnit } });
+    review.suggestions = [
+      labeled(first, "edit-0", "key:0"),
+      labeled(second, "edit-1", "key:1"),
+    ];
+    review.decideProposal.mockRejectedValue({
+      errorCode: "suggestion_stale",
+    });
+    render(["edit-0"]);
+
+    await act(async () => button("comments.acceptAll")?.click());
+
+    expect(
+      [...host.querySelectorAll('[role="alert"]')].map(
+        (alert) => alert.textContent,
+      ),
+    ).toContain("editor.proposalUnplaceable");
+    expect(button("editor.acceptSuggestion", 0)?.disabled).toBe(false);
+    expect(button("editor.acceptSuggestion", 1)?.disabled).toBe(false);
   });
 
   it("drops the conflict once the changed edit is rejected", async () => {

@@ -995,7 +995,7 @@ export function navigateToMcpOAuthStart(url: string): boolean {
       window.location.href,
     );
     if (
-      startUrl.origin === window.location.origin &&
+      startUrl.origin === expectedStartUrl.origin &&
       startUrl.pathname === expectedStartUrl.pathname
     ) {
       const completionUrl = new URL(

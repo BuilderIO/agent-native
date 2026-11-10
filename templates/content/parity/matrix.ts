@@ -299,6 +299,28 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["document-search-edit"],
   },
   {
+    id: "editor.page-open-read",
+    surface: "editor",
+    label: "Open a page, with a collection page's first rows, in one read",
+    uiEntrypoints: ["app/root.tsx", "app/hooks/use-documents.ts"],
+    durableEffect: null,
+    uiImplementation:
+      "Opening a page reads it once with get-page-open-read, which returns get-document's answer and, for a collection's own page, the collection, the reader's personal view and the first rows of the opening view.",
+    status: "action-backed",
+    actions: ["get-page-open-read"],
+    exception:
+      "Hidden from agent tools with agentTool: false because it only bundles reads for the browser's first paint; agents read the same data with get-document, get-content-database and query-content-database-items.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/get-page-open-read.db.test.ts",
+      "app/lib/page-open-collection.test.tsx",
+      "app/hooks/use-documents.page-open.test.tsx",
+    ],
+  },
+  {
     id: "editor.private-image-icons",
     surface: "editor",
     label:
@@ -401,11 +423,15 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "Clips saves the file as a private Clip bound to the page, and the page body stores the ClipEmbed tag naming it. The file is held only in the uploading tab's memory and never passes through Content.",
     uiImplementation:
-      "The Upload tab reads where the Clip would be saved through get-clip-upload-status. Picking, dropping, or pasting a video calls create-clip-upload, which checks edit access and the flag before asking Clips for a ticket; the browser then posts the chunks straight to Clips. view-screen reports this tab's uploads and whether each is sending, being made, or failed.",
+      "The Upload tab reads where the Clip would be saved through get-clip-upload-status. Picking, dropping, or pasting a video calls create-clip-upload, which checks edit access and the flag before asking Clips for a ticket; the browser then posts the chunks straight to Clips. view-screen reports this tab's uploads and whether each is sending, being made, or failed. An outside agent holding a video file calls create-video-upload over MCP: it runs the same check and start, hands the agent the chunk URL and the ClipEmbed tag, and the agent posts the chunks to Clips and writes the tag with edit-document.",
     status: "action-backed",
-    actions: ["get-clip-upload-status", "create-clip-upload"],
+    actions: [
+      "get-clip-upload-status",
+      "create-clip-upload",
+      "create-video-upload",
+    ],
     exception:
-      "Both are hidden with agentTool: false because an upload needs the file's bytes in the editor's tab and a ticket only that tab can use; agents see uploads through view-screen and link an existing Clip by writing the ClipEmbed tag with edit-document.",
+      "get-clip-upload-status and create-clip-upload are hidden with agentTool: false because they serve the editor's Upload tab and the file its tab holds. create-video-upload is MCP-only (agentTool: false, mcpTool: true): an outside agent can read a local file and post it to Clips, but the app's own agent has no files to send. Agents see the editor's uploads through view-screen and link an existing Clip by writing the ClipEmbed tag with edit-document.",
     reliabilityRisk: "none",
     spinePriority: "P2",
     testCoverage: "covered",
@@ -527,6 +553,32 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: ["actions/_local-file-documents.test.ts"],
     evalScenarioIds: ["local-file-source-truth"],
+  },
+  {
+    id: "sharing.agent-text-lock",
+    surface: "sharing",
+    label: "Lock a page's text against agents",
+    uiEntrypoints: [
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/AgentsShareTab.tsx",
+    ],
+    durableEffect:
+      "The lock is stored on the document, and every action that writes a page's text refuses an agent's call while it is on. The exception is a GitHub folder sync an agent starts: pages following a GitHub file are view-only in Content anyway, and it doesn't name one page.",
+    uiImplementation:
+      "The Share panel's Agents tab calls the set-document-agent-text-lock Action: Can comment turns the lock on and Can edit turns it off.",
+    status: "action-backed",
+    actions: ["set-document-agent-text-lock"],
+    exception:
+      "set-document-agent-text-lock is hidden with agentTool: false because the lock has to hold against agents, so only a person can change it.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/agent-text-lock.db.test.ts",
+      "app/components/editor/AgentLevel.ui.test.tsx",
+      "app/components/editor/AgentsShareTab.ui.test.tsx",
+    ],
   },
   {
     id: "header.import-markdown-files",

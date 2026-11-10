@@ -51,6 +51,7 @@ export interface AssistantChatSendOptions {
   trackInRunsTray?: boolean;
   requestMode?: AgentRequestMode;
   attachments?: AgentChatAttachment[];
+  references?: AgentChatMessage["references"];
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
   submitMessageId?: string;
   /** Drop a queued submit instead of handing it to chat after this time. */
@@ -149,6 +150,11 @@ export interface AssistantChatComposerContext {
   onRemoveContextItem: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
+  /**
+   * Claims a paste as app context before the composer handles it. Return true
+   * when the paste was taken, so nothing is inserted or attached.
+   */
+  onPasteContext?: (clipboard: DataTransfer) => boolean;
   dialogs?: React.ReactNode;
   /** Revalidate only the captured app-owned items before dispatch. */
   prepareSubmission: (
@@ -241,6 +247,8 @@ export interface AssistantChatProps {
   threadFooterSlot?: AssistantChatThreadFooterSlot;
   /** Optional content rendered in the empty state, above the suggestion buttons. */
   emptyStateAddon?: React.ReactNode;
+  /** Visual size for initial suggestion buttons in the empty state. Defaults to compact. */
+  emptyStateSuggestionSize?: "compact" | "comfortable";
   /** Optional content rendered in the empty state, below the suggestion
    *  buttons. Unlike `threadFooterSlot` this never survives the first message. */
   emptyStateFooter?: React.ReactNode;

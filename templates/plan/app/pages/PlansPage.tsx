@@ -27,9 +27,15 @@ import {
   useSetOrgDomain,
 } from "@agent-native/core/client/org";
 import { fetchOrgMemberPage } from "@agent-native/core/client/sharing";
-import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import {
+  buildSignInReturnHref,
+  serverAuthReturnPath,
+} from "@agent-native/core/client/sign-in-return";
 import { type ErrorReportDebugItem } from "@agent-native/core/client/ui";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
+import { commentExcerpt } from "@agent-native/core/review/plain-text";
+import { saveWithMerge } from "@agent-native/core/save-conflict";
 import { docsUrl } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
@@ -38,8 +44,9 @@ import {
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
 import {
-  InlineMarkdown,
-  type InlineMarkdownProtectedSpan,
+  CommentBody,
+  isComposingKey,
+  isCommentSendKey,
 } from "@agent-native/toolkit/app/review";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
@@ -56,6 +63,7 @@ import {
   type PlanCommentMention,
   type PlanCommentResolutionTarget,
 } from "@shared/comment-context";
+import { mergePlanBlocks } from "@shared/plan-blocks-merge";
 import type {
   PlanAnnotation,
   PlanBlock,
@@ -285,8 +293,10 @@ import {
   type RuntimeAnnotationParticipant,
 } from "@/lib/plan-annotation-runtime";
 import {
-  saveBlocksMergingConflicts,
-  type PlanBlocksRevision,
+  startBlockSave,
+  type OwnBlockSave,
+  type PlanBlocksOverlapResolver,
+  type SavedPlanBlocks,
 } from "@/lib/plan-block-save";
 import {
   appendMessageToEditor,
@@ -360,9 +370,8 @@ export type { CommentDraft } from "@/lib/plan-comment-editor-helpers";
 export function buildPlanEmailVerificationCallbackURL(
   location: Pick<Location, "pathname" | "search" | "hash">,
 ): string {
-  return buildSignInReturnHref({
-    returnTo: appPath(planReturnPathFromLocation(location)),
-  });
+  const returnTo = appPath(planReturnPathFromLocation(location));
+  return serverAuthReturnPath(returnTo, buildSignInReturnHref({ returnTo }));
 }
 
 function isPlanEmailVerificationPendingMessage(message: string): boolean {
@@ -575,6 +584,20 @@ function withPlanComments(
         .length,
     },
   };
+}
+
+/**
+ * The anchor's section id, if it names one of the plan's sections. An anchor
+ * records whatever element id was nearest the click, and a comment's section
+ * must be a real section row.
+ */
+export function planSectionIdForAnchor(
+  sections: Pick<PlanBundle["sections"][number], "id">[],
+  sectionId: string | null | undefined,
+): string | undefined {
+  return sectionId && sections.some((section) => section.id === sectionId)
+    ? sectionId
+    : undefined;
 }
 
 export function addPlanCommentToBundle(
@@ -1010,46 +1033,6 @@ export function defaultInlineCommentDraftForPlanContext(input: {
   };
 }
 
-function safeDecodeURIComponent(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function renderCommentMessage(message: string) {
-  const protectedSpans: InlineMarkdownProtectedSpan[] = [];
-  const pattern = /@\[([^\]]+)\]\(mailto:([^)]+)\)/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(message)) !== null) {
-    const label = match[1] ?? "";
-    const email = safeDecodeURIComponent(match[2] ?? "");
-    protectedSpans.push({
-      source: match[0],
-      label: label || email,
-      title: email,
-    });
-  }
-  return (
-    <InlineMarkdown
-      content={message}
-      inline
-      protectedSpans={protectedSpans}
-      renderProtectedSpan={(span, children) => (
-        <span
-          key={span.source}
-          className="mx-0.5 inline-flex max-w-[14rem] translate-y-[2px] items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
-          title={span.title}
-        >
-          <IconAt className="size-3" />
-          <span className="truncate">{children}</span>
-        </span>
-      )}
-    />
-  );
-}
-
 function CommentAvatar({
   author,
   size = "sm",
@@ -1427,7 +1410,7 @@ function runtimeParticipantPresentation(
   };
 }
 
-function runtimeAnnotationMarkerTitle(annotation: RuntimeAnnotation) {
+export function runtimeAnnotationMarkerTitle(annotation: RuntimeAnnotation) {
   const names = annotation.participants
     .map((participant) => runtimeParticipantPresentation(participant).name)
     .filter(Boolean)
@@ -1436,9 +1419,12 @@ function runtimeAnnotationMarkerTitle(annotation: RuntimeAnnotation) {
   const countLabel = `${annotation.commentCount} comment${
     annotation.commentCount === 1 ? "" : "s"
   }`;
+  // The marker's tooltip and accessible name are plain text, so they read
+  // the comment's words, not its Markdown.
+  const excerpt = commentExcerpt(annotation.message);
   return names
-    ? `${countLabel} by ${names}: ${annotation.message}`
-    : `${countLabel}: ${annotation.message}`;
+    ? `${countLabel} by ${names}: ${excerpt}`
+    : `${countLabel}: ${excerpt}`;
 }
 
 function planExportFilename(
@@ -1891,14 +1877,16 @@ function PlanStatusControl({
       updateStatus.mutate(
         { planId, status: newStatus },
         {
-          onError: () => {
+          onError: (error) => {
             if (prevBundle !== undefined)
               qc.setQueryData(bundleKey, prevBundle);
             if (prevActiveList !== undefined)
               qc.setQueryData(ACTIVE_PLANS_QUERY_KEY, prevActiveList);
             if (prevAllList !== undefined)
               qc.setQueryData(ALL_PLANS_QUERY_KEY, prevAllList);
-            toast.error(t("plansPage.status.updateFailed"));
+            reportWriteFailure(error, {
+              label: t("plansPage.status.updateFailed"),
+            });
           },
         },
       );
@@ -2352,7 +2340,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     const returnPath = planReturnPathFromLocation(window.location);
     try {
       const res = await fetch(
-        `${agentNativePath("/_agent-native/google/auth-url")}?return=${encodeURIComponent(returnPath)}`,
+        `${agentNativePath("/_agent-native/google/auth-url")}?return=${encodeURIComponent(serverAuthReturnPath(appPath(returnPath), returnPath))}`,
         { cache: "no-store" },
       );
       const data = (await res.json().catch(() => null)) as {
@@ -2764,8 +2752,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             if (selectedPlanQueryKey) {
               queryClient.setQueryData(selectedPlanQueryKey, updated);
             }
-          } catch {
-            toast.error(t("plansPage.reader.saveAnswersFailed"));
+          } catch (error) {
+            reportWriteFailure(error, {
+              label: t("plansPage.reader.saveAnswersFailed"),
+            });
           } finally {
             if (localPlanBridgeUrl) setLocalBridgeCommentPending(false);
           }
@@ -2778,8 +2768,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           comments: [comment],
         },
         {
-          onError: () => {
-            toast.error(t("plansPage.reader.saveAnswersFailed"));
+          onError: (error) => {
+            reportWriteFailure(error, {
+              label: t("plansPage.reader.saveAnswersFailed"),
+            });
           },
         },
       );
@@ -4068,75 +4060,74 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
 
-  // The newest block save this tab made, with the blocks it sent. Until the
-  // open document adopts the saved result, that save (not the older revision
+  // The newest block save this tab made, with the blocks the document held. Until
+  // the open document adopts the saved result, that save (not the older revision
   // the document still reports) is what the next edit was made on top of, and
-  // the blocks sent, not the merged result, are what the document holds.
-  const lastBlockSaveRef = useRef<{
-    planId: string;
-    updatedAt: string;
-    sent: PlanBlock[];
-  } | null>(null);
+  // those blocks, not the merged result, are what the document holds.
+  const lastBlockSaveRef = useRef<OwnBlockSave | null>(null);
 
   // `base` is the saved revision the open document's edits were made on top
   // of; without a document (no live editor) the plan as loaded stands in.
   const saveBlocks = async (
     plan: PlanBundleWithHtml["plan"],
     blocks: PlanBlock[],
-    documentBase: PlanBlocksRevision | null | undefined,
+    documentBase: SavedPlanBlocks | null | undefined,
+    resolveOverlap: PlanBlocksOverlapResolver | undefined,
   ) => {
     const planId = plan.id;
-    const toRevision = (saved: PlanBundleWithHtml): PlanBlocksRevision => {
-      if (!saved.plan?.content) {
-        throw new Error("The saved plan has no structured content.");
-      }
-      return {
-        updatedAt: saved.plan.updatedAt,
-        blocks: saved.plan.content.blocks,
-      };
-    };
-    const loaded =
-      documentBase ??
-      (plan.content
-        ? { updatedAt: plan.updatedAt, blocks: plan.content.blocks }
-        : null);
     const own = lastBlockSaveRef.current;
-    const base =
-      own?.planId === planId && (!loaded || own.updatedAt >= loaded.updatedAt)
-        ? { updatedAt: own.updatedAt, blocks: own.sent }
-        : loaded;
-    const saved = await saveBlocksMergingConflicts({
-      base,
+    const { base, mine } = startBlockSave(
+      own?.planId === planId ? own : null,
+      documentBase,
+      plan.content
+        ? { value: plan.content.blocks, revision: plan.updatedAt }
+        : null,
       blocks,
-      save: async (nextBlocks, expectedUpdatedAt) =>
-        toRevision(
-          await savePlanBlocks.mutateAsync({
-            planId,
-            expectedUpdatedAt,
-            contentPatches: [{ op: "replace-blocks", blocks: nextBlocks }],
-            note: "Patched structured visual plan content.",
-          }),
-        ),
-      readLatest: async () =>
-        toRevision(
-          await callAction<PlanBundleWithHtml>(
-            "get-visual-plan",
-            planBundleQueryParams(planId),
-            { method: "GET" },
-          ),
-        ),
+    );
+    // Not `mine`, which can carry what the last save's merge brought in before
+    // the document has it. After a choice the document holds that version.
+    let held = blocks;
+    const saved = await saveWithMerge<PlanBlock[]>({
+      base,
+      mine,
+      merge: mergePlanBlocks,
+      parseCurrent: (current) => (current as PlanContent).blocks,
+      resolveOverlap:
+        resolveOverlap &&
+        (async (overlap, finished) => {
+          held = await resolveOverlap(overlap, finished);
+          return held;
+        }),
+      save: async ({ value, revision }) => {
+        const result = await savePlanBlocks.mutateAsync({
+          planId,
+          ...(revision ? { expectedUpdatedAt: revision } : {}),
+          contentPatches: [{ op: "replace-blocks", blocks: value }],
+          note: "Patched structured visual plan content.",
+        });
+        if (!result.plan?.content) {
+          throw new Error("The saved plan has no structured content.");
+        }
+        return {
+          value: result.plan.content.blocks,
+          revision: result.plan.updatedAt,
+        };
+      },
     });
     lastBlockSaveRef.current = {
       planId,
-      updatedAt: saved.updatedAt,
-      sent: blocks,
+      startedFrom: base.revision,
+      held,
+      saved,
     };
-    return saved;
   };
 
   const patchStructuredContent = async (
     patch: PlanContentPatch,
-    options?: { base?: PlanBlocksRevision | null },
+    options?: {
+      base?: SavedPlanBlocks | null;
+      resolveOverlap?: PlanBlocksOverlapResolver;
+    },
   ) => {
     if (!bundle) return;
     if (localPlanMode) {
@@ -4156,7 +4147,12 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       return;
     }
     if (patch.op === "replace-blocks") {
-      await saveBlocks(bundle.plan, patch.blocks, options?.base);
+      await saveBlocks(
+        bundle.plan,
+        patch.blocks,
+        options?.base,
+        options?.resolveOverlap,
+      );
       return;
     }
     await updatePlan.mutateAsync({
@@ -4583,11 +4579,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       resolutionTarget: draft.resolutionTarget,
       mentions: draft.mentions,
     };
-    const sectionId =
-      anchor.sectionId &&
-      bundle.sections.some((section) => section.id === anchor.sectionId)
-        ? anchor.sectionId
-        : undefined;
+    const sectionId = planSectionIdForAnchor(bundle.sections, anchor.sectionId);
     const anchorJson = JSON.stringify(anchor);
     const commentId = newCommentId();
     const now = new Date().toISOString();
@@ -4682,7 +4674,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           kind: annotation.kind as PlanBundle["comments"][number]["kind"],
           status: annotation.status as PlanBundle["comments"][number]["status"],
           message,
-          sectionId: annotation.sectionId ?? anchor.sectionId,
+          sectionId:
+            annotation.sectionId ??
+            planSectionIdForAnchor(bundle.sections, anchor.sectionId),
           anchor: JSON.stringify(anchor),
           createdBy: "human",
           authorEmail: collabUser?.email,
@@ -5959,15 +5953,12 @@ const buildShareVisibilityCopy = (
   noun: string,
 ) => ({
   private: {
-    label: t("plansPage.share.visibility.private.label"),
     description: t("plansPage.share.visibility.private.description", { noun }),
   },
   org: {
-    label: t("plansPage.share.visibility.org.label"),
     description: t("plansPage.share.visibility.org.description"),
   },
   public: {
-    label: t("plansPage.share.visibility.public.label"),
     description: t("plansPage.share.visibility.public.description"),
   },
 });
@@ -6270,12 +6261,6 @@ function PlanShareControl({
         shareUrlPlacement="top"
         peopleAccessLabel={t("plansPage.share.peopleAccess", { noun })}
         generalAccessLabel={t("plansPage.share.generalAccess", { noun })}
-        roleCopy={{
-          commenter: {
-            label: t("plansPage.share.commenterRoleLabel"),
-            description: t("plansPage.share.commenterRoleDescription"),
-          },
-        }}
         accessNote={buildShareAccessNote(t, noun)}
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
         triggerClassName="pointer-events-auto h-8 px-2"
@@ -6571,8 +6556,10 @@ function PlanInviteSuggestionCard({
     trackAction("plan_invite_suggestion_clicked", "enable_domain_join");
     try {
       await setOrgDomain.mutateAsync(domain);
-    } catch {
-      toast.error(t("plansPage.share.teammateSuggestion.enableFailed"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("plansPage.share.teammateSuggestion.enableFailed"),
+      });
       return;
     }
     trackAction("plan_invite_suggestion_accepted", "enable_domain_join");
@@ -7098,7 +7085,8 @@ export function PlanLoadError({
       ? t("plansPage.loadError.orgTitle", { orgName })
       : null;
 
-  const returnPath = () => appPath(planReturnPathFromLocation(window.location));
+  const returnPath = () =>
+    serverAuthReturnPath(appPath(planReturnPathFromLocation(window.location)));
 
   const readAuthError = async (res: Response, fallback: string) => {
     const data = (await res.json().catch(() => null)) as {
@@ -9081,6 +9069,9 @@ function CommentMentionEditor({
         onKeyUp={emitChange}
         onMouseUp={emitChange}
         onKeyDown={(event) => {
+          // While an input method is composing, its keys (arrows to pick a
+          // candidate, Enter to confirm, Escape to cancel) belong to it.
+          if (isComposingKey(event)) return;
           if (suggestionsOpen && event.key === "ArrowDown") {
             event.preventDefault();
             setSelectedIndex((index) =>
@@ -9107,12 +9098,7 @@ function CommentMentionEditor({
             setQuery(null);
             return;
           }
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            onSubmitShortcut?.();
-            return;
-          }
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          if (isCommentSendKey(event)) {
             event.preventDefault();
             onSubmitShortcut?.();
           }
@@ -9403,7 +9389,7 @@ function CommentThreadMessage({
           )}
         </div>
         <div className="mt-1 text-sm leading-6">
-          {renderCommentMessage(comment.message)}
+          <CommentBody body={comment.message} />
         </div>
       </div>
       {action}

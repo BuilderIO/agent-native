@@ -1,7 +1,11 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import {
+  type ExportWarning,
+  readExportWarningsHeader,
+} from "@shared/export-warnings";
 import { IconUpload, IconChevronDown } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -36,6 +40,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useDecks } from "@/context/DeckContext";
 import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
 import {
+  disconnectGoogleDocs,
   fetchGoogleSlidesExportAvailability,
   invalidateGoogleSlidesExportAvailability,
   useGoogleSlidesExportAvailability,
@@ -80,6 +85,8 @@ interface ExportMenuProps {
   headless?: boolean;
   hideExportDialog?: boolean;
   onExportStatusChange?: (status: ExportStatus) => void;
+  /** Commits a text edit still held by the open slide editor; the save queue can't see it until then. */
+  flushInlineEdit?: () => void;
 }
 
 export interface ExportMenuHandle {
@@ -88,6 +95,7 @@ export interface ExportMenuHandle {
   exportHtml: () => Promise<void>;
   exportPdf: () => Promise<void>;
   exportPptx: () => Promise<void>;
+  disconnectGoogle: () => Promise<void>;
 }
 
 export interface ExportDropdownActionHandle {
@@ -105,7 +113,9 @@ export type ExportStatus =
       description?: string;
       openUrl: string;
       openLabel?: string;
+      warnings?: string[];
     }
+  | { state: "warnings"; messages: string[] }
   | { state: "error"; message: string };
 
 export function ExportStatusDialog({
@@ -165,6 +175,13 @@ export function ExportStatusDialog({
               {status.description ? (
                 <DialogDescription>{status.description}</DialogDescription>
               ) : null}
+              {status.warnings?.length ? (
+                <ul className="list-disc break-words pl-5 text-sm text-muted-foreground">
+                  {status.warnings.map((message) => (
+                    <li key={message}>{message}</li>
+                  ))}
+                </ul>
+              ) : null}
             </DialogHeader>
             <DialogFooter>
               <Button
@@ -175,6 +192,30 @@ export function ExportStatusDialog({
               >
                 {status.openLabel ?? t("editorExport.openInGoogleSlides")}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onStatusChange({ state: "idle" })}
+              >
+                {t("comments.close")}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : status.state === "warnings" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>
+                {t("editorExport.exportFinishedWithWarnings")}
+              </DialogTitle>
+              <DialogDescription asChild>
+                <ul className="list-disc break-words pl-5">
+                  {status.messages.map((message) => (
+                    <li key={message}>{message}</li>
+                  ))}
+                </ul>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
               <Button
                 type="button"
                 variant="outline"
@@ -202,18 +243,24 @@ export function ExportStatusDialog({
 function ExportActionItems({
   hasSlides,
   googleSlidesAvailable,
+  googleSlidesChecked,
+  googleDisconnectable,
   onExportHtml,
   onExportPdf,
   onExportPptx,
   onExportGoogleSlides,
+  onDisconnectGoogle,
   downloadLabels = false,
 }: {
   hasSlides: boolean;
   googleSlidesAvailable: boolean;
+  googleSlidesChecked: boolean;
+  googleDisconnectable: boolean;
   onExportHtml: () => void;
   onExportPdf?: () => void;
   onExportPptx: () => void;
   onExportGoogleSlides?: () => void;
+  onDisconnectGoogle?: () => void;
   downloadLabels?: boolean;
 }) {
   const t = useT();
@@ -255,7 +302,19 @@ function ExportActionItems({
             <span className="ml-auto text-[11px] text-muted-foreground">
               {t("editorExport.googleSlidesUnavailable")}
             </span>
+          ) : hasSlides && !googleSlidesChecked ? (
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              {t("editorExport.googleSlidesStatusUnknown")}
+            </span>
           ) : null}
+        </DropdownMenuItem>
+      )}
+      {onDisconnectGoogle && googleDisconnectable && (
+        <DropdownMenuItem
+          onClick={onDisconnectGoogle}
+          className="cursor-pointer"
+        >
+          {t("editorExport.disconnectGoogle")}
         </DropdownMenuItem>
       )}
       <DropdownMenuItem
@@ -296,6 +355,8 @@ export function ExportSubmenu({
         <ExportActionItems
           hasSlides={hasSlides}
           googleSlidesAvailable={googleSlidesExport.available}
+          googleSlidesChecked={googleSlidesExport.checked}
+          googleDisconnectable={googleSlidesExport.disconnectable}
           onExportHtml={() => void exportMenuRef.current?.exportHtml()}
           onExportPdf={
             showPdf ? () => void exportMenuRef.current?.exportPdf() : undefined
@@ -304,6 +365,11 @@ export function ExportSubmenu({
           onExportGoogleSlides={
             showGoogleSlides
               ? () => void exportMenuRef.current?.exportGoogleSlides()
+              : undefined
+          }
+          onDisconnectGoogle={
+            showGoogleSlides
+              ? () => void exportMenuRef.current?.disconnectGoogle()
               : undefined
           }
         />
@@ -354,6 +420,8 @@ export function ExportDropdown({
         <ExportActionItems
           hasSlides={hasSlides}
           googleSlidesAvailable={googleSlidesExport.available}
+          googleSlidesChecked={googleSlidesExport.checked}
+          googleDisconnectable={googleSlidesExport.disconnectable}
           downloadLabels
           onExportHtml={() => void exportMenuRef.current?.exportHtml()}
           onExportPdf={
@@ -363,6 +431,11 @@ export function ExportDropdown({
           onExportGoogleSlides={
             showGoogleSlides
               ? () => void exportMenuRef.current?.exportGoogleSlides()
+              : undefined
+          }
+          onDisconnectGoogle={
+            showGoogleSlides
+              ? () => void exportMenuRef.current?.disconnectGoogle()
               : undefined
           }
         />
@@ -386,6 +459,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       headless = false,
       hideExportDialog = false,
       onExportStatusChange,
+      flushInlineEdit,
     },
     ref,
   ) {
@@ -462,6 +536,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       const controller = new AbortController();
       exportAbortRef.current = controller;
       try {
+        flushInlineEdit?.();
         await action(controller.signal);
         // Work the signal could not interrupt may still finish after Cancel.
         if (!controller.signal.aborted) updateExportStatus({ state: "idle" });
@@ -487,7 +562,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         format: "pptx",
       });
       await flushDeckSave(deckId);
-      const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
+      const res = await fetch(appApiPath("/api/exports/pptx"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deckId }),
@@ -505,20 +580,34 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           ".pptx",
         ),
       );
+      return formatExportWarnings(readExportWarningsHeader(res));
     };
 
-    const handleExportPptx = () =>
-      runExport(
+    const formatExportWarnings = (warnings: ExportWarning[]) =>
+      warnings.map((warning) =>
+        t("editorExport.imagesDropped", {
+          count: warning.count,
+          slides: warning.slides.join(", "),
+        }),
+      );
+
+    const handleExportPptx = async () => {
+      let warnings: string[] = [];
+      await runExport(
         "pptx",
         async (signal) => {
           if (canExportPptxFromServer(getDeck(deckId))) {
-            await exportPptxFromServer(signal);
+            warnings = await exportPptxFromServer(signal);
             return;
           }
           await onExportPptx(signal);
         },
         t("editorExport.exportPptxError"),
       );
+      if (warnings.length > 0) {
+        updateExportStatus({ state: "warnings", messages: warnings });
+      }
+    };
 
     const handleExportPdf = () =>
       runExport(
@@ -545,7 +634,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
               cause: error,
             });
           });
-          const res = await fetch(`${appBasePath()}/api/exports/html`, {
+          const res = await fetch(appApiPath("/api/exports/html"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ deckId }),
@@ -578,6 +667,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       if (!hasSlides || !onExportGoogleSlides) return;
       if (!beginExport("google-slides")) return;
       try {
+        flushInlineEdit?.();
         const availability =
           await fetchGoogleSlidesExportAvailability(queryClient);
         if (!availability.available) {
@@ -600,6 +690,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
             description: t("editorExport.googleSlidesCreatedHint"),
             openUrl: result.url,
             openLabel: t("editorExport.googleSlidesGoTo"),
+            warnings: formatExportWarnings(result.warnings ?? []),
           });
           return;
         }
@@ -610,6 +701,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           description: `${t("editorExport.googleSlidesImportHint")} ${result.reason}`,
           openUrl: GOOGLE_SLIDES_IMPORT_URL,
           openLabel: t("editorExport.googleSlidesOpenImporter"),
+          warnings: formatExportWarnings(result.warnings ?? []),
         });
       } catch (err) {
         console.error("Export failed:", err);
@@ -625,10 +717,22 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       }
     };
 
+    const handleDisconnectGoogle = async () => {
+      try {
+        await disconnectGoogleDocs(queryClient);
+      } catch {
+        updateExportStatus({
+          state: "error",
+          message: t("editorExport.googleDisconnectFailed"),
+        });
+      }
+    };
+
     useImperativeHandle(
       ref,
       () => ({
         cancelExport,
+        disconnectGoogle: handleDisconnectGoogle,
         exportGoogleSlides: handleExportGoogleSlides,
         exportHtml: handleExportHtml,
         exportPdf: handleExportPdf,
@@ -636,6 +740,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       }),
       [
         cancelExport,
+        handleDisconnectGoogle,
         handleExportGoogleSlides,
         handleExportHtml,
         handleExportPdf,
@@ -647,6 +752,8 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       <ExportActionItems
         hasSlides={hasSlides}
         googleSlidesAvailable={googleSlidesExport.available}
+        googleSlidesChecked={googleSlidesExport.checked}
+        googleDisconnectable={googleSlidesExport.disconnectable}
         onExportHtml={() => void handleExportHtml()}
         onExportPdf={onExportPdf ? () => void handleExportPdf() : undefined}
         onExportPptx={() => void handleExportPptx()}
@@ -654,6 +761,9 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
           onExportGoogleSlides
             ? () => void handleExportGoogleSlides()
             : undefined
+        }
+        onDisconnectGoogle={
+          onExportGoogleSlides ? () => void handleDisconnectGoogle() : undefined
         }
       />
     );

@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 
 import type { TranscriptSegment } from "@/components/meetings/transcript-bubbles";
 
@@ -64,7 +64,21 @@ export function publicMeetingUrl(
   basePath: string,
   agentAccessToken?: string,
 ): string {
-  const url = new URL(`${basePath}/api/public-meeting`, origin);
+  return meetingRequestUrl(
+    `${basePath}/api/public-meeting`,
+    origin,
+    meetingId,
+    agentAccessToken,
+  );
+}
+
+function meetingRequestUrl(
+  path: string,
+  origin: string,
+  meetingId: string,
+  agentAccessToken?: string,
+): string {
+  const url = new URL(path, origin);
   url.searchParams.set("id", meetingId);
   if (agentAccessToken) {
     url.searchParams.set(CLIPS_MEETING_AGENT_ACCESS_PARAM, agentAccessToken);
@@ -81,10 +95,17 @@ export async function fetchPublicMeeting(
     agentAccessToken?: string;
   } = {},
 ): Promise<PublicMeetingResult> {
-  const origin = options.origin ?? window.location.origin;
-  const basePath = options.basePath ?? appBasePath();
+  const path =
+    options.basePath === undefined
+      ? appApiPath("/api/public-meeting")
+      : `${options.basePath}/api/public-meeting`;
   const response = await fetch(
-    publicMeetingUrl(meetingId, origin, basePath, options.agentAccessToken),
+    meetingRequestUrl(
+      path,
+      options.origin ?? window.location.origin,
+      meetingId,
+      options.agentAccessToken,
+    ),
     { signal: options.signal },
   );
   const data = (await response.json().catch(() => ({}))) as

@@ -21,6 +21,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { ContentSpaceSummary } from "@/hooks/use-content-spaces";
 import {
   changeTrashSort,
@@ -62,6 +67,8 @@ export function TrashFilters({
   const t = useT();
   const [searchOpen, setSearchOpen] = useState(Boolean(filters.query));
   const active = FILTER_KEYS.filter((key) => filters[key]);
+  const needsSpace = spaces.length !== 1 && !filters.spaceId;
+  const showSpaceHint = needsSpace && spaces.length > 1;
   const sortLabel = SORTS.find(([sort]) => sort === filters.sort)?.[1];
   const set = <K extends (typeof FILTER_KEYS)[number]>(
     key: K,
@@ -244,18 +251,34 @@ export function TrashFilters({
             ) : null}
           </PopoverContent>
         </Popover>
-        <Button
-          ref={emptyTrashRef}
-          variant="ghost"
-          size="sm"
-          className="ms-auto h-7 shrink-0 gap-1.5 px-2 text-destructive hover:text-destructive"
-          onClick={onEmptyTrash}
-          disabled={spaces.length !== 1 && !filters.spaceId}
-          aria-label={t("trash.emptyTrash")}
-        >
-          <IconTrash className="size-3.5" />
-          <span className="hidden sm:inline">{t("trash.emptyTrash")}</span>
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className="ms-auto shrink-0"
+              tabIndex={showSpaceHint ? 0 : undefined}
+              role={showSpaceHint ? "group" : undefined}
+              aria-label={showSpaceHint ? t("trash.emptyTrash") : undefined}
+            >
+              <Button
+                ref={emptyTrashRef}
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 px-2 text-destructive hover:text-destructive"
+                onClick={onEmptyTrash}
+                disabled={needsSpace}
+                aria-label={t("trash.emptyTrash")}
+              >
+                <IconTrash className="size-3.5" />
+                <span className="hidden sm:inline">
+                  {t("trash.emptyTrash")}
+                </span>
+              </Button>
+            </span>
+          </TooltipTrigger>
+          {showSpaceHint ? (
+            <TooltipContent>{t("trash.emptyTrashPickSpace")}</TooltipContent>
+          ) : null}
+        </Tooltip>
       </ContentTableToolbar>
       {filters.query || filters.sort || active.length ? (
         <ContentTableConstraintBar

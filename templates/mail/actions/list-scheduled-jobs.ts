@@ -5,6 +5,7 @@ import { z } from "zod";
 import { listPendingJobs } from "../server/lib/jobs.js";
 
 export default defineAction({
+  searchHints: ["scheduled emails", "snoozed emails", "send later queue"],
   description:
     "List the user's pending and processing scheduled jobs (snoozes and scheduled sends).",
   schema: z.object({}),

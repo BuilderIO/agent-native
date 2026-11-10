@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
@@ -631,6 +631,18 @@ async function freePort(): Promise<number> {
   });
 }
 
+// The server runs in its own process group, which a negative pid signals. On
+// Windows it runs under cmd.exe with no group, so taskkill stops the tree.
+function killServerTree(pid: number, signal: NodeJS.Signals): void {
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
+      stdio: "ignore",
+    });
+    return;
+  }
+  process.kill(-pid, signal);
+}
+
 async function startServer(): Promise<{
   base: string;
   stop: () => Promise<void>;
@@ -651,6 +663,7 @@ async function startServer(): Promise<{
       "slides-edit-fidelity",
       "--dir",
       "templates/slides",
+      "--ephemeral",
       "--env",
       "AUTH_MODE=local",
       "--env",
@@ -661,7 +674,12 @@ async function startServer(): Promise<{
       String(port),
       "--inspect=0",
     ],
-    { cwd: WORKTREE_ROOT, detached: true, stdio: ["ignore", log, log] },
+    {
+      cwd: WORKTREE_ROOT,
+      detached: true,
+      shell: process.platform === "win32",
+      stdio: ["ignore", log, log],
+    },
   );
   let exited: number | null = null;
   child.on("exit", (code) => {
@@ -672,7 +690,7 @@ async function startServer(): Promise<{
   process.on("exit", () => {
     if (exited === null && child.pid) {
       try {
-        process.kill(-child.pid, "SIGKILL");
+        killServerTree(child.pid, "SIGKILL");
         // coercion-ok: ESRCH means the server group already exited.
       } catch {
         // already gone
@@ -682,7 +700,7 @@ async function startServer(): Promise<{
   const stop = async () => {
     if (exited !== null || !child.pid) return;
     try {
-      process.kill(-child.pid, "SIGTERM");
+      killServerTree(child.pid, "SIGTERM");
       // coercion-ok: ESRCH means the server group already exited.
     } catch {
       return;
@@ -690,7 +708,7 @@ async function startServer(): Promise<{
     for (let i = 0; i < 50 && exited === null; i++) await sleep(200);
     if (exited === null) {
       try {
-        process.kill(-child.pid, "SIGKILL");
+        killServerTree(child.pid, "SIGKILL");
         // coercion-ok: ESRCH means the server group already exited.
       } catch {
         // already gone
@@ -2316,6 +2334,8 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     locator: any,
     label: string,
     multiline: boolean,
+    // Comment boxes send on Enter, so they start a new line with Shift+Enter.
+    newlineKey = "Enter",
   ) => {
     await locator.waitFor({ state: "visible", timeout: 10_000 });
     await locator.focus();
@@ -2369,7 +2389,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       );
     }
     if (multiline) {
-      await locator.press("Enter");
+      await locator.press(newlineKey);
       await locator.pressSequentially("lineX");
       await locator.press("Backspace");
       await locator.pressSequentially("2");
@@ -2828,7 +2848,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     if (!(await composingEscape(comment, "comment composer"))) {
       await addComment.click();
     }
-    await exerciseControl(comment, "comment composer", true);
+    await exerciseControl(comment, "comment composer", true, "Shift+Enter");
     await comment.press("Escape");
     await addComment.click();
     const rootComposer = page.getByPlaceholder("Add a comment...");
@@ -2854,7 +2874,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       await replyButton.click();
       await reply.waitFor({ state: "visible", timeout: 5000 });
     }
-    await exerciseControl(reply, "comment reply", true);
+    await exerciseControl(reply, "comment reply", true, "Shift+Enter");
     await reply.press("Escape");
     await rootComment.hover();
     await page.getByRole("button", { name: "Edit comment" }).click();
@@ -2863,7 +2883,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       await rootComment.hover();
       await page.getByRole("button", { name: "Edit comment" }).click();
     }
-    await exerciseControl(editComment, "comment edit", true);
+    await exerciseControl(editComment, "comment edit", true, "Shift+Enter");
     await editComment.press("Escape");
     const [pinTarget] = await listTargets(page, slideTwo);
     if (!pinTarget)
@@ -2875,7 +2895,12 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       await page.mouse.click(pinTarget.point.x, pinTarget.point.y);
       await pinComment.waitFor({ state: "visible", timeout: 5000 });
     }
-    await exerciseControl(pinComment, "pinned comment composer", true);
+    await exerciseControl(
+      pinComment,
+      "pinned comment composer",
+      true,
+      "Shift+Enter",
+    );
     await pinComment.press("Escape");
     await page.getByRole("button", { name: "More" }).click();
     await page.getByRole("menuitem", { name: /^Comments/ }).click();

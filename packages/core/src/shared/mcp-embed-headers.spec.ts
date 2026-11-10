@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  corsAllowHeadersFor,
   isAgentNativeFirstPartyAppOrigin,
   isChatGptMcpSandboxOrigin,
   isLocalMcpEmbedOrigin,
@@ -20,6 +21,27 @@ describe("MCP embed headers", () => {
     // The h3 security-headers middleware never runs for these paths.
     for (const rule of Object.values(mcpEmbedStaticAssetRouteRules())) {
       expect(rule.headers["X-Content-Type-Options"]).toBe("nosniff");
+    }
+  });
+
+  it("covers each bundled root icon with an exact CDN route", () => {
+    const rules = mcpEmbedStaticAssetRouteRules("/chat");
+    for (const name of [
+      "icon-180.svg",
+      "icon-192.svg",
+      "icon-512.svg",
+      "agent-native-icon-dark.svg",
+      "agent-native-icon-light.svg",
+      "agent-native-icon-light-512.svg",
+      "agent-native-logo-dark.svg",
+      "agent-native-logo-light.svg",
+    ]) {
+      expect(rules[`/${name}`]?.headers["X-Content-Type-Options"]).toBe(
+        "nosniff",
+      );
+      expect(rules[`/chat/${name}`]?.headers["X-Content-Type-Options"]).toBe(
+        "nosniff",
+      );
     }
   });
 
@@ -127,6 +149,18 @@ describe("MCP embed headers", () => {
     );
   });
 
+  it("matches credentialed allowlist entries the same way the CORS check does", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "App.Example.com/, http://ui.test:5173");
+    expect(shouldAllowMcpEmbedCredentials("https://app.example.com")).toBe(
+      true,
+    );
+    expect(shouldAllowMcpEmbedCredentials("http://ui.test:5173")).toBe(true);
+    expect(shouldAllowMcpEmbedCredentials("http://app.example.com")).toBe(
+      false,
+    );
+  });
+
   it("does not allow builder or local fallback origins to read credentialed responses", () => {
     vi.stubEnv("NODE_ENV", "production");
     expect(shouldAllowMcpEmbedCredentials("https://builder.io")).toBe(false);
@@ -188,5 +222,24 @@ describe("MCP embed headers", () => {
       expect(isAgentNativeFirstPartyAppOrigin(origin)).toBe(false);
       expect(isMcpEmbedCorsOrigin(origin)).toBe(false);
     }
+  });
+});
+
+describe("corsAllowHeadersFor", () => {
+  it("adds requested headers the known list is missing", () => {
+    expect(
+      corsAllowHeadersFor(
+        "content-type, x-agent-native-browser-tab,X-Agent-Native-CSRF",
+        "Content-Type,X-Agent-Native-CSRF",
+      ),
+    ).toBe("Content-Type,X-Agent-Native-CSRF,x-agent-native-browser-tab");
+  });
+
+  it("keeps the known list when nothing or something malformed is requested", () => {
+    expect(corsAllowHeadersFor(undefined, "Content-Type")).toBe("Content-Type");
+    expect(corsAllowHeadersFor(" , ", "Content-Type")).toBe("Content-Type");
+    expect(corsAllowHeadersFor("x-ok, bad header", "Content-Type")).toBe(
+      "Content-Type",
+    );
   });
 });

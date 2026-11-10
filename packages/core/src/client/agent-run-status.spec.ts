@@ -61,6 +61,26 @@ describe("readAgentRunStatus", () => {
     expect(request.searchParams.has("runId")).toBe(false);
   });
 
+  it("passes through the server's retryability verdict", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              status: "errored",
+              active: false,
+              retryable: false,
+            }),
+          ),
+      ),
+    );
+
+    await expect(readAgentRunStatus({ threadId: "thread-1" })).resolves.toEqual(
+      { ok: true, status: "errored", active: false, retryable: false },
+    );
+  });
+
   it("reports a run waiting for its continuation to be redispatched", async () => {
     vi.stubGlobal(
       "fetch",

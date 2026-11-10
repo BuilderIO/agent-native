@@ -61,6 +61,7 @@ export const designSystemShares = createSharesTable("design_system_shares");
 
 export const deckShareLinks = table("deck_share_links", {
   token: text("token").primaryKey(),
+  deckId: text("deck_id"), // Null on legacy rows, which can no longer be served
   title: text("title").notNull(),
   slides: text("slides").notNull(), // JSON array of slide snapshots
   aspectRatio: text("aspect_ratio"),
@@ -104,6 +105,7 @@ export const slideComments = table(
     emojiReactionsJson: text("emoji_reactions_json").notNull().default("{}"),
     authorEmail: text("author_email").notNull(),
     authorName: text("author_name"),
+    authorKind: text("author_kind"),
     resolved: boolean("resolved").notNull().default(false),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),

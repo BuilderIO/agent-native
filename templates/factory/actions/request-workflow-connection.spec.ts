@@ -53,7 +53,7 @@ const run = kit.runOf(requestConnection);
 
 function report(
   provider: string,
-  status: "connected" | "not connected" | "unknown",
+  status: "connected" | "not connected" | "unknown" | "unreadable",
   connectWith:
     | "workspace-connection"
     | "vault"
@@ -65,6 +65,12 @@ function report(
       status,
       connectWith,
       ...(status === "unknown" ? { detail: "vault down" } : {}),
+      ...(status === "unreadable"
+        ? {
+            detail:
+              "SLACK_BOT_TOKEN is saved but could not be decrypted here, so a slack read cannot run. Save it again under Keys in Settings.",
+          }
+        : {}),
     },
   ]);
 }
@@ -156,6 +162,29 @@ describe("request-workflow-connection", () => {
     expect(
       await kit.failureOf(() => run({ provider: "myspace" }, kit.agentContext)),
     ).toMatchObject({ errorCode: "unknown_provider", statusCode: 404 });
+  });
+
+  it("fails loudly, rather than reading it as connected, when the check reports nothing for the provider", async () => {
+    readProviderConnectionsMock.mockResolvedValue([]);
+
+    expect(
+      await kit.failureOf(() => run({ provider: "slack" }, kit.agentContext)),
+    ).toMatchObject({ errorCode: "connection_check_failed", statusCode: 502 });
+  });
+
+  it("does not raise a connect card for a saved key that cannot be decrypted, and does not call it a check to repeat", async () => {
+    report("slack", "unreadable");
+
+    const failure = await kit.failureOf(() =>
+      run({ provider: "slack" }, kit.agentContext),
+    );
+
+    expect(failure).toMatchObject({
+      errorCode: "connection_unreadable",
+      statusCode: 412,
+    });
+    expect(failure.message).toContain("SLACK_BOT_TOKEN is saved but");
+    expect(resolveWorkspaceConnectionMock).not.toHaveBeenCalled();
   });
 });
 

@@ -122,6 +122,12 @@ const messages = {
     noAssetsYet: "아직 에셋이 없습니다.",
     assetUploadFailed: "일부 업로드에 실패했습니다",
     assetDeleteFailed: "에셋 삭제에 실패했습니다",
+    assetLoadFailed: "에셋을 불러올 수 없습니다",
+    assetSelectNoChange: "이 이미지를 이 슬라이드에 적용할 수 없습니다",
+    retry: "다시 시도",
+    assetDeleteInUse: "이 에셋은 덱에서 사용 중입니다. 먼저 덱에서 제거하세요",
+    assetDeleteStorageRemains:
+      "라이브러리에서 제거했지만 저장된 파일은 삭제하지 못했습니다",
     contentMarkdown: "콘텐츠 (Markdown)",
     speakerNotes: "발표자 노트",
     speakerNotesForSlide: "발표자 노트 — 슬라이드 {{index}} / {{count}}",
@@ -298,6 +304,7 @@ const messages = {
       "직접 작성하거나 에이전트로 발표자 노트를 빠르게 생성해 보세요",
   },
   editorToolbar: {
+    saving: "저장 중...",
     layoutTitle: "제목",
     layoutSection: "섹션 구분",
     layoutContent: "콘텐츠",
@@ -406,6 +413,10 @@ const messages = {
       "편집기에서 덱을 엽니다. 접근 권한이 있는 누구나 이 링크를 사용할 수 있습니다.",
     presentationLink: "프레젠테이션 링크",
     presentationLinkDescription: "덱을 프레젠테이션 모드로 엽니다",
+    copyEditorLink: "편집기 링크 복사",
+    copyPresentationLink: "프레젠테이션 링크 복사",
+    linkCopied: "링크를 복사했습니다",
+    linkCopyFailed: "링크를 복사할 수 없습니다.",
     present: "발표",
     presentInTab: "이 탭에서",
     presentFullScreen: "전체 화면",
@@ -419,6 +430,8 @@ const messages = {
     deckTitle: "덱 제목",
     presentPresenterViewDescription: "발표하는 동안 발표자 노트 보기",
     presenterViewBlocked: "발표자 보기를 열려면 팝업을 허용하세요.",
+    presenterViewUnsupported:
+      "이 브라우저에서는 발표자 보기를 지원하지 않습니다.",
     export: "내보내기",
     privacyPrivate: "비공개",
     privacyOrg: "조직과 공유됨",
@@ -474,6 +487,11 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX 파일을 생성할 수 없습니다.",
     exportFailed: "내보내기 실패",
+    exportFinishedWithWarnings: "경고와 함께 내보냈습니다",
+    imagesDropped:
+      "이미지 {{count}}개를 불러오지 못해 PowerPoint 파일에서 제외되었습니다(슬라이드 {{slides}}).",
+    pdfSidecarSkipped:
+      "편집 가능한 원본 없이 내보낸 PDF입니다. 다시 가져오면 페이지 내용으로 슬라이드를 다시 만듭니다.",
     exporting: "내보내는 중...",
     exportPptxError: "PPTX로 내보내는 중 문제가 발생했습니다.",
     googleSlidesDownloaded: "Google Slides용으로 다운로드됨",
@@ -492,6 +510,9 @@ const messages = {
     exportPdf: "PDF로 내보내기",
     exportPptx: "PPTX로 내보내기",
     connectGoogle: "Google 연결",
+    disconnectGoogle: "Google 연결 해제",
+    googleDisconnectFailed: "Google Drive 연결을 해제하지 못했습니다.",
+    googleSlidesStatusUnknown: "상태를 확인하지 못함",
     openInGoogleSlides: "Google Slides에서 열기",
     googleSlidesUnavailable: "사용 불가",
     googleSlidesOpenImporter: "Google Slides 가져오기 열기",
@@ -509,6 +530,10 @@ const messages = {
   },
   share: {
     createFailed: "공유 링크를 만들 수 없습니다",
+    snapshotLinks: "스냅샷 링크",
+    snapshotLinksLoadFailed: "스냅샷 링크를 불러올 수 없습니다",
+    revokeLink: "취소",
+    revokeFailed: "공유 링크를 취소할 수 없습니다",
     title: "프레젠테이션 공유",
     cloudUpgradeDescription:
       "프레젠테이션을 공개적으로 공유하려면 클라우드 데이터베이스를 연결해 어디서나 슬라이드에 접근할 수 있게 하세요.",
@@ -837,6 +862,10 @@ const messages = {
     versionRestoredDescription: "덱을 선택한 스냅샷으로 되돌렸습니다.",
     restoreFailed: "복원 실패",
     restoreFailedDescription: "이 덱 버전을 복원할 수 없습니다.",
+    alreadyAtVersion: "이미 이 버전입니다",
+    restoreReloadFailed: "덱을 새로고침하지 못했습니다",
+    restoreReloadFailedDescription:
+      "페이지를 새로고침해 이 덱의 현재 버전을 확인하세요.",
     backToSavedVersions: "기록으로 돌아가기",
     savedVersions: "기록",
     description: "덱 기록을 살펴보고 이전 스냅샷을 복원하세요.",
@@ -865,9 +894,6 @@ const messages = {
     newSlideSaveFailed:
       "새 슬라이드를 저장하지 못했습니다. 다시 시도해 주세요.",
     addSlides: "슬라이드 추가",
-    addEmptySlide: "빈 슬라이드 추가",
-    noAi: "AI 없음",
-    duplicateCurrentSlide: "현재 슬라이드 복제",
     promptPlaceholder: "원하는 슬라이드를 설명하세요...",
     newSlide: "새 슬라이드",
     slidesHeading: "슬라이드",
@@ -1304,7 +1330,24 @@ const messages = {
     },
     importDeck: "덱 가져오기",
     context: {
+      googleSlides: {
+        connectionFailed:
+          "Google Drive 연결을 확인할 수 없습니다. 다시 시도하세요.",
+        attach: "첨부",
+        reading: "읽는 중…",
+        authentication: "Google Slides를 첨부하려면 로그인하세요.",
+        invalid: "유효한 Google Slides 프레젠테이션 URL을 입력하세요.",
+        connect: "이 프레젠테이션을 읽으려면 Google Drive를 연결하세요.",
+        denied:
+          "이 프레젠테이션을 사용할 수 없습니다. 접근 권한을 확인하거나 Google Drive를 다시 연결하세요.",
+        failed: "이 프레젠테이션을 읽을 수 없습니다. 다시 시도하세요.",
+        tooLarge: "이 프레젠테이션은 컨텍스트로 읽기에는 너무 큽니다.",
+        truncated: "참조 발췌문이 잘렸으며 나머지 내용은 포함되지 않았습니다.",
+      },
       websiteReference: "웹사이트 추가",
+      connectFigma: "Figma 연결",
+      figmaDisconnected: "디자인을 찾아보려면 Figma를 연결하세요.",
+      websiteReferenceMenu: "웹사이트 추가…",
       websiteUrlLabel: "웹사이트 URL",
       websiteUrl: "웹사이트 URL 붙여넣기",
       figmaUrlLabel: "Figma 링크",
@@ -1318,9 +1361,9 @@ const messages = {
       searchPresentations: "프레젠테이션 검색…",
       menu: {
         system: "디자인 시스템 사용",
-        figma: "Figma 추가",
+        figma: "Figma 디자인",
         design: "디자인 참조",
-        deck: "프레젠테이션 참조",
+        deck: "덱 참조…",
         searchDesign: "디자인 검색…",
       },
       loadFailed: "참조를 불러올 수 없습니다. 다시 시도하세요.",
@@ -1345,7 +1388,7 @@ const messages = {
         "Design에서 이 Figma 참조를 읽지 못했어요. Design에 저장된 Figma 액세스 토큰과 연결된 계정에서 파일을 열 수 있는지 확인한 뒤 다시 시도해 주세요.",
       tooMany: "참조를 최대 20개까지 선택하세요.",
       search: "참조 검색",
-      designCategory: "디자인",
+      designCategory: "디자인 참조",
     },
     quickStart: {
       invalidUrl: "올바른 HTTP 또는 HTTPS URL을 입력하세요.",

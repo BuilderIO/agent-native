@@ -294,3 +294,199 @@ describe("priming over an empty page is remembered", () => {
     expect(parsed.cursor).toBe("9");
   });
 });
+
+describe("a page the provider cannot sort is sorted here and cut after the oldest", () => {
+  const tickets = op("pylon.newTickets");
+  const at = (n: number) => `2026-10-19T12:${String(n).padStart(2, "0")}:00Z`;
+  const row = (id: string, createdAt: string) => ({
+    id,
+    created_at: createdAt,
+    title: `Ticket ${id}`,
+  });
+  const page = (rows: unknown[], more?: unknown) => ({
+    data: rows,
+    ...(more === undefined ? {} : { pagination: { has_next_page: more } }),
+  });
+  const twenty = Array.from({ length: 20 }, (_, index) =>
+    row(`t${index + 1}`, at(index + 1)),
+  );
+  const run = (
+    body: unknown,
+    options: { cursor?: string; limit?: number; prime?: boolean } = {},
+  ) => parseProviderResponse(tickets, body, { scope: SCOPE, ...options });
+
+  it("takes the oldest rows up to the limit, whatever order the page came in", () => {
+    for (const order of [
+      [...twenty].reverse(),
+      twenty,
+      [...twenty.slice(10), ...twenty.slice(0, 10)],
+    ]) {
+      const parsed = run(page(order), { cursor: at(0), limit: 8 });
+      expect(parsed.items?.map((item) => item.externalId)).toEqual(
+        twenty.slice(0, 8).map((entry) => entry.id),
+      );
+      expect(parsed.cursor).toBe(at(8));
+      expect(parsed.truncated).toBe(true);
+      expect(parsed.totalAvailable).toBe(20);
+    }
+  });
+
+  it("moves the position to the newest row when it kept every row", () => {
+    const parsed = run(page([...twenty].reverse()), {
+      cursor: at(0),
+      limit: 50,
+    });
+    expect(parsed.items).toHaveLength(20);
+    expect(parsed.truncated).toBe(false);
+    expect(parsed.totalAvailable).toBeUndefined();
+    expect(parsed.cursor).toBe(at(20));
+  });
+
+  it("holds no position for an empty page, so the stored one stays", () => {
+    const parsed = run(page([], false), { cursor: at(5), limit: 8 });
+    expect(parsed.items).toEqual([]);
+    expect(parsed.cursor).toBeUndefined();
+  });
+
+  it("orders times by what they say, not by how they are written", () => {
+    const rows = [
+      row("late", "2026-10-19T12:00:00.5Z"),
+      row("early", "2026-10-19T12:00:00.123456Z"),
+      row("offset", "2026-10-19T14:00:00.2+02:00"),
+      row("first", "2026-10-19T11:59:59Z"),
+    ];
+    const parsed = run(page(rows), { cursor: at(0), limit: 50 });
+    expect(parsed.items?.map((item) => item.externalId)).toEqual([
+      "first",
+      "early",
+      "offset",
+      "late",
+    ]);
+    expect(parsed.cursor).toBe("2026-10-19T12:00:00.5Z");
+  });
+
+  it("primes on the newest row of the page, not the first one", () => {
+    for (const order of [twenty, [...twenty].reverse()]) {
+      const parsed = run(page(order), { prime: true });
+      expect(parsed.items).toEqual([]);
+      expect(parsed.primed).toBe(true);
+      expect(parsed.cursor).toBe(at(20));
+    }
+  });
+
+  it("primes over an empty page on the catalog's origin", () => {
+    expect(run(page([], false), { prime: true }).cursor).toBe(
+      tickets.cursor?.origin,
+    );
+  });
+
+  it("fails a page the response says is partial, whatever the limit, and reports it", () => {
+    const { sink, events } = createCapturingTripwireSink();
+    const error = failureOf(() =>
+      parseProviderResponse(tickets, page(twenty, true), {
+        scope: SCOPE,
+        cursor: at(0),
+        limit: 50,
+        observe: { tripwire: sink, status: 200 },
+      }),
+    );
+    expect(error.code).toBe("unexpected_response");
+    expect(error.message).toContain("pagination.has_next_page");
+    expect(events.map((event) => event.details?.reason)).toEqual([
+      "page_partial",
+    ]);
+  });
+
+  it("primes over a partial page, because enabling over a long history must work, and reports it", () => {
+    const { sink, events } = createCapturingTripwireSink();
+    const parsed = parseProviderResponse(tickets, page(twenty, true), {
+      scope: SCOPE,
+      prime: true,
+      observe: { tripwire: sink, status: 200 },
+    });
+    expect(parsed.cursor).toBe(at(20));
+    expect(events.map((event) => event.details?.reason)).toEqual([
+      "priming_page_partial",
+    ]);
+  });
+
+  it("accepts a page the response says is whole, and one that says nothing about it", () => {
+    for (const more of [false, undefined]) {
+      expect(
+        run(page(twenty, more), { cursor: at(0), limit: 8 }).items,
+      ).toHaveLength(8);
+    }
+  });
+
+  it("fails a flag that is neither true nor false instead of reading it as a whole page", () => {
+    for (const more of ["yes", 1, "true"]) {
+      expect(
+        failureOf(() => run(page(twenty, more), { cursor: at(0), limit: 8 }))
+          .code,
+      ).toBe("unexpected_response");
+    }
+  });
+
+  it("fails a row whose time cannot be read, naming the row and never its value", () => {
+    const error = failureOf(() =>
+      run(page([row("a", at(1)), row("b", "yesterday-ish")]), {
+        cursor: at(0),
+      }),
+    );
+    expect(error.code).toBe("unexpected_response");
+    expect(error.message).toContain("item 1");
+    expect(error.message).not.toContain("yesterday-ish");
+  });
+
+  describe("a cut inside rows that share one time", () => {
+    const tied = [
+      ...Array.from({ length: 6 }, (_, index) =>
+        row(`t${index + 1}`, at(index + 1)),
+      ),
+      row("a", at(7)),
+      row("b", at(7)),
+      row("c", "2026-10-19T12:07:00.000Z"),
+      row("d", at(9)),
+    ];
+
+    it("keeps only the times it can take whole, so the next page starts at the ones left out", () => {
+      const parsed = run(page([...tied].reverse()), {
+        cursor: at(0),
+        limit: 8,
+      });
+      expect(parsed.items?.map((item) => item.externalId)).toEqual([
+        "t1",
+        "t2",
+        "t3",
+        "t4",
+        "t5",
+        "t6",
+      ]);
+      expect(parsed.cursor).toBe(at(6));
+      expect(parsed.truncated).toBe(true);
+      expect(parsed.totalAvailable).toBe(10);
+    });
+
+    it("takes them all when the cut falls after them", () => {
+      const parsed = run(page(tied), { cursor: at(0), limit: 9 });
+      expect(parsed.items).toHaveLength(9);
+      expect(parsed.cursor).toBe("2026-10-19T12:07:00.000Z");
+    });
+
+    it("fails when the first time alone is more than a run takes", () => {
+      const error = failureOf(() =>
+        run(
+          page(
+            Array.from({ length: 9 }, (_, index) => row(`s${index}`, at(3))),
+          ),
+          {
+            cursor: at(0),
+            limit: 8,
+          },
+        ),
+      );
+      expect(error.code).toBe("unexpected_response");
+      expect(error.message).toContain("more rows at one time than a run takes");
+    });
+  });
+});

@@ -23,6 +23,7 @@ vi.mock("@agent-native/core/client/analytics", () => ({
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => `/slides${path}`,
+  appApiPath: (path: string) => `/slides${path}`,
   appBasePath: () => "/slides",
 }));
 
@@ -132,6 +133,39 @@ describe("exportDeckToGoogleSlides", () => {
     expect(await uploadedPptxText()).toBe("pptx");
   });
 
+  it("surfaces image warnings reported by the server-built PPTX", async () => {
+    const warnings = [{ code: "images-dropped", count: 2, slides: [1, 3] }];
+    vi.mocked(fetch).mockImplementation((async (input: RequestInfo | URL) => {
+      const url = requestString(input);
+      if (url.endsWith("/_agent-native/google-docs/status")) {
+        return new Response(JSON.stringify({ connected: true }));
+      }
+      if (url.endsWith("/api/exports/pptx")) {
+        return new Response(new Blob(["PK"], { type: PPTX_MIME }), {
+          headers: {
+            "content-disposition": 'attachment; filename="deck.pptx"',
+            "x-slides-export-warnings": encodeURIComponent(
+              JSON.stringify(warnings),
+            ),
+          },
+        });
+      }
+      return new Response(
+        JSON.stringify({ url: "https://docs.google.com/d/new" }),
+        { headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch);
+
+    await expect(
+      exportDeckToGoogleSlides(
+        "Quarterly Review",
+        [{ id: "slide-1" }],
+        "16:9",
+        () => fetchDeckPptxFromServer("deck-1", "Could not export PPTX."),
+      ),
+    ).resolves.toEqual({ url: "https://docs.google.com/d/new", warnings });
+  });
+
   it("uploads the server-built PPTX when the caller supplies one", async () => {
     vi.mocked(fetch).mockImplementation((async (input: RequestInfo | URL) => {
       const url = requestString(input);
@@ -154,7 +188,7 @@ describe("exportDeckToGoogleSlides", () => {
         "16:9",
         () => fetchDeckPptxFromServer("deck-1", "Could not export PPTX."),
       ),
-    ).resolves.toEqual({ url: "https://docs.google.com/d/new" });
+    ).resolves.toEqual({ url: "https://docs.google.com/d/new", warnings: [] });
 
     expect(buildDeckPptxBlobMock).not.toHaveBeenCalled();
     expect(fetch).toHaveBeenCalledWith(
