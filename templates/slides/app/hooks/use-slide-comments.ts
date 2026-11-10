@@ -19,6 +19,7 @@ export interface SlideComment {
   anchor?: SlideCommentAnchor | null;
   reactions?: SlideCommentReaction[];
   author_email: string;
+  author_kind: string | null;
   author_name: string | null;
   resolved: number | boolean;
   created_at: string;

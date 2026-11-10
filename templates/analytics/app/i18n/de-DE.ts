@@ -1440,6 +1440,10 @@ export default {
     hide: "Hide",
     show: "Show",
     saveAsView: "Als Ansicht speichern",
+    unknownTraffic: "Unbekannt {{count}}",
+    unknownTrafficUnavailable: "Anzahl Unbekannt nicht verfügbar",
+    unknownTrafficTip:
+      "Ereignisse der letzten {{days}} Tage ohne Host und ohne bekannte Umgebung. Sie zählen als Produktion.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",

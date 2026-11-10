@@ -1,5 +1,6 @@
 import { useAgentChatGenerating } from "@agent-native/core/client/agent-chat";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   appendSignatureToBody,
   splitAppendedSignature,
@@ -523,9 +524,11 @@ export function ComposeModal({
             });
           }
         })
-        .catch(() => {
+        .catch((error) => {
           toast.dismiss(sendingToastId);
-          toast.error(t("mail.toasts.failedToSendEmail"));
+          reportWriteFailure(error, {
+            label: t("mail.toasts.failedToSendEmail"),
+          });
           onRestoreAfterSend(sendingId);
         });
     }, SEND_UNDO_WINDOW_MS);
@@ -606,8 +609,10 @@ export function ComposeModal({
         minute: "2-digit",
       });
       toast(t("mail.sendLater.scheduledFor", { date: scheduledDate }));
-    } catch {
-      toast.error(t("mail.toasts.failedToScheduleEmailDraftKeptOpen"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("mail.toasts.failedToScheduleEmailDraftKeptOpen"),
+      });
     } finally {
       schedulingRef.current = false;
     }
