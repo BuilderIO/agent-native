@@ -2452,11 +2452,11 @@ async function viewOnlyPage(content: string) {
 }
 
 async function storedLevel(id: string) {
-  const [row] = await getDb()
+  const rows = await getDb()
     .select({ agentTextLocked: schema.documents.agentTextLocked })
     .from(schema.documents)
     .where(eq(schema.documents.id, id));
-  return row?.agentTextLocked;
+  return rows.map((row) => row.agentTextLocked);
 }
 
 describe("Agents set to Can view on a page", () => {
@@ -2480,7 +2480,7 @@ describe("Agents set to Can view on a page", () => {
         await expect(setLock.run({ id, level }, person)).resolves.toMatchObject(
           { agentLevel: level, agentTextLocked: textLocked },
         );
-        expect(await storedLevel(id)).toBe(stored);
+        expect(await storedLevel(id)).toEqual([stored]);
         expect(await levelOf()).toMatchObject({
           agentLevel: level,
           agentTextLocked: textLocked,
@@ -2489,9 +2489,9 @@ describe("Agents set to Can view on a page", () => {
 
       // A page loaded before Can view still sends locked.
       await setLock.run({ id, locked: true }, person);
-      expect(await storedLevel(id)).toBe(1);
+      expect(await storedLevel(id)).toEqual([1]);
       await setLock.run({ id, locked: false }, person);
-      expect(await storedLevel(id)).toBe(0);
+      expect(await storedLevel(id)).toEqual([0]);
     });
   });
 
@@ -2511,7 +2511,7 @@ describe("Agents set to Can view on a page", () => {
       await expect(
         setLock.run({ id, level: "view" }, ownAgent),
       ).rejects.toBeTruthy();
-      expect(await storedLevel(id)).toBe(0);
+      expect(await storedLevel(id)).toEqual([0]);
     });
   });
 

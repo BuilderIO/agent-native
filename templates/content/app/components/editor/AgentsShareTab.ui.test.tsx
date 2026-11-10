@@ -88,7 +88,9 @@ describe("AgentsShareTab", () => {
       "false",
       "true",
     ]);
-    const [viewItem, commentItem, editItem] = items;
+    const viewItem = items.shift();
+    const commentItem = items.shift();
+    const editItem = items.shift();
     if (!viewItem || !commentItem || !editItem) {
       throw new Error("No level items");
     }
@@ -130,8 +132,8 @@ describe("AgentsShareTab", () => {
         new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
       ),
     );
-    const [viewItem] = Array.from(
-      document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+    const viewItem = document.body.querySelector<HTMLElement>(
+      '[role="menuitemradio"]',
     );
     if (!viewItem) throw new Error("No Can view item");
     await act(async () =>
