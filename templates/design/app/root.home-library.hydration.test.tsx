@@ -15,6 +15,16 @@ vi.mock("@/components/ui/toolkit-provider", () => ({
   AppToolkitProvider: ({ children }: { children: ReactNode }) => children,
 }));
 
+// The real module imports a build-generated worker bundle that a fresh checkout
+// does not have until `pnpm codegen:bridge` runs.
+vi.mock(
+  "@/components/design/design-canvas/native-public-worker-preview",
+  () => ({
+    prepareNativePublicWorkerPreviewDocument: () => null,
+    connectNativePublicWorkerPreview: () => () => undefined,
+  }),
+);
+
 vi.mock("@agent-native/toolkit/app/shared", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/toolkit/app/shared")
