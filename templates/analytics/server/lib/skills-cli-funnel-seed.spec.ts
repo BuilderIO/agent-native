@@ -123,7 +123,7 @@ describe("Skills CLI Funnel seed panels", () => {
   });
 
   it.each(panels.map((panel) => [panel.id, panel] as const))(
-    "%s passes the first-party SQL rules and runs on Postgres and BigQuery",
+    "%s passes the first-party SQL rules, runs on Postgres and renders for BigQuery",
     async (_id, panel) => {
       const sql = panel.sql ?? "";
       expect(() => validateFirstPartyAnalyticsSql(sql)).not.toThrow();
