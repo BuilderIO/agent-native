@@ -1,7 +1,7 @@
 /**
  * Share-password storage for recordings.
  *
- * The per-recording share password gates access to private recordings. It is
+ * The per-recording share password gates access to public recordings. It is
  * stored encrypted at rest (AES-256-GCM, same key story as the framework
  * secrets vault) so a leaked DB backup / pg_dump / read replica does not expose
  * every share password in plaintext, and it is never returned to clients (the
@@ -28,8 +28,8 @@ export function encryptSharePassword(
 /**
  * Recover the plaintext password from a stored value. Encrypted rows are
  * decrypted; rows written before encryption are legacy plaintext and read
- * transparently. A row that can't be decrypted (key rotated / corrupt) is
- * treated as "no password" rather than throwing.
+ * transparently. A row that can't be decrypted (key rotated / corrupt) cannot
+ * verify a supplied password.
  */
 function decodeStoredPassword(
   stored: string | null | undefined,
