@@ -142,6 +142,7 @@ describe("resource skill reference selection and bounded refill", () => {
     mocks.resourceList.mockResolvedValue([]);
     mocks.resourceGetByPath.mockResolvedValue(null);
     mocks.requestOrgId.mockReturnValue(null);
+    mocks.readSkillChoices.mockResolvedValue({ switches: {}, marks: {} });
     mocks.discoverAgentsWithDirectoryStatus.mockResolvedValue({
       agents: [],
       directory: { status: "available" },
