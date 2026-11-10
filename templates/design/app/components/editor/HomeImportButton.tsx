@@ -2,7 +2,7 @@ import {
   actionErrorMessage,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
-import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconUpload } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -16,8 +16,6 @@ import {
 } from "@/components/ui/tooltip";
 import {
   MAX_BROWSER_FIG_BYTES,
-  MAX_BROWSER_FIG_GB,
-  MAX_BROWSER_FIG_MB,
   validateFigUploadFile,
 } from "@/lib/design-file-upload";
 import {
@@ -25,6 +23,7 @@ import {
   importFormatsAccept,
   requestImportFile,
 } from "@/lib/design-import-file-picker";
+import type { PreparedFigImport } from "@/lib/fig-client-import";
 import {
   claimFigImportToast,
   discardPendingDesignImports,
@@ -33,12 +32,16 @@ import {
   setPendingDesignImport,
   updateFigImportToast,
 } from "@/lib/pending-import";
+import {
+  FigFileRefusedError,
+  figFileRefusalMessage,
+  prepareWholeFigImport,
+} from "@/pages/design-editor/commands/import-design-file";
 
 const HOME_IMPORT_FORMATS = [FIGMA_IMPORT_FORMAT];
 
 export function HomeImportButton() {
   const t = useT();
-  const formatters = useFormatters();
   const navigate = useNavigate();
   const create = useActionMutation("create-design");
   const [busy, setBusy] = useState(false);
@@ -69,9 +72,7 @@ export function HomeImportButton() {
     if (validationError) {
       toast.error(
         validationError === "too-large"
-          ? t("designEditor.import.errors.figFileTooLarge", {
-              max: formatters.formatNumber(MAX_BROWSER_FIG_MB),
-            })
+          ? t("designEditor.import.errors.figFileTooLarge")
           : t("designEditor.import.errors.invalidFigFile"),
       );
       return;
@@ -84,7 +85,36 @@ export function HomeImportButton() {
       t("designEditor.import.figImportAnalyzing"),
       file.name,
     );
+    let prepared: PreparedFigImport | undefined;
     try {
+      // Refuse before creating a design the import could never fill.
+      try {
+        prepared = await prepareWholeFigImport(file);
+      } catch (decodeError) {
+        // Even a crashed worker stops here: without a decode, nothing shows
+        // the upload route would accept the file, and a design created for
+        // it would stay empty. File → Import keeps that fallback.
+        releaseFigImportToast(toastOwner);
+        if (decodeError instanceof FigFileRefusedError) {
+          toast.error(figFileRefusalMessage(decodeError.refusal, t), {
+            id: FIG_IMPORT_TOAST_ID,
+            description: file.name,
+          });
+        } else {
+          toast.error(t("designEditor.import.errors.importFailed"), {
+            id: FIG_IMPORT_TOAST_ID,
+            description:
+              decodeError instanceof Error
+                ? decodeError.message
+                : t("common.genericError"),
+            action: {
+              label: t("homeContext.retry"),
+              onClick: () => void importFile(file),
+            },
+          });
+        }
+        return;
+      }
       const result = await create.mutateAsync({
         title: file.name.replace(/\.fig$/i, "") || t("home.untitledDesign"),
         projectType: "prototype",
@@ -92,19 +122,30 @@ export function HomeImportButton() {
         creationMethod: "import_figma",
       });
       if (!result.id) throw new Error(t("home.failedToCreateDesign"));
-      setPendingDesignImport(result.id, { kind: "file", file });
-      void navigate(`/design/${result.id}?panel=import`);
+      setPendingDesignImport(result.id, { kind: "file", file, prepared });
+      prepared = undefined;
+      void navigate(`/design/${result.id}`);
     } catch (cause) {
       releaseFigImportToast(toastOwner);
-      toast.error(actionErrorMessage(cause) ?? t("home.failedToCreateDesign"), {
+      const actionMessage = actionErrorMessage(cause);
+      // A network or auth failure is not an action error; name it rather
+      // than leaving only the generic title.
+      const detail =
+        !actionMessage &&
+        cause instanceof Error &&
+        cause.message !== t("home.failedToCreateDesign")
+          ? cause.message
+          : undefined;
+      toast.error(actionMessage ?? t("home.failedToCreateDesign"), {
         id: FIG_IMPORT_TOAST_ID,
-        description: undefined,
+        description: detail,
         action: {
           label: t("homeContext.retry"),
           onClick: () => void importFile(file),
         },
       });
     } finally {
+      prepared?.dispose();
       pending.current = false;
       setBusy(false);
     }
@@ -136,14 +177,7 @@ export function HomeImportButton() {
             <span className="design-home-import-label">{t("home.import")}</span>
           </Button>
         </TooltipTrigger>
-        <TooltipContent className="grid gap-0.5">
-          <span>{t("home.figmaFile")}</span>
-          <span className="text-muted-foreground">
-            {t("home.figmaFileMaxSize", {
-              max: formatters.formatNumber(MAX_BROWSER_FIG_GB),
-            })}
-          </span>
-        </TooltipContent>
+        <TooltipContent>{t("home.figmaFile")}</TooltipContent>
       </Tooltip>
     </>
   );

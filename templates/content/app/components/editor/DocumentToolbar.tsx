@@ -10,6 +10,7 @@ import {
 } from "@agent-native/core/client/mcp-app-host";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import type { ShareButtonActionHandle } from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
@@ -60,6 +61,9 @@ import { toast } from "sonner";
 
 import { ContentIcon } from "../icons/ContentIcon";
 
+const AgentsShareTab = lazy(() =>
+  import("./AgentsShareTab").then((m) => ({ default: m.AgentsShareTab })),
+);
 const ShareButton = lazy(() =>
   import("@agent-native/toolkit/app/sharing").then((m) => ({
     default: m.ShareButton,
@@ -130,6 +134,7 @@ import {
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
 
+import { AgentLevelNote, useAgentLevel } from "./AgentLevel";
 import {
   DatabaseExportDialog,
   type DatabaseExportContext,
@@ -849,6 +854,8 @@ interface DocumentToolbarProps {
   canShare?: boolean;
   readOnly?: boolean;
   hideFromSearch?: boolean;
+  agentTextLocked?: boolean;
+  canManageAgentTextLock?: boolean;
   source?: DocumentSourceInfo;
   canDelete?: boolean;
   deletePending?: boolean;
@@ -954,6 +961,8 @@ export function DocumentToolbar({
   canShare = true,
   readOnly = false,
   hideFromSearch = false,
+  agentTextLocked = false,
+  canManageAgentTextLock = false,
   source,
   canDelete = false,
   deletePending = false,
@@ -1055,6 +1064,9 @@ export function DocumentToolbar({
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
   const [shareRequested, setShareRequested] = useState(false);
+  const [shareInitialTab, setShareInitialTab] = useState("share");
+  const shareActionRef = useRef<ShareButtonActionHandle>(null);
+  const agentLevel = useAgentLevel(documentId, agentTextLocked);
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
     false,
@@ -1414,6 +1426,7 @@ export function DocumentToolbar({
     (nextOpen: boolean) => {
       if (nextOpen) return;
       setShareRequested(false);
+      setShareInitialTab("share");
       if (shareInMenu && shareRequested) {
         if (shareFocusFrameRef.current != null) {
           cancelAnimationFrame(shareFocusFrameRef.current);
@@ -1443,6 +1456,15 @@ export function DocumentToolbar({
       shareRequested,
     ],
   );
+
+  const handleOpenAgentsTab = useCallback(() => {
+    if (shareActionRef.current) {
+      shareActionRef.current.open("agents");
+      return;
+    }
+    setShareInitialTab("agents");
+    setShareRequested(true);
+  }, []);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -1744,6 +1766,15 @@ export function DocumentToolbar({
             </>
           ) : null}
 
+          {shareAvailable &&
+          !isLocalFileDocument &&
+          !shareInMenu &&
+          !inWidget ? (
+            <AgentLevelNote
+              level={agentLevel.level}
+              onOpen={handleOpenAgentsTab}
+            />
+          ) : null}
           {shareAvailable ? (
             isLocalFileDocument ? (
               shareInMenu ? null : (
@@ -1782,6 +1813,7 @@ export function DocumentToolbar({
                     resourceType="document"
                     resourceId={documentId}
                     resourceTitle={documentTitle}
+                    actionRef={shareActionRef}
                     hideTrigger={shareInMenu}
                     shareUrl={shareUrl}
                     mobileSheet
@@ -1803,15 +1835,7 @@ export function DocumentToolbar({
                     }}
                     basicSharingOnly={inWidget}
                     peopleAccessLabel={t("editor.toolbar.whoHasAccess")}
-                    sendTo={
-                      inWidget
-                        ? undefined
-                        : {
-                            openInAgent: handleOpenAgentDestination,
-                            copyAgentPrompt: handleCopyAgentPrompt,
-                            openMcpSettings: handleOpenMcpSettings,
-                          }
-                    }
+                    hideSendTo
                     defaultOpen={shareRequested || openShareOnLoad}
                     onOpenChange={handleDbShareOpenChange}
                     visibilityCopy={{
@@ -1842,33 +1866,61 @@ export function DocumentToolbar({
                     }
                     variant="compact"
                     shareTabs={
-                      creativeContextEnabled && !inWidget
-                        ? {
+                      inWidget
+                        ? undefined
+                        : {
+                            shareLabel: t("editor.toolbar.sharePeopleTab"),
+                            defaultValue: shareInitialTab,
                             tabs: [
                               {
-                                value: "context",
-                                label: t("creativeContext.share.tabLabel"),
+                                value: "agents",
+                                label: t("editor.toolbar.shareAgentsTab"),
                                 content: (
-                                  <CreativeContextShareTab
-                                    resource={{
-                                      appId: "content",
-                                      resourceType: "document",
-                                      resourceId: documentId,
-                                      title: documentTitle || "Untitled",
-                                      updatedAt: documentUpdatedAt ?? undefined,
-                                      preview: {
-                                        kind: "document",
-                                        label: t(
-                                          "root.commandDocumentsHeading",
-                                        ),
-                                      },
-                                    }}
-                                  />
+                                  <Suspense fallback={null}>
+                                    <AgentsShareTab
+                                      documentId={documentId}
+                                      level={agentLevel.level}
+                                      onLevelChange={agentLevel.setLevel}
+                                      pending={agentLevel.pending}
+                                      canManage={canManageAgentTextLock}
+                                      onCopyPrompt={handleCopyAgentPrompt}
+                                      onOpenAgent={handleOpenAgentDestination}
+                                      onOpenMcpSettings={handleOpenMcpSettings}
+                                    />
+                                  </Suspense>
                                 ),
                               },
+                              ...(creativeContextEnabled
+                                ? [
+                                    {
+                                      value: "context",
+                                      label: t(
+                                        "creativeContext.share.tabLabel",
+                                      ),
+                                      content: (
+                                        <CreativeContextShareTab
+                                          resource={{
+                                            appId: "content",
+                                            resourceType: "document",
+                                            resourceId: documentId,
+                                            title: documentTitle || "Untitled",
+                                            ...(documentUpdatedAt
+                                              ? { updatedAt: documentUpdatedAt }
+                                              : {}),
+                                            preview: {
+                                              kind: "document",
+                                              label: t(
+                                                "root.commandDocumentsHeading",
+                                              ),
+                                            },
+                                          }}
+                                        />
+                                      ),
+                                    },
+                                  ]
+                                : []),
                             ],
                           }
-                        : undefined
                     }
                   />
                 ) : shareInMenu ? null : (

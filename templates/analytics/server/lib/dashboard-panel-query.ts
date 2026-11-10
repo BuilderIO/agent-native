@@ -485,6 +485,7 @@ export async function runDashboardPanelQuery(args: {
         },
         {
           cache: true,
+          ...(signal ? { signal } : {}),
           ...(timeoutMs !== undefined ? { timeoutMs } : {}),
           ...(maxBytesBilled !== undefined ? { maxBytesBilled } : {}),
           ...(trafficEnvironment ? { trafficEnvironment } : {}),

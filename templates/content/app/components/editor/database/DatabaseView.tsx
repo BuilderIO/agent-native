@@ -5,6 +5,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
@@ -2607,7 +2608,10 @@ function DatabaseTable({
         clearTimeout(personalViewSaveTimerRef.current);
         personalViewSaveTimerRef.current = null;
       }
-      updatePersonalView.mutate({ databaseId, overrides: null });
+      updatePersonalView.mutate(
+        { databaseId, overrides: null },
+        { onError: (error) => reportWriteFailure(error) },
+      );
       setSavedViewConfig(nextViewConfig);
       setViewConfig(nextViewConfig);
       setPersonalQueryDirty(false);
@@ -2634,10 +2638,10 @@ function DatabaseTable({
         current,
         savedViewConfig,
       );
-      updatePersonalView.mutate({
-        databaseId,
-        overrides: null,
-      });
+      updatePersonalView.mutate(
+        { databaseId, overrides: null },
+        { onError: (error) => reportWriteFailure(error) },
+      );
       setPersonalQueryDirty(false);
       hydratedViewRef.current = databaseViewStateKey(
         databaseId,
@@ -20282,10 +20286,15 @@ function RowNameCell({
       }
       return;
     }
-    await updateDocument.mutateAsync({
-      id: item.document.id,
-      title: nextTitle,
-    });
+    try {
+      await updateDocument.mutateAsync({
+        id: item.document.id,
+        title: nextTitle,
+      });
+    } catch (error) {
+      reportWriteFailure(error);
+      return;
+    }
     await queryClient.invalidateQueries({
       queryKey: [
         "action",

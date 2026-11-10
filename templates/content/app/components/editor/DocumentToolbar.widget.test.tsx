@@ -127,6 +127,12 @@ describe("DocumentToolbar in an MCP App widget", () => {
     return container.querySelector<T>(`[aria-label="${label}"]`);
   }
 
+  function lastShareProps() {
+    const props = [...mocks.shareProps].pop();
+    if (!props) throw new Error("Share wasn't rendered");
+    return props;
+  }
+
   function openLink() {
     return byLabel<HTMLAnchorElement>("editor.toolbar.openInAgentNative");
   }
@@ -518,9 +524,6 @@ describe("DocumentToolbar in an MCP App widget", () => {
       // The widget's session cannot set discoverability, mint agent links,
       // or open the app's agent deep links.
       expect(props.hideInSearchControl).toBeUndefined();
-      expect(mocks.shareProps.slice(-1)).toEqual([
-        expect.not.objectContaining({ sendTo: expect.anything() }),
-      ]);
       expect(props.shareTabs).toBeUndefined();
       // The popover's own trigger group matches the one drawn before it.
       expect(props.quickCopy.size).toBe("sm");
@@ -537,19 +540,49 @@ describe("DocumentToolbar in an MCP App widget", () => {
       await act(async () => Promise.resolve());
       await act(async () => Promise.resolve());
 
-      const props = mocks.shareProps[mocks.shareProps.length - 1];
+      const props = lastShareProps();
       expect(props.basicSharingOnly).toBe(false);
       expect(props.hideInSearchControl).toBeDefined();
-      expect(mocks.shareProps.slice(-1)).toEqual([
-        expect.objectContaining({
-          sendTo: expect.objectContaining({
-            openInAgent: expect.any(Function),
-            copyAgentPrompt: expect.any(Function),
-            openMcpSettings: expect.any(Function),
-          }),
-        }),
-      ]);
+      // Sending the page to an agent lives in the Agents tab, not a menu.
+      expect(props.hideSendTo).toBe(true);
+      expect(props.shareTabs).toMatchObject({
+        shareLabel: "editor.toolbar.sharePeopleTab",
+        defaultValue: "share",
+      });
+      expect(props.shareTabs.tabs[0]).toMatchObject({
+        value: "agents",
+        label: "editor.toolbar.shareAgentsTab",
+      });
       expect(props.quickCopy.className).toBeUndefined();
+    });
+
+    it("opens the Agents tab from the note beside Share", async () => {
+      mocks.widget.inWidget = false;
+      mocks.widget.write = false;
+      await renderToolbar(1040, { readOnly: false, agentTextLocked: true });
+
+      const note = byLabel<HTMLButtonElement>(
+        "editor.toolbar.agentLevelNoteHint",
+      );
+      if (!note) throw new Error("No note beside Share");
+      await act(async () => note.click());
+      await act(async () => Promise.resolve());
+      await act(async () => Promise.resolve());
+
+      const props = lastShareProps();
+      expect(props.defaultOpen).toBe(true);
+      expect(props.shareTabs.defaultValue).toBe("agents");
+    });
+
+    it("shows no note while agents can edit, and none in a widget", async () => {
+      mocks.widget.inWidget = false;
+      mocks.widget.write = false;
+      await renderToolbar(1040, { readOnly: false });
+      expect(byLabel("editor.toolbar.agentLevelNoteHint")).toBeNull();
+
+      mocks.widget.inWidget = true;
+      await renderToolbar(1040, { agentTextLocked: true });
+      expect(byLabel("editor.toolbar.agentLevelNoteHint")).toBeNull();
     });
   });
 });

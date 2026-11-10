@@ -75,6 +75,10 @@ import type {
 import { toast } from "sonner";
 
 import { AccessRequestsSection } from "./AccessRequestsSection.js";
+import {
+  agentLinkExpiresAt,
+  isAgentLinkExpiring,
+} from "./agent-link-expiry.js";
 import { ShareVisibilityConfirmDialog } from "./ShareVisibilityConfirmDialog.js";
 
 export interface ShareButtonProps {
@@ -118,6 +122,8 @@ export interface ShareButtonProps {
   agentShareLabel?: string;
   /** Destinations in the Send to menu beside Copy link. */
   sendTo?: ShareSendTo;
+  /** Leaves the Send to menu out, for an app that offers it in a tab of its own. */
+  hideSendTo?: boolean;
   /** Immediate human-link copy action beside the Share trigger. */
   quickCopy?: {
     label: string;
@@ -752,11 +758,12 @@ function ShareFooter(
       </span>
     ) : null;
   const hasSendTo =
-    Boolean(sendTo?.openInAgent) ||
-    Boolean(sendTo?.items?.length) ||
-    Boolean(sendTo?.copyAgentPrompt) ||
-    Boolean(sendTo?.openMcpSettings) ||
-    props.agentReadable;
+    !props.hideSendTo &&
+    (Boolean(sendTo?.openInAgent) ||
+      Boolean(sendTo?.items?.length) ||
+      Boolean(sendTo?.copyAgentPrompt) ||
+      Boolean(sendTo?.openMcpSettings) ||
+      props.agentReadable);
   if (!copyLink && !hasSendTo) return null;
   return (
     <div className="flex items-center justify-between gap-2">
@@ -918,15 +925,8 @@ type AgentLinkState =
   | { status: "ready"; url: string; expiresAt: number | null }
   | { status: "error" };
 
-// Re-mint a little before expiry so a copied link still opens for the agent.
-const AGENT_LINK_EXPIRY_MARGIN_MS = 60_000;
-
 function isAgentLinkStale(state: AgentLinkState): boolean {
-  return (
-    state.status === "ready" &&
-    state.expiresAt !== null &&
-    state.expiresAt - AGENT_LINK_EXPIRY_MARGIN_MS <= Date.now()
-  );
+  return state.status === "ready" && isAgentLinkExpiring(state.expiresAt);
 }
 
 /**
@@ -960,15 +960,12 @@ function ShareSendToMenu({
       { resourceType, resourceId },
       {
         onSuccess: (result) => {
-          const expiresAt = result.expiresAt
-            ? Date.parse(result.expiresAt)
-            : Number.NaN;
           setAgentLink(
             result.contextUrl
               ? {
                   status: "ready",
                   url: result.contextUrl,
-                  expiresAt: Number.isFinite(expiresAt) ? expiresAt : null,
+                  expiresAt: agentLinkExpiresAt(result.expiresAt),
                 }
               : { status: "error" },
           );

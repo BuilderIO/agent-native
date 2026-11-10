@@ -41,6 +41,7 @@ describe("AuthPage interactions", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it.each(["control", "automatic"] as const)(
@@ -246,6 +247,68 @@ describe("AuthPage interactions", () => {
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     expect(toggle?.dataset.i18n).toBe("localDevFullOptions");
     expect(toggle?.textContent?.trim()).toBe("Show full sign in options");
+  });
+
+  it("uses a full-page Google redirect by default without opening a popup", async () => {
+    const open = vi.spyOn(window, "open");
+    const replace = vi
+      .spyOn(window.location, "replace")
+      .mockImplementation(() => {});
+    await act(async () => {
+      root.render(
+        <AuthPage
+          {...propsFromHtml(getOnboardingHtml({ requestHost: "127.0.0.1" }))}
+          identitySsoEnabled={false}
+          googleViaIdentitySso={false}
+          googleAuthMode="auto"
+          showGoogle
+        />,
+      );
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("#local-dev-full-options")
+        ?.click();
+    });
+    const button = container.querySelector<HTMLButtonElement>("#google-btn");
+    expect(button?.disabled).toBe(false);
+    await act(async () => button?.click());
+    expect(open).not.toHaveBeenCalled();
+    expect(replace).toHaveBeenCalledOnce();
+    const target = new URL(replace.mock.calls[0]![0], window.location.origin);
+    expect(target.pathname).toBe("/_agent-native/google/auth-url");
+    expect(target.searchParams.get("redirect")).toBe("1");
+    expect(target.searchParams.get("return")).toBeTruthy();
+  });
+
+  it("keeps automatic Google sign-in in a popup when embedded", async () => {
+    vi.stubGlobal("top", {});
+    const popup = {
+      closed: false,
+      location: { href: "" },
+    } as unknown as Window;
+    const open = vi.spyOn(window, "open").mockReturnValue(popup);
+    await act(async () => {
+      root.render(
+        <AuthPage
+          {...propsFromHtml(getOnboardingHtml({ requestHost: "127.0.0.1" }))}
+          identitySsoEnabled={false}
+          googleViaIdentitySso={false}
+          googleAuthMode="auto"
+          showGoogle
+        />,
+      );
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>("#local-dev-full-options")
+        ?.click();
+    });
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>("#google-btn")?.click(),
+    );
+    expect(open).toHaveBeenCalledOnce();
+    expect(open.mock.calls[0]?.[1]).toBe("_blank");
   });
 
   it("shows a loader in the disabled Google button while OAuth starts", async () => {
