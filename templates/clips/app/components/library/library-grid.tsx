@@ -22,6 +22,7 @@ import { toast } from "sonner";
 
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
+import { useFreeClipsGate } from "@/components/recorder/free-clips-limit-gate";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -404,6 +405,7 @@ export function LibraryGrid({
     { spaceId, folderId },
     setStorageGateIssue,
   );
+  const dropGate = useFreeClipsGate("upload");
   const activeUploadIds = useMemo(
     () =>
       new Set(
@@ -643,6 +645,7 @@ export function LibraryGrid({
       toast.error(t("recordRoute.uploadFailed"));
       return;
     }
+    if (dropGate.guard(() => uploadFiles(files))) return;
     uploadFiles(files);
   };
 
@@ -782,6 +785,15 @@ export function LibraryGrid({
       >
         {canUploadByDrop && isDraggingFile && (
           <div className="pointer-events-none absolute inset-2 z-20 rounded-lg border-2 border-dashed border-primary bg-primary/5" />
+        )}
+        {/* A dropped file has no control to answer from, so the free clips
+            prompt opens at the top of the drop area. */}
+        {dropGate.wrap(
+          <span
+            aria-hidden
+            className="pointer-events-none absolute start-1/2 top-4 size-0"
+          />,
+          "center",
         )}
         <div
           ref={scrollRootRef}

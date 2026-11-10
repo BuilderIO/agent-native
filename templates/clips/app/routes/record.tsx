@@ -171,6 +171,8 @@ import {
 import { toast } from "sonner";
 
 import { CaptureInstallMenu } from "@/components/capture-install-options";
+import { BuilderOfferDialog } from "@/components/library/builder-offer";
+import { builderOfferMilestone } from "@/components/library/free-clips-sidebar";
 import { CameraBubble } from "@/components/recorder/camera-bubble";
 import type { CameraBubbleSize } from "@/components/recorder/camera-bubble";
 import {
@@ -178,6 +180,8 @@ import {
   type ConfettiHandle,
 } from "@/components/recorder/confetti-canvas";
 import { CountdownOverlay } from "@/components/recorder/countdown-overlay";
+import { FreeClipsLimitCard } from "@/components/recorder/free-clips-limit-card";
+import { LastClipStartGate } from "@/components/recorder/last-clip-start-gate";
 import { PreRecordPanel } from "@/components/recorder/pre-record-panel";
 import {
   RecorderEngine,
@@ -192,6 +196,7 @@ import {
   type RecorderUiState,
 } from "@/components/recorder/recorder-shortcuts";
 import { RecordingToolbar } from "@/components/recorder/recording-toolbar";
+import { ResendVerificationLink } from "@/components/recorder/resend-verification-link";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import {
   AlertDialog,
@@ -1441,6 +1446,7 @@ export default function RecordRoute() {
   const storageQuery = useVideoStorageStatus(!clipIntake);
   const hostedAllowanceExhausted =
     !clipIntake && storageQuery.data?.denyReason === "exhausted";
+  const [lastClipPromptOpen, setLastClipPromptOpen] = useState(false);
   const hostedStorageUnavailable =
     !clipIntake &&
     storageQuery.data?.providerError === "hosted_storage_unavailable";
@@ -4108,16 +4114,19 @@ export default function RecordRoute() {
   // to finish it.
   const showBackButton =
     uiState === "idle" || uiState === "error" || uiState === "pendingUpload";
-  // Free hosted clips count as configured, but a connect request still means
-  // the user wants their own Builder storage.
+  // Free hosted clips count as configured, so a connect request from them
+  // (the desktop app's or extension's Activate Builder.io) opens the offer
+  // over the recorder instead of the storage setup card.
   const hostedStorage = !clipIntake && storageQuery.data?.mode === "hosted";
+  const showFreeClipsOffer =
+    hostedStorage && connectStorageRequested && uiState === "idle";
   const showStorageSetupFirst =
     storageSetupRequested &&
-    (storageConfigured === false ||
-      storageStatusUnavailable ||
-      (hostedStorage && connectStorageRequested));
+    (storageConfigured === false || storageStatusUnavailable);
   const showStorageStatusUnavailable =
     storageStatusUnavailable && storageSetupRequested;
+  const showFreeClipsLimit =
+    hostedAllowanceExhausted && !showStorageStatusUnavailable;
   const configureFirstRunStorage = (status?: VideoStorageStatus) => {
     markStorageConfigured(status);
     void navigate("/home", { replace: true });
@@ -4164,6 +4173,23 @@ export default function RecordRoute() {
 
       {/* Idle / pre-record panel. `/record` sits outside the `_app` layout, so
           it renders its own standalone surface for direct visits. */}
+      {showFreeClipsOffer && storageQuery.data ? (
+        <BuilderOfferDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) void navigate("/record", { replace: true });
+          }}
+          source="clips_record_connect_link"
+          milestone={
+            builderOfferMilestone(
+              storageQuery.data.hostedLimit - storageQuery.data.hostedRemaining,
+              storageQuery.data.hostedLimit,
+            ) ?? "clips_left"
+          }
+          remaining={storageQuery.data.hostedRemaining}
+          limit={storageQuery.data.hostedLimit}
+        />
+      ) : null}
       {uiState === "idle" && (
         <RecorderRouteViewport>
           <div className="mx-auto grid w-full max-w-[420px] gap-2">
@@ -4186,6 +4212,11 @@ export default function RecordRoute() {
                   <Skeleton className="h-10 w-full rounded-md" />
                   <Skeleton className="h-11 w-full rounded-md" />
                 </div>
+              ) : showStorageSetupFirst && showFreeClipsLimit ? (
+                <FreeClipsLimitCard
+                  limit={storageQuery.data?.hostedLimit ?? 0}
+                  onDismiss={() => void navigate("/library")}
+                />
               ) : showStorageSetupFirst ? (
                 <div className="flex flex-col gap-2">
                   {showStorageStatusUnavailable ? (
@@ -4201,19 +4232,28 @@ export default function RecordRoute() {
                     }
                     title={
                       hostedAllowanceExhausted
-                        ? t("recordRoute.hostedClipsExhaustedTitle")
+                        ? t("freeClips.limitTitle", {
+                            count: storageQuery.data?.hostedLimit ?? 0,
+                          })
                         : undefined
                     }
                     description={
                       hostedAllowanceExhausted
-                        ? t("recordRoute.hostedClipsExhaustedDescription")
-                        : undefined
+                        ? t("freeClips.limitDescription")
+                        : storageQuery.data?.denyReason === "unverified"
+                          ? t("freeClips.verifyEmail", {
+                              count: storageQuery.data.hostedLimit,
+                            })
+                          : undefined
                     }
-                    showBuilderStorageOffer={!hostedAllowanceExhausted}
                     connectSource="clips_record_storage_setup_card"
                     connectFlow="record"
                     setupReason={storageSetupReason(storageQuery.data)}
                   />
+                  {storageQuery.data?.denyReason === "unverified" &&
+                  authSession?.email ? (
+                    <ResendVerificationLink email={authSession.email} />
+                  ) : null}
                 </div>
               ) : showStorageStatusUnavailable ? (
                 <div className="flex flex-col gap-2">
@@ -4225,6 +4265,14 @@ export default function RecordRoute() {
                 <div className="grid gap-2">
                   <PreRecordPanel
                     onStart={startFlow}
+                    wrapStartButton={(button, start) => (
+                      <LastClipStartGate
+                        onStart={start}
+                        onOpenChange={setLastClipPromptOpen}
+                      >
+                        {button}
+                      </LastClipStartGate>
+                    )}
                     initialMode={
                       rememberedRecorderOptions?.mode ??
                       initialRecorderOptions.mode
@@ -4234,7 +4282,9 @@ export default function RecordRoute() {
                       initialRecorderOptions.surface
                     }
                   />
-                  {showHostedClipsRemaining && storageQuery.data ? (
+                  {showHostedClipsRemaining &&
+                  !lastClipPromptOpen &&
+                  storageQuery.data ? (
                     <p className="text-center text-xs text-muted-foreground">
                       {t("recordRoute.freeClipsLeft", {
                         count: storageQuery.data.hostedRemaining,
@@ -4244,7 +4294,10 @@ export default function RecordRoute() {
                 </div>
               )}
             </div>
-            {!isDesktopApp && <DesktopRecorderCallout />}
+            {/* The desktop app draws on the same free clips, so it is no way around the limit. */}
+            {!isDesktopApp && !(showStorageSetupFirst && showFreeClipsLimit) ? (
+              <DesktopRecorderCallout />
+            ) : null}
           </div>
         </RecorderRouteViewport>
       )}
@@ -4282,18 +4335,19 @@ export default function RecordRoute() {
                   }}
                   title={
                     hostedAllowanceExhausted
-                      ? t("recordRoute.hostedClipsExhaustedTitle")
+                      ? t("freeClips.limitTitle", {
+                          count: storageQuery.data?.hostedLimit ?? 0,
+                        })
                       : t("recordRoute.pendingStorageTitle")
                   }
                   description={
                     hostedAllowanceExhausted
-                      ? t("recordRoute.hostedClipsExhaustedDescription")
+                      ? t("freeClips.limitDescription")
                       : `${t("recordRoute.pendingStorageDescription")} ${localCopyNote(
                           t,
                           !!bufferedEngineRef.current,
                         )}`
                   }
-                  showBuilderStorageOffer={!hostedAllowanceExhausted}
                   connectedDescription={t(
                     "recordRoute.storageConnectedUploading",
                   )}
@@ -4642,15 +4696,16 @@ export default function RecordRoute() {
                 }}
                 title={
                   hostedAllowanceExhausted
-                    ? t("recordRoute.hostedClipsExhaustedTitle")
+                    ? t("freeClips.limitTitle", {
+                        count: storageQuery.data?.hostedLimit ?? 0,
+                      })
                     : undefined
                 }
                 description={
                   hostedAllowanceExhausted
-                    ? t("recordRoute.hostedClipsExhaustedDescription")
+                    ? t("freeClips.limitDescription")
                     : undefined
                 }
-                showBuilderStorageOffer={!hostedAllowanceExhausted}
                 connectedDescription={t(
                   "recordRoute.storageConnectedRecorderReady",
                 )}

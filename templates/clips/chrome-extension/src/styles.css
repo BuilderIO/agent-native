@@ -1071,3 +1071,70 @@ h1 {
   line-height: 1.45;
   color: var(--fg-muted);
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+.free-clips-secondary {
+  width: 100%;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.free-clips-secondary:hover {
+  background: var(--surface-hover);
+}
+
+
+.last-clip-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.last-clip-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.last-clip-text h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--fg);
+}
+
+.last-clip-text p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--fg-muted);
+}
+
+.last-clip-block .primary {
+  height: 34px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+}
+

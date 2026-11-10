@@ -2564,6 +2564,57 @@ const messages = {
     capturedDescription: "Os diagnósticos foram capturados para esta gravação.",
   },
   timeline: { clipStartedHere: "O clipe começou aqui" },
+  freeClips: {
+    badgeTitle: "Clipes grátis",
+    badgeCount: "{{remaining}} de {{limit}} restantes",
+    getMoreAction: "Ganhe mais com o Builder.io",
+    offerTitleLastClip: "Falta um clipe grátis",
+    offerTitleUsedUp: "Continue gravando grátis",
+    offerDescriptionLastClip:
+      "Conecte uma conta grátis do Builder.io para continuar gravando, com transcrições por IA incluídas.",
+    offerDescriptionUsedUp:
+      "Seus clipes continuam salvos. Conecte uma conta grátis do Builder.io para gravar mais.",
+    offerAction: "Continuar gravando",
+    offerDismiss: "Dispensar",
+    offerDialogDescription: "Deixe seus agentes verem e ouvirem cada clipe.",
+    offerCheckRecording: "Continue gravando, com 2 GB de armazenamento",
+    offerCheckTranscripts:
+      "Transcrições e imagens com marcação de tempo em cada clipe",
+    offerCheckSummaries:
+      "Títulos e resumos automáticos, e respostas de toda a sua biblioteca",
+    offerDialogAction: "Continuar com o Builder.io",
+    limitDescription:
+      "Seus clipes continuam salvos e compartilháveis. Continue gravando com uma conta grátis do Builder.io.",
+    limitDismiss: "Agora não",
+    limitClose: "Fechar",
+    creatingAccount: "Criando sua conta do Builder.io",
+    finishingSetup: "Concluindo a configuração do Builder.io",
+    accountExists: "Este e-mail já tem uma conta do Builder.io.",
+    signIn: "Entrar no Builder.io",
+    setupFailed: "A configuração do Builder.io não foi concluída.",
+    tryAgain: "Tentar novamente",
+    consentPrefix: "Ao criar uma conta do Builder.io, você concorda com nossos",
+    consentTerms: "Termos de Serviço",
+    consentAnd: "e a nossa",
+    consentPrivacy: "Política de Privacidade",
+    consentSuffix: ".",
+    alertOpenLibrary: "Abrir Biblioteca",
+    alertNotNow: "Agora não",
+    lastClipTitle: "Falta um clipe grátis",
+    lastClipDescription:
+      "Depois deste, continue gravando com uma conta grátis do Builder.io. Ela inclui transcrições, resumos e 2 GB de armazenamento.",
+    lastClipRecord: "Gravar meu último clipe grátis",
+    lastClipUpload: "Enviar meu último clipe grátis",
+    storageTitle: "Salve seus clipes com o Builder.io",
+    storageDescription:
+      "Crie uma conta grátis do Builder.io para armazenar seus clipes e ter transcrições por IA e resumos dos clipes.",
+    resendVerification: "Reenviar e-mail",
+    verificationSent: "E-mail de verificação enviado.",
+    verificationFailed: "Não foi possível enviar o e-mail. Tente novamente.",
+    limitTitle: "Bom trabalho nos seus primeiros {{count}} clipes",
+    verifyEmail:
+      "Verifique seu e-mail para ganhar {{count}} clipes grátis ou continue com uma conta grátis do Builder.io.",
+  },
 };
 
 export default messages;

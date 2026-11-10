@@ -20,7 +20,6 @@ import {
   IconShieldLock,
   IconTool,
   IconTrash,
-  IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -597,6 +596,8 @@ async function hasConfiguredVideoStorage(
   probe: FileUploadStatusProbe;
   maxClipDurationMs: number | null;
   hostedRemaining: number | null;
+  storageDenyReason: string | null;
+  hostedLimit: number;
 }> {
   const controller = new AbortController();
   const timeout = window.setTimeout(
@@ -606,12 +607,16 @@ async function hasConfiguredVideoStorage(
   let probe: FileUploadStatusProbe = "unavailable";
   let maxClipDurationMs: number | null = null;
   let hostedRemaining: number | null = null;
+  let storageDenyReason: string | null = null;
+  let hostedLimit = 0;
   try {
     const status = await callClipsActionFor<{
       configured: boolean;
       mode: "own" | "hosted" | "none";
       hostedRemaining: number;
       maxClipDurationMs: number;
+      hostedLimit?: number;
+      denyReason?: string;
     }>(
       { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
       "get-video-storage-status",
@@ -635,6 +640,9 @@ async function hasConfiguredVideoStorage(
     }
     maxClipDurationMs = hostedClipDurationLimitMs(status);
     if (status.mode === "hosted") hostedRemaining = status.hostedRemaining;
+    if (status.mode === "none") storageDenyReason = status.denyReason ?? null;
+    if (Number.isSafeInteger(status.hostedLimit))
+      hostedLimit = status.hostedLimit as number;
     if (status.mode === "own") {
       probe = "configured";
       if (account)
@@ -650,8 +658,16 @@ async function hasConfiguredVideoStorage(
   } finally {
     window.clearTimeout(timeout);
   }
-  return { probe, maxClipDurationMs, hostedRemaining };
+  return {
+    probe,
+    maxClipDurationMs,
+    hostedRemaining,
+    storageDenyReason,
+    hostedLimit,
+  };
 }
+
+const LAST_CLIP_PROMPT_SEEN_KEY = "clips:last-clip-prompt-seen";
 
 function videoStorageConfiguredKey(serverUrl: string, account: string): string {
   return `${VIDEO_STORAGE_CONFIGURED_KEY}:${originForServer(serverUrl)}:${account}`;
@@ -1417,6 +1433,14 @@ export function App({
   const [hostedClipsRemaining, setHostedClipsRemaining] = useState<
     number | null
   >(null);
+  // Why the server refused storage on the last probe, e.g. "exhausted".
+  const [storageDenial, setStorageDenial] = useState<{
+    reason: string | null;
+    hostedLimit: number;
+  }>({ reason: null, hostedLimit: 0 });
+  const hostedClipsExhausted = storageDenial.reason === "exhausted";
+  // The first Start with one free clip left asks once before recording it.
+  const [lastClipPromptOpen, setLastClipPromptOpen] = useState(false);
   // The server and account the newest probe found configured. The cached
   // "configured" is enough to record, but saved files upload on their own
   // only after a probe of the current server and account.
@@ -1427,6 +1451,7 @@ export function App({
     videoStorageIdentityRef.current = videoStorageIdentity;
     hostedClipLimitMsRef.current = null;
     setHostedClipsRemaining(null);
+    setStorageDenial({ reason: null, hostedLimit: 0 });
     setVideoStorageProbedIdentity(null);
     setVideoStorageStatus(
       signedInAs &&
@@ -1442,6 +1467,7 @@ export function App({
     if (authStatus !== "authed") {
       hostedClipLimitMsRef.current = null;
       setHostedClipsRemaining(null);
+      setStorageDenial({ reason: null, hostedLimit: 0 });
       setVideoStorageProbedIdentity(null);
       setVideoStorageStatus("configured");
       return true;
@@ -1451,8 +1477,13 @@ export function App({
     // Probes are slow enough to overlap; only the newest result may land, or a
     // pre-connect "missing" overwrites the "configured" that came after it.
     const probeSeq = ++videoStorageProbeSeqRef.current;
-    const { probe, maxClipDurationMs, hostedRemaining } =
-      await hasConfiguredVideoStorage(serverUrl, signedInAs);
+    const {
+      probe,
+      maxClipDurationMs,
+      hostedRemaining,
+      storageDenyReason,
+      hostedLimit,
+    } = await hasConfiguredVideoStorage(serverUrl, signedInAs);
     if (videoStorageIdentityRef.current !== probedIdentity) return false;
     if (videoStorageProbeSeqRef.current !== probeSeq) return false;
     setVideoStorageProbedIdentity(
@@ -1464,6 +1495,7 @@ export function App({
     }
     hostedClipLimitMsRef.current = maxClipDurationMs;
     setHostedClipsRemaining(hostedRemaining);
+    setStorageDenial({ reason: storageDenyReason, hostedLimit });
     setVideoStorageStatus(probe);
     return probe === "configured";
   }, [authStatus, serverUrl, signedInAs, videoStorageIdentity]);
@@ -4650,6 +4682,33 @@ export function App({
       return;
     }
 
+    // The server would refuse this recording, so the shortcut asks first: in
+    // the popover when it is open, otherwise in a native alert, since the
+    // shortcut can fire while the user is in another app.
+    if (localRecordingMode === "off" && hostedClipsExhausted) {
+      if (popoverVisible) return;
+      void invoke<number>("show_native_alert", {
+        title: t("freeClips.limitTitle", {
+          count: storageDenial.hostedLimit,
+        }),
+        message: t("freeClips.limitDescription"),
+        buttons: [
+          t("freeClips.offerDialogAction"),
+          t("freeClips.alertOpenLibrary"),
+          t("freeClips.alertNotNow"),
+        ],
+      })
+        .then((choice) => {
+          if (choice === 0) connectVideoStorage();
+          else if (choice === 1) openInBrowser("/");
+        })
+        .catch((error) => {
+          console.warn("[clips] free clips alert unavailable:", error);
+          invoke("show_popover").catch(() => {});
+        });
+      return;
+    }
+
     const canStartFromGlobalShortcut =
       mode === "camera" || nativeCaptureRecordingActive;
     if (!canStartFromGlobalShortcut) {
@@ -4888,6 +4947,12 @@ export function App({
   const imminentMeeting = meetings.find(meetingCanStartNotes) ?? null;
   const recordingReadinessPending =
     localRecordingMode === "off" && authStatus !== "authed";
+  // The server refuses a fourth free clip, so Builder.io replaces Start
+  // instead of failing after the user has recorded.
+  const showHostedClipsLimit =
+    !isRecording && localRecordingMode === "off" && hostedClipsExhausted;
+  const showLastClipPrompt =
+    lastClipPromptOpen && !isRecording && hostedClipsRemaining === 1;
   const startButtonLoading =
     (recordingReadinessPending || recordingStartPending) &&
     !recordingStopFinalizing;
@@ -5501,7 +5566,48 @@ export function App({
           ) : null}
         </div>
 
-        {!isRecording ? (
+        {showHostedClipsLimit ? (
+          <>
+            <StorageConnectionBanner
+              onConnect={connectVideoStorage}
+              denial={storageDenial}
+            />
+          </>
+        ) : null}
+
+        {showLastClipPrompt ? (
+          <section
+            className="hosted-clips-limit"
+            aria-labelledby="last-clip-title"
+          >
+            <div className="hosted-clips-limit-text">
+              <h2 id="last-clip-title">{t("freeClips.lastClipTitle")}</h2>
+              <p>{t("freeClips.lastClipDescription")}</p>
+            </div>
+            <button
+              type="button"
+              className="primary hosted-clips-limit-action"
+              onClick={() => {
+                setLastClipPromptOpen(false);
+                connectVideoStorage();
+              }}
+            >
+              {t("freeClips.offerDialogAction")}
+            </button>
+            <button
+              type="button"
+              className="secondary hosted-clips-limit-action"
+              onClick={() => {
+                setLastClipPromptOpen(false);
+                beginRecording();
+              }}
+            >
+              {t("freeClips.lastClipRecord")}
+            </button>
+          </section>
+        ) : null}
+
+        {!isRecording && !showHostedClipsLimit && !showLastClipPrompt ? (
           <button
             data-recovery-focus-fallback
             className={cn(
@@ -5523,7 +5629,18 @@ export function App({
                 ? startButtonLabel
                 : undefined
             }
-            onClick={() => beginRecording()}
+            onClick={() => {
+              if (
+                hostedClipsRemaining === 1 &&
+                localRecordingMode === "off" &&
+                !loadBool(LAST_CLIP_PROMPT_SEEN_KEY, false)
+              ) {
+                saveBool(LAST_CLIP_PROMPT_SEEN_KEY, true);
+                setLastClipPromptOpen(true);
+                return;
+              }
+              beginRecording();
+            }}
           >
             <span className="rec-dot" aria-hidden="true" />
             <span className="start-label">{startButtonLabel}</span>
@@ -5537,6 +5654,7 @@ export function App({
         ) : null}
 
         {!isRecording &&
+        !showLastClipPrompt &&
         localRecordingMode === "off" &&
         videoStorageStatus === "configured" &&
         hostedClipsRemaining !== null ? (
@@ -5548,7 +5666,7 @@ export function App({
               className="hosted-clips-activate"
               onClick={connectVideoStorage}
             >
-              {t("recordRoute.activateBuilder")}
+              {t("freeClips.getMoreAction")}
             </button>
           </p>
         ) : null}
@@ -5577,7 +5695,12 @@ export function App({
               onRetry={() => beginRecording()}
             />
           ) : isStorageSetupFailureMessage(recError) ? (
-            <StorageConnectionBanner onConnect={connectVideoStorage} />
+            showHostedClipsLimit ? null : (
+              <StorageConnectionBanner
+                onConnect={connectVideoStorage}
+                denial={storageDenial}
+              />
+            )
           ) : recError === RECORDING_SESSION_EXPIRED ? (
             <SessionExpiredBanner onReconnect={() => void reconnectSession()} />
           ) : recError === RECORDING_SERVER_UNAVAILABLE ? (
@@ -5587,10 +5710,14 @@ export function App({
           )
         ) : null}
         {!recError &&
+        !showHostedClipsLimit &&
         localRecordingMode === "off" &&
         authStatus === "authed" &&
         videoStorageStatus === "missing" ? (
-          <StorageConnectionBanner onConnect={connectVideoStorage} />
+          <StorageConnectionBanner
+            onConnect={connectVideoStorage}
+            denial={storageDenial}
+          />
         ) : null}
         {cameraError && !recError ? (
           cameraError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
@@ -5759,27 +5886,49 @@ function UpdateRestartBanner({ message }: { message: string }) {
 const RECORD_FIRST_LIST_UNREADABLE =
   "Clips couldn't read its list of recordings waiting to upload. They are still in Movies/Clips.";
 
-function StorageConnectionBanner({ onConnect }: { onConnect: () => void }) {
+/**
+ * The one way a no-storage account gets storage from the popover: Builder.io,
+ * set up in the Clips web app in one click. S3 and custom keys stay in
+ * Settings, and free clips that ran out get their own title.
+ */
+function StorageConnectionBanner({
+  onConnect,
+  denial,
+}: {
+  onConnect: () => void;
+  denial: { reason: string | null; hostedLimit: number };
+}) {
+  const t = useT();
+  const exhausted = denial.reason === "exhausted";
   return (
-    <div className="storage-flow-banner">
-      <div className="storage-flow-icon" aria-hidden>
-        <IconUpload size={17} stroke={1.8} />
+    <section
+      className="hosted-clips-limit"
+      aria-labelledby="storage-connect-title"
+    >
+      <div className="hosted-clips-limit-text">
+        <h2 id="storage-connect-title">
+          {exhausted
+            ? t("freeClips.limitTitle", { count: denial.hostedLimit })
+            : t("freeClips.storageTitle")}
+        </h2>
+        <p>
+          {exhausted
+            ? t("freeClips.limitDescription")
+            : t("freeClips.storageDescription")}
+        </p>
       </div>
-      <div className="storage-flow-copy">
-        <div className="storage-flow-title">
-          Connect storage to upload your clips
-        </div>
-        <div className="storage-flow-sub">{STORAGE_SETUP_HELP_TEXT}</div>
-      </div>
+      {/* Start recording stays the primary action unless free clips ran out. */}
       <button
         type="button"
-        className="storage-flow-connect"
+        className={cn(
+          "hosted-clips-limit-action",
+          exhausted ? "primary" : "secondary",
+        )}
         onClick={onConnect}
       >
-        <IconExternalLink size={14} stroke={2} />
-        Connect
+        {t("freeClips.offerDialogAction")}
       </button>
-    </div>
+    </section>
   );
 }
 

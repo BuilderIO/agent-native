@@ -79,6 +79,7 @@ import { useRecordingSection } from "@/lib/recording-section";
 import { cn } from "@/lib/utils";
 
 import { FolderTree, type FolderNode } from "./folder-tree";
+import { FreeClipsSidebar } from "./free-clips-sidebar";
 import { PageHeaderSlotProvider } from "./page-header";
 import { SidebarFeedbackButton } from "./sidebar-feedback-button";
 import { SpaceDialogs } from "./space-dialogs";
@@ -893,6 +894,8 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             </nav>
           )}
         </div>
+
+        {showCollapsedSidebar ? null : <FreeClipsSidebar />}
 
         <AppSidebarFooter
           collapsed={showCollapsedSidebar}

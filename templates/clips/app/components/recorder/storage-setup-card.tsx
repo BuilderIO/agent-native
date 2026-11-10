@@ -4,14 +4,14 @@ import {
   trackOnboardingEvent,
 } from "@agent-native/core/client/onboarding/use-onboarding";
 import {
-  BuilderConnectPopover,
   hasBuilderOAuthCredential,
   useBuilderConnectFlow,
   type BuilderConnectionScope,
 } from "@agent-native/toolkit/app/settings";
-import { IconLoader2 } from "@tabler/icons-react";
+import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { BuilderConsent } from "@/components/recorder/builder-consent";
 import { StorageStatusRetry } from "@/components/recorder/storage-status-retry";
 import { useStorageSetupHref } from "@/components/settings/settings-links";
 import { Button } from "@/components/ui/button";
@@ -31,10 +31,6 @@ import {
 // success should finish this card's setup; a connection made long after the
 // cancel belongs to something else.
 const CANCELLED_SETUP_RECOVERY_MS = 60_000;
-// The custom-keys form finishes in another tab with no signal back, so a
-// status read on leaving or returning credits it only this long after it was
-// opened; storage set up later belongs to something else.
-const CUSTOM_KEYS_CREDIT_WINDOW_MS = 15 * 60_000;
 
 function trackStorageStep(
   name:
@@ -56,7 +52,6 @@ export interface StorageSetupCardProps {
   onSkip?: () => void;
   title?: string;
   description?: string;
-  showBuilderStorageOffer?: boolean;
   connectedDescription?: string;
   connectSource?: string;
   connectFlow?: string;
@@ -74,9 +69,8 @@ export interface StorageSetupCardProps {
 export function StorageSetupCard({
   onConfigured,
   onSkip,
-  title = "Connect storage",
+  title,
   description,
-  showBuilderStorageOffer = true,
   connectedDescription = "You're all set. Starting recorder...",
   connectSource = "clips_file_upload_storage_setup_card",
   connectFlow = "file_upload",
@@ -123,15 +117,7 @@ export function StorageSetupCard({
   stepPropertiesRef.current = stepProperties;
   const builderHandedOffRef = useRef(false);
   const skippedRef = useRef(false);
-  const customKeysOpenedAtRef = useRef<number | null>(null);
-  const customKeysOpenedRecently = useCallback(() => {
-    const openedAt = customKeysOpenedAtRef.current;
-    return (
-      openedAt !== null && Date.now() - openedAt <= CUSTOM_KEYS_CREDIT_WINDOW_MS
-    );
-  }, []);
   const completionTrackedRef = useRef(false);
-  const returnReadInFlightRef = useRef(false);
   const storageBeforeSetupRef = useRef<Promise<
     { status: VideoStorageStatus } | { error: unknown }
   > | null>(null);
@@ -299,6 +285,12 @@ export function StorageSetupCard({
   });
   const hasBuilderAccount =
     builderConnect.accountExists || hasBuilderOAuthCredential(builderConnect);
+  // One button: it creates the account in place when this deployment can,
+  // and otherwise, or for an email that already has one, signs in.
+  const createsAccount =
+    builderConnect.statusResolved &&
+    builderConnect.agentNativeProvisioningEnabled &&
+    !hasBuilderAccount;
   const builderConnectionScope: BuilderConnectionScope | null =
     builderConnect.effective === "org" && builderConnect.canConnect.org
       ? "org"
@@ -375,7 +367,7 @@ export function StorageSetupCard({
         ? t("storageSetup.builderStatusReadError")
         : t(
             storageSetupHref
-              ? "storageSetup.builderConnectError"
+              ? "freeClips.setupFailed"
               : "storageSetup.builderConnectErrorAskAdmin",
           )
     : null;
@@ -383,37 +375,6 @@ export function StorageSetupCard({
   const builderConnectingRef = useRef(builderConnecting);
   builderConnectingRef.current = builderConnecting;
   const actionConnecting = connecting || builderConnecting;
-
-  // The custom-keys form opens in another tab, and some routes keep this card
-  // mounted after it saves, so a return to this tab reads the status too.
-  useEffect(() => {
-    const readOnReturn = () => {
-      if (
-        document.hidden ||
-        !customKeysOpenedRecently() ||
-        completionTrackedRef.current ||
-        skippedRef.current ||
-        returnReadInFlightRef.current
-      ) {
-        return;
-      }
-      returnReadInFlightRef.current = true;
-      void fetchVideoStorageStatus({ timeoutMs: 10_000 })
-        .then(trackCompletedIfConfigured)
-        .catch((err) => {
-          console.warn("[storage-setup] completion check failed:", err);
-        })
-        .finally(() => {
-          returnReadInFlightRef.current = false;
-        });
-    };
-    window.addEventListener("focus", readOnReturn);
-    document.addEventListener("visibilitychange", readOnReturn);
-    return () => {
-      window.removeEventListener("focus", readOnReturn);
-      document.removeEventListener("visibilitychange", readOnReturn);
-    };
-  }, [customKeysOpenedRecently, trackCompletedIfConfigured]);
 
   useEffect(() => {
     trackStorageStep("onboarding_step_viewed", {
@@ -433,9 +394,7 @@ export function StorageSetupCard({
       const setupPending =
         !completionTrackedRef.current &&
         !skippedRef.current &&
-        (builderHandedOffRef.current ||
-          builderConnectingRef.current ||
-          customKeysOpenedRecently());
+        (builderHandedOffRef.current || builderConnectingRef.current);
       if (setupPending) {
         void fetchVideoStorageStatus({ timeoutMs: 10_000 })
           .then(trackCompletedIfConfigured)
@@ -452,7 +411,6 @@ export function StorageSetupCard({
     };
   }, [
     clearConfiguredTimeout,
-    customKeysOpenedRecently,
     stopVisibilityHandler,
     trackCompletedIfConfigured,
   ]);
@@ -460,68 +418,44 @@ export function StorageSetupCard({
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-lg">
       <div>
-        <h2 className="text-lg font-semibold">{title}</h2>
+        <h2 className="text-lg font-semibold">
+          {title ?? t("freeClips.storageTitle")}
+        </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {connected ? (
-            connectedDescription
-          ) : (
-            <>
-              {description ?? t("storageSetup.description")}
-              {showBuilderStorageOffer
-                ? ` ${t("storageSetup.builderStorageOffer")}`
-                : null}
-            </>
-          )}
+          {connected
+            ? connectedDescription
+            : (description ?? t("freeClips.storageDescription"))}
         </p>
       </div>
 
       <div className="flex flex-col gap-2">
-        {/* The consent popover is this card's only path to a new account.
-            Its Cancel is left out because the card's own Cancel must also
-            drop the pending connect before storage polling starts. */}
-        <BuilderConnectPopover
-          flow={{
-            ...builderConnect,
-            accountExists: hasBuilderAccount,
-            cancel: undefined,
+        {hasBuilderAccount && !connected ? (
+          <p className="text-[13px] leading-[18px] text-muted-foreground">
+            {t("freeClips.accountExists")}
+          </p>
+        ) : null}
+        <Button
+          type="button"
+          className="w-full"
+          disabled={actionConnecting || connected || !builderConnectionScope}
+          aria-busy={actionConnecting}
+          data-testid="storage-setup-builder-primary"
+          onClick={() => {
+            readStorageBeforeSetup();
+            handleBuilderConnect(createsAccount);
           }}
-          onConnect={handleBuilderConnect}
-          onTriggerClick={readStorageBeforeSetup}
         >
-          <Button
-            type="button"
-            className="w-full"
-            disabled={actionConnecting || connected || !builderConnectionScope}
-            data-testid="storage-setup-builder-primary"
-          >
-            {actionConnecting ? <Spinner aria-hidden /> : null}
-            {connected
-              ? t("storageSetup.builderConnected")
-              : actionConnecting
-                ? t("storageSetup.waitingForBuilder")
-                : t("agentChat.setup.connectBuilder")}
-          </Button>
-        </BuilderConnectPopover>
-        {!connected && storageSetupHref ? (
-          <>
-            <Button asChild variant="secondary" className="w-full">
-              <a
-                href={storageSetupHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => {
-                  readStorageBeforeSetup();
-                  customKeysOpenedAtRef.current = Date.now();
-                  trackStorageStep("onboarding_method_clicked", {
-                    ...stepProperties,
-                    method_id: "s3",
-                  });
-                }}
-              >
-                {t("storageSetup.customKeys")}
-              </a>
-            </Button>
-          </>
+          {actionConnecting ? <Spinner aria-hidden /> : null}
+          {connected
+            ? t("storageSetup.builderConnected")
+            : actionConnecting
+              ? t("storageSetup.waitingForBuilder")
+              : hasBuilderAccount
+                ? t("freeClips.signIn")
+                : t("freeClips.offerDialogAction")}
+        </Button>
+        {createsAccount && !connected && !actionConnecting ? (
+          <BuilderConsent />
         ) : null}
         {!connected && !storageSetupHref ? (
           <p className="text-center text-xs text-muted-foreground">
@@ -530,7 +464,11 @@ export function StorageSetupCard({
         ) : null}
       </div>
       {builderConnect.error && (
-        <p className="text-xs text-destructive" role="alert">
+        <p
+          className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400"
+          role="alert"
+        >
+          <IconAlertTriangle className="size-3.5 shrink-0" aria-hidden />
           {builderConnectErrorMessage}
         </p>
       )}
@@ -577,12 +515,12 @@ export function StorageSetupCard({
         <StorageStatusRetry onRetry={startFileUploadPoll} />
       ) : null}
       {statusIssue === "upload-grant-missing" ? (
-        <p className="text-xs text-destructive" role="alert">
+        <p className="text-xs text-amber-700 dark:text-amber-400" role="alert">
           {t("storageSetup.builderUploadGrantMissing")}
         </p>
       ) : null}
       {statusIssue === "connect-not-allowed" ? (
-        <p className="text-xs text-destructive" role="alert">
+        <p className="text-xs text-amber-700 dark:text-amber-400" role="alert">
           {t("storageSetup.builderGrantAskAdmin")}
         </p>
       ) : null}

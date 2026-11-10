@@ -109,6 +109,7 @@ vi.mock("@/hooks/use-mobile", () => ({
 
 vi.mock("@/hooks/use-video-storage-status", () => ({
   usePrefetchVideoStorageStatus: () => undefined,
+  useVideoStorageStatus: () => ({ data: undefined }),
 }));
 
 vi.mock("@/lib/capture-install-options", () => ({

@@ -2551,6 +2551,59 @@ const messages = {
     capturedDescription: "この録画の診断情報を取得しました。",
   },
   timeline: { clipStartedHere: "クリップはここから開始" },
+  freeClips: {
+    badgeTitle: "無料クリップ",
+    badgeCount: "残り {{remaining}} / {{limit}}",
+    getMoreAction: "Builder.io でさらに追加",
+    offerTitleLastClip: "無料クリップは残り 1 本",
+    offerTitleUsedUp: "無料で録画を続ける",
+    offerDescriptionLastClip:
+      "無料の Builder.io アカウントを接続すると、AI 文字起こし付きで録画を続けられます。",
+    offerDescriptionUsedUp:
+      "クリップは保存されたままです。無料の Builder.io アカウントを接続すると、さらに録画できます。",
+    offerAction: "録画を続ける",
+    offerDismiss: "閉じる",
+    offerDialogDescription:
+      "エージェントがすべてのクリップを見て、聞けるようにします。",
+    offerCheckRecording: "2 GB のストレージ付きで録画を続けられる",
+    offerCheckTranscripts:
+      "すべてのクリップに文字起こしとタイムスタンプ付き画像",
+    offerCheckSummaries: "自動のタイトルと要約、ライブラリ全体からの回答",
+    offerDialogAction: "Builder.io で続ける",
+    limitDescription:
+      "クリップは保存され、共有もできます。無料の Builder.io アカウントで録画を続けましょう。",
+    limitDismiss: "今はしない",
+    limitClose: "閉じる",
+    creatingAccount: "Builder.io アカウントを作成しています",
+    finishingSetup: "Builder.io の設定を完了しています",
+    accountExists:
+      "このメールアドレスには Builder.io アカウントがすでにあります。",
+    signIn: "Builder.io にサインイン",
+    setupFailed: "Builder.io の設定が完了しませんでした。",
+    tryAgain: "再試行",
+    consentPrefix: "Builder.io アカウントを作成すると、",
+    consentTerms: "利用規約",
+    consentAnd: "と",
+    consentPrivacy: "プライバシーポリシー",
+    consentSuffix: "に同意したことになります。",
+    alertOpenLibrary: "ライブラリを開く",
+    alertNotNow: "今はしない",
+    lastClipTitle: "無料クリップは残り 1 本",
+    lastClipDescription:
+      "このクリップの後は、無料の Builder.io アカウントで録画を続けられます。文字起こし、要約、2 GB のストレージが含まれます。",
+    lastClipRecord: "最後の無料クリップを録画",
+    lastClipUpload: "最後の無料クリップをアップロード",
+    storageTitle: "Builder.io でクリップを保存",
+    storageDescription:
+      "無料の Builder.io アカウントを作成すると、クリップを保存でき、AI 文字起こしとクリップの要約も利用できます。",
+    resendVerification: "メールを再送信",
+    verificationSent: "確認メールを送信しました。",
+    verificationFailed:
+      "メールを送信できませんでした。もう一度お試しください。",
+    limitTitle: "最初の {{count}} 本のクリップ、お疲れさまでした",
+    verifyEmail:
+      "メールアドレスを確認すると無料クリップを {{count}} 本利用できます。無料の Builder.io アカウントで続けることもできます。",
+  },
 };
 
 export default messages;

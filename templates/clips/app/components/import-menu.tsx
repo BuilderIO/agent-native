@@ -5,6 +5,7 @@ import { IconChevronDown, IconUpload } from "@tabler/icons-react";
 import { useState } from "react";
 
 import { ImportLoomDialog } from "@/components/library/import-loom-dialog";
+import { useFreeClipsGate } from "@/components/recorder/free-clips-limit-gate";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -68,6 +69,7 @@ export function ImportMenu({
   const screenshotsEnabled = useLab(CLIPS_SCREENSHOTS);
   const { input, openUploadPicker } = useUploadVideoPicker();
   const [loomDialogOpen, setLoomDialogOpen] = useState(false);
+  const uploadGate = useFreeClipsGate("upload");
 
   if (!uploadHref && !onUpload && !onScreenshot && !importLoomHref) return null;
 
@@ -96,20 +98,28 @@ export function ImportMenu({
         {iconOnly ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+              {uploadGate.wrap(
+                <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>,
+                menuAlign,
+              )}
             </TooltipTrigger>
             <TooltipContent side={menuSide ?? "right"}>
               {t("preRecord.import")}
             </TooltipContent>
           </Tooltip>
         ) : null}
-        {!iconOnly ? (
-          <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-        ) : null}
+        {!iconOnly
+          ? uploadGate.wrap(
+              <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>,
+              menuAlign,
+            )
+          : null}
         <DropdownMenuContent align={menuAlign} side={menuSide} className="w-56">
           {uploadHref ? (
             <DropdownMenuItem
               onSelect={(event) => {
+                if (uploadGate.guard(() => openUploadPicker(uploadHref)))
+                  return;
                 event.preventDefault();
                 openUploadPicker(uploadHref);
               }}
@@ -117,7 +127,12 @@ export function ImportMenu({
               {t("preRecord.uploadVideo")}
             </DropdownMenuItem>
           ) : onUpload ? (
-            <DropdownMenuItem onSelect={onUpload}>
+            <DropdownMenuItem
+              onSelect={() => {
+                if (uploadGate.guard(onUpload)) return;
+                onUpload();
+              }}
+            >
               {t("preRecord.uploadVideo")}
             </DropdownMenuItem>
           ) : null}

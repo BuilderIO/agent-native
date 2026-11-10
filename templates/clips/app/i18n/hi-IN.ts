@@ -2482,6 +2482,55 @@ const messages = {
     capturedDescription: "इस रिकॉर्डिंग के लिए डायग्नोस्टिक्स कैप्चर किए गए।",
   },
   timeline: { clipStartedHere: "क्लिप यहाँ शुरू हुई" },
+  freeClips: {
+    badgeTitle: "मुफ़्त क्लिप",
+    badgeCount: "{{limit}} में से {{remaining}} बाकी",
+    getMoreAction: "Builder.io के साथ और पाएँ",
+    offerTitleLastClip: "एक मुफ़्त क्लिप बाकी",
+    offerTitleUsedUp: "मुफ़्त में रिकॉर्ड करते रहें",
+    offerDescriptionLastClip:
+      "रिकॉर्ड करते रहने के लिए मुफ़्त Builder.io खाता कनेक्ट करें, AI ट्रांसक्रिप्ट के साथ।",
+    offerDescriptionUsedUp:
+      "आपकी क्लिप सेव रहती हैं। और रिकॉर्ड करने के लिए मुफ़्त Builder.io खाता कनेक्ट करें।",
+    offerAction: "रिकॉर्ड करते रहें",
+    offerDismiss: "खारिज करें",
+    offerDialogDescription: "अपने एजेंट को हर क्लिप देखने और सुनने दें।",
+    offerCheckRecording: "2 GB स्टोरेज के साथ रिकॉर्ड करते रहें",
+    offerCheckTranscripts: "हर क्लिप पर ट्रांसक्रिप्ट और टाइमस्टैम्प वाली इमेज",
+    offerCheckSummaries: "अपने-आप बनने वाले टाइटल और सारांश, और पूरी लाइब्रेरी से जवाब",
+    offerDialogAction: "Builder.io के साथ जारी रखें",
+    limitDescription:
+      "आपकी क्लिप सेव और शेयर करने लायक रहती हैं। मुफ़्त Builder.io खाते के साथ रिकॉर्ड करते रहें।",
+    limitDismiss: "अभी नहीं",
+    limitClose: "बंद करें",
+    creatingAccount: "आपका Builder.io खाता बनाया जा रहा है",
+    finishingSetup: "Builder.io सेटअप पूरा हो रहा है",
+    accountExists: "इस ईमेल का पहले से एक Builder.io खाता है।",
+    signIn: "Builder.io में साइन इन करें",
+    setupFailed: "Builder.io सेटअप पूरा नहीं हुआ।",
+    tryAgain: "फिर से कोशिश करें",
+    consentPrefix: "Builder.io खाता बनाकर, आप हमारी",
+    consentTerms: "सेवा की शर्तों",
+    consentAnd: "और",
+    consentPrivacy: "निजता नीति",
+    consentSuffix: " से सहमत होते हैं।",
+    alertOpenLibrary: "लाइब्रेरी खोलें",
+    alertNotNow: "अभी नहीं",
+    lastClipTitle: "एक मुफ़्त क्लिप बाकी",
+    lastClipDescription:
+      "इसके बाद, मुफ़्त Builder.io खाते के साथ रिकॉर्ड करते रहें। इसमें ट्रांसक्रिप्ट, सारांश और 2 GB स्टोरेज शामिल है।",
+    lastClipRecord: "मेरी आखिरी मुफ़्त क्लिप रिकॉर्ड करें",
+    lastClipUpload: "मेरी आखिरी मुफ़्त क्लिप अपलोड करें",
+    storageTitle: "Builder.io के साथ अपनी क्लिप सेव करें",
+    storageDescription:
+      "अपनी क्लिप स्टोर करने और AI ट्रांसक्रिप्ट और क्लिप सारांश पाने के लिए मुफ़्त Builder.io खाता बनाएँ।",
+    resendVerification: "ईमेल फिर से भेजें",
+    verificationSent: "पुष्टि ईमेल भेज दिया गया।",
+    verificationFailed: "ईमेल नहीं भेजा जा सका। फिर से कोशिश करें।",
+    limitTitle: "आपकी पहली {{count}} क्लिप पर बढ़िया काम",
+    verifyEmail:
+      "{{count}} मुफ़्त क्लिप पाने के लिए अपना ईमेल सत्यापित करें, या मुफ़्त Builder.io खाते के साथ आगे बढ़ें।",
+  },
 };
 
 export default messages;

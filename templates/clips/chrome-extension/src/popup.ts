@@ -157,7 +157,7 @@ const FEEDBACK_PLACEHOLDER = "Tell us what's on your mind...";
 const FEEDBACK_SUBMIT_TEXT = "Send feedback";
 const FEEDBACK_SUCCESS_MESSAGE = "Thanks for the feedback!";
 const STORAGE_SETUP_REQUIRED_MESSAGE =
-  "Use Builder.io storage (free tier storage + AI) or S3-compatible storage to finish saving this clip.";
+  "Connect a free Builder.io account to finish saving this clip.";
 const STORAGE_SETUP_FAILURE_RE =
   /video storage is not connected|no video storage configured|file upload provider|storage provider|(?:connect|use) builder|s3-compatible/i;
 const feedbackTarget = parseFeedbackTarget(FEEDBACK_URL);
@@ -516,9 +516,21 @@ async function readAuthStatus(
   }
 }
 
-async function readVideoStorageStatus(
-  settings: ExtensionSettings,
-): Promise<FileUploadStatusProbe> {
+/**
+ * The storage probe, plus the free clip limit once the server refuses
+ * another free clip; null in every other state.
+ */
+async function readVideoStorage(settings: ExtensionSettings): Promise<{
+  probe: FileUploadStatusProbe;
+  exhaustedLimit: number | null;
+  /** Free hosted clips left, or null outside free hosted storage. */
+  hostedRemaining: number | null;
+}> {
+  const unavailable = {
+    probe: "unavailable" as const,
+    exhaustedLimit: null,
+    hostedRemaining: null,
+  };
   const base = settings.clipsBaseUrl.replace(/\/+$/, "");
 
   try {
@@ -532,12 +544,14 @@ async function readVideoStorageStatus(
         cache: "no-store",
       },
     );
-    if (!response.ok) return "unavailable";
+    if (!response.ok) return unavailable;
     const body = (await response.json()) as {
       result?: unknown;
       configured?: unknown;
       mode?: unknown;
       hostedRemaining?: unknown;
+      hostedLimit?: unknown;
+      denyReason?: unknown;
     };
     const status = body.result ?? body;
     if (
@@ -549,12 +563,14 @@ async function readVideoStorageStatus(
         "hostedRemaining" in status
       )
     ) {
-      return "unavailable";
+      return unavailable;
     }
     const value = status as {
       configured: unknown;
       mode: unknown;
       hostedRemaining: unknown;
+      hostedLimit?: unknown;
+      denyReason?: unknown;
     };
     if (
       typeof value.configured !== "boolean" ||
@@ -566,14 +582,27 @@ async function readVideoStorageStatus(
       value.configured !== (value.mode !== "none") ||
       (value.mode === "hosted" && (value.hostedRemaining as number) < 1)
     ) {
-      return "unavailable";
+      return unavailable;
     }
-    return value.mode === "own" ||
-      (value.mode === "hosted" && (value.hostedRemaining as number) > 0)
-      ? "configured"
-      : "missing";
+    const exhaustedLimit =
+      value.mode === "none" &&
+      value.denyReason === "exhausted" &&
+      Number.isSafeInteger(value.hostedLimit) &&
+      (value.hostedLimit as number) > 0
+        ? (value.hostedLimit as number)
+        : null;
+    return {
+      probe:
+        value.mode === "own" ||
+        (value.mode === "hosted" && (value.hostedRemaining as number) > 0)
+          ? "configured"
+          : "missing",
+      exhaustedLimit,
+      hostedRemaining:
+        value.mode === "hosted" ? (value.hostedRemaining as number) : null,
+    };
   } catch {
-    return "unavailable";
+    return unavailable;
   }
 }
 
@@ -897,6 +926,41 @@ function renderActiveRecording(
   recordingStatus.dataset.kind =
     recording.status === "error" ? "error" : "info";
   setStorageHelp(recording.status === "error" && storageFailure);
+}
+
+const LAST_CLIP_PROMPT_SEEN_KEY = "clips:last-clip-prompt-seen";
+
+function lastClipPromptSeen(): boolean {
+  try {
+    return localStorage.getItem(LAST_CLIP_PROMPT_SEEN_KEY) === "1";
+    // coercion-ok: an unreadable store shows the once-only prompt again, which is harmless
+  } catch {
+    return false;
+  }
+}
+
+function markLastClipPromptSeen(): void {
+  try {
+    localStorage.setItem(LAST_CLIP_PROMPT_SEEN_KEY, "1");
+    // coercion-ok: a blocked store only means the prompt can show once more
+  } catch {
+    // A blocked store only means the prompt can show once more.
+  }
+}
+
+/** The first Start with one free clip left asks once before recording it. */
+function showLastClipPrompt(): void {
+  byId<HTMLButtonElement>("start").hidden = true;
+  byId<HTMLElement>("last-clip-prompt").hidden = false;
+}
+
+function showFreeClipsLimit(limit: number): void {
+  byId<HTMLButtonElement>("start").hidden = true;
+  byId<HTMLHeadingElement>("free-clips-limit-title").textContent =
+    limit === 1
+      ? "Nice work on your first clip"
+      : `Nice work on your first ${limit} clips`;
+  byId<HTMLElement>("free-clips-limit").hidden = false;
 }
 
 async function init(): Promise<void> {
@@ -1297,6 +1361,32 @@ async function init(): Promise<void> {
   };
   await refreshAuth();
 
+  // Out of free clips, Builder.io replaces the recorder instead of a Start
+  // that would only lead to the same wall in the Clips tab.
+  const showFreeClipsLimitIfUsedUp = async (): Promise<void> => {
+    if (authStatus !== "signed-in" || activeRecording || arming) return;
+    const { exhaustedLimit } = await readVideoStorage(settings);
+    if (exhaustedLimit !== null) showFreeClipsLimit(exhaustedLimit);
+  };
+  await showFreeClipsLimitIfUsedUp();
+  const openBuilderSetup = async (): Promise<void> => {
+    await createTab(storageSetupUrl(settings));
+    window.close();
+  };
+  byId<HTMLButtonElement>("free-clips-activate").addEventListener(
+    "click",
+    () => void openBuilderSetup(),
+  );
+  byId<HTMLButtonElement>("last-clip-activate").addEventListener(
+    "click",
+    () => void openBuilderSetup(),
+  );
+  byId<HTMLButtonElement>("last-clip-record").addEventListener("click", () => {
+    byId<HTMLElement>("last-clip-prompt").hidden = true;
+    start.hidden = false;
+    start.click();
+  });
+
   // The website tab hands the session to the background worker, so the popup
   // has to notice the stored token instead of waiting to be reopened.
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -1326,7 +1416,18 @@ async function init(): Promise<void> {
       }
       // Recording never waits on storage: without it, record in the Clips
       // tab, which asks for storage only after Stop.
-      const storageStatus = await readVideoStorageStatus(settings);
+      const storage = await readVideoStorage(settings);
+      const storageStatus = storage.probe;
+      if (
+        storageStatus === "configured" &&
+        storage.hostedRemaining === 1 &&
+        !lastClipPromptSeen()
+      ) {
+        markLastClipPromptSeen();
+        showLastClipPrompt();
+        start.disabled = false;
+        return;
+      }
       if (storageStatus !== "configured") {
         await saveSettings(settings);
         await createTab(recordFirstUrl(settings));
@@ -1375,7 +1476,7 @@ async function init(): Promise<void> {
       setStorageHelp(storageSetupFailure);
       setStatus(
         storageSetupFailure
-          ? "Use Builder.io storage (free tier storage + AI) or S3-compatible storage in Clips first."
+          ? "Connect a free Builder.io account in Clips first."
           : message,
         "error",
       );
@@ -1395,7 +1496,7 @@ async function init(): Promise<void> {
       setStorageHelp(storageSetupFailure);
       setStatus(
         storageSetupFailure
-          ? "Use Builder.io storage (free tier storage + AI) or S3-compatible storage in Clips first."
+          ? "Connect a free Builder.io account in Clips first."
           : message,
         "error",
       );

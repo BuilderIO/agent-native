@@ -2498,6 +2498,56 @@ const messages = {
   timeline: {
     clipStartedHere: "Clip started here",
   },
+  freeClips: {
+    badgeTitle: "Free clips",
+    badgeCount: "{{remaining}} of {{limit}} left",
+    getMoreAction: "Get more with Builder.io",
+    offerTitleLastClip: "One free clip to go",
+    offerTitleUsedUp: "Keep recording for free",
+    offerDescriptionLastClip:
+      "Connect a free Builder.io account to keep recording, with AI transcripts included.",
+    offerDescriptionUsedUp:
+      "Your clips stay saved. Connect a free Builder.io account to record more.",
+    offerAction: "Keep recording",
+    offerDismiss: "Dismiss",
+    offerDialogDescription: "Let your agents see and hear every clip.",
+    offerCheckRecording: "Keep recording, with 2 GB of storage",
+    offerCheckTranscripts: "Transcripts and timestamped images on every clip",
+    offerCheckSummaries:
+      "Automatic titles and summaries, and answers across your library",
+    offerDialogAction: "Continue with Builder.io",
+    limitDescription:
+      "Your clips stay saved and shareable. Keep recording with a free Builder.io account.",
+    limitDismiss: "Not now",
+    limitClose: "Close",
+    creatingAccount: "Creating your Builder.io account",
+    finishingSetup: "Finishing Builder.io setup",
+    accountExists: "This email already has a Builder.io account.",
+    signIn: "Sign in to Builder.io",
+    setupFailed: "Builder.io setup didn’t finish.",
+    tryAgain: "Try again",
+    consentPrefix: "By creating a Builder.io account, you agree to our",
+    consentTerms: "Terms of Service",
+    consentAnd: "and",
+    consentPrivacy: "Privacy Policy",
+    consentSuffix: ".",
+    alertOpenLibrary: "Open Library",
+    alertNotNow: "Not now",
+    lastClipTitle: "One free clip to go",
+    lastClipDescription:
+      "After this one, keep recording with a free Builder.io account. It includes transcripts, summaries and 2 GB of storage.",
+    lastClipRecord: "Record my last free clip",
+    lastClipUpload: "Upload my last free clip",
+    storageTitle: "Save your clips with Builder.io",
+    storageDescription:
+      "Create a free Builder.io account to store your clips and get AI transcripts and clip summaries.",
+    resendVerification: "Resend email",
+    verificationSent: "Verification email sent.",
+    verificationFailed: "Couldn’t send the email. Try again.",
+    limitTitle: "Nice work on your first {{count}} clips",
+    verifyEmail:
+      "Verify your email to get {{count}} free clips, or keep going with a free Builder.io account.",
+  },
 };
 
 export default messages;

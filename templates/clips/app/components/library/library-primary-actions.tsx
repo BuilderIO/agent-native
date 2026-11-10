@@ -1,8 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconCamera, IconVideoPlus } from "@tabler/icons-react";
-import { NavLink } from "react-router";
+import { NavLink, useNavigate } from "react-router";
 
 import { ImportMenu } from "@/components/import-menu";
+import { FreeClipsLimitGate } from "@/components/recorder/free-clips-limit-gate";
 import { useScreenshotCapture } from "@/hooks/use-screenshot-capture";
 
 import {
@@ -55,6 +56,7 @@ export function LibraryPrimaryActions({
   spaceId,
 }: LibraryPrimaryActionsProps) {
   const t = useT();
+  const navigate = useNavigate();
   const { recordHref, uploadHref, importLoomHref } = buildLibraryActionHrefs({
     folderId,
     spaceId,
@@ -73,14 +75,16 @@ export function LibraryPrimaryActions({
   return (
     <>
       <PageHeaderActionGroup>
-        <PageHeaderPrimaryAction asChild>
-          <NavLink to={recordHref} aria-label={t("navigation.newRecording")}>
-            <IconVideoPlus />
-            <span className="hidden sm:inline">
-              {t("navigation.newRecording")}
-            </span>
-          </NavLink>
-        </PageHeaderPrimaryAction>
+        <FreeClipsLimitGate onProceed={() => void navigate(recordHref)}>
+          <PageHeaderPrimaryAction asChild>
+            <NavLink to={recordHref} aria-label={t("navigation.newRecording")}>
+              <IconVideoPlus />
+              <span className="hidden sm:inline">
+                {t("navigation.newRecording")}
+              </span>
+            </NavLink>
+          </PageHeaderPrimaryAction>
+        </FreeClipsLimitGate>
         <ImportMenu
           uploadHref={uploadHref}
           onScreenshot={captureScreenshot}

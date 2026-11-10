@@ -51,8 +51,8 @@ vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
   }),
 }));
 
-// The real consent popover, so these tests prove the card's account creation
-// goes through it rather than through a stand-in.
+// The real credential helpers, so an existing OAuth credential reads as an
+// existing account the same way it does in the app.
 vi.mock("@agent-native/toolkit/app/settings", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/toolkit/app/settings")
@@ -74,10 +74,8 @@ vi.mock("@/components/ui/tooltip", () => {
 
 import { StorageSetupCard } from "./storage-setup-card";
 
-const CREATE = "agentChat.onboarding.builderCreateAndActivate";
-const EXISTING_ACCOUNT = "agentChat.onboarding.builderExistingAccount";
-const CONNECT = "agentChat.onboarding.builderConnect";
-const CONSENT = "agentChat.onboarding.builderConsentPrefix";
+const CONSENT = "freeClips.consentPrefix";
+const SIGN_IN = "freeClips.signIn";
 
 function videoStorageStatusResponse(
   overrides: Record<string, unknown> = {},
@@ -134,7 +132,6 @@ describe("StorageSetupCard", () => {
     onConfigured = vi.fn(),
     onSkip?: () => void,
     description?: string,
-    showBuilderStorageOffer = true,
   ) {
     await act(async () => {
       root.render(
@@ -142,29 +139,21 @@ describe("StorageSetupCard", () => {
           onConfigured={onConfigured}
           onSkip={onSkip}
           description={description}
-          showBuilderStorageOffer={showBuilderStorageOffer}
         />,
       );
     });
-    // The shared popover is lazy-loaded; wait for it to replace its fallback.
-    await act(async () => {
-      await vi.dynamicImportSettled();
-    });
+  }
+
+  function primaryButton() {
+    return container.querySelector<HTMLButtonElement>(
+      '[data-testid="storage-setup-builder-primary"]',
+    );
   }
 
   async function clickConnect() {
     await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>(
-          '[data-testid="storage-setup-builder-primary"]',
-        )
-        ?.click();
+      primaryButton()?.click();
     });
-  }
-
-  async function createAndActivate() {
-    await clickConnect();
-    await act(async () => bodyButton(CREATE)?.click());
   }
 
   beforeEach(() => {
@@ -193,13 +182,25 @@ describe("StorageSetupCard", () => {
     vi.useRealTimers();
   });
 
-  it("shows one Builder action and no inline terms or icons", async () => {
+  // oracle-change: the choice popover and Custom keys were replaced by one button that creates the account in place, so their assertions were removed with them
+  it("shows one Builder action with the terms for the account it creates", async () => {
     await renderCard();
 
-    expect(container.textContent).toContain("agentChat.setup.connectBuilder");
-    expect(container.textContent).toContain("storageSetup.description");
-    expect(container.textContent).not.toContain(CONSENT);
-    expect(container.querySelector('a[href*="builder.io/legal"]')).toBeNull();
+    expect(container.textContent).toContain("freeClips.storageTitle");
+    expect(container.textContent).toContain("freeClips.storageDescription");
+    expect(primaryButton()?.textContent).toBe("freeClips.offerDialogAction");
+    expect(container.textContent).toContain(CONSENT);
+    expect(
+      container.querySelector('a[href="https://www.builder.io/legal/terms"]')
+        ?.textContent,
+    ).toBe("freeClips.consentTerms");
+    expect(
+      container.querySelector('a[href="https://www.builder.io/legal/privacy"]')
+        ?.textContent,
+    ).toBe("freeClips.consentPrivacy");
+    expect(
+      container.querySelector('a[href="/settings/general#video-storage"]'),
+    ).toBeNull();
     expect(container.querySelector("svg")).toBeNull();
   });
 
@@ -227,59 +228,31 @@ describe("StorageSetupCard", () => {
       flowState({ agentNativeProvisioningEnabled: false }),
     );
     await renderCard();
-    expect(container.textContent).toContain("agentChat.setup.connectBuilder");
-    expect(container.textContent).not.toContain(
-      "storageSetup.createBuilderAccount",
-    );
+    expect(primaryButton()?.textContent).toBe("freeClips.offerDialogAction");
 
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ accountExists: true }),
     );
     await renderCard();
-    expect(container.textContent).toContain("agentChat.setup.connectBuilder");
+    expect(primaryButton()?.textContent).toBe(SIGN_IN);
+
+    mocks.useBuilderConnectFlow.mockReturnValue(
+      flowState({ connecting: true }),
+    );
+    await renderCard();
+    // The spinner renders its own <style>, so the label is matched within it.
+    expect(primaryButton()?.textContent).toContain(
+      "storageSetup.waitingForBuilder",
+    );
+    expect(container.textContent).not.toContain(CONSENT);
   });
 
-  it("creates an account only from the consent popover", async () => {
+  it("creates and activates an account in one click when provisioning is available", async () => {
     await renderCard();
 
     await clickConnect();
-    expect(mocks.start).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain(CONSENT);
-    expect(bodyButton(EXISTING_ACCOUNT)).toBeDefined();
-
-    await act(async () => bodyButton(CREATE)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: true,
-      scope: "org",
-    });
-  });
-
-  it("expands included services with help tooltips in the shared popover", async () => {
-    await renderCard();
-
-    await clickConnect();
-    const includedServices = bodyButton(
-      "agentChat.onboarding.builderLlmCreditsAndMoreServices",
-    );
-    expect(includedServices).toBeDefined();
-
-    await act(async () => includedServices?.click());
-
-    expect(document.body.textContent).toContain("Decision model");
-    expect(
-      document.body.querySelector(
-        'button[aria-label="agentChat.onboarding.capability.about"]',
-      ),
-    ).toBeDefined();
-  });
-
-  it("keeps connecting an existing account in the popover", async () => {
-    await renderCard();
-
-    await clickConnect();
-    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
-    expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
-      provisionAccount: false,
       scope: "org",
     });
   });
@@ -297,22 +270,17 @@ describe("StorageSetupCard", () => {
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
-  it("offers one active connect action when provisioning is unavailable", async () => {
+  it("connects without creating an account when provisioning is unavailable", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ agentNativeProvisioningEnabled: false }),
     );
     await renderCard();
 
-    await clickConnect();
-    expect(document.body.textContent).not.toContain(CONSENT);
-    expect(document.body.textContent).toContain(
-      "agentChat.onboarding.builderActivationUnavailable",
-    );
-    expect(bodyButton(CREATE)).toBeUndefined();
-    expect(bodyButton(EXISTING_ACCOUNT)).toBeUndefined();
-    expect(bodyButton(CONNECT)?.disabled).toBe(false);
+    expect(container.textContent).not.toContain(CONSENT);
+    expect(container.querySelector('a[href*="builder.io/legal"]')).toBeNull();
+    expect(primaryButton()?.disabled).toBe(false);
 
-    await act(async () => bodyButton(CONNECT)?.click());
+    await clickConnect();
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
       scope: "org",
@@ -328,16 +296,15 @@ describe("StorageSetupCard", () => {
     );
     await renderCard();
 
+    expect(container.textContent).not.toContain(CONSENT);
+    expect(primaryButton()?.disabled).toBe(false);
+
     await clickConnect();
-    expect(document.body.textContent).not.toContain(CONSENT);
-    expect(document.body.textContent).toContain(
-      "agentChat.onboarding.builderActivationChecking",
-    );
-    expect(bodyButton(CREATE)).toBeUndefined();
-    expect(bodyButton(EXISTING_ACCOUNT)).toBeUndefined();
-    expect(bodyButton(CONNECT)?.disabled).toBe(false);
     expect(mocks.retry).not.toHaveBeenCalled();
-    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
+      provisionAccount: false,
+      scope: "org",
+    });
   });
 
   it("offers only sign-in when activation finds an existing account", async () => {
@@ -346,17 +313,11 @@ describe("StorageSetupCard", () => {
     );
     await renderCard();
 
+    expect(container.textContent).toContain("freeClips.accountExists");
+    expect(container.textContent).not.toContain(CONSENT);
+    expect(primaryButton()?.textContent).toBe(SIGN_IN);
+
     await clickConnect();
-    expect(document.body.textContent).not.toContain(CONSENT);
-    expect(document.body.textContent).toContain(
-      "agentChat.onboarding.builderAccountExistsTitle",
-    );
-    expect(document.body.textContent).toContain(
-      "agentChat.onboarding.builderIncludedFree",
-    );
-    expect(bodyButton(CREATE)).toBeUndefined();
-    expect(bodyButton(EXISTING_ACCOUNT)).toBeDefined();
-    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
       scope: "org",
@@ -369,18 +330,11 @@ describe("StorageSetupCard", () => {
     );
     await renderCard();
 
-    await clickConnect();
-    expect(document.body.textContent).not.toContain(CONSENT);
-    expect(document.body.textContent).toContain(
-      "agentChat.onboarding.builderAccountExistsTitle",
-    );
-    expect(document.body.textContent).toContain(
-      "agentChat.onboarding.builderIncludedFree",
-    );
-    expect(bodyButton(CREATE)).toBeUndefined();
-    expect(bodyButton(EXISTING_ACCOUNT)).toBeDefined();
+    expect(container.textContent).toContain("freeClips.accountExists");
+    expect(container.textContent).not.toContain(CONSENT);
+    expect(primaryButton()?.textContent).toBe(SIGN_IN);
 
-    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
+    await clickConnect();
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
       scope: "org",
@@ -393,11 +347,7 @@ describe("StorageSetupCard", () => {
     );
     await renderCard();
 
-    expect(
-      container.querySelector<HTMLButtonElement>(
-        '[data-testid="storage-setup-builder-primary"]',
-      )?.disabled,
-    ).toBe(true);
+    expect(primaryButton()?.disabled).toBe(true);
     const cancelButtons = [...document.body.querySelectorAll("button")].filter(
       (button) => button.textContent === "common.cancel",
     );
@@ -409,12 +359,14 @@ describe("StorageSetupCard", () => {
 
   it("uses a personal Builder grant when an org grant cannot be connected", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
-      flowState({ canConnect: { org: false, personal: true } }),
+      flowState({
+        accountExists: true,
+        canConnect: { org: false, personal: true },
+      }),
     );
     await renderCard();
 
     await clickConnect();
-    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
 
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
@@ -425,6 +377,7 @@ describe("StorageSetupCard", () => {
   it("prefers the effective Builder grant when both scopes are connectable", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({
+        accountExists: true,
         effective: "personal",
         canConnect: { org: true, personal: true },
       }),
@@ -432,7 +385,6 @@ describe("StorageSetupCard", () => {
     await renderCard();
 
     await clickConnect();
-    await act(async () => bodyButton(EXISTING_ACCOUNT)?.click());
 
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: false,
@@ -460,7 +412,7 @@ describe("StorageSetupCard", () => {
     const onConfigured = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(videoStorageStatusResponse());
     await renderCard(onConfigured);
-    await createAndActivate();
+    await clickConnect();
     vi.stubGlobal("fetch", fetchMock);
 
     mocks.useBuilderConnectFlow.mockReturnValue(
@@ -495,7 +447,7 @@ describe("StorageSetupCard", () => {
     const onConfigured = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(videoStorageStatusResponse());
     await renderCard(onConfigured);
-    await createAndActivate();
+    await clickConnect();
     vi.stubGlobal("fetch", fetchMock);
 
     const connectOptions = mocks.useBuilderConnectFlow.mock.calls[0]?.[0] as {
@@ -515,7 +467,7 @@ describe("StorageSetupCard", () => {
     const onConfigured = vi.fn();
     const onSkip = vi.fn();
     await renderCard(onConfigured, onSkip);
-    await createAndActivate();
+    await clickConnect();
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(videoStorageStatusResponse()),
@@ -549,7 +501,7 @@ describe("StorageSetupCard", () => {
   it("cancels delayed setup completion when the card unmounts", async () => {
     const onConfigured = vi.fn();
     await renderCard(onConfigured);
-    await createAndActivate();
+    await clickConnect();
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(videoStorageStatusResponse()),
@@ -588,7 +540,7 @@ describe("StorageSetupCard", () => {
       }),
     );
     await renderCard(onConfigured);
-    await createAndActivate();
+    await clickConnect();
     vi.stubGlobal("fetch", fetchMock);
 
     const connectOptions = mocks.useBuilderConnectFlow.mock.calls[0]?.[0] as {
@@ -614,7 +566,7 @@ describe("StorageSetupCard", () => {
       .mockResolvedValueOnce(new Response(null, { status: 503 }))
       .mockResolvedValueOnce(videoStorageStatusResponse());
     await renderCard(onConfigured);
-    await createAndActivate();
+    await clickConnect();
     vi.stubGlobal("fetch", fetchMock);
 
     const connectOptions = mocks.useBuilderConnectFlow.mock.calls[0]?.[0] as {
@@ -645,7 +597,7 @@ describe("StorageSetupCard", () => {
     const onConfigured = vi.fn();
     const fetchMock = vi.fn().mockResolvedValue(videoStorageStatusResponse());
     await renderCard(onConfigured);
-    await createAndActivate();
+    await clickConnect();
     vi.stubGlobal("fetch", fetchMock);
 
     mocks.useBuilderConnectFlow.mockReturnValue(
@@ -767,18 +719,19 @@ describe("StorageSetupCard", () => {
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
   });
 
-  it("offers the storage option when Builder setup fails", async () => {
+  it("warns when Builder setup fails, with no storage fallback", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ error: "Builder setup failed", errorKind: "connection" }),
     );
     await renderCard();
 
-    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-      "storageSetup.builderConnectError",
-    );
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert?.textContent).toBe("freeClips.setupFailed");
+    expect(alert?.className).toContain("text-amber-700");
+    expect(alert?.querySelector("svg")).not.toBeNull();
     expect(
       container.querySelector('a[href="/settings/general#video-storage"]'),
-    ).not.toBeNull();
+    ).toBeNull();
   });
 
   it("surfaces the timeout while an available status stays unconfigured", async () => {
@@ -793,7 +746,7 @@ describe("StorageSetupCard", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     await renderCard();
-    await createAndActivate();
+    await clickConnect();
 
     const connectOptions = mocks.useBuilderConnectFlow.mock.calls[0]?.[0] as {
       onConnected: () => void;
@@ -809,43 +762,17 @@ describe("StorageSetupCard", () => {
     expect(container.querySelector("button[disabled]")).toBeNull();
   });
 
-  it("offers custom keys in a new tab and explains Builder.io's free setup", async () => {
-    mocks.storageSetupHref = "/settings/infra#uploads";
+  it("shows the caller's description in place of the default", async () => {
     await renderCard(
       vi.fn(),
       undefined,
       "Your recording is safe in this browser.",
     );
 
-    const customKeysLink = container.querySelector<HTMLAnchorElement>(
-      'a[href="/settings/infra#uploads"]',
-    );
-    expect(customKeysLink?.textContent).toBe("storageSetup.customKeys");
-    expect(customKeysLink?.target).toBe("_blank");
-    expect(customKeysLink?.rel).toBe("noopener noreferrer");
     expect(container.textContent).toContain(
       "Your recording is safe in this browser.",
     );
-    expect(container.textContent).toContain("storageSetup.builderStorageOffer");
-    expect(container.textContent).not.toContain(
-      "AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO",
-    );
-  });
-
-  it("keeps an exhausted allowance message separate from the free storage offer", async () => {
-    await renderCard(
-      vi.fn(),
-      undefined,
-      "Your free storage allowance is exhausted.",
-      false,
-    );
-
-    expect(container.textContent).toContain(
-      "Your free storage allowance is exhausted.",
-    );
-    expect(container.textContent).not.toContain(
-      "storageSetup.builderStorageOffer",
-    );
+    expect(container.textContent).not.toContain("freeClips.storageDescription");
   });
 
   it("asks members to find an owner or admin when they can't set up storage", async () => {
@@ -868,7 +795,7 @@ describe("StorageSetupCard", () => {
     );
     expect(container.textContent).toContain("clipsSettings.storageAskAdmin");
     expect(container.textContent).not.toContain("storageSetup.customKeys");
-    expect(container.querySelector("a[href]")).toBeNull();
+    expect(container.querySelector('a[href^="/"]')).toBeNull();
   });
 
   describe("storage step tracking", () => {
@@ -949,18 +876,6 @@ describe("StorageSetupCard", () => {
       await settle();
     }
 
-    function openCustomKeys() {
-      act(() =>
-        container
-          .querySelector<HTMLAnchorElement>(
-            'a[href="/settings/general#video-storage"]',
-          )
-          ?.dispatchEvent(
-            new MouseEvent("click", { bubbles: true, cancelable: true }),
-          ),
-      );
-    }
-
     const CONNECT_FAILED = {
       connecting: false,
       error: "Builder.io setup didn't finish.",
@@ -969,7 +884,7 @@ describe("StorageSetupCard", () => {
 
     // The real flow re-renders the card as connecting once start runs.
     async function startBuilder(onConfigured = vi.fn()) {
-      await createAndActivate();
+      await clickConnect();
       await showFlow({ connecting: true }, onConfigured);
     }
 
@@ -1107,33 +1022,6 @@ describe("StorageSetupCard", () => {
       expect(storageEvents("onboarding_step_skipped")).toHaveLength(0);
     });
 
-    it("records the S3 choice without claiming completion", async () => {
-      await renderCard();
-
-      act(() =>
-        container
-          .querySelector<HTMLAnchorElement>(
-            'a[href="/settings/general#video-storage"]',
-          )
-          ?.dispatchEvent(
-            new MouseEvent("click", { bubbles: true, cancelable: true }),
-          ),
-      );
-
-      expect(storageEvents("onboarding_method_clicked")).toEqual([
-        [
-          "onboarding_method_clicked",
-          {
-            step_id: "file-storage",
-            flow: "clips_file_upload_storage_setup_card",
-            step_view_id: "view-1",
-            method_id: "s3",
-          },
-        ],
-      ]);
-      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
-    });
-
     it("records nothing past the view while storage stays unconfigured", async () => {
       await renderCard(vi.fn(), vi.fn());
       await act(async () => {
@@ -1244,7 +1132,6 @@ describe("StorageSetupCard", () => {
 
     it("records one completion, and reads no more status once it is recorded", async () => {
       await renderCard();
-      openCustomKeys();
       await connectBuilderAndConfigure();
       const fetchMock = stubStorageStatus();
       await unmountCard();
@@ -1292,25 +1179,10 @@ describe("StorageSetupCard", () => {
       expect(storageEvents("onboarding_step_completed")).toHaveLength(1);
     });
 
-    it("reads no status on return to the tab after Skip", async () => {
-      const onSkip = vi.fn();
-      await renderCard(vi.fn(), onSkip);
-      openCustomKeys();
-      act(() => bodyButton("agentChat.onboarding.skipForNow")?.click());
-      const fetchMock = stubStorageStatus(S3_STORAGE);
-      await act(async () => {
-        window.dispatchEvent(new Event("focus"));
-        await vi.advanceTimersByTimeAsync(100);
-      });
-
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
-    });
-
     it("reads no status on unmount after Skip", async () => {
       const onSkip = vi.fn();
       await renderCard(vi.fn(), onSkip);
-      await createAndActivate();
+      await clickConnect();
       mocks.useBuilderConnectFlow.mockReturnValue(
         flowState({ connecting: true }),
       );
@@ -1392,21 +1264,6 @@ describe("StorageSetupCard", () => {
 
       expect(storageEvents("onboarding_step_completed")).toHaveLength(1);
     });
-    it("credits no custom-keys setup after the credit window", async () => {
-      await renderCard();
-      openCustomKeys();
-      await settle(16 * 60_000);
-      const fetchMock = stubStorageStatus(S3_STORAGE);
-      await act(async () => {
-        window.dispatchEvent(new Event("focus"));
-        await vi.advanceTimersByTimeAsync(100);
-      });
-      await unmountCard();
-
-      expect(fetchMock).not.toHaveBeenCalled();
-      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
-    });
-
     it("reads no status on unmount when no setup was started", async () => {
       const fetchMock = stubStorageStatus();
       await renderCard();
@@ -1414,84 +1271,6 @@ describe("StorageSetupCard", () => {
 
       expect(fetchMock).not.toHaveBeenCalled();
       expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
-    });
-
-    it("records custom-keys completion when the card unmounts with storage configured", async () => {
-      await renderCard();
-      openCustomKeys();
-      stubStorageStatus(S3_STORAGE);
-      await unmountCard();
-
-      expect(storageEvents("onboarding_step_completed")).toEqual([
-        [
-          "onboarding_step_completed",
-          expect.objectContaining({ method_id: "s3" }),
-        ],
-      ]);
-    });
-
-    it("records custom-keys completion once on return to the tab while the card stays mounted", async () => {
-      await renderCard();
-      openCustomKeys();
-      const fetchMock = stubStorageStatus(S3_STORAGE);
-      await act(async () => {
-        window.dispatchEvent(new Event("focus"));
-        document.dispatchEvent(new Event("visibilitychange"));
-        await vi.advanceTimersByTimeAsync(100);
-      });
-      await act(async () => {
-        window.dispatchEvent(new Event("focus"));
-        await vi.advanceTimersByTimeAsync(100);
-      });
-
-      expect(fetchMock).toHaveBeenCalledOnce();
-      expect(storageEvents("onboarding_step_completed")).toEqual([
-        [
-          "onboarding_step_completed",
-          expect.objectContaining({ method_id: "s3" }),
-        ],
-      ]);
-    });
-
-    it("records one completion when a return read and the unmount read land together", async () => {
-      await renderCard();
-      openCustomKeys();
-      const pending: Array<() => void> = [];
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(
-          () =>
-            new Promise<Response>((resolve) => {
-              pending.push(() =>
-                resolve(videoStorageStatusResponse(S3_STORAGE)),
-              );
-            }),
-        ),
-      );
-      act(() => {
-        window.dispatchEvent(new Event("focus"));
-      });
-      await act(async () => {
-        root.render(<div />);
-      });
-      expect(pending).toHaveLength(2);
-      await act(async () => {
-        pending.forEach((resolve) => resolve());
-      });
-      await settle(100);
-
-      expect(storageEvents("onboarding_step_completed")).toHaveLength(1);
-    });
-
-    it("reads no status on return to the tab when custom keys were never opened", async () => {
-      const fetchMock = stubStorageStatus(S3_STORAGE);
-      await renderCard();
-      await act(async () => {
-        window.dispatchEvent(new Event("focus"));
-        await vi.advanceTimersByTimeAsync(100);
-      });
-
-      expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it("keeps the reason the card first showed for every event of the showing", async () => {
@@ -1502,9 +1281,6 @@ describe("StorageSetupCard", () => {
             setupReason="status_unavailable"
           />,
         );
-      });
-      await act(async () => {
-        await vi.dynamicImportSettled();
       });
       await act(async () => {
         root.render(
@@ -1541,15 +1317,6 @@ describe("StorageSetupCard", () => {
       expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
     });
 
-    it("credits no custom-keys setup when storage was already configured at the click", async () => {
-      stubStorageStatus(S3_STORAGE);
-      await renderCard();
-      openCustomKeys();
-      await unmountCard();
-
-      expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
-    });
-
     it("records nothing and only warns when storage before setup can't be read", async () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       vi.stubGlobal(
@@ -1557,9 +1324,10 @@ describe("StorageSetupCard", () => {
         vi.fn(async () => new Response(null, { status: 503 })),
       );
       await renderCard();
-      openCustomKeys();
-      stubStorageStatus(S3_STORAGE);
-      await unmountCard();
+      await startBuilder();
+      stubStorageStatus();
+      await handOffToStoragePoll();
+      await settle();
 
       expect(storageEvents("onboarding_step_completed")).toHaveLength(0);
       expect(warn).toHaveBeenCalledWith(
@@ -1569,42 +1337,54 @@ describe("StorageSetupCard", () => {
       warn.mockRestore();
     });
 
-    it("reads storage before setup as the connect popover opens, before any setup request", async () => {
+    it("reads storage before setup before the setup request", async () => {
       const fetchMock = stubStorageStatus(UNCONFIGURED);
       await renderCard();
       await clickConnect();
 
       expect(fetchMock).toHaveBeenCalledOnce();
-      expect(mocks.start).not.toHaveBeenCalled();
+      expect(mocks.start).toHaveBeenCalledOnce();
+      expect(fetchMock.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.start.mock.invocationCallOrder[0] ?? 0,
+      );
     });
 
     it("reads storage before setup once per showing", async () => {
       const fetchMock = stubStorageStatus(UNCONFIGURED);
       await renderCard();
-      openCustomKeys();
       await startBuilder();
+      await showFlow(CONNECT_FAILED);
+      await clickConnect();
 
+      expect(mocks.start).toHaveBeenCalledTimes(2);
       expect(fetchMock).toHaveBeenCalledOnce();
     });
 
-    it("records no completion when Skip lands while a return read is in flight", async () => {
+    it("records no completion when Skip lands while a storage poll read is in flight", async () => {
       const onSkip = vi.fn();
       await renderCard(vi.fn(), onSkip);
-      openCustomKeys();
-      await settle(100);
+      await clickConnect();
       let resolveRead = () => {};
       vi.stubGlobal(
         "fetch",
         vi.fn(
           () =>
             new Promise<Response>((resolve) => {
-              resolveRead = () =>
-                resolve(videoStorageStatusResponse(S3_STORAGE));
+              resolveRead = () => resolve(videoStorageStatusResponse());
             }),
         ),
       );
+      await act(async () => {
+        mocks.useBuilderConnectFlow.mockReturnValue(
+          flowState({ connecting: false }),
+        );
+        root.render(
+          <StorageSetupCard onConfigured={vi.fn()} onSkip={onSkip} />,
+        );
+        connectOptions().onConnected();
+      });
       act(() => {
-        window.dispatchEvent(new Event("focus"));
+        document.dispatchEvent(new Event("visibilitychange"));
       });
       act(() => bodyButton("agentChat.onboarding.skipForNow")?.click());
       await act(async () => resolveRead());

@@ -17,6 +17,9 @@ import {
   IconVideo,
 } from "@tabler/icons-react";
 import {
+  type MouseEvent,
+  type ReactElement,
+  type ReactNode,
   type RefObject,
   useCallback,
   useEffect,
@@ -100,6 +103,16 @@ export interface PreRecordPanelProps {
   initialDisplaySurface?: DisplaySurface | null;
   onCancel?: () => void;
   busy?: boolean;
+  /**
+   * Wraps the Start button, so the route can answer the click in place (the
+   * last free clip prompt) and call `start` to go ahead.
+   */
+  wrapStartButton?: (
+    button: ReactElement<{
+      onClick?: (event: MouseEvent<HTMLElement>) => void;
+    }>,
+    start: () => void,
+  ) => ReactNode;
 }
 
 type MicTestState = {
@@ -329,6 +342,7 @@ export function PreRecordPanel({
   initialDisplaySurface,
   onCancel,
   busy,
+  wrapStartButton,
 }: PreRecordPanelProps) {
   const t = useT();
   const recordingSetupWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -904,6 +918,23 @@ export function PreRecordPanel({
     ? (micTest.error ?? micAccessError)
     : null;
 
+  const startButton = (
+    <Button
+      ref={startButtonRef}
+      disabled={startDisabled}
+      onClick={handleStartClick}
+      className={cn("h-11 gap-2", onCancel ? "flex-1" : "w-full")}
+    >
+      <span
+        className="size-2 shrink-0 rounded-full bg-destructive"
+        aria-hidden="true"
+      />
+      {mode === "camera"
+        ? t("preRecord.startCameraRecording")
+        : t("preRecord.startRecording")}
+    </Button>
+  );
+
   return (
     <TooltipProvider delayDuration={180}>
       <div className="mx-auto w-full max-w-[420px] overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
@@ -1262,20 +1293,9 @@ export function PreRecordPanel({
                 {t("common.cancel")}
               </Button>
             ) : null}
-            <Button
-              ref={startButtonRef}
-              disabled={startDisabled}
-              onClick={handleStartClick}
-              className={cn("h-11 gap-2", onCancel ? "flex-1" : "w-full")}
-            >
-              <span
-                className="size-2 shrink-0 rounded-full bg-destructive"
-                aria-hidden="true"
-              />
-              {mode === "camera"
-                ? t("preRecord.startCameraRecording")
-                : t("preRecord.startRecording")}
-            </Button>
+            {wrapStartButton
+              ? wrapStartButton(startButton, handleStartClick)
+              : startButton}
           </div>
         </div>
       </div>

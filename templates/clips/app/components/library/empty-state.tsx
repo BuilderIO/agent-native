@@ -12,6 +12,7 @@ import { type ComponentType, type ReactNode, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { ImportLoomDialog } from "@/components/library/import-loom-dialog";
+import { FreeClipsLimitGate } from "@/components/recorder/free-clips-limit-gate";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -119,9 +120,11 @@ export function EmptyState({
 
   const content = hasCta ? (
     <div className="flex flex-col items-center gap-2">
-      <Button onClick={handleCta} size="sm">
-        {t(`empty.${kind}.cta`)}
-      </Button>
+      <FreeClipsLimitGate align="center" onProceed={handleCta}>
+        <Button onClick={handleCta} size="sm">
+          {t(`empty.${kind}.cta`)}
+        </Button>
+      </FreeClipsLimitGate>
       <Button
         type="button"
         variant="ghost"

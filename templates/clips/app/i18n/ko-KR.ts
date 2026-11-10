@@ -2512,6 +2512,55 @@ const messages = {
     capturedDescription: "이 녹화의 진단 정보를 캡처했습니다.",
   },
   timeline: { clipStartedHere: "클립이 여기서 시작됨" },
+  freeClips: {
+    badgeTitle: "무료 클립",
+    badgeCount: "{{limit}}개 중 {{remaining}}개 남음",
+    getMoreAction: "Builder.io로 더 받기",
+    offerTitleLastClip: "무료 클립 1개 남음",
+    offerTitleUsedUp: "무료로 계속 녹화하기",
+    offerDescriptionLastClip:
+      "무료 Builder.io 계정을 연결하면 AI 스크립트와 함께 계속 녹화할 수 있습니다.",
+    offerDescriptionUsedUp:
+      "클립은 그대로 저장됩니다. 무료 Builder.io 계정을 연결하면 더 녹화할 수 있습니다.",
+    offerAction: "계속 녹화하기",
+    offerDismiss: "닫기",
+    offerDialogDescription: "에이전트가 모든 클립을 보고 들을 수 있게 하세요.",
+    offerCheckRecording: "2 GB 저장 공간으로 계속 녹화",
+    offerCheckTranscripts: "모든 클립의 스크립트와 타임스탬프 이미지",
+    offerCheckSummaries: "자동 제목과 요약, 라이브러리 전체에서 찾는 답변",
+    offerDialogAction: "Builder.io로 계속하기",
+    limitDescription:
+      "클립은 그대로 저장되고 공유할 수 있습니다. 무료 Builder.io 계정으로 계속 녹화하세요.",
+    limitDismiss: "나중에",
+    limitClose: "닫기",
+    creatingAccount: "Builder.io 계정을 만드는 중",
+    finishingSetup: "Builder.io 설정을 마무리하는 중",
+    accountExists: "이 이메일에는 이미 Builder.io 계정이 있습니다.",
+    signIn: "Builder.io에 로그인",
+    setupFailed: "Builder.io 설정을 완료하지 못했습니다.",
+    tryAgain: "다시 시도",
+    consentPrefix: "Builder.io 계정을 만들면",
+    consentTerms: "서비스 약관",
+    consentAnd: "및",
+    consentPrivacy: "개인정보처리방침",
+    consentSuffix: "에 동의하게 됩니다.",
+    alertOpenLibrary: "라이브러리 열기",
+    alertNotNow: "나중에",
+    lastClipTitle: "무료 클립 1개 남음",
+    lastClipDescription:
+      "이 클립 다음부터는 무료 Builder.io 계정으로 계속 녹화하세요. 스크립트, 요약, 2 GB 저장 공간이 포함됩니다.",
+    lastClipRecord: "마지막 무료 클립 녹화하기",
+    lastClipUpload: "마지막 무료 클립 업로드하기",
+    storageTitle: "Builder.io로 클립 저장하기",
+    storageDescription:
+      "무료 Builder.io 계정을 만들면 클립을 저장하고 AI 스크립트와 클립 요약을 받을 수 있습니다.",
+    resendVerification: "이메일 다시 보내기",
+    verificationSent: "인증 이메일을 보냈습니다.",
+    verificationFailed: "이메일을 보내지 못했습니다. 다시 시도해 주세요.",
+    limitTitle: "첫 클립 {{count}}개 수고하셨어요",
+    verifyEmail:
+      "이메일을 인증하면 무료 클립 {{count}}개를 받을 수 있습니다. 무료 Builder.io 계정으로 계속할 수도 있습니다.",
+  },
 };
 
 export default messages;

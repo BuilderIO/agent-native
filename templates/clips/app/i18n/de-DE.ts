@@ -2589,6 +2589,59 @@ const messages = {
     capturedDescription: "Für diese Aufnahme wurden Diagnosedaten erfasst.",
   },
   timeline: { clipStartedHere: "Clip begann hier" },
+  freeClips: {
+    badgeTitle: "Kostenlose Clips",
+    badgeCount: "{{remaining}} von {{limit}} übrig",
+    getMoreAction: "Mehr mit Builder.io",
+    offerTitleLastClip: "Noch ein kostenloser Clip",
+    offerTitleUsedUp: "Kostenlos weiter aufnehmen",
+    offerDescriptionLastClip:
+      "Verbinde ein kostenloses Builder.io-Konto, um weiter aufzunehmen, inklusive KI-Transkripten.",
+    offerDescriptionUsedUp:
+      "Deine Clips bleiben gespeichert. Verbinde ein kostenloses Builder.io-Konto, um mehr aufzunehmen.",
+    offerAction: "Weiter aufnehmen",
+    offerDismiss: "Schließen",
+    offerDialogDescription: "Lass deine Agents jeden Clip sehen und hören.",
+    offerCheckRecording: "Weiter aufnehmen, mit 2 GB Speicher",
+    offerCheckTranscripts:
+      "Transkripte und Bilder mit Zeitstempel für jeden Clip",
+    offerCheckSummaries:
+      "Automatische Titel und Zusammenfassungen und Antworten aus deiner ganzen Mediathek",
+    offerDialogAction: "Weiter mit Builder.io",
+    limitDescription:
+      "Deine Clips bleiben gespeichert und teilbar. Nimm mit einem kostenlosen Builder.io-Konto weiter auf.",
+    limitDismiss: "Nicht jetzt",
+    limitClose: "Schließen",
+    creatingAccount: "Dein Builder.io-Konto wird erstellt",
+    finishingSetup: "Builder.io wird eingerichtet",
+    accountExists: "Diese E-Mail hat bereits ein Builder.io-Konto.",
+    signIn: "Bei Builder.io anmelden",
+    setupFailed: "Die Einrichtung von Builder.io wurde nicht abgeschlossen.",
+    tryAgain: "Erneut versuchen",
+    consentPrefix:
+      "Mit dem Erstellen eines Builder.io-Kontos stimmst du unseren",
+    consentTerms: "Nutzungsbedingungen",
+    consentAnd: "und",
+    consentPrivacy: "Datenschutzrichtlinie",
+    consentSuffix: " zu.",
+    alertOpenLibrary: "Bibliothek öffnen",
+    alertNotNow: "Nicht jetzt",
+    lastClipTitle: "Noch ein kostenloser Clip",
+    lastClipDescription:
+      "Nimm danach mit einem kostenlosen Builder.io-Konto weiter auf. Es umfasst Transkripte, Zusammenfassungen und 2 GB Speicher.",
+    lastClipRecord: "Meinen letzten kostenlosen Clip aufnehmen",
+    lastClipUpload: "Meinen letzten kostenlosen Clip hochladen",
+    storageTitle: "Speichere deine Clips mit Builder.io",
+    storageDescription:
+      "Erstelle ein kostenloses Builder.io-Konto, um deine Clips zu speichern und KI-Transkripte und Clip-Zusammenfassungen zu erhalten.",
+    resendVerification: "E-Mail erneut senden",
+    verificationSent: "Bestätigungs-E-Mail gesendet.",
+    verificationFailed:
+      "Die E-Mail konnte nicht gesendet werden. Versuch es noch einmal.",
+    limitTitle: "Gute Arbeit bei deinen ersten {{count}} Clips",
+    verifyEmail:
+      "Bestätige deine E-Mail, um {{count}} kostenlose Clips zu erhalten, oder mach mit einem kostenlosen Builder.io-Konto weiter.",
+  },
 };
 
 export default messages;

@@ -2378,6 +2378,55 @@ const messages = {
     capturedDescription: "已為此錄製擷取診斷資訊。",
   },
   timeline: { clipStartedHere: "剪輯從這裡開始" },
+  freeClips: {
+    badgeTitle: "免費片段",
+    badgeCount: "剩餘 {{remaining}} / {{limit}}",
+    getMoreAction: "透過 Builder.io 取得更多",
+    offerTitleLastClip: "還剩 1 個免費片段",
+    offerTitleUsedUp: "免費繼續錄製",
+    offerDescriptionLastClip:
+      "連結免費的 Builder.io 帳號即可繼續錄製，並附帶 AI 逐字稿。",
+    offerDescriptionUsedUp:
+      "你的片段會繼續保存。連結免費的 Builder.io 帳號即可錄製更多。",
+    offerAction: "繼續錄製",
+    offerDismiss: "關閉",
+    offerDialogDescription: "讓你的代理程式看到並聽到每個片段。",
+    offerCheckRecording: "繼續錄製，附帶 2 GB 儲存空間",
+    offerCheckTranscripts: "每個片段都有逐字稿和帶時間戳記的圖片",
+    offerCheckSummaries: "自動產生標題和摘要，並可在整個資料庫中取得解答",
+    offerDialogAction: "使用 Builder.io 繼續",
+    limitDescription:
+      "你的片段會繼續保存並可分享。使用免費的 Builder.io 帳號繼續錄製。",
+    limitDismiss: "稍後再說",
+    limitClose: "關閉",
+    creatingAccount: "正在建立你的 Builder.io 帳號",
+    finishingSetup: "正在完成 Builder.io 設定",
+    accountExists: "此電子郵件已有 Builder.io 帳號。",
+    signIn: "登入 Builder.io",
+    setupFailed: "Builder.io 設定未完成。",
+    tryAgain: "重試",
+    consentPrefix: "建立 Builder.io 帳號即表示你同意我們的",
+    consentTerms: "服務條款",
+    consentAnd: "和",
+    consentPrivacy: "隱私權政策",
+    consentSuffix: "。",
+    alertOpenLibrary: "開啟資料庫",
+    alertNotNow: "稍後再說",
+    lastClipTitle: "還剩 1 個免費片段",
+    lastClipDescription:
+      "錄完這個片段後，使用免費的 Builder.io 帳號繼續錄製。它包含逐字稿、摘要和 2 GB 儲存空間。",
+    lastClipRecord: "錄製我的最後一個免費片段",
+    lastClipUpload: "上傳我的最後一個免費片段",
+    storageTitle: "使用 Builder.io 保存你的片段",
+    storageDescription:
+      "建立免費的 Builder.io 帳號即可儲存你的片段，並取得 AI 逐字稿和片段摘要。",
+    resendVerification: "重新傳送電子郵件",
+    verificationSent: "驗證電子郵件已傳送。",
+    verificationFailed: "無法傳送電子郵件。請再試一次。",
+    limitTitle: "你的前 {{count}} 個片段做得很棒",
+    verifyEmail:
+      "驗證你的電子郵件即可取得 {{count}} 個免費片段，或使用免費的 Builder.io 帳號繼續。",
+  },
 };
 
 export default messages;

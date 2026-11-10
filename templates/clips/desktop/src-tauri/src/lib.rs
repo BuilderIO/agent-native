@@ -12,6 +12,7 @@ mod logfile;
 mod meetings_watcher;
 mod mic_attribution;
 mod model_download;
+mod native_alert;
 mod native_screen;
 mod native_speech;
 mod notifications;
@@ -217,6 +218,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            native_alert::show_native_alert,
             clips::show_countdown,
             clips::finish_countdown_shortcuts,
             clips::show_preparing,

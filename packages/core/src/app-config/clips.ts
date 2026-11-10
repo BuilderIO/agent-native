@@ -29,7 +29,7 @@ export const clipsHostedStorageConfig = z.object({
   }),
   perIdentityClipLimit: z.number().int().positive().default(3).meta({
     env: "CLIPS_HOSTED_STORAGE_PER_IDENTITY_CLIP_LIMIT",
-    doc: "Maximum number of retained hosted Clips recordings per identity.",
+    doc: "Maximum number of hosted Clips recordings per identity, for the life of the account. Deleting a clip does not free one.",
   }),
   maxClipBytes: z
     .number()

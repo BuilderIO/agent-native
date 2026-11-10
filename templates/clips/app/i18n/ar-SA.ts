@@ -2505,6 +2505,55 @@ const messages = {
     capturedDescription: "تم التقاط التشخيصات لهذا التسجيل.",
   },
   timeline: { clipStartedHere: "بدأ المقطع هنا" },
+  freeClips: {
+    badgeTitle: "المقاطع المجانية",
+    badgeCount: "متبقٍ {{remaining}} من {{limit}}",
+    getMoreAction: "احصل على المزيد مع Builder.io",
+    offerTitleLastClip: "تبقّى مقطع مجاني واحد",
+    offerTitleUsedUp: "واصل التسجيل مجانًا",
+    offerDescriptionLastClip:
+      "اربط حساب Builder.io مجانيًا لمواصلة التسجيل، مع نصوص مكتوبة بالذكاء الاصطناعي.",
+    offerDescriptionUsedUp:
+      "تظل مقاطعك محفوظة. اربط حساب Builder.io مجانيًا لتسجيل المزيد.",
+    offerAction: "واصل التسجيل",
+    offerDismiss: "تجاهل",
+    offerDialogDescription: "دع وكلاءك يرون ويسمعون كل مقطع.",
+    offerCheckRecording: "واصل التسجيل، مع 2 GB من مساحة التخزين",
+    offerCheckTranscripts: "نصوص مكتوبة وصور بطوابع زمنية في كل مقطع",
+    offerCheckSummaries: "عناوين وملخصات تلقائية، وإجابات من مكتبتك كلها",
+    offerDialogAction: "المتابعة مع Builder.io",
+    limitDescription:
+      "تظل مقاطعك محفوظة وقابلة للمشاركة. واصل التسجيل بحساب Builder.io مجاني.",
+    limitDismiss: "ليس الآن",
+    limitClose: "إغلاق",
+    creatingAccount: "جارٍ إنشاء حسابك على Builder.io",
+    finishingSetup: "جارٍ إكمال إعداد Builder.io",
+    accountExists: "هذا البريد الإلكتروني لديه حساب Builder.io بالفعل.",
+    signIn: "تسجيل الدخول إلى Builder.io",
+    setupFailed: "لم يكتمل إعداد Builder.io.",
+    tryAgain: "أعد المحاولة",
+    consentPrefix: "بإنشاء حساب Builder.io، فإنك توافق على",
+    consentTerms: "شروط الخدمة",
+    consentAnd: "و",
+    consentPrivacy: "سياسة الخصوصية",
+    consentSuffix: ".",
+    alertOpenLibrary: "فتح المكتبة",
+    alertNotNow: "ليس الآن",
+    lastClipTitle: "تبقّى مقطع مجاني واحد",
+    lastClipDescription:
+      "بعد هذا المقطع، واصل التسجيل بحساب Builder.io مجاني. يتضمن نصوصًا مكتوبة وملخصات و2 GB من مساحة التخزين.",
+    lastClipRecord: "سجّل آخر مقطع مجاني لي",
+    lastClipUpload: "ارفع آخر مقطع مجاني لي",
+    storageTitle: "احفظ مقاطعك مع Builder.io",
+    storageDescription:
+      "أنشئ حساب Builder.io مجانيًا لتخزين مقاطعك والحصول على نصوص مكتوبة بالذكاء الاصطناعي وملخصات للمقاطع.",
+    resendVerification: "إعادة إرسال البريد",
+    verificationSent: "تم إرسال بريد التحقق.",
+    verificationFailed: "تعذّر إرسال البريد. أعد المحاولة.",
+    limitTitle: "عمل رائع في مقاطعك الأولى ({{count}})",
+    verifyEmail:
+      "أكِّد بريدك الإلكتروني للحصول على {{count}} من المقاطع المجانية، أو تابع بحساب Builder.io مجاني.",
+  },
 };
 
 export default messages;

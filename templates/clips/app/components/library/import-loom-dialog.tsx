@@ -5,6 +5,7 @@ import { IconLink, IconLoader2, IconUpload } from "@tabler/icons-react";
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 
+import { useFreeClipsGate } from "@/components/recorder/free-clips-limit-gate";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -53,10 +54,21 @@ export function ImportLoomDialog({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  const importGate = useFreeClipsGate("upload");
+  const uploadGate = useFreeClipsGate("upload");
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const url = loomUrl.trim();
     if (!url || busy) return;
+    // YouTube links are embedded, never stored, so they use no free clip.
+    if (!isYouTubeUrl(url) && importGate.guard(() => void runImport(url))) {
+      return;
+    }
+    void runImport(url);
+  };
+
+  const runImport = async (url: string) => {
     const failureTitle = isYouTubeUrl(url)
       ? t("recordRoute.couldNotImportVideo")
       : t("recordRoute.couldNotImportLoom");
@@ -144,18 +156,21 @@ export function ImportLoomDialog({
               }}
               placeholder={t("importRoute.urlPlaceholder")}
             />
-            <Button
-              type="submit"
-              className="w-full gap-2"
-              disabled={busy || !loomUrl.trim()}
-            >
-              {busy ? (
-                <IconLoader2 className="size-4 animate-spin" />
-              ) : (
-                <IconLink className="size-4" />
-              )}
-              {t("importRoute.cta")}
-            </Button>
+            {importGate.wrap(
+              <Button
+                type="submit"
+                className="w-full gap-2"
+                disabled={busy || !loomUrl.trim()}
+              >
+                {busy ? (
+                  <IconLoader2 className="size-4 animate-spin" />
+                ) : (
+                  <IconLink className="size-4" />
+                )}
+                {t("importRoute.cta")}
+              </Button>,
+              "center",
+            )}
             {error ? (
               <p
                 role="alert"
@@ -167,14 +182,20 @@ export function ImportLoomDialog({
           </form>
           {!busy ? (
             <div className="flex justify-center border-t border-border pt-4">
-              <button
-                type="button"
-                onClick={() => openUploadPicker(recordHref)}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-              >
-                <IconUpload className="size-3.5" />
-                {t("preRecord.uploadVideo")}
-              </button>
+              {uploadGate.wrap(
+                <button
+                  type="button"
+                  onClick={() => {
+                    const upload = () => openUploadPicker(recordHref);
+                    if (!uploadGate.guard(upload)) upload();
+                  }}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                >
+                  <IconUpload className="size-3.5" />
+                  {t("preRecord.uploadVideo")}
+                </button>,
+                "center",
+              )}
             </div>
           ) : null}
         </div>

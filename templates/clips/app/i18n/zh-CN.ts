@@ -2396,6 +2396,55 @@ const messages = {
     capturedDescription: "已为此录制采集诊断信息。",
   },
   timeline: { clipStartedHere: "剪辑从这里开始" },
+  freeClips: {
+    badgeTitle: "免费片段",
+    badgeCount: "剩余 {{remaining}} / {{limit}}",
+    getMoreAction: "通过 Builder.io 获取更多",
+    offerTitleLastClip: "还剩 1 个免费片段",
+    offerTitleUsedUp: "免费继续录制",
+    offerDescriptionLastClip:
+      "连接免费的 Builder.io 账号即可继续录制，并附带 AI 转录。",
+    offerDescriptionUsedUp:
+      "你的片段会继续保存。连接免费的 Builder.io 账号即可录制更多。",
+    offerAction: "继续录制",
+    offerDismiss: "关闭",
+    offerDialogDescription: "让你的智能体看到并听到每个片段。",
+    offerCheckRecording: "继续录制，附带 2 GB 存储空间",
+    offerCheckTranscripts: "每个片段都有转录和带时间戳的图片",
+    offerCheckSummaries: "自动生成标题和摘要，并可在整个资料库中获得解答",
+    offerDialogAction: "使用 Builder.io 继续",
+    limitDescription:
+      "你的片段会继续保存并可分享。使用免费的 Builder.io 账号继续录制。",
+    limitDismiss: "以后再说",
+    limitClose: "关闭",
+    creatingAccount: "正在创建你的 Builder.io 账号",
+    finishingSetup: "正在完成 Builder.io 设置",
+    accountExists: "此邮箱已有 Builder.io 账号。",
+    signIn: "登录 Builder.io",
+    setupFailed: "Builder.io 设置未完成。",
+    tryAgain: "重试",
+    consentPrefix: "创建 Builder.io 账号即表示你同意我们的",
+    consentTerms: "服务条款",
+    consentAnd: "和",
+    consentPrivacy: "隐私政策",
+    consentSuffix: "。",
+    alertOpenLibrary: "打开资料库",
+    alertNotNow: "以后再说",
+    lastClipTitle: "还剩 1 个免费片段",
+    lastClipDescription:
+      "录完这个片段后，使用免费的 Builder.io 账号继续录制。它包含转录、摘要和 2 GB 存储空间。",
+    lastClipRecord: "录制我的最后一个免费片段",
+    lastClipUpload: "上传我的最后一个免费片段",
+    storageTitle: "使用 Builder.io 保存你的片段",
+    storageDescription:
+      "创建免费的 Builder.io 账号即可存储你的片段，并获得 AI 转录和片段摘要。",
+    resendVerification: "重新发送邮件",
+    verificationSent: "验证邮件已发送。",
+    verificationFailed: "无法发送邮件。请重试。",
+    limitTitle: "你的前 {{count}} 个片段做得很棒",
+    verifyEmail:
+      "验证你的邮箱即可获得 {{count}} 个免费片段，或使用免费的 Builder.io 账号继续。",
+  },
 };
 
 export default messages;
