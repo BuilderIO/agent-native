@@ -24,19 +24,13 @@ import { assertNoInlineImageBytes } from "@agent-native/core/testing";
 
 type Args = Parameters<typeof runPublishAgentSelectionContext>[0];
 
-const selectionFixtures: Args[] = [];
+// A debounce or retry timer left pending writes into a later test's mock.
+const createdArgs: Args[] = [];
 afterEach(() => {
-  for (const args of selectionFixtures) {
-    // Unmount the fixture: debounce timers and late failed writes must not
-    // leak into the following test's fake clock or shared write mock.
-    args.persistedSelectionStateRef.current = null;
-    args.pendingPersistedSelectionWriteRef.current = null;
-    if (args.persistedSelectionWriteTimerRef.current !== null) {
+  for (const args of createdArgs.splice(0)) {
+    if (args.persistedSelectionWriteTimerRef.current !== null)
       window.clearTimeout(args.persistedSelectionWriteTimerRef.current);
-      args.persistedSelectionWriteTimerRef.current = null;
-    }
   }
-  selectionFixtures.length = 0;
 });
 
 function argsFor({
@@ -91,7 +85,7 @@ function argsFor({
     zoom: 100,
     ...overrides,
   };
-  selectionFixtures.push(args);
+  createdArgs.push(args);
   return args;
 }
 
