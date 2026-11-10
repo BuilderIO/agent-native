@@ -10,6 +10,7 @@ export default defineConfig({
     },
   },
   test: {
+    env: { DATABASE_URL: "pglite:memory" },
     exclude: [
       "**/node_modules/**",
       "**/.git/**",

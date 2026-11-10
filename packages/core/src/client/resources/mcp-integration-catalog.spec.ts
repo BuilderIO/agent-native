@@ -29,6 +29,32 @@ describe("MCP integration catalog", () => {
     vi.unstubAllGlobals();
   });
 
+  it("adds the popup return when OAuth starts on a separate server", () => {
+    const popup = { opener: {} } as unknown as Window;
+    const open = vi.fn(() => popup);
+    vi.stubGlobal("window", {
+      open,
+      location: {
+        href: "https://app.example.test/settings",
+        origin: "https://app.example.test",
+        pathname: "/settings",
+      },
+      __AGENT_NATIVE_CONFIG__: { apiBaseUrl: "https://api.example.test" },
+    });
+
+    expect(
+      navigateToMcpOAuthStart(
+        "https://api.example.test/_agent-native/mcp/servers/oauth/start",
+      ),
+    ).toBe(true);
+
+    const popupUrl = new URL(open.mock.calls[0]![0] as string);
+    expect(popupUrl.origin).toBe("https://api.example.test");
+    expect(popupUrl.searchParams.get("return")).toBe(
+      "/_agent-native/oauth/popup?complete=workspace-connection",
+    );
+  });
+
   it("opens OAuth setup without replacing the current app", () => {
     const popup = {
       opener: {},

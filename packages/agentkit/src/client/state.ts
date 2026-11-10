@@ -281,6 +281,31 @@ function appendMessageText(
   });
 }
 
+/**
+ * Ends a streaming message's open text before a tool call, so the text the
+ * reply writes after the call starts its own part, as the saved reply has it.
+ * Without the break, narration around calls reads as one run-on line.
+ */
+function closeOpenText(
+  messages: AgentMessage[],
+  messageId: string,
+): AgentMessage[] {
+  const message = messages.find((candidate) => candidate.id === messageId);
+  const last = message?.parts.at(-1);
+  if (
+    !message ||
+    message.status !== "streaming" ||
+    last?.type !== "text" ||
+    !last.text
+  ) {
+    return messages;
+  }
+  return upsertMessage(messages, {
+    ...message,
+    parts: [...message.parts, { type: "text", text: "" }],
+  });
+}
+
 function updateRun(
   thread: AgentThreadState,
   runId: RunId,
@@ -629,6 +654,7 @@ function settleRunItems(
     switch (event.type) {
       case "message.created":
       case "message.completed":
+      case "message.replaced":
         messageIds.add(event.message.id);
         break;
       case "message.delta":
@@ -1055,6 +1081,29 @@ export function reduceAgentEvent(
         messages: upsertMessage(next.messages, { ...event.message, status }),
       };
     }
+    case "message.replaced": {
+      const current = next.messages.find(
+        (message) => message.id === event.message.id,
+      );
+      // Only a streaming reply's draft is ever discarded and rewritten.
+      if (
+        event.message.role !== "assistant" ||
+        (current !== undefined && current.role !== "assistant") ||
+        current?.status === "complete"
+      ) {
+        return next;
+      }
+      next = assignActiveMessage(next, event.runId, event.message.id);
+      return {
+        ...next,
+        messages: upsertMessage(
+          next.messages,
+          current
+            ? { ...current, parts: event.message.parts }
+            : { ...event.message, status: "streaming" },
+        ),
+      };
+    }
     case "message.delta":
       next = assignActiveMessage(next, event.runId, event.messageId);
       return {
@@ -1109,6 +1158,9 @@ export function reduceAgentEvent(
           : event.toolCall;
       return {
         ...next,
+        ...(event.type === "tool.started" && toolCall.messageId
+          ? { messages: closeOpenText(next.messages, toolCall.messageId) }
+          : {}),
         tools: { ...next.tools, [event.toolCall.id]: toolCall },
       };
     }

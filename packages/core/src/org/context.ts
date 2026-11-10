@@ -60,6 +60,17 @@ const EMPTY_CONTEXT: OrgContext = {
 const ORG_SCOPE_RESOLUTION_UNAVAILABLE_KEY =
   "__anOrgScopeResolutionUnavailable";
 const ORG_SCOPE_RESOLUTION_ERROR_KEY = "__anOrgScopeResolutionError";
+const ORG_SCOPE_FORBIDDEN_KEY = "__anOrgScopeForbidden";
+
+export function hasForbiddenOrgScope(event: {
+  context?: Record<string, unknown>;
+}): boolean {
+  return event.context?.[ORG_SCOPE_FORBIDDEN_KEY] === true;
+}
+
+function markForbiddenOrgScope(event: H3Event): void {
+  (event.context as Record<string, unknown>)[ORG_SCOPE_FORBIDDEN_KEY] = true;
+}
 
 export function hasOrgScopeResolutionUnavailable(event: {
   context?: Record<string, unknown>;
@@ -461,6 +472,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     !memberships.some((membership) => membership.orgId === selectedOrgId)
   ) {
     if (isDelegatedOrgMember) throw new ForbiddenError();
+    markForbiddenOrgScope(event);
     return { email, orgId: null, orgName: null, role: null };
   }
   if (selectedOrgId && memberships.some((m) => m.orgId === selectedOrgId)) {
@@ -500,6 +512,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     const membershipsBeforeJoin = memberships;
     const joined = await autoJoinDomainMatchingOrgs(email, {
       activateJoinedOrg: "never",
+      event,
     });
     const joinedOrgId = joined.joined[0]?.orgId ?? null;
     if (joinedOrgId) {
@@ -580,8 +593,10 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
       }),
     );
     if (pending.rows.length > 0) {
+      markForbiddenOrgScope(event);
       return { email, orgId: null, orgName: null, role: null };
     }
+    markForbiddenOrgScope(event);
     return { email, orgId: null, orgName: null, role: null };
   }
 
@@ -591,10 +606,39 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     autoCreateDefaultOrgEnabled()
   ) {
     const created = await tryCreateDefaultOrg(exec, email, session, event);
+    if (created === "memberships-refreshed") {
+      return resolveOrgContextUncached(event);
+    }
     if (created) return created;
   }
 
   if (memberships.length === 0) {
+    if (
+      !isDelegatedOrgMember &&
+      getAppConfig().access.orgCreation === "closed" &&
+      session.emailVerified === true &&
+      isBootstrapAdmin(email)
+    ) {
+      let refreshed: MembershipRow[] | null = null;
+      try {
+        if (await bootstrapEmptyOrganizationForRequest(email, event)) {
+          refreshed = await loadMembershipsUncached(email);
+          if (!refreshed?.length) throw new SessionResolutionUnavailableError();
+        }
+      } catch (cause) {
+        throw markOrgScopeResolutionUnavailable(event, { cause });
+      }
+      if (refreshed) {
+        updateMembershipsForEvent(event, email, refreshed);
+        return resolveOrgContextUncached(event);
+      }
+    }
+    if (
+      getAppConfig().access.orgCreation === "closed" &&
+      !autoCreateDefaultOrgEnabled() &&
+      !hasOrgScopeResolutionUnavailable(event)
+    )
+      markForbiddenOrgScope(event);
     return { email, orgId: null, orgName: null, role: null };
   }
 
@@ -873,6 +917,55 @@ export async function createOrganization(
   return { id, name: trimmedName, role, a2aSecret, createdAt };
 }
 
+async function bootstrapEmptyOrganizationForRequest(
+  rawEmail: string,
+  event: H3Event,
+): Promise<boolean> {
+  const email = rawEmail.trim().toLowerCase();
+  const config = getAppConfig();
+  const name = config.app.name ?? config.app.id ?? "Agent-Native";
+  const identity = config.app.workspaceId ?? config.app.id ?? name;
+  const id = `bootstrap-${createHash("sha256").update(identity).digest("hex").slice(0, 24)}`;
+  const now = Date.now();
+  const { randomBytes } = await import("node:crypto");
+  const exec = getDbExec();
+  const inserted = await withDatabaseErrorProvenance(async () =>
+    exec.execute({
+      sql: `WITH new_org AS (
+            INSERT INTO organizations (id, name, created_by, created_at, a2a_secret)
+            SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM organizations)
+            ON CONFLICT (id) DO NOTHING RETURNING id
+          )
+          INSERT INTO org_members (id, org_id, email, role, joined_at)
+          SELECT ?, id, ?, 'owner', ? FROM new_org LIMIT 1 RETURNING org_id`,
+      args: [
+        id,
+        name,
+        email,
+        now,
+        randomBytes(32).toString("base64url"),
+        nanoid(),
+        email,
+        now,
+      ],
+    }),
+  );
+  if (inserted.rows.length) {
+    invalidateMemberOrgCaches();
+    await setActiveOrgId(
+      email,
+      id,
+      "bootstrap admin organization access",
+      event,
+    );
+    return true;
+  }
+  // A concurrent request may have created this same admin's membership.
+  const memberships = await loadMembershipsUncached(email);
+  if (memberships === null) throw new SessionResolutionUnavailableError();
+  return memberships.length > 0;
+}
+
 export async function bootstrapAdminOrganization(
   rawEmail: string,
   event?: H3Event,
@@ -1034,7 +1127,7 @@ async function tryCreateDefaultOrg(
   email: string,
   session: { name?: string } | null,
   event: H3Event,
-): Promise<OrgContext | null> {
+): Promise<OrgContext | "memberships-refreshed" | null> {
   await getSetting("__init").catch(() => null);
 
   const claimKey = `u:${email.toLowerCase()}:auto-create-claim`;
@@ -1042,12 +1135,31 @@ async function tryCreateDefaultOrg(
   let ownsClaim = false;
   try {
     ownsClaim = await acquireClaim(exec, claimKey);
-    if (!ownsClaim) return null;
+    if (!ownsClaim) {
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const memberships = await loadMembershipsUncached(email);
+        if (memberships === null) break;
+        if (memberships.length > 0) {
+          updateMembershipsForEvent(event, email, memberships);
+          return "memberships-refreshed";
+        }
+      }
+      // Another request still holds the claim; its workspace is not Personal scope.
+      throw new SessionResolutionUnavailableError();
+    }
 
-    // Pending-invite check happens INSIDE the claim so the window where a
-    // newly-arrived invitation can be missed is narrowed to a single SQL
-    // round-trip. (A still-narrower window would require a transaction
-    // spanning org_invitations and settings — out of scope.)
+    // A request may have read zero memberships before another instance finished.
+    const existing = await loadMembershipsUncached(email);
+    if (existing === null) throw new SessionResolutionUnavailableError();
+    if (existing.length > 0) {
+      await releaseClaim(exec, claimKey);
+      updateMembershipsForEvent(event, email, existing);
+      return "memberships-refreshed";
+    }
+
+    // Check invitations while holding the claim to narrow the race window.
     if (await hasPendingInvitation(exec, email)) {
       await releaseClaim(exec, claimKey);
       return null;

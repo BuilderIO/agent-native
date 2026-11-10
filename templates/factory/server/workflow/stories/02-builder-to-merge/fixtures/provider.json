@@ -158,11 +158,12 @@
         "changedFiles": 2,
         "checks": {
           "coverage": "complete",
-          "total": 3,
-          "passed": 1,
+          "total": 67,
+          "passed": 33,
           "failed": 1,
           "pending": 0,
-          "informational": 0,
+          "cancelled": 0,
+          "informational": 33,
           "allPassing": false,
           "notPassing": [
             {
@@ -182,6 +183,11 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     },
@@ -213,11 +219,12 @@
         "changedFiles": 2,
         "checks": {
           "coverage": "complete",
-          "total": 3,
-          "passed": 1,
+          "total": 67,
+          "passed": 33,
           "failed": 1,
           "pending": 0,
-          "informational": 0,
+          "cancelled": 0,
+          "informational": 33,
           "allPassing": false,
           "notPassing": [
             {
@@ -237,6 +244,11 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     },
@@ -268,13 +280,19 @@
         "changedFiles": 2,
         "checks": {
           "coverage": "complete",
-          "total": 3,
-          "passed": 1,
+          "total": 67,
+          "passed": 33,
           "failed": 0,
           "pending": 1,
-          "informational": 0,
+          "cancelled": 0,
+          "informational": 33,
           "allPassing": false,
-          "notPassing": [],
+          "notPassing": [
+            {
+              "name": "unit tests",
+              "state": "in_progress"
+            }
+          ],
           "notPassingTruncated": false
         },
         "reviewThreads": {
@@ -287,6 +305,11 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     },
@@ -318,11 +341,12 @@
         "changedFiles": 2,
         "checks": {
           "coverage": "complete",
-          "total": 3,
-          "passed": 3,
+          "total": 67,
+          "passed": 34,
           "failed": 0,
           "pending": 0,
-          "informational": 0,
+          "cancelled": 0,
+          "informational": 33,
           "allPassing": true,
           "notPassing": [],
           "notPassingTruncated": false
@@ -337,6 +361,67 @@
         "reviews": {
           "complete": true,
           "total": 1
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
+        }
+      }
+    },
+    "greenWithoutEvidence": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommitSha": null,
+        "headSha": "headG",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 67,
+          "passed": 34,
+          "failed": 0,
+          "pending": 0,
+          "cancelled": 0,
+          "informational": 33,
+          "allPassing": true,
+          "notPassing": [],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 1
+        },
+        "verification": {
+          "present": false,
+          "hasMedia": false,
+          "excerpt": ""
         }
       }
     },
@@ -372,6 +457,7 @@
           "passed": 0,
           "failed": 0,
           "pending": 0,
+          "cancelled": 0,
           "informational": 0,
           "allPassing": false,
           "notPassing": [],
@@ -387,6 +473,11 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     },
@@ -418,11 +509,12 @@
         "changedFiles": 2,
         "checks": {
           "coverage": "complete",
-          "total": 3,
-          "passed": 3,
+          "total": 140,
+          "passed": 61,
           "failed": 0,
           "pending": 0,
-          "informational": 0,
+          "cancelled": 0,
+          "informational": 79,
           "allPassing": true,
           "notPassing": [],
           "notPassingTruncated": false
@@ -437,6 +529,11 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     },
@@ -468,13 +565,19 @@
         "changedFiles": 2,
         "checks": {
           "coverage": "complete",
-          "total": 3,
-          "passed": 1,
+          "total": 67,
+          "passed": 33,
           "failed": 0,
           "pending": 1,
-          "informational": 0,
+          "cancelled": 0,
+          "informational": 33,
           "allPassing": false,
-          "notPassing": [],
+          "notPassing": [
+            {
+              "name": "unit tests",
+              "state": "in_progress"
+            }
+          ],
           "notPassingTruncated": false
         },
         "reviewThreads": {
@@ -487,6 +590,11 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     },
@@ -518,11 +626,12 @@
         "changedFiles": 2,
         "checks": {
           "coverage": "complete",
-          "total": 3,
-          "passed": 1,
+          "total": 67,
+          "passed": 33,
           "failed": 1,
           "pending": 0,
-          "informational": 0,
+          "cancelled": 0,
+          "informational": 33,
           "allPassing": false,
           "notPassing": [
             {
@@ -542,6 +651,457 @@
         "reviews": {
           "complete": true,
           "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
+        }
+      }
+    },
+    "greenMediaOnly": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommitSha": null,
+        "headSha": "headG",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 67,
+          "passed": 34,
+          "failed": 0,
+          "pending": 0,
+          "cancelled": 0,
+          "informational": 33,
+          "allPassing": true,
+          "notPassing": [],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 1
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": ""
+        }
+      }
+    },
+    "cancelledChecks": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommitSha": null,
+        "headSha": "headC",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 67,
+          "passed": 34,
+          "failed": 0,
+          "pending": 0,
+          "cancelled": 33,
+          "informational": 0,
+          "allPassing": false,
+          "notPassing": [
+            {
+              "name": "Design core regression (1)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (2)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (3)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (4)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (5)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (6)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (7)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (8)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (9)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (10)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (11)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (12)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (13)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (14)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (15)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (16)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (17)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (18)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (19)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (20)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (21)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (22)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (23)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (24)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (25)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (26)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (27)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (28)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (29)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (30)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (31)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (32)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (33)",
+              "state": "cancelled"
+            }
+          ],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 1
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
+        }
+      }
+    },
+    "failingWithCancelled": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "title": "Fix the checkout Pay button",
+        "state": "open",
+        "draft": false,
+        "merged": false,
+        "mergedAt": null,
+        "mergeCommitSha": null,
+        "headSha": "headD",
+        "headRef": "factory-m1",
+        "baseRef": "main",
+        "author": {
+          "login": "builderio-bot",
+          "kind": "builder",
+          "builderAuthored": true
+        },
+        "mergeable": true,
+        "mergeableState": "clean",
+        "additions": 12,
+        "deletions": 3,
+        "changedFiles": 2,
+        "checks": {
+          "coverage": "complete",
+          "total": 99,
+          "passed": 30,
+          "failed": 3,
+          "pending": 0,
+          "cancelled": 33,
+          "informational": 33,
+          "allPassing": false,
+          "notPassing": [
+            {
+              "name": "Lint & format",
+              "state": "failed"
+            },
+            {
+              "name": "Build artifacts",
+              "state": "failed"
+            },
+            {
+              "name": "Content parity",
+              "state": "failed"
+            },
+            {
+              "name": "Design core regression (1)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (2)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (3)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (4)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (5)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (6)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (7)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (8)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (9)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (10)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (11)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (12)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (13)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (14)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (15)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (16)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (17)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (18)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (19)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (20)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (21)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (22)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (23)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (24)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (25)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (26)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (27)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (28)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (29)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (30)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (31)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (32)",
+              "state": "cancelled"
+            },
+            {
+              "name": "Design core regression (33)",
+              "state": "cancelled"
+            }
+          ],
+          "notPassingTruncated": false
+        },
+        "reviewThreads": {
+          "complete": true,
+          "total": 0,
+          "unresolved": 0,
+          "unresolvedThreads": [],
+          "unresolvedThreadsTruncated": false
+        },
+        "reviews": {
+          "complete": true,
+          "total": 0
+        },
+        "verification": {
+          "present": true,
+          "hasMedia": true,
+          "excerpt": "Before and after screenshots of the Pay button; the checkout spec fails without the fix and passes with it."
         }
       }
     }
@@ -614,6 +1174,32 @@
           "fromBots": 0,
           "fromNonCollaborators": 0,
           "stale": 1
+        },
+        "repo": "example-org/example-repo",
+        "number": 7,
+        "url": "https://github.example.test/example-org/example-repo/pull/7",
+        "state": "open",
+        "headSha": "headG",
+        "checkedAt": "2026-10-19T12:00:00.000Z"
+      }
+    },
+    "evidenceMissing": {
+      "ok": true,
+      "output": {
+        "ok": true,
+        "eligible": false,
+        "reasons": [
+          "The pull request description has no `### Verified` section with text, a screenshot or a recording, so nothing shows how the change was checked."
+        ],
+        "reasonCodes": ["no_verification_evidence"],
+        "reasonText": "The pull request description has no `### Verified` section with text, a screenshot or a recording, so nothing shows how the change was checked.",
+        "approvals": {
+          "seen": 1,
+          "qualifying": 1,
+          "byAuthor": 0,
+          "fromBots": 0,
+          "fromNonCollaborators": 0,
+          "stale": 0
         },
         "repo": "example-org/example-repo",
         "number": 7,

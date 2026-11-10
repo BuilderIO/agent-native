@@ -48,6 +48,7 @@ import {
   SettingsSelect,
   SettingsValueTrigger,
 } from "@/components/settings/settings-ui";
+import { ThirdPartyNotices } from "@/components/settings/ThirdPartyNotices";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog as UiAlertDialog,
@@ -105,6 +106,12 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { stopAllMicMeters } from "./hooks/useMicMeter";
+import {
+  prepareParakeetModel,
+  useParakeetModel,
+  useParakeetPreparation,
+  type ParakeetModelStatus,
+} from "./hooks/useParakeetModel";
 import { useSystemAccessRows } from "./hooks/useSystemAccessRows";
 import { useWhisperSettings } from "./hooks/useWhisperSettings";
 import {
@@ -136,6 +143,14 @@ import {
   setTakeClipLimitMs,
 } from "./lib/clip-duration-limit";
 import { callClipsActionFor } from "./lib/clips-action";
+import {
+  startUnavailableAuthRecovery,
+  trackAuthRecoveryResult,
+} from "./lib/desktop-auth-recovery";
+import {
+  checkDesktopAuthSession,
+  type AuthCheckResult,
+} from "./lib/desktop-auth-session";
 import {
   authTokenStorageKey,
   loadDesktopAuthToken,
@@ -262,16 +277,32 @@ import {
 } from "./lib/updater";
 import {
   DEFAULT_SERVER_URL,
+  loadStoredServerUrl,
   normalizeServerUrl,
+  persistStoredServerUrl,
   SERVER_URL_STORAGE_KEY,
 } from "./lib/url";
 import { cn } from "./lib/utils";
 import {
   installDesktopVoiceDictation,
   type VoiceMode,
-  type VoiceProvider,
   type VoiceShortcutPreference,
 } from "./lib/voice-dictation";
+import {
+  isByokPolishProvider,
+  loadVoiceSettings,
+  newInstallVoiceEngine,
+  VOICE_ENGINE_KEY,
+  VOICE_MODE_KEY,
+  voiceEngineOptions,
+  VOICE_POLISH_KEY,
+  voicePolishMode,
+  type ByokPolishProvider,
+  type VoiceEngine,
+  type VoicePolish,
+  type VoicePolishMode,
+  type VoiceSettings,
+} from "./lib/voice-settings";
 import { whisperModelOptionLabel } from "./lib/whisper-model-picker";
 import {
   getRecordingContextItem,
@@ -336,12 +367,6 @@ import {
   type LocalRecordingMode,
   type ScreenMemoryStatus,
 } from "./shared/config";
-
-type AuthCheckResult =
-  | { state: "authenticated"; token?: string }
-  | { state: "anonymous" }
-  | { state: "unavailable" }
-  | { state: "stale" };
 
 type NativeUploadProgress = {
   recordingId?: string;
@@ -525,8 +550,6 @@ const POPOVER_CUSTOM_SHORTCUT_KEY = "clips:popover-custom-shortcut";
 const RECORD_CUSTOM_SHORTCUT_KEY = "clips:record-custom-shortcut";
 const RECORD_CANCEL_SHORTCUT_KEY = "clips:record-cancel-shortcut";
 const RECORD_PAUSE_SHORTCUT_KEY = "clips:record-pause-shortcut";
-const VOICE_MODE_KEY = "clips:voice-mode";
-const VOICE_PROVIDER_KEY = "clips:voice-provider";
 const VOICE_INSTRUCTIONS_KEY = "clips:voice-instructions";
 const SOURCE_KEY = "clips:last-source";
 const CAM_ON_KEY = "clips:camera-on";
@@ -573,6 +596,7 @@ async function hasConfiguredVideoStorage(
 ): Promise<{
   probe: FileUploadStatusProbe;
   maxClipDurationMs: number | null;
+  hostedRemaining: number | null;
 }> {
   const controller = new AbortController();
   const timeout = window.setTimeout(
@@ -581,6 +605,7 @@ async function hasConfiguredVideoStorage(
   );
   let probe: FileUploadStatusProbe = "unavailable";
   let maxClipDurationMs: number | null = null;
+  let hostedRemaining: number | null = null;
   try {
     const status = await callClipsActionFor<{
       configured: boolean;
@@ -609,6 +634,7 @@ async function hasConfiguredVideoStorage(
       throw new Error("Video storage status response is invalid");
     }
     maxClipDurationMs = hostedClipDurationLimitMs(status);
+    if (status.mode === "hosted") hostedRemaining = status.hostedRemaining;
     if (status.mode === "own") {
       probe = "configured";
       if (account)
@@ -624,7 +650,7 @@ async function hasConfiguredVideoStorage(
   } finally {
     window.clearTimeout(timeout);
   }
-  return { probe, maxClipDurationMs };
+  return { probe, maxClipDurationMs, hostedRemaining };
 }
 
 function videoStorageConfiguredKey(serverUrl: string, account: string): string {
@@ -672,10 +698,7 @@ function isDevOriginWebview(): boolean {
 
 function seedDesktopAuthContextFromStorage(): void {
   if (currentServerOrigin || typeof window === "undefined") return;
-  const storedServerUrl = loadString(STORAGE_KEY, DEFAULT_URL).replace(
-    /\/+$/,
-    "",
-  );
+  const storedServerUrl = loadStoredServerUrl();
   setDesktopAuthContext(storedServerUrl, loadDesktopAuthToken(storedServerUrl));
 }
 
@@ -720,9 +743,6 @@ export function installAuthFetchInterceptor(): void {
     return nativeFetch(input, { ...init, headers, credentials });
   };
 }
-
-type ByokVoiceProvider = Extract<VoiceProvider, "gemini" | "groq">;
-type VoiceProviderMode = "native" | "whisper" | "builder" | "byok";
 
 const MACOS_PRIVACY_URLS: Record<MacosPrivacyPane, string> = {
   camera:
@@ -775,35 +795,29 @@ function openPrivacySettings(pane: MacosPrivacyPane): void {
   }
 }
 
-function nativeVoiceProvider(): VoiceProvider {
-  return isMacPlatform() ? "macos-native" : "browser";
+function readStoredVoiceSetting(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch (err) {
+    // coercion-ok: storage that cannot be read is treated as a fresh install,
+    // which loadVoiceSettings maps to the platform's built-in speech.
+    console.warn(`[voice-settings] could not read ${key}:`, err);
+    return null;
+  }
 }
 
-function isByokVoiceProvider(value: VoiceProvider): value is ByokVoiceProvider {
-  return value === "gemini" || value === "groq";
-}
-
-function voiceProviderMode(value: VoiceProvider): VoiceProviderMode {
-  if (isByokVoiceProvider(value)) return "byok";
-  if (value === "builder" || value === "builder-gemini") return "builder";
-  if (value === "whisper") return "whisper";
-  return "native";
-}
-
-function normalizeVoiceProvider(value: string): VoiceProvider {
-  const native = nativeVoiceProvider();
-  if (value === "auto") return native;
-  if (value === "builder") return "builder-gemini";
-  if (value === "macos-native" && !isMacPlatform()) return "browser";
-  if (value === "browser" && isMacPlatform()) return "macos-native";
-  return value === "browser" ||
-    value === "macos-native" ||
-    value === "whisper" ||
-    value === "builder-gemini" ||
-    value === "gemini" ||
-    value === "groq"
-    ? value
-    : native;
+function readNewInstallVoiceEngine(): VoiceEngine | null {
+  try {
+    return newInstallVoiceEngine((key) => localStorage.getItem(key), {
+      isMac: isMacPlatform(),
+      language: navigator.language,
+    });
+  } catch (err) {
+    // coercion-ok: storage that cannot be read may hold a choice, so this is
+    // not treated as a new install and the existing engine stays.
+    console.warn("[voice-settings] could not check for a new install:", err);
+    return null;
+  }
 }
 
 function formatMeetingWhen(meeting: PopoverMeeting): string {
@@ -1081,7 +1095,7 @@ export function App({
 } = {}) {
   const featureConfig = useFeatureConfig();
   const [serverUrl, setServerUrl] = useState<string>(() =>
-    loadString(STORAGE_KEY, DEFAULT_URL).replace(/\/+$/, ""),
+    loadStoredServerUrl(),
   );
   const [initialCaptureSetup] = useState(() =>
     normalizeCaptureSetup(
@@ -1135,11 +1149,23 @@ export function App({
     const saved = loadString(VOICE_MODE_KEY, "push-to-talk");
     return saved === "toggle" ? "toggle" : "push-to-talk";
   });
-  const [voiceProvider, setVoiceProvider] = useState<VoiceProvider>(() => {
-    return normalizeVoiceProvider(
-      loadString(VOICE_PROVIDER_KEY, nativeVoiceProvider()),
-    );
+  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>(() => {
+    const newInstallEngine = readNewInstallVoiceEngine();
+    if (newInstallEngine) saveString(VOICE_ENGINE_KEY, newInstallEngine);
+    return loadVoiceSettings(readStoredVoiceSetting);
   });
+  const voiceEngine = voiceSettings.engine;
+  const voicePolish = voiceSettings.polish;
+  // Saved only on an explicit change: if a stored value could not be read,
+  // saving the inferred one on mount would overwrite the user's real choice.
+  const setVoiceEngine = useCallback((engine: VoiceEngine) => {
+    saveString(VOICE_ENGINE_KEY, engine);
+    setVoiceSettings((current) => ({ ...current, engine }));
+  }, []);
+  const setVoicePolish = useCallback((polish: VoicePolish) => {
+    saveString(VOICE_POLISH_KEY, polish);
+    setVoiceSettings((current) => ({ ...current, polish }));
+  }, []);
   const [voiceInstructions, setVoiceInstructions] = useState<string>(() =>
     loadString(VOICE_INSTRUCTIONS_KEY, ""),
   );
@@ -1262,6 +1288,7 @@ export function App({
   const [authStatus, setAuthStatus] = useState<
     "unknown" | "authed" | "anon" | "unavailable"
   >("unknown");
+  const [authRecoveryActive, setAuthRecoveryActive] = useState(false);
   const [labValues, setLabValues] = useState<Record<string, unknown>>({});
   const [labError, setLabError] = useState<string | null>(null);
   const t = useT();
@@ -1363,6 +1390,9 @@ export function App({
   const fnShortcutEnabled =
     voiceDictationEnabled &&
     (voiceShortcut === "fn" || voiceShortcut === "both");
+  useParakeetPreparation(
+    isMacPlatform() && voiceDictationEnabled && voiceEngine === "parakeet",
+  );
 
   useEffect(() => {
     if (!meetingsLabEnabled && popoverView === "meetings") {
@@ -1383,9 +1413,21 @@ export function App({
   const videoStorageIdentityRef = useRef(videoStorageIdentity);
   // Hosted per-clip cap from the last storage probe; null for own storage.
   const hostedClipLimitMsRef = useRef<number | null>(null);
+  // Free hosted clips left from the last storage probe; null outside hosted.
+  const [hostedClipsRemaining, setHostedClipsRemaining] = useState<
+    number | null
+  >(null);
+  // The server and account the newest probe found configured. The cached
+  // "configured" is enough to record, but saved files upload on their own
+  // only after a probe of the current server and account.
+  const [videoStorageProbedIdentity, setVideoStorageProbedIdentity] = useState<
+    string | null
+  >(null);
   useEffect(() => {
     videoStorageIdentityRef.current = videoStorageIdentity;
     hostedClipLimitMsRef.current = null;
+    setHostedClipsRemaining(null);
+    setVideoStorageProbedIdentity(null);
     setVideoStorageStatus(
       signedInAs &&
         loadBool(videoStorageConfiguredKey(serverUrl, signedInAs), false)
@@ -1399,6 +1441,8 @@ export function App({
   const refreshVideoStorageStatus = useCallback(async () => {
     if (authStatus !== "authed") {
       hostedClipLimitMsRef.current = null;
+      setHostedClipsRemaining(null);
+      setVideoStorageProbedIdentity(null);
       setVideoStorageStatus("configured");
       return true;
     }
@@ -1407,17 +1451,19 @@ export function App({
     // Probes are slow enough to overlap; only the newest result may land, or a
     // pre-connect "missing" overwrites the "configured" that came after it.
     const probeSeq = ++videoStorageProbeSeqRef.current;
-    const { probe, maxClipDurationMs } = await hasConfiguredVideoStorage(
-      serverUrl,
-      signedInAs,
-    );
+    const { probe, maxClipDurationMs, hostedRemaining } =
+      await hasConfiguredVideoStorage(serverUrl, signedInAs);
     if (videoStorageIdentityRef.current !== probedIdentity) return false;
     if (videoStorageProbeSeqRef.current !== probeSeq) return false;
+    setVideoStorageProbedIdentity(
+      probe === "configured" ? probedIdentity : null,
+    );
     if (probe === "unavailable") {
       setVideoStorageStatus("unavailable");
       return false;
     }
     hostedClipLimitMsRef.current = maxClipDurationMs;
+    setHostedClipsRemaining(hostedRemaining);
     setVideoStorageStatus(probe);
     return probe === "configured";
   }, [authStatus, serverUrl, signedInAs, videoStorageIdentity]);
@@ -1425,6 +1471,10 @@ export function App({
   useEffect(() => {
     void refreshVideoStorageStatus();
   }, [refreshVideoStorageStatus]);
+
+  useEffect(() => {
+    if (popoverVisible) void refreshVideoStorageStatus();
+  }, [popoverVisible, refreshVideoStorageStatus]);
 
   useEffect(() => {
     if (
@@ -1489,7 +1539,8 @@ export function App({
       serverUrl,
       shortcut: voiceShortcut,
       mode: voiceMode,
-      provider: voiceProvider,
+      engine: voiceEngine,
+      polish: voicePolish,
       micDeviceId: selectedMicId || null,
       micDeviceLabel: selectedMicLabel || null,
       instructions: voiceInstructions,
@@ -1499,7 +1550,8 @@ export function App({
     voiceShortcut,
     voiceDictationEnabled,
     voiceMode,
-    voiceProvider,
+    voiceEngine,
+    voicePolish,
     selectedMicId,
     selectedMicLabel,
     voiceInstructions,
@@ -1551,57 +1603,22 @@ export function App({
     const isCurrentRequest = () =>
       requestId === authCheckGenerationRef.current &&
       authServerUrlRef.current === requestServerUrl;
-    try {
-      const res = await fetch(
-        `${requestServerUrl.replace(/\/+$/, "")}/_agent-native/auth/session`,
-        { credentials: "include", cache: "no-store" },
-      );
-      if (!isCurrentRequest()) return { state: "stale" };
-      setServerReachable(true);
-      if (!res.ok) {
-        if (res.status === 401 || res.status === 403) {
-          clearDesktopAuthToken(requestServerUrl);
-          setAuthStatus("anon");
-          setSignedInAs(null);
-          return { state: "anonymous" };
-        }
-        if (res.status >= 500) {
-          setServerReachable(false);
-          setAuthStatus((current) =>
-            current === "authed" ? current : "unavailable",
-          );
-          return { state: "unavailable" };
-        }
-        setAuthStatus("anon");
-        setSignedInAs(null);
-        return { state: "anonymous" };
-      }
-      const json = (await res.json().catch(() => null)) as {
-        email?: string;
-        token?: string;
-        error?: string;
-      } | null;
-      if (json?.email) {
-        if (!isCurrentRequest()) return { state: "stale" };
-        const token = json.token?.trim() || undefined;
-        if (token) saveDesktopAuthToken(requestServerUrl, token);
-        setAuthStatus("authed");
-        setSignedInAs(json.email);
-        return { state: "authenticated", ...(token ? { token } : {}) };
-      }
-      if (!isCurrentRequest()) return { state: "stale" };
-      setAuthStatus("anon");
-      setSignedInAs(null);
-      clearDesktopAuthToken(requestServerUrl);
-      return { state: "anonymous" };
-    } catch {
-      if (!isCurrentRequest()) return { state: "stale" };
-      setServerReachable(false);
-      setAuthStatus((current) =>
-        current === "authed" ? current : "unavailable",
-      );
-      return { state: "unavailable" };
-    }
+    const result = await checkDesktopAuthSession({
+      serverUrl: requestServerUrl,
+      isCurrentRequest,
+      fetchSession: fetch,
+      saveToken: saveDesktopAuthToken,
+      clearToken: clearDesktopAuthToken,
+      persistServerUrl: persistStoredServerUrl,
+      setAuthStatus,
+      setSignedInAs,
+      setServerReachable,
+    });
+    return trackAuthRecoveryResult(
+      result,
+      isCurrentRequest,
+      setAuthRecoveryActive,
+    );
   }, [serverUrl]);
 
   const pushMeetingsSession = useCallback(async () => {
@@ -1627,6 +1644,11 @@ export function App({
   useEffect(() => {
     void checkAuth();
   }, [checkAuth]);
+
+  useEffect(() => {
+    if (!authRecoveryActive) return;
+    return startUnavailableAuthRecovery(checkAuth);
+  }, [authRecoveryActive, checkAuth]);
 
   useEffect(() => {
     invoke("meetings_watcher_set_server_url", { serverUrl }).catch(() => {
@@ -2827,6 +2849,7 @@ export function App({
     selectedMicId,
     selectedMicLabel,
     enabled: meetingsLabEnabled,
+    localModel: voiceEngine === "parakeet" ? "parakeet" : null,
   });
 
   type DesktopAuthKind = "google" | "magic-link";
@@ -3736,10 +3759,6 @@ export function App({
     [recordPauseShortcut],
   );
   useEffect(() => saveString(VOICE_MODE_KEY, voiceMode), [voiceMode]);
-  useEffect(
-    () => saveString(VOICE_PROVIDER_KEY, voiceProvider),
-    [voiceProvider],
-  );
   useEffect(
     () => saveString(VOICE_INSTRUCTIONS_KEY, voiceInstructions),
     [voiceInstructions],
@@ -4851,11 +4870,19 @@ export function App({
       recordFirstPending > 0 &&
       authStatus === "authed" &&
       videoStorageStatus === "configured" &&
+      videoStorageProbedIdentity === videoStorageIdentity &&
       !recorder
     ) {
       void uploadRecordFirstFilesRef.current();
     }
-  }, [authStatus, recorder, recordFirstPending, videoStorageStatus]);
+  }, [
+    authStatus,
+    recorder,
+    recordFirstPending,
+    videoStorageIdentity,
+    videoStorageProbedIdentity,
+    videoStorageStatus,
+  ]);
 
   const showSourceRow = mode !== "camera";
   const imminentMeeting = meetings.find(meetingCanStartNotes) ?? null;
@@ -5152,7 +5179,8 @@ export function App({
           recordCancelShortcut={recordCancelShortcut}
           recordPauseShortcut={recordPauseShortcut}
           voiceMode={voiceMode}
-          voiceProvider={voiceProvider}
+          voiceEngine={voiceEngine}
+          voicePolish={voicePolish}
           voiceInstructions={voiceInstructions}
           shortcutRegistrationError={shortcutRegistrationError}
           onVoiceShortcutChange={updateVoiceShortcut}
@@ -5162,7 +5190,8 @@ export function App({
           onRecordCancelShortcutChange={setRecordCancelShortcut}
           onRecordPauseShortcutChange={setRecordPauseShortcut}
           onVoiceModeChange={setVoiceMode}
-          onVoiceProviderChange={setVoiceProvider}
+          onVoiceEngineChange={setVoiceEngine}
+          onVoicePolishChange={setVoicePolish}
           onVoiceInstructionsChange={setVoiceInstructions}
           onSignOut={signOut}
           onConnect={(url) => {
@@ -5205,7 +5234,8 @@ export function App({
           recordCancelShortcut={recordCancelShortcut}
           recordPauseShortcut={recordPauseShortcut}
           voiceMode={voiceMode}
-          voiceProvider={voiceProvider}
+          voiceEngine={voiceEngine}
+          voicePolish={voicePolish}
           voiceInstructions={voiceInstructions}
           shortcutRegistrationError={shortcutRegistrationError}
           onVoiceShortcutChange={updateVoiceShortcut}
@@ -5215,7 +5245,8 @@ export function App({
           onRecordCancelShortcutChange={setRecordCancelShortcut}
           onRecordPauseShortcutChange={setRecordPauseShortcut}
           onVoiceModeChange={setVoiceMode}
-          onVoiceProviderChange={setVoiceProvider}
+          onVoiceEngineChange={setVoiceEngine}
+          onVoicePolishChange={setVoicePolish}
           onVoiceInstructionsChange={setVoiceInstructions}
           onSignOut={signOut}
           onConnect={(url) => {
@@ -5503,6 +5534,23 @@ export function App({
               />
             ) : null}
           </button>
+        ) : null}
+
+        {!isRecording &&
+        localRecordingMode === "off" &&
+        videoStorageStatus === "configured" &&
+        hostedClipsRemaining !== null ? (
+          <p className="hosted-clips-left">
+            {t("recordRoute.freeClipsLeft", { count: hostedClipsRemaining })}
+            {" · "}
+            <button
+              type="button"
+              className="hosted-clips-activate"
+              onClick={connectVideoStorage}
+            >
+              {t("recordRoute.activateBuilder")}
+            </button>
+          </p>
         ) : null}
 
         {recError ? (
@@ -6733,14 +6781,14 @@ type VoiceProviderStatus = {
   groq: boolean;
 };
 
-function keyForByokProvider(provider: ByokVoiceProvider): string {
+function keyForByokProvider(provider: ByokPolishProvider): string {
   return {
     gemini: "GOOGLE_GENERATIVE_AI_API_KEY",
     groq: "GROQ_API_KEY",
   }[provider];
 }
 
-function labelForByokProvider(provider: ByokVoiceProvider): string {
+function labelForByokProvider(provider: ByokPolishProvider): string {
   return {
     gemini: "Google Gemini",
     groq: "Groq",
@@ -6836,7 +6884,8 @@ function Setup({
   recordCancelShortcut,
   recordPauseShortcut,
   voiceMode,
-  voiceProvider,
+  voiceEngine,
+  voicePolish,
   voiceInstructions,
   shortcutRegistrationError,
   onVoiceShortcutChange,
@@ -6846,7 +6895,8 @@ function Setup({
   onRecordCancelShortcutChange,
   onRecordPauseShortcutChange,
   onVoiceModeChange,
-  onVoiceProviderChange,
+  onVoiceEngineChange,
+  onVoicePolishChange,
   onVoiceInstructionsChange,
   onConnect,
   rewindAgentPromptCopied,
@@ -6879,7 +6929,8 @@ function Setup({
   recordCancelShortcut: string;
   recordPauseShortcut: string;
   voiceMode: VoiceMode;
-  voiceProvider: VoiceProvider;
+  voiceEngine: VoiceEngine;
+  voicePolish: VoicePolish;
   voiceInstructions: string;
   shortcutRegistrationError: string | null;
   onVoiceShortcutChange: (value: VoiceShortcutPreference) => void;
@@ -6889,7 +6940,8 @@ function Setup({
   onRecordCancelShortcutChange: (value: string) => void;
   onRecordPauseShortcutChange: (value: string) => void;
   onVoiceModeChange: (value: VoiceMode) => void;
-  onVoiceProviderChange: (value: VoiceProvider) => void;
+  onVoiceEngineChange: (value: VoiceEngine) => void;
+  onVoicePolishChange: (value: VoicePolish) => void;
   onVoiceInstructionsChange: (value: string) => void;
   onConnect: (url: string) => void;
   rewindAgentPromptCopied: boolean;
@@ -6949,10 +7001,15 @@ function Setup({
     featureConfig?.meetingTranscriptionMode ?? "ask";
   const whisper = useWhisperSettings(
     featureConfig,
-    voiceProvider,
-    onVoiceProviderChange,
-    nativeVoiceProvider,
+    voiceEngine,
+    onVoiceEngineChange,
   );
+  const parakeet = useParakeetModel();
+  const showParakeetStatus =
+    voiceEngine === "parakeet" &&
+    isMacPlatform() &&
+    parakeetStatusShows(parakeet.status, parakeet.statusError);
+  const [noticesOpen, setNoticesOpen] = useState(false);
   const {
     catalog: whisperModels,
     status: whisperStatus,
@@ -7589,9 +7646,9 @@ function Setup({
     onConnect(trimmed);
   }
 
-  const selectedMode = voiceProviderMode(voiceProvider);
-  const byokProvider: ByokVoiceProvider = isByokVoiceProvider(voiceProvider)
-    ? voiceProvider
+  const polishMode = voicePolishMode(voicePolish);
+  const byokProvider: ByokPolishProvider = isByokPolishProvider(voicePolish)
+    ? voicePolish
     : "gemini";
   const fnShortcutSelected = voiceShortcut === "fn" || voiceShortcut === "both";
   const canOpenPrivacySettings = isMacPlatform() || isWindowsPlatform();
@@ -7604,18 +7661,20 @@ function Setup({
     .replace(/^https?:\/\//, "")
     .replace(/\/+$/, "");
 
-  function selectProviderMode(mode: VoiceProviderMode) {
+  function selectEngine(engine: VoiceEngine) {
+    onVoiceEngineChange(engine);
+    if (engine === "whisper" && !whisperModelEnabled) whisper.setEnabled(true);
+  }
+
+  function selectPolishMode(mode: VoicePolishMode) {
     setApiKeyMessage(null);
     setBuilderConnectMessage(null);
-    if (mode === "native") {
-      onVoiceProviderChange(nativeVoiceProvider());
-    } else if (mode === "whisper") {
-      onVoiceProviderChange("whisper");
-      if (!whisperModelEnabled) whisper.setEnabled(true);
+    if (mode === "off") {
+      onVoicePolishChange("off");
     } else if (mode === "builder") {
-      onVoiceProviderChange("builder-gemini");
+      onVoicePolishChange("builder-gemini");
     } else {
-      onVoiceProviderChange(byokProvider);
+      onVoicePolishChange(byokProvider);
     }
   }
 
@@ -7747,15 +7806,14 @@ function Setup({
 
   const providerWarning: string | null = (() => {
     if (providerStatusLoading || !providerStatus) return null;
-    if (selectedMode === "native") return null;
-    if (selectedMode === "whisper") return null;
-    if (selectedMode === "builder") {
+    if (polishMode === "off") return null;
+    if (polishMode === "builder") {
       return providerStatus.builder
         ? null
-        : "Use Builder.io to turn on cleanup.";
+        : "Use Builder.io to turn on AI polish.";
     }
     if (providerStatus[byokProvider]) return null;
-    return `Cleanup is off until you add ${keyForByokProvider(byokProvider)}.`;
+    return `AI polish is off until you add ${keyForByokProvider(byokProvider)}.`;
   })();
   const updateChecksSupported = canCheckForUpdates();
   const updateBusy =
@@ -7981,6 +8039,22 @@ function Setup({
               />
             }
           />
+          {isMacPlatform() ? (
+            <SettingsRow
+              label="Acknowledgements"
+              control={
+                <>
+                  <SettingsActionButton onClick={() => setNoticesOpen(true)}>
+                    View
+                  </SettingsActionButton>
+                  <ThirdPartyNotices
+                    open={noticesOpen}
+                    onOpenChange={setNoticesOpen}
+                  />
+                </>
+              }
+            />
+          ) : null}
         </SettingsGroup>
 
         <SettingsGroup label="System access">
@@ -8604,22 +8678,36 @@ function Setup({
         <SettingsGroup label="Transcription">
           <SettingsRow
             label="Transcription engine"
-            description="Choose what transcribes dictation and meetings"
+            description="Choose what turns your dictation into text"
             control={
               <SettingsSelect
                 ariaLabel="Transcription engine"
-                value={selectedMode}
+                value={voiceEngine}
+                onValueChange={(value) => selectEngine(value as VoiceEngine)}
+                options={voiceEngineOptions(isMacPlatform())}
+              />
+            }
+          >
+            {showParakeetStatus ? (
+              <ParakeetModelStatusRow
+                status={parakeet.status}
+                statusError={parakeet.statusError}
+              />
+            ) : null}
+          </SettingsRow>
+
+          <SettingsRow
+            label="AI polish"
+            description="Cleans up dictated text before it pastes"
+            control={
+              <SettingsSelect
+                ariaLabel="AI polish"
+                value={polishMode}
                 onValueChange={(value) =>
-                  selectProviderMode(value as VoiceProviderMode)
+                  selectPolishMode(value as VoicePolishMode)
                 }
                 options={[
-                  {
-                    value: "native",
-                    label: isMacPlatform()
-                      ? "macOS on-device"
-                      : "Browser built-in",
-                  },
-                  { value: "whisper", label: "Local Whisper" },
+                  { value: "off", label: "Off" },
                   { value: "builder", label: "Builder.io" },
                   { value: "byok", label: "Your own key" },
                 ]}
@@ -8627,7 +8715,7 @@ function Setup({
             }
           >
             {providerWarning ||
-            (selectedMode === "builder" && !providerStatus?.builder) ||
+            (polishMode === "builder" && !providerStatus?.builder) ||
             builderConnectMessage ? (
               <>
                 {providerWarning ? (
@@ -8644,7 +8732,7 @@ function Setup({
                     {builderConnectMessage.text}
                   </p>
                 ) : null}
-                {selectedMode === "builder" && !providerStatus?.builder ? (
+                {polishMode === "builder" && !providerStatus?.builder ? (
                   <BuilderConnectPopover
                     flow={builderConnectFlow}
                     canProvisionAccount={canProvisionBuilderAccount}
@@ -8661,7 +8749,7 @@ function Setup({
             ) : null}
           </SettingsRow>
 
-          {selectedMode === "byok" ? (
+          {polishMode === "byok" ? (
             <>
               <SettingsRow
                 label="Key provider"
@@ -8672,7 +8760,7 @@ function Setup({
                     value={byokProvider}
                     onValueChange={(value) => {
                       setApiKeyMessage(null);
-                      onVoiceProviderChange(value as ByokVoiceProvider);
+                      onVoicePolishChange(value as ByokPolishProvider);
                     }}
                     options={[
                       { value: "gemini", label: "Google Gemini" },
@@ -8737,7 +8825,7 @@ function Setup({
             </>
           ) : null}
 
-          {selectedMode !== "native" && selectedMode !== "whisper" ? (
+          {polishMode !== "off" ? (
             <SettingsRow
               label="Cleanup instructions"
               description="Names, jargon, and casing to keep exactly as you say them"
@@ -9261,46 +9349,147 @@ function WhisperModelStatusRow({
   if (status.state === "ready") return null;
 
   if (status.state === "downloading") {
-    const pct =
-      status.totalMb > 0
-        ? Math.round((status.downloadedMb / status.totalMb) * 100)
-        : 0;
     return (
-      <div className="grid gap-1.5">
-        <span>
-          Downloading… {status.downloadedMb} / {status.totalMb} MB ({pct}%)
-        </span>
-        <div
-          className="h-1 overflow-hidden rounded-full bg-muted"
-          role="progressbar"
-          aria-valuenow={pct}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={`Whisper model download ${pct}% complete`}
-        >
-          <div
-            className="h-full rounded-full bg-foreground transition-[width] duration-200"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      </div>
+      <ModelDownloadProgress
+        downloadedMb={status.downloadedMb}
+        totalMb={status.totalMb}
+        progressLabel={(pct) => `Whisper model download ${pct}% complete`}
+      />
     );
   }
 
   return (
+    <ModelNotice
+      text="Not downloaded yet"
+      action={
+        <SettingsActionButton onClick={onDownload}>
+          Download now
+        </SettingsActionButton>
+      }
+    />
+  );
+}
+
+function ModelDownloadProgress({
+  downloadedMb,
+  totalMb,
+  progressLabel,
+}: {
+  downloadedMb: number;
+  totalMb: number;
+  progressLabel: (pct: number) => string;
+}) {
+  const pct = totalMb > 0 ? Math.round((downloadedMb / totalMb) * 100) : 0;
+  return (
+    <div className="grid gap-1.5">
+      <span>
+        Downloading… {downloadedMb} / {totalMb} MB ({pct}%)
+      </span>
+      <div
+        className="h-1 overflow-hidden rounded-full bg-muted"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={progressLabel(pct)}
+      >
+        <div
+          className="h-full rounded-full bg-foreground transition-[width] duration-200"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ModelNotice({
+  text,
+  title,
+  action,
+}: {
+  text: string;
+  title?: string;
+  action?: ReactNode;
+}) {
+  return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="flex items-center gap-1.5">
+      <span className="flex items-center gap-1.5" title={title}>
         <IconAlertTriangle
           className="size-3.5 shrink-0 text-muted-foreground"
           stroke={1.9}
           aria-hidden="true"
         />
-        Not downloaded yet
+        {text}
       </span>
-      <SettingsActionButton onClick={onDownload}>
-        Download now
-      </SettingsActionButton>
+      {action}
     </div>
+  );
+}
+
+// `ready`, and a file on disk that loads when dictation is on, need no line;
+// rendering an empty child would leave phantom space under the engine picker.
+function parakeetStatusShows(
+  status: ParakeetModelStatus | null,
+  statusError: string | null,
+): boolean {
+  if (statusError) return true;
+  if (!status) return false;
+  if (status.error) return true;
+  return (
+    status.state === "missing" ||
+    status.state === "downloading" ||
+    status.state === "loading"
+  );
+}
+
+function ParakeetModelStatusRow({
+  status,
+  statusError,
+}: {
+  status: ParakeetModelStatus | null;
+  statusError: string | null;
+}) {
+  if (statusError) {
+    return (
+      <p className="text-xs text-destructive">
+        Couldn't check the Parakeet model: {statusError}
+      </p>
+    );
+  }
+  if (!status) return null;
+  if (status.state === "downloading") {
+    return (
+      <ModelDownloadProgress
+        downloadedMb={status.downloadedMb}
+        totalMb={status.totalMb}
+        progressLabel={(pct) => `Parakeet model download ${pct}% complete`}
+      />
+    );
+  }
+  if (status.state === "loading") return <span>Loading…</span>;
+  if (status.error) {
+    return (
+      <ModelNotice
+        text="Couldn't get Parakeet ready"
+        title={status.error}
+        action={
+          <SettingsActionButton onClick={prepareParakeetModel}>
+            Retry
+          </SettingsActionButton>
+        }
+      />
+    );
+  }
+  if (status.state !== "missing") return null;
+  return (
+    <ModelNotice
+      text="Not downloaded yet"
+      action={
+        <SettingsActionButton onClick={prepareParakeetModel}>
+          Download now
+        </SettingsActionButton>
+      }
+    />
   );
 }
 

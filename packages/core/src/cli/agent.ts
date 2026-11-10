@@ -12,6 +12,7 @@ import {
   type AgentLoopUsage,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import { IncompleteAgentRunError } from "../agent/run-errors.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { getAppConfig } from "../app-config/index.js";
@@ -44,6 +45,28 @@ export interface AgentCliIo {
   stdout?: (text: string) => void;
   stderr?: (text: string) => void;
   env?: NodeJS.ProcessEnv;
+}
+
+export interface AgentCliResult {
+  responseText: string;
+  usage: AgentLoopUsage;
+  events: AgentChatEvent[];
+  tools: string[];
+  failure?: { code: string; message: string };
+}
+
+export function toIncompleteAgentCliResult(
+  error: IncompleteAgentRunError,
+  partial: Omit<AgentCliResult, "usage" | "failure">,
+): AgentCliResult {
+  return {
+    ...partial,
+    usage: error.usage,
+    failure: {
+      code: error.errorCode ?? "agent_run_incomplete",
+      message: error.message,
+    },
+  };
 }
 
 const VALUE_FLAGS = new Set([
@@ -192,7 +215,12 @@ export async function runAgent(
     );
     if (parsed.json) {
       stdout(JSON.stringify(result, null, 2));
+      return result.failure ? 1 : 0;
     } else {
+      if (result.failure) {
+        stderr(result.failure.message);
+        return 1;
+      }
       stdout(result.responseText.trimEnd());
       if (result.responseText && !result.responseText.endsWith("\n")) {
         stdout("");
@@ -205,12 +233,9 @@ export async function runAgent(
   }
 }
 
-async function runLocalAgentLoop(parsed: ParsedAgentArgs): Promise<{
-  responseText: string;
-  usage: AgentLoopUsage;
-  events: AgentChatEvent[];
-  tools: string[];
-}> {
+async function runLocalAgentLoop(
+  parsed: ParsedAgentArgs,
+): Promise<AgentCliResult> {
   const localActions = await autoDiscoverActions("auto");
   const builtinActions = await createHeadlessBuiltinActions();
   const repoActions = createGitHubRepoToolEntries({
@@ -241,27 +266,39 @@ async function runLocalAgentLoop(parsed: ParsedAgentArgs): Promise<{
   const ownerEmail = getRequestUserEmail();
   const orgId = getRequestOrgId();
 
-  const usage = await runAgentLoopDirectWithSoftTimeout(
-    {
-      engine,
-      model,
-      systemPrompt: buildHeadlessSystemPrompt(tools.map((tool) => tool.name)),
-      tools,
-      actions,
-      messages,
-      signal: controller.signal,
-      ownerEmail,
-      orgId,
-      maxIterations: parsed.maxIterations,
-      send(event) {
-        events.push(event);
-        if (event.type === "text") {
-          responseText += event.text ?? "";
-        }
+  let usage: AgentLoopUsage;
+  try {
+    usage = await runAgentLoopDirectWithSoftTimeout(
+      {
+        engine,
+        model,
+        systemPrompt: buildHeadlessSystemPrompt(tools.map((tool) => tool.name)),
+        tools,
+        actions,
+        messages,
+        signal: controller.signal,
+        ownerEmail: ownerEmail ?? null,
+        orgId: orgId ?? null,
+        ...(parsed.maxIterations === undefined
+          ? {}
+          : { maxIterations: parsed.maxIterations }),
+        send(event) {
+          events.push(event);
+          if (event.type === "text") {
+            responseText += event.text ?? "";
+          }
+        },
       },
-    },
-    parsed.softTimeoutMs,
-  );
+      parsed.softTimeoutMs,
+    );
+  } catch (error) {
+    if (!(error instanceof IncompleteAgentRunError)) throw error;
+    return toIncompleteAgentCliResult(error, {
+      responseText,
+      events,
+      tools: tools.map((tool) => tool.name).sort(),
+    });
+  }
 
   return {
     responseText,

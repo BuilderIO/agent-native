@@ -24,7 +24,7 @@ const mocks = vi.hoisted(() => ({
   getTask: vi.fn(),
   listTasks: vi.fn(),
   requestBuilderBrowserConnection: vi.fn(),
-  resolveBuilderBranchProjectId: vi.fn(),
+  resolveBuilderHandoffProjectId: vi.fn(),
   resolveBuilderCredentials: vi.fn(),
   resolveBuilderRequestAuthorization: vi.fn(),
 }));
@@ -37,7 +37,7 @@ vi.mock("../builder-browser.js", () => ({
   getBuilderBrowserConnectUrlForOwner:
     mocks.getBuilderBrowserConnectUrlForOwner,
   requestBuilderBrowserConnection: mocks.requestBuilderBrowserConnection,
-  resolveBuilderBranchProjectId: mocks.resolveBuilderBranchProjectId,
+  resolveBuilderHandoffProjectId: mocks.resolveBuilderHandoffProjectId,
 }));
 
 vi.mock("../builder-api-auth.js", () => ({
@@ -78,7 +78,7 @@ describe("createBuilderBrowserTool extension promotion", () => {
     mocks.assertAccess.mockReset();
     mocks.getBuilderCredentialAuthFailure.mockReset();
     mocks.getBuilderBrowserConnectUrlForOwner.mockReset();
-    mocks.resolveBuilderBranchProjectId.mockReset();
+    mocks.resolveBuilderHandoffProjectId.mockReset();
     mocks.resolveBuilderCredentials.mockReset();
 
     mocks.assertAccess.mockResolvedValue({
@@ -89,7 +89,7 @@ describe("createBuilderBrowserTool extension promotion", () => {
     mocks.getBuilderBrowserConnectUrlForOwner.mockReturnValue(
       "https://builder.example.test/connect",
     );
-    mocks.resolveBuilderBranchProjectId.mockResolvedValue("project-1");
+    mocks.resolveBuilderHandoffProjectId.mockResolvedValue("project-1");
     mocks.resolveBuilderCredentials.mockResolvedValue({
       privateKey: "private-test-key",
       publicKey: "public-test-key",
@@ -167,7 +167,7 @@ describe("createBuilderBrowserTool extension promotion", () => {
   });
 
   it("keeps private extension source out of the waitlist fallback prompt", async () => {
-    mocks.resolveBuilderBranchProjectId.mockResolvedValue(null);
+    mocks.resolveBuilderHandoffProjectId.mockResolvedValue(null);
 
     const result = await runConnectBuilder({
       prompt: "Promote this custom block to app code.",
@@ -190,7 +190,7 @@ describe("connect-builder source-change handoff", () => {
     mocks.getBuilderBrowserConnectUrlForOwner.mockReturnValue(
       "https://builder.example.test/connect",
     );
-    mocks.resolveBuilderBranchProjectId.mockResolvedValue("project-1");
+    mocks.resolveBuilderHandoffProjectId.mockResolvedValue("project-1");
     mocks.resolveBuilderCredentials.mockResolvedValue({
       privateKey: "private-test-key",
       publicKey: "public-test-key",
@@ -239,7 +239,7 @@ describe("Builder sign-in without a legacy key pair", () => {
     mocks.getBuilderBrowserConnectUrlForOwner.mockReturnValue(
       "https://builder.example.test/connect",
     );
-    mocks.resolveBuilderBranchProjectId.mockResolvedValue("project-1");
+    mocks.resolveBuilderHandoffProjectId.mockResolvedValue("project-1");
     mocks.resolveBuilderCredentials.mockReset().mockResolvedValue({
       privateKey: null,
       publicKey: null,

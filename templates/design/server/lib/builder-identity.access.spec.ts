@@ -12,6 +12,7 @@ const registered = vi.hoisted(() => ({
   provider: null as null | ((email: string) => unknown),
 }));
 vi.mock("@agent-native/core/server", () => ({
+  registerBuilderBranchProject: vi.fn(),
   registerDelegatedBuilderCredentials: vi.fn(
     (provider: (email: string) => unknown) => {
       registered.provider = provider;

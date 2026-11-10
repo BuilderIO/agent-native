@@ -5,6 +5,7 @@ const getOrgContextMock = vi.hoisted(() => vi.fn());
 const resolveOrgScopeForEmailMock = vi.hoisted(() => vi.fn());
 const hasOrgScopeResolutionUnavailableMock = vi.hoisted(() => vi.fn());
 const getOrgScopeResolutionErrorMock = vi.hoisted(() => vi.fn());
+const hasForbiddenOrgScopeMock = vi.hoisted(() => vi.fn());
 const getTurnInitiatorByRunMock = vi.hoisted(() => vi.fn());
 const isLoopbackRequestMock = vi.hoisted(() => vi.fn());
 const isDirectLoopbackRequestMock = vi.hoisted(() => vi.fn());
@@ -28,6 +29,7 @@ vi.mock("../org/context.js", () => ({
   resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
   hasOrgScopeResolutionUnavailable: hasOrgScopeResolutionUnavailableMock,
   getOrgScopeResolutionError: getOrgScopeResolutionErrorMock,
+  hasForbiddenOrgScope: hasForbiddenOrgScopeMock,
 }));
 
 vi.mock("../agent/run-store.js", () => ({
@@ -81,6 +83,7 @@ describe("server/agent-run-context", () => {
     resolveOrgScopeForEmailMock.mockReset();
     hasOrgScopeResolutionUnavailableMock.mockReset();
     getOrgScopeResolutionErrorMock.mockReset();
+    hasForbiddenOrgScopeMock.mockReset();
     getTurnInitiatorByRunMock.mockReset();
     isLoopbackRequestMock.mockReset();
     isDirectLoopbackRequestMock.mockReset();
@@ -89,6 +92,7 @@ describe("server/agent-run-context", () => {
     getOrgContextMock.mockResolvedValue({ orgId: null });
     resolveOrgScopeForEmailMock.mockResolvedValue({ status: "personal" });
     hasOrgScopeResolutionUnavailableMock.mockReturnValue(false);
+    hasForbiddenOrgScopeMock.mockReturnValue(false);
     getTurnInitiatorByRunMock.mockResolvedValue(null);
     isLoopbackRequestMock.mockReturnValue(false);
     isDirectLoopbackRequestMock.mockReturnValue(false);
@@ -194,6 +198,59 @@ describe("server/agent-run-context", () => {
     expect(getOrgContextMock).not.toHaveBeenCalled();
     expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["forbidden", null],
+    ["unavailable", null],
+    ["forbidden", "org-rejected"],
+    ["unavailable", "org-rejected"],
+  ])(
+    "does not use an org or email fallback after a %s scope result (resolver returned %s)",
+    async (failure, returnedOrgId) => {
+      const event = makeEvent();
+      resolveOrgScopeForEmailMock.mockResolvedValue({
+        status: "organization",
+        orgId: "other",
+      });
+      await expect(
+        resolveAgentRunOrgScope({
+          event,
+          ownerContext: { owner: "alice@example.com", anonymous: false },
+          resolveOrgId: async () => {
+            if (failure === "forbidden")
+              hasForbiddenOrgScopeMock.mockReturnValue(true);
+            else hasOrgScopeResolutionUnavailableMock.mockReturnValue(true);
+            return returnedOrgId;
+          },
+        }),
+      ).rejects.toMatchObject({
+        statusCode: failure === "forbidden" ? 403 : 503,
+      });
+      expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["forbidden", "unavailable"])(
+    "rejects %s scope marked while reading a session that has an org",
+    async (failure) => {
+      getSessionMock.mockImplementation(async () => {
+        if (failure === "forbidden")
+          hasForbiddenOrgScopeMock.mockReturnValue(true);
+        else hasOrgScopeResolutionUnavailableMock.mockReturnValue(true);
+        return { orgId: "org-session" };
+      });
+      await expect(
+        resolveAgentRunOrgScope({
+          event: makeEvent(),
+          ownerContext: { owner: "alice@example.com", anonymous: false },
+        }),
+      ).rejects.toMatchObject({
+        statusCode: failure === "forbidden" ? 403 : 503,
+      });
+      expect(getOrgContextMock).not.toHaveBeenCalled();
+      expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("falls back to owner email when an explicit org resolver has no session org", async () => {
     const event = makeEvent();
@@ -346,6 +403,7 @@ describe("server/agent-run-context", () => {
           ownerContext: { owner: "alice@example.com", anonymous: false },
         }),
       ).rejects.toBe(failure);
+      expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
     },
   );
 

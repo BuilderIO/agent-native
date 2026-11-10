@@ -6,6 +6,8 @@ import {
   type ActionRunContext,
 } from "../../action.js";
 import { getCredentialContext } from "../../server/request-context.js";
+import { assertAgentProviderRequestAllowed } from "../agent-request-policy.js";
+import { registerProviderApiActionRuntime } from "../index.js";
 import type {
   ProviderApiDocsOptions,
   ProviderApiRequestArgs,
@@ -352,6 +354,7 @@ export function createProviderApiRequestAction<
   runtime: Pick<ProviderApiRuntime, "executeRequest">,
   options: CreateProviderApiRequestActionOptions<TSchema> = {},
 ) {
+  registerProviderApiActionRuntime(runtime);
   const schema = options.schema ?? createProviderApiRequestSchema();
   return defineAction({
     description:
@@ -409,6 +412,7 @@ export function createProviderApiRequestAction<
     grounding: true,
     run: async (rawArgs) => {
       const args = rawArgs as ProviderRequestActionArgs;
+      assertAgentProviderRequestAllowed(args);
       if (args.stageAs) {
         if (!options.appId) {
           throw new Error(

@@ -51,6 +51,16 @@ const BODY = [
   "\tVisible text",
   "</details>",
   "",
+  '<details markdown="1">',
+  "<summary>**Closed** titled toggle</summary>",
+  "\tHidden titled text",
+  "</details>",
+  "",
+  '<details open markdown="1">',
+  "<summary>Open *titled* toggle</summary>",
+  "\tVisible titled text",
+  "</details>",
+  "",
   '<callout icon="💡">',
   "\tCallout text",
   "</callout>",
@@ -276,6 +286,55 @@ describe("the static document body", () => {
 
     const blocks = (body: Element) => [...body.children].filter(laidOut);
     expect(blocks(staticBody).map(shape)).toEqual(blocks(editor).map(shape));
+  });
+
+  it("labels and sizes the tables it draws, as the editor does", async () => {
+    await show(
+      createElement(StaticDocumentBody, {
+        schema: getContentEditorSchema(),
+        content: ["| Name | Role |", "| --- | --- |", "| Priya | |"].join("\n"),
+      }),
+    );
+
+    // The table view that drew it is gone, but the table keeps its mark as
+    // content-sized, so the body's own sizer takes it.
+    const table = container.querySelector("table");
+    expect(table?.getAttribute("data-column-sizing")).toBe("content");
+    const cells = container.querySelectorAll("td");
+    expect(cells.item(0).getAttribute("data-label")).toBe("Name");
+    expect(cells.item(1).hasAttribute("data-empty")).toBe(true);
+  });
+
+  it("marks the same table cells empty as the editor does", async () => {
+    const content = [
+      "| Name | Role | Notes | Photo |",
+      "| --- | --- | --- | --- |",
+      "| Priya | | <br> | ![Alt](https://example.com/a.png) |",
+    ].join("\n");
+    const empty = () =>
+      Array.from(container.querySelectorAll("td"), (cell) =>
+        cell.hasAttribute("data-empty"),
+      );
+    await show(
+      createElement(StaticDocumentBody, {
+        schema: getContentEditorSchema(),
+        content,
+      }),
+    );
+    const standIn = empty();
+    await show(null);
+    await show(
+      createElement(VisualEditor, {
+        documentId: "page",
+        content,
+        ydoc: null,
+        editable: true,
+        onChange: () => {},
+      }),
+    );
+
+    expect(standIn).toEqual([false, true, false, false]);
+    expect(standIn).toEqual(empty());
   });
 
   it("draws an image that failed to load as the image block draws one", async () => {

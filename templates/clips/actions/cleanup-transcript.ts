@@ -422,7 +422,7 @@ function buildPrompt({
 
   if (task === "title") {
     return {
-      system: `${CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS}\n\nYou produce one short, descriptive title for a Clip. The title must summarize the main subject covered in the transcript, not quote an opening aside. Ignore conversational setup and filler such as "let me walk through this", "real quick", "regarding your question", "there are two things", greetings, hesitation, and other meta commentary. Prefer the concrete topic, named entities, numbers, product names, and business terms that explain what the Clip is actually about. Do not use vague titles built from words like "quick", "thing", "question", "walkthrough", "scenario", or "discussion" unless they are the real topic. If AGENTS.md resources are included in <context>, use them only for relevant naming, terminology, style, and personal/team preferences; personal instructions win over organization instructions. Output the title only — no quotes, no preamble, no markdown. Keep it 4-9 words and under 80 characters.${langHint}`,
+      system: `${CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS}\n\nYou produce one short, descriptive title for a Clip. Write the title in the language of the transcript unless the user has requested another language. The title must summarize the main subject covered in the transcript, not quote an opening aside. Ignore conversational setup and filler such as "let me walk through this", "real quick", "regarding your question", "there are two things", greetings, hesitation, and other meta commentary. Prefer the concrete topic, named entities, numbers, product names, and business terms that explain what the Clip is actually about. Do not use vague titles built from words like "quick", "thing", "question", "walkthrough", "scenario", or "discussion" unless they are the real topic. If AGENTS.md resources are included in <context>, use them only for relevant naming, terminology, style, and personal/team preferences; personal instructions win over organization instructions. Output the title only — no quotes, no preamble, no markdown. Keep it 4-9 words and under 80 characters.${langHint}`,
       user: `Pick a concise, specific title that summarizes the main subject of this transcript:${ctxBlock}\n\n<transcript>\n${transcript}\n</transcript>`,
     };
   }
@@ -435,7 +435,7 @@ function buildPrompt({
   }
 
   return {
-    system: `You summarize meeting recordings. Output a single JSON object matching this TypeScript type and nothing else:
+    system: `You summarize meeting recordings. Write the summary and action items in the language of the transcript unless the user has requested another language. Output a single JSON object matching this TypeScript type and nothing else:
 {
   "summaryMd": string,            // 2–4 sentence overview in markdown
   "bullets": Array<{ "text": string }>,   // 3–8 key points, one fact per bullet

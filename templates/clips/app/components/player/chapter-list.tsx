@@ -266,6 +266,9 @@ interface ChapterListProps {
   /** Seek the player; takes original-media milliseconds. */
   onSeek: (originalMs: number) => void;
   className?: string;
+  editRequest?: number;
+  hideAddButton?: boolean;
+  onReturnFocus?: () => void;
 }
 
 export function ChapterList(props: ChapterListProps) {
@@ -366,6 +369,9 @@ function EditableChapterList({
   durationMs,
   onSeek,
   className,
+  editRequest = 0,
+  hideAddButton = false,
+  onReturnFocus,
 }: ChapterListProps) {
   const t = useT();
   const headingId = useId();
@@ -400,6 +406,7 @@ function EditableChapterList({
   const mutation = useActionMutation("set-chapters");
   const queryClient = useQueryClient();
   const editButtonRef = useRef<HTMLButtonElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const returnFocus = useRef(false);
 
   useEffect(() => {
@@ -418,9 +425,10 @@ function EditableChapterList({
   useEffect(() => {
     if (mode === "view" && returnFocus.current) {
       returnFocus.current = false;
-      editButtonRef.current?.focus();
+      if (editButtonRef.current) editButtonRef.current.focus();
+      else onReturnFocus?.();
     }
-  }, [mode]);
+  }, [mode, onReturnFocus]);
 
   const edits = useMemo(() => parseEdits(editsJson), [editsJson]);
   const cuts = useMemo(() => cutRangesOf(edits), [edits]);
@@ -428,6 +436,10 @@ function EditableChapterList({
   const visible = useMemo(() => visibleChapters(shown, edits), [shown, edits]);
 
   const startEditing = () => {
+    if (mode === "edit") {
+      textareaRef.current?.focus();
+      return;
+    }
     // One save at a time: a second one could land before the first.
     if (mutation.isPending) return;
     const fresh = visible
@@ -449,6 +461,14 @@ function EditableChapterList({
     setFailedSave(null);
     setMode("edit");
   };
+
+  const lastEditRequest = useRef(editRequest);
+  useEffect(() => {
+    if (editRequest !== lastEditRequest.current && !mutation.isPending) {
+      lastEditRequest.current = editRequest;
+      startEditing();
+    }
+  });
 
   const leaveEditing = () => {
     returnFocus.current = true;
@@ -619,6 +639,7 @@ function EditableChapterList({
   };
 
   if (mode === "view" && visible.length === 0) {
+    if (hideAddButton) return null;
     return (
       <div className={cn("mt-4", className)}>
         <Button
@@ -642,6 +663,7 @@ function EditableChapterList({
       {mode === "edit" ? (
         <div className="flex flex-col gap-2">
           <Textarea
+            ref={textareaRef}
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value);

@@ -27,7 +27,9 @@ const IMAGE_MODEL_OPTIONS = [
 export function useImageModelMenu(threadId?: string | null) {
   const t = useT();
   const queryClient = useQueryClient();
-  const dismissFailed = useActionMutation("dismiss-variant-slots");
+  const dismissFailed = useActionMutation("dismiss-variant-slots", {
+    errorNotification: "caller",
+  });
   const [imageModel, setImageModel] = useState<string>(DEFAULT_IMAGE_MODEL);
 
   useEffect(() => {

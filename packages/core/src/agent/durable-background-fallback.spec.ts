@@ -26,6 +26,7 @@ const rawClient = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
+  getScopedDbExec: () => undefined,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: (fn: () => any) => fn(),
 }));

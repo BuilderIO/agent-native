@@ -257,6 +257,63 @@ export const chatThreadsStore = defineStore({
         PRIMARY KEY (thread_id, user_email)
       )`,
     },
+    {
+      // Stands in for the inbox entries of the folded schema list (v5–v8),
+      // which a local boot skips: a database whose snapshot or baseline was
+      // already recorded otherwise keeps the v5 inbox shape while the
+      // queued-submission queries select the v6/v8 columns. The ensure*
+      // wrappers probe the catalog first, so a hosted replay of this entry
+      // skips the lock-taking DDL once the shape exists.
+      name: "chat-thread-inbox-runtime-schema",
+      run: async () => {
+        await ensureTableExists(
+          "agent_chat_submission_inbox",
+          `CREATE TABLE IF NOT EXISTS agent_chat_submission_inbox (
+          thread_id TEXT NOT NULL,
+          message_id TEXT NOT NULL,
+          state TEXT NOT NULL,
+          actor_email TEXT NOT NULL,
+          actor_auth_user_id TEXT,
+          actor_identity_authenticated_at_ms BIGINT,
+          actor_name TEXT,
+          actor_org_id TEXT,
+          actor_org_scope TEXT,
+          actor_anonymous BOOLEAN NOT NULL DEFAULT FALSE,
+          payload_hash TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          interrupt_active_run BOOLEAN NOT NULL DEFAULT FALSE,
+          submitted_run_id TEXT,
+          queue_order BIGSERIAL NOT NULL,
+          move_to_top_at BIGINT,
+          retry_after BIGINT,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL,
+          PRIMARY KEY (thread_id, message_id)
+        )`,
+        );
+        await ensureIndexExists(
+          "agent_chat_submission_inbox_pending_idx",
+          `CREATE INDEX IF NOT EXISTS agent_chat_submission_inbox_pending_idx
+          ON agent_chat_submission_inbox (state, retry_after, interrupt_active_run DESC, move_to_top_at DESC, queue_order ASC)`,
+        );
+        await ensureColumnExists(
+          "agent_chat_submission_inbox",
+          "interrupt_run_id",
+          "ALTER TABLE agent_chat_submission_inbox ADD COLUMN IF NOT EXISTS interrupt_run_id TEXT",
+        );
+        await ensureColumnExists(
+          "agent_chat_submission_inbox",
+          "retry_count",
+          "ALTER TABLE agent_chat_submission_inbox ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0",
+        );
+        await ensureIndexExists(
+          "agent_chat_submission_inbox_thread_pending_idx",
+          `CREATE INDEX IF NOT EXISTS agent_chat_submission_inbox_thread_pending_idx
+          ON agent_chat_submission_inbox (thread_id, interrupt_active_run DESC, move_to_top_at DESC, queue_order ASC)
+          WHERE state = 'queued'`,
+        );
+      },
+    },
   ],
 });
 
@@ -1018,6 +1075,7 @@ export function registerChatThreadsShareable(): void {
       `/?thread=${encodeURIComponent(String(thread.id ?? ""))}`,
     getDb: () => getChatThreadsDb(),
     allowPublic: false,
+    confirmOrgVisibility: true,
     ownerAccessIgnoresOrg: true,
   });
 }
@@ -2728,6 +2786,28 @@ export async function recordQueuedSubmissionInterruptRun(input: {
   return mutateQueuedSubmissionInterruptRun(input, "record");
 }
 
+/** Renews a queued submission's live promotion claim during admission. */
+export async function renewQueuedSubmissionClaim(input: {
+  threadId: string;
+  messageId: string;
+  claimId: string;
+  runId?: string;
+  renewUntil?: number;
+}): Promise<boolean> {
+  // raw-sql-ok: the queue store binds the mutation fields as SQL parameters.
+  const result = await mutateThreadQueuedMessages(input.threadId, {
+    type: "renewClaim",
+    messageId: input.messageId,
+    claimId: input.claimId,
+    ...(input.runId === undefined ? {} : { runId: input.runId }),
+    ...(input.renewUntil === undefined ? {} : { renewUntil: input.renewUntil }),
+  });
+  return (
+    result?.claimLost !== true &&
+    result?.claimedMessage?.promotionClaim?.id === input.claimId
+  );
+}
+
 /** Renews a live interruption claim before its recorded run is aborted. */
 export async function renewQueuedSubmissionInterruptClaim(input: {
   threadId: string;
@@ -2735,16 +2815,7 @@ export async function renewQueuedSubmissionInterruptClaim(input: {
   runId: string;
   claimId: string;
 }): Promise<boolean> {
-  const result = await mutateThreadQueuedMessages(input.threadId, {
-    type: "renewClaim",
-    messageId: input.messageId,
-    runId: input.runId,
-    claimId: input.claimId,
-  });
-  return (
-    result?.claimLost !== true &&
-    result?.claimedMessage?.promotionClaim?.id === input.claimId
-  );
+  return renewQueuedSubmissionClaim(input);
 }
 
 /** Clear a recorded interruption only after its turn abort is durable. */
@@ -2793,7 +2864,8 @@ export type ThreadQueuedMessageMutation =
   | {
       type: "renewClaim";
       messageId: string;
-      runId: string;
+      runId?: string;
+      renewUntil?: number;
       claimId: string;
     }
   | { type: "release"; messageId: string; claimId: string };
@@ -3001,6 +3073,7 @@ export async function mutateThreadQueuedMessages(
     let receiptClaimMessage: QueuedMessage | undefined;
     let claimQueueSnapshot: QueuedMessage[] | undefined;
     try {
+      // raw-sql-ok: updateThreadData binds the thread values in its SQL args.
       await updateThreadData(threadId, "{}", "", "", 0, {
         preserveExistingQueuedMessages: false,
         preserveCurrentMetadata: true,
@@ -3384,6 +3457,8 @@ export async function mutateThreadQueuedMessages(
               if (
                 !message ||
                 queuedSubmissionExpired(message, now) ||
+                (mutation.renewUntil !== undefined &&
+                  now >= mutation.renewUntil) ||
                 !receiptMutationOwnsPromotionClaim(
                   message,
                   mutation.claimId,
@@ -3509,7 +3584,10 @@ export async function mutateThreadQueuedMessages(
                         if (
                           result?.claimLost === true ||
                           receipt?.state !== "queued" ||
-                          receipt.interruptRunId !== mutation.runId
+                          (mutation.renewUntil !== undefined &&
+                            Date.now() >= mutation.renewUntil) ||
+                          (mutation.runId !== undefined &&
+                            receipt.interruptRunId !== mutation.runId)
                         ) {
                           if (result) {
                             result.claimLost = true;

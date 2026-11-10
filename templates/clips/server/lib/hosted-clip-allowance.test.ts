@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,6 +20,16 @@ vi.mock("../db/index.js", async () => {
 vi.mock("@agent-native/core/org", () => ({
   registerIdentityColumns: vi.fn(),
 }));
+const mockTrack = vi.hoisted(() => vi.fn());
+const hostedConfig = vi.hoisted(() => ({
+  value: {} as Record<string, unknown>,
+}));
+vi.mock("@agent-native/core/server", () => ({
+  getAppConfig: () => ({ clips: { hostedStorage: hostedConfig.value } }),
+}));
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
 
 const allowance = await import("./hosted-clip-allowance.js");
 
@@ -31,6 +42,15 @@ function policy(
     enabled: true,
     perIdentityClipLimit: 3,
     reservationBytes: 100,
+    ...overrides,
+  };
+}
+
+function setHostedConfig(overrides: Record<string, unknown> = {}) {
+  hostedConfig.value = {
+    perIdentityClipLimit: 3,
+    maxClipBytes: 100,
+    retainedByteAlertRatio: 0.8,
     ...overrides,
   };
 }
@@ -55,6 +75,7 @@ function reserve(input: {
 }
 
 beforeEach(async () => {
+  setHostedConfig();
   client = await PGlite.create("memory://");
   state.db = drizzle(client);
   await client.exec(`
@@ -72,6 +93,7 @@ beforeEach(async () => {
       updated_at BIGINT NOT NULL,
       PRIMARY KEY (session_id, key)
     );
+    CREATE TABLE recording_media_cleanups (id TEXT PRIMARY KEY,accounting_settled BOOLEAN NOT NULL DEFAULT false);
     CREATE TABLE clips_hosted_clip_allowances (
       recording_id TEXT PRIMARY KEY,
       identity_key TEXT NOT NULL,
@@ -96,9 +118,33 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  mockTrack.mockReset();
   state.db = null;
   await client.close();
 });
+
+function captureStatements(failOn?: RegExp): string[] {
+  const statements: string[] = [];
+  // Allowance queries run on the PGlite transaction handle, so wrap that.
+  type Transaction = { query: (...args: unknown[]) => unknown };
+  const originalTransaction = client.transaction.bind(client) as (
+    callback: (tx: Transaction) => Promise<unknown>,
+  ) => Promise<unknown>;
+  vi.spyOn(client, "transaction").mockImplementation(((
+    callback: (tx: Transaction) => Promise<unknown>,
+  ) =>
+    originalTransaction((tx) => {
+      const originalQuery = tx.query.bind(tx);
+      tx.query = (text, ...rest) => {
+        statements.push(String(text));
+        if (failOn?.test(String(text)))
+          return Promise.reject(new Error("statement timeout"));
+        return originalQuery(text, ...rest);
+      };
+      return callback(tx);
+    })) as typeof client.transaction);
+  return statements;
+}
 
 describe("hosted clip allowance", () => {
   it("canonicalizes only Gmail aliases and buckets strict IP literals", () => {
@@ -205,6 +251,160 @@ describe("hosted clip allowance", () => {
     ]);
   });
 
+  describe("global daily cap grant accounting", () => {
+    const capped = policy({ globalDailyClipCap: 2 });
+    const user = (n: number) => ({
+      email: `daily-${n}@example.com`,
+      userId: `daily-user-${n}`,
+    });
+    const release = (recordingId: string, n: number) =>
+      allowance.releaseHostedClipAllowance({
+        recordingId,
+        userId: user(n).userId,
+        reason: "abort",
+        now: NOW,
+      });
+    const snapshot = (n: number) =>
+      allowance.getHostedClipAllowanceSnapshot({
+        ...user(n),
+        emailVerified: true,
+        ipPrefix: null,
+        policy: capped,
+        now: NOW,
+      });
+
+    it("gives a released grant back to the daily cap", async () => {
+      await reserve({ ...user(1), recordingId: "d-1", policy: capped });
+      await reserve({ ...user(2), recordingId: "d-2", policy: capped });
+      await expect(
+        reserve({ ...user(3), recordingId: "d-3", policy: capped }),
+      ).resolves.toEqual({ ok: false, reason: "global_daily_cap" });
+
+      await release("d-1", 1);
+
+      await expect(
+        reserve({ ...user(3), recordingId: "d-3", policy: capped }),
+      ).resolves.toMatchObject({ ok: true });
+    });
+
+    it("keeps one account's create-and-release loop from draining the cap for others", async () => {
+      for (let i = 0; i < 5; i++) {
+        await expect(
+          reserve({ ...user(1), recordingId: `loop-${i}`, policy: capped }),
+        ).resolves.toMatchObject({ ok: true });
+        await release(`loop-${i}`, 1);
+      }
+
+      await expect(
+        reserve({ ...user(2), recordingId: "other-1", policy: capped }),
+      ).resolves.toMatchObject({ ok: true });
+      await expect(
+        reserve({ ...user(3), recordingId: "other-2", policy: capped }),
+      ).resolves.toMatchObject({ ok: true });
+    });
+
+    it("counts today's reserved and consumed rows but not yesterday's", async () => {
+      await client.query(
+        `INSERT INTO clips_hosted_clip_allowances (recording_id, identity_key, user_id, status, created_at)
+         VALUES ('yesterday-1', 'old-1', 'old-user-1', 'consumed', '2026-10-13T23:59:59.000Z'),
+                ('yesterday-2', 'old-2', 'old-user-2', 'reserved', '2026-10-13T12:00:00.000Z')`,
+      );
+      await reserve({
+        ...user(1),
+        recordingId: "today-reserved",
+        policy: capped,
+      });
+      await reserve({
+        ...user(2),
+        recordingId: "today-consumed",
+        policy: capped,
+      });
+      await allowance.consumeHostedClipAllowance({
+        recordingId: "today-consumed",
+        userId: user(2).userId,
+        actualBytes: 10,
+        now: NOW,
+      });
+
+      await expect(
+        reserve({ ...user(3), recordingId: "today-third", policy: capped }),
+      ).resolves.toEqual({ ok: false, reason: "global_daily_cap" });
+
+      await release("today-reserved", 1);
+
+      await expect(
+        reserve({ ...user(3), recordingId: "today-third", policy: capped }),
+      ).resolves.toMatchObject({ ok: true });
+    });
+
+    it("reports the same cap in the status snapshot as the reserve", async () => {
+      await reserve({ ...user(1), recordingId: "s-1", policy: capped });
+      await reserve({ ...user(2), recordingId: "s-2", policy: capped });
+      await expect(snapshot(3)).resolves.toMatchObject({
+        denialReason: "global_daily_cap",
+      });
+
+      await release("s-2", 2);
+
+      await expect(snapshot(3)).resolves.toMatchObject({
+        status: "available",
+        denialReason: null,
+      });
+    });
+
+    it("denies a retry that would push today's count over the cap", async () => {
+      const oneSlot = policy({ globalDailyClipCap: 1 });
+      await client.query(
+        `INSERT INTO recordings (id, status, storage_mode, owner_email) VALUES ('r-1', 'failed', 'hosted', $1)`,
+        [user(1).email],
+      );
+      await reserve({ ...user(1), recordingId: "r-1", policy: oneSlot });
+      await release("r-1", 1);
+      await reserve({ ...user(2), recordingId: "r-2", policy: oneSlot });
+
+      setHostedConfig({ globalDailyClipCap: 1 });
+      const retry = () =>
+        allowance.reacquireHostedClipAllowanceForRetry({
+          recordingId: "r-1",
+          userId: user(1).userId,
+          ownerEmail: user(1).email,
+          now: NOW,
+        });
+      await expect(retry()).resolves.toEqual({
+        ok: false,
+        reason: "global_daily_cap",
+      });
+
+      await release("r-2", 2);
+
+      await expect(retry()).resolves.toMatchObject({ ok: true });
+    });
+
+    it("lets a retry revive a grant created on an earlier day", async () => {
+      await client.query(
+        `INSERT INTO recordings (id, status, storage_mode, owner_email) VALUES ('r-old', 'failed', 'hosted', $1)`,
+        [user(1).email],
+      );
+      await client.query(
+        `INSERT INTO clips_hosted_clip_allowances (recording_id, identity_key, user_id, status, created_at)
+         VALUES ('r-old', 'daily-1@example.com', $1, 'released', '2026-10-13T12:00:00.000Z')`,
+        [user(1).userId],
+      );
+      await reserve({ ...user(2), recordingId: "r-today", policy: capped });
+      await reserve({ ...user(3), recordingId: "r-today-2", policy: capped });
+
+      setHostedConfig({ globalDailyClipCap: 2 });
+      await expect(
+        allowance.reacquireHostedClipAllowanceForRetry({
+          recordingId: "r-old",
+          userId: user(1).userId,
+          ownerEmail: user(1).email,
+          now: NOW,
+        }),
+      ).resolves.toMatchObject({ ok: true });
+    });
+  });
+
   it("enforces the IP-prefix daily new-identity cap while allowing a missing IP", async () => {
     const capped = policy({ ipPrefixDailyGrantCap: 1 });
     await expect(
@@ -255,11 +455,11 @@ describe("hosted clip allowance", () => {
       }),
     ).resolves.toMatchObject({ ok: false, reason: "global_storage_cap" });
 
+    setHostedConfig({ globalRetainedByteCap: 1_000 });
     const consumed = await allowance.consumeHostedClipAllowance({
       recordingId: "budget-1",
       userId: "user-1",
       actualBytes: 400,
-      globalRetainedByteCap: 1_000,
       now: NOW,
     });
     expect(consumed).toMatchObject({
@@ -291,6 +491,7 @@ describe("hosted clip allowance", () => {
     const released = await allowance.releaseHostedClipAllowance({
       recordingId: "budget-3",
       userId: "user-2",
+      reason: "abort",
       now: NOW,
     });
     expect(released).toMatchObject({
@@ -376,6 +577,28 @@ describe("hosted clip allowance", () => {
     ]);
   });
 
+  it("retains an orphaned reservation while its durable media cleanup is unconfirmed", async () => {
+    await reserve({ recordingId: "pending-cleanup" });
+    await client.exec(
+      "INSERT INTO recording_media_cleanups(id) VALUES ('pending-cleanup')",
+    );
+    expect(
+      await allowance.releaseOrphanedHostedClipAllowance({
+        recordingId: "pending-cleanup",
+        userId: "user-1",
+        createdBefore: new Date(NOW.getTime() + 1),
+        now: NOW,
+      }),
+    ).toBe(false);
+    expect(
+      (
+        await client.query(
+          "SELECT status,quota_bytes FROM clips_hosted_clip_allowances WHERE recording_id='pending-cleanup'",
+        )
+      ).rows,
+    ).toEqual([{ status: "reserved", quota_bytes: 100 }]);
+  });
+
   it("reacquires the same released grant for an explicit retry without spending a second daily grant", async () => {
     const capped = policy({
       perIdentityClipLimit: 1,
@@ -390,6 +613,7 @@ describe("hosted clip allowance", () => {
     await allowance.releaseHostedClipAllowance({
       recordingId: "hosted-retry",
       userId: "user-1",
+      reason: "abort",
       now: NOW,
     });
     await client.query(
@@ -411,13 +635,15 @@ describe("hosted clip allowance", () => {
       ],
     );
 
+    setHostedConfig({
+      maxClipBytes: 100,
+      perIdentityClipLimit: 1,
+      globalRetainedByteCap: 1_000,
+    });
     const result = await allowance.reacquireHostedClipAllowanceForRetry({
       recordingId: "hosted-retry",
       userId: "user-1",
       ownerEmail: "OWNER@example.com",
-      reservationBytes: 100,
-      perIdentityClipLimit: 1,
-      globalRetainedByteCap: 1_000,
       now: new Date(NOW.getTime() + 1_000),
     });
 
@@ -451,6 +677,7 @@ describe("hosted clip allowance", () => {
     await allowance.releaseHostedClipAllowance({
       recordingId: "hosted-retry-owner",
       userId: "user-1",
+      reason: "abort",
       now: NOW,
     });
 
@@ -459,8 +686,6 @@ describe("hosted clip allowance", () => {
         recordingId: "hosted-retry-owner",
         userId: "user-1",
         ownerEmail: "other@example.com",
-        reservationBytes: 100,
-        perIdentityClipLimit: 3,
         now: NOW,
       }),
     ).resolves.toMatchObject({ ok: false, reason: "invalid_transition" });
@@ -632,8 +857,9 @@ describe("hosted clip allowance", () => {
     ).resolves.toMatchObject({ ok: false, reason: "exhausted" });
   });
 
-  it("logs once when retained bytes cross the configured alert threshold", async () => {
+  it("tracks once when retained bytes cross the configured alert threshold", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
     const capped = policy({
       reservationBytes: 799,
       globalRetainedByteCap: 1_000,
@@ -654,16 +880,601 @@ describe("hosted clip allowance", () => {
       policy: { ...capped, reservationBytes: 1 },
     });
 
-    expect(warn).toHaveBeenCalledTimes(1);
+    const crossings = mockTrack.mock.calls.filter(
+      ([name]) => name === "clips_hosted_retained_bytes_threshold",
+    );
+    expect(crossings).toHaveLength(1);
+    expect(crossings[0]?.[1]).toMatchObject({
+      retainedBytes: 800,
+      globalRetainedByteCap: 1_000,
+      ratio: 0.8,
+    });
     expect(warn).toHaveBeenCalledWith(
-      "[clips-hosted-storage] retained-byte alert threshold reached",
+      "[clips-hosted] clips_hosted_retained_bytes_threshold",
       expect.objectContaining({
-        retainedBytes: 800,
-        globalRetainedByteCap: 1_000,
-        thresholdBytes: 800,
+        recordingId: "threshold-2",
+        authUserId: "user-2",
       }),
     );
-    warn.mockRestore();
+    vi.restoreAllMocks();
+  });
+
+  it("tracks allowance state changes with the retained level after the write", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    setHostedConfig({ globalRetainedByteCap: 1_000 });
+    const capped = policy({
+      reservationBytes: 100,
+      globalRetainedByteCap: 1_000,
+    });
+    const tracked = (name: string) =>
+      mockTrack.mock.calls.filter(([event]) => event === name);
+
+    await reserve({ recordingId: "events-1", policy: capped });
+    expect(tracked("clips_hosted_reserved")[0]).toEqual([
+      "clips_hosted_reserved",
+      expect.objectContaining({
+        recordingId: "events-1",
+        retainedBytes: 100,
+        globalRetainedByteCap: 1_000,
+        ratio: 0.1,
+      }),
+      { authUserId: "user-1" },
+    ]);
+
+    await allowance.consumeHostedClipAllowance({
+      recordingId: "events-1",
+      userId: "user-1",
+      actualBytes: 60,
+      now: NOW,
+    });
+    expect(tracked("clips_hosted_consumed")[0]?.[1]).toMatchObject({
+      actualBytes: 60,
+      retainedBytes: 60,
+    });
+
+    await allowance.addHostedClipRetainedBytesWithinCap({
+      recordingId: "events-1",
+      userId: "user-1",
+      additionalBytes: 10,
+    });
+    expect(tracked("clips_hosted_derivative_added")[0]?.[1]).toMatchObject({
+      additionalBytes: 10,
+      retainedBytes: 70,
+    });
+    await allowance.addHostedClipRetainedBytesWithinCap({
+      recordingId: "events-1",
+      userId: "user-1",
+      additionalBytes: 2_000,
+    });
+    expect(tracked("clips_hosted_derivative_rejected")[0]?.[1]).toMatchObject({
+      additionalBytes: 2_000,
+      retainedBytes: 70,
+    });
+
+    await allowance.subtractHostedClipRetainedBytes({
+      recordingId: "events-1",
+      deletedBytes: 30,
+    });
+    expect(tracked("clips_hosted_media_deleted")[0]?.[1]).toEqual({
+      app_name: "clips",
+      template_name: "clips",
+      recordingId: "events-1",
+      freedBytes: 30,
+    });
+
+    await reserve({
+      email: "other@example.com",
+      userId: "user-2",
+      recordingId: "events-2",
+      policy: capped,
+    });
+    await allowance.releaseHostedClipAllowance({
+      recordingId: "events-2",
+      userId: "user-2",
+      reason: "abandon",
+    });
+    expect(tracked("clips_hosted_released")[0]?.[1]).toEqual({
+      app_name: "clips",
+      template_name: "clips",
+      recordingId: "events-2",
+      reason: "abandon",
+      releasedBytes: 100,
+    });
+  });
+
+  it("tracks reaper releases without a retained level", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    setHostedConfig({ globalRetainedByteCap: 1_000 });
+    await reserve({ recordingId: "reaped" });
+    mockTrack.mockClear();
+    await allowance.releaseOrphanedHostedClipAllowance({
+      recordingId: "reaped",
+      userId: "user-1",
+      createdBefore: new Date(NOW.getTime() + 1),
+      now: NOW,
+    });
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_hosted_released",
+      {
+        app_name: "clips",
+        template_name: "clips",
+        recordingId: "reaped",
+        reason: "orphan_reaped",
+        releasedBytes: 100,
+      },
+      { authUserId: "user-1" },
+    );
+  });
+
+  it("tracks denials with their reason and stage", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await reserve({ recordingId: "denied-1", emailVerified: false });
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_hosted_denied",
+      expect.objectContaining({
+        recordingId: "denied-1",
+        denyReason: "unverified",
+        stage: "reserve",
+      }),
+      { authUserId: "user-1" },
+    );
+  });
+
+  it("denies a consume over the cap with a consume-stage denial", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await reserve({ recordingId: "consume-cap" });
+    setHostedConfig({ globalRetainedByteCap: 1_000 });
+    mockTrack.mockClear();
+    await expect(
+      allowance.consumeHostedClipAllowance({
+        recordingId: "consume-cap",
+        userId: "user-1",
+        actualBytes: 5_000,
+        now: NOW,
+      }),
+    ).resolves.toEqual({ ok: false, reason: "global_storage_cap" });
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_hosted_denied",
+      expect.objectContaining({
+        denyReason: "global_storage_cap",
+        stage: "consume",
+      }),
+      { authUserId: "user-1" },
+    );
+  });
+
+  it("does not re-track consumption when finalize retries a consumed allowance", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await reserve({ recordingId: "consume-twice" });
+    const consume = () =>
+      allowance.consumeHostedClipAllowance({
+        recordingId: "consume-twice",
+        userId: "user-1",
+        actualBytes: 50,
+        now: NOW,
+      });
+    await consume();
+    await consume();
+    expect(
+      mockTrack.mock.calls.filter(([name]) => name === "clips_hosted_consumed"),
+    ).toHaveLength(1);
+  });
+
+  it("never tracks a transaction that fails after its event was queued", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await client.exec(`
+      CREATE FUNCTION fail_allowance_commit() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'commit refused'; END;
+      $$ LANGUAGE plpgsql;
+      CREATE CONSTRAINT TRIGGER fail_allowance_commit
+        AFTER INSERT ON clips_hosted_clip_allowances
+        DEFERRABLE INITIALLY DEFERRED
+        FOR EACH ROW EXECUTE FUNCTION fail_allowance_commit();
+    `);
+    await expect(reserve({ recordingId: "rolled-back" })).rejects.toThrow(
+      /commit refused/,
+    );
+    expect(mockTrack).not.toHaveBeenCalled();
+    const { rows } = await client.query(
+      "SELECT 1 FROM clips_hosted_clip_allowances WHERE recording_id = 'rolled-back'",
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it("keeps reserve, consume and release working when tracking throws", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    mockTrack.mockImplementation(() => {
+      throw new Error("analytics down");
+    });
+    await expect(
+      reserve({ recordingId: "track-throws" }),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      allowance.consumeHostedClipAllowance({
+        recordingId: "track-throws",
+        userId: "user-1",
+        actualBytes: 10,
+        now: NOW,
+      }),
+    ).resolves.toMatchObject({ ok: true });
+    await reserve({
+      email: "other@example.com",
+      userId: "user-2",
+      recordingId: "track-throws-release",
+    });
+    await expect(
+      allowance.releaseHostedClipAllowance({
+        recordingId: "track-throws-release",
+        userId: "user-2",
+        reason: "abort",
+      }),
+    ).resolves.toMatchObject({ ok: true, alreadyReleased: false });
+    expect(mockTrack).toHaveBeenCalled();
+  });
+
+  it("counts the identity's active rows once for a new reservation", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await reserve({ recordingId: "count-seed" });
+    const statements = captureStatements();
+    await expect(reserve({ recordingId: "count-once" })).resolves.toMatchObject(
+      { ok: true, alreadyReserved: false, remainingCount: 1 },
+    );
+    const identityCounts = statements.filter(
+      (text) => /count\(\*\)/i.test(text) && /"status" in/i.test(text),
+    );
+    expect(identityCounts).toHaveLength(1);
+  });
+
+  it("reads the retained-byte SUM once per capped reserve and reuses it for the level", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const statements = captureStatements();
+    await reserve({
+      recordingId: "capped-once",
+      policy: policy({ globalRetainedByteCap: 1_000 }),
+    });
+    expect(statements.filter((text) => /sum\(/i.test(text))).toHaveLength(1);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_hosted_reserved",
+      expect.objectContaining({ globalRetainedByteCap: 1_000 }),
+      { authUserId: "user-1" },
+    );
+  });
+
+  it("runs no retained-byte SUM and reports no level while no cap is configured", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const statements = captureStatements();
+    const sums = () => statements.filter((text) => /sum\(/i.test(text));
+
+    await reserve({ recordingId: "uncapped" });
+    await allowance.consumeHostedClipAllowance({
+      recordingId: "uncapped",
+      userId: "user-1",
+      actualBytes: 50,
+      now: NOW,
+    });
+    await allowance.adjustHostedClipRetainedBytes({
+      recordingId: "uncapped",
+      userId: "user-1",
+      retainedBytes: 40,
+      now: NOW,
+    });
+    await allowance.accountHostedClipAdditionalBytes({
+      recordingId: "uncapped",
+      userId: "user-1",
+      additionalBytes: 5,
+    });
+    await allowance.subtractHostedClipRetainedBytes({
+      recordingId: "uncapped",
+      deletedBytes: 5,
+      now: NOW,
+    });
+    await reserve({
+      email: "other@example.com",
+      userId: "user-2",
+      recordingId: "uncapped-release",
+    });
+    await allowance.releaseHostedClipAllowance({
+      recordingId: "uncapped-release",
+      userId: "user-2",
+      reason: "abort",
+    });
+    await reserve({
+      email: "third@example.com",
+      userId: "user-3",
+      recordingId: "uncapped-reaped",
+    });
+    await allowance.releaseOrphanedHostedClipAllowance({
+      recordingId: "uncapped-reaped",
+      userId: "user-3",
+      createdBefore: new Date(NOW.getTime() + 1),
+      now: NOW,
+    });
+
+    await client.query(
+      `INSERT INTO recordings (id, status, storage_mode, owner_email) VALUES ($1, 'failed', 'hosted', $2), ($3, 'failed', 'hosted', $2)`,
+      ["uncapped-retry", "retry@example.com", "uncapped-cleanup"],
+    );
+    const retryOwner = {
+      email: "retry@example.com",
+      userId: "user-4",
+    };
+    await reserve({ ...retryOwner, recordingId: "uncapped-retry" });
+    await allowance.releaseHostedClipAllowance({
+      recordingId: "uncapped-retry",
+      userId: "user-4",
+      reason: "abort",
+      now: NOW,
+    });
+    await expect(
+      allowance.reacquireHostedClipAllowanceForRetry({
+        recordingId: "uncapped-retry",
+        userId: "user-4",
+        ownerEmail: "retry@example.com",
+        now: NOW,
+      }),
+    ).resolves.toMatchObject({ ok: true, alreadyReserved: false });
+    await reserve({ ...retryOwner, recordingId: "uncapped-cleanup" });
+    await client.query(
+      `INSERT INTO application_state (session_id, key, value, updated_at) VALUES ($1, $2, $3, $4)`,
+      [
+        "retry@example.com",
+        allowance.hostedCleanupConfirmedKey("uncapped-cleanup"),
+        "marker",
+        NOW.getTime(),
+      ],
+    );
+    await expect(
+      allowance.releaseHostedClipAllowanceAfterCleanup({
+        recordingId: "uncapped-cleanup",
+        ownerEmail: "retry@example.com",
+        expectedUpdatedAt: NOW.toISOString(),
+        cleanupMarkerValue: "marker",
+        now: NOW,
+      }),
+    ).resolves.toBe(true);
+
+    expect(sums()).toEqual([]);
+    expect(mockTrack).toHaveBeenCalled();
+    for (const [, props] of mockTrack.mock.calls) {
+      expect(props).not.toHaveProperty("retainedBytes");
+      expect(props).not.toHaveProperty("ratio");
+      expect(props).not.toHaveProperty("globalRetainedByteCap");
+    }
+
+    setHostedConfig({ globalRetainedByteCap: 1_000 });
+    mockTrack.mockClear();
+    await reserve({
+      email: "fourth@example.com",
+      userId: "user-4",
+      recordingId: "capped-release",
+      policy: policy({ globalRetainedByteCap: 1_000 }),
+    });
+    await allowance.releaseHostedClipAllowance({
+      recordingId: "capped-release",
+      userId: "user-4",
+      reason: "abort",
+    });
+    expect(sums().length).toBeGreaterThan(0);
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_hosted_released",
+      expect.not.objectContaining({ retainedBytes: expect.anything() }),
+      { authUserId: "user-4" },
+    );
+  });
+
+  it("runs no retained-byte SUM for release, subtract or an adjust decrease even with a cap", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const capped = policy({ globalRetainedByteCap: 1_000 });
+    setHostedConfig({ globalRetainedByteCap: 1_000 });
+    await reserve({ recordingId: "cap-consumed", policy: capped });
+    await allowance.consumeHostedClipAllowance({
+      recordingId: "cap-consumed",
+      userId: "user-1",
+      actualBytes: 80,
+      now: NOW,
+    });
+    await reserve({
+      email: "other@example.com",
+      userId: "user-2",
+      recordingId: "cap-released",
+      policy: capped,
+    });
+
+    const statements = captureStatements();
+    await allowance.adjustHostedClipRetainedBytes({
+      recordingId: "cap-consumed",
+      userId: "user-1",
+      retainedBytes: 60,
+      now: NOW,
+    });
+    await allowance.subtractHostedClipRetainedBytes({
+      recordingId: "cap-consumed",
+      deletedBytes: 10,
+      now: NOW,
+    });
+    await allowance.releaseHostedClipAllowance({
+      recordingId: "cap-released",
+      userId: "user-2",
+      reason: "abort",
+    });
+    expect(statements.length).toBeGreaterThan(0);
+    expect(statements.filter((text) => /sum\(/i.test(text))).toHaveLength(0);
+  });
+
+  it("commits a release even when the retained-byte SUM would fail", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    setHostedConfig({ globalRetainedByteCap: 1_000 });
+    await reserve({
+      recordingId: "sum-fails",
+      policy: policy({ globalRetainedByteCap: 1_000 }),
+    });
+    captureStatements(/sum\(/i);
+    await expect(
+      allowance.releaseHostedClipAllowance({
+        recordingId: "sum-fails",
+        userId: "user-1",
+        reason: "abort",
+      }),
+    ).resolves.toMatchObject({ ok: true, alreadyReleased: false });
+  });
+
+  it("tracks a threshold crossing when a retry reservation crosses the alert level", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await client.query(
+      `INSERT INTO recordings (id, status, storage_mode, owner_email) VALUES ($1, 'failed', 'hosted', 'owner@example.com')`,
+      ["retry-threshold"],
+    );
+    await reserve({ recordingId: "retry-threshold" });
+    await allowance.releaseHostedClipAllowance({
+      recordingId: "retry-threshold",
+      userId: "user-1",
+      reason: "abort",
+      now: NOW,
+    });
+    await reserve({
+      email: "other@example.com",
+      userId: "user-2",
+      recordingId: "retry-fill",
+      policy: policy({ reservationBytes: 750 }),
+    });
+    setHostedConfig({
+      maxClipBytes: 100,
+      globalRetainedByteCap: 1_000,
+      retainedByteAlertRatio: 0.8,
+    });
+    mockTrack.mockClear();
+    await expect(
+      allowance.reacquireHostedClipAllowanceForRetry({
+        recordingId: "retry-threshold",
+        userId: "user-1",
+        ownerEmail: "owner@example.com",
+        now: NOW,
+      }),
+    ).resolves.toMatchObject({ ok: true, alreadyReserved: false });
+    const crossings = mockTrack.mock.calls.filter(
+      ([name]) => name === "clips_hosted_retained_bytes_threshold",
+    );
+    expect(crossings).toHaveLength(1);
+    expect(crossings[0]?.[1]).toMatchObject({
+      recordingId: "retry-threshold",
+      retainedBytes: 850,
+      thresholdBytes: 800,
+    });
+  });
+
+  it("denies an adjust over the cap with an adjust-stage denial", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    await reserve({ recordingId: "adjust-cap" });
+    await allowance.consumeHostedClipAllowance({
+      recordingId: "adjust-cap",
+      userId: "user-1",
+      actualBytes: 50,
+      now: NOW,
+    });
+    setHostedConfig({ globalRetainedByteCap: 1_000 });
+    mockTrack.mockClear();
+    await expect(
+      allowance.adjustHostedClipRetainedBytes({
+        recordingId: "adjust-cap",
+        userId: "user-1",
+        retainedBytes: 5_000,
+        now: NOW,
+      }),
+    ).resolves.toEqual({ ok: false, reason: "global_storage_cap" });
+    expect(mockTrack).toHaveBeenCalledWith(
+      "clips_hosted_denied",
+      expect.objectContaining({
+        recordingId: "adjust-cap",
+        denyReason: "global_storage_cap",
+        stage: "adjust",
+      }),
+      { authUserId: "user-1" },
+    );
+  });
+
+  it("logs a tracking failure whose thrown value cannot be stringified", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mockTrack.mockImplementation(() => {
+      throw Object.create(null);
+    });
+    await expect(
+      reserve({ recordingId: "track-null-proto" }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(warn).toHaveBeenCalledWith(
+      "[clips-hosted] tracking failed",
+      expect.objectContaining({ event: "clips_hosted_reserved" }),
+    );
+  });
+
+  it("logs a tracking failure without failing the write", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mockTrack.mockImplementation(() => {
+      throw new Error("analytics down");
+    });
+    await expect(
+      reserve({ recordingId: "track-warns" }),
+    ).resolves.toMatchObject({ ok: true });
+    expect(warn).toHaveBeenCalledWith("[clips-hosted] tracking failed", {
+      event: "clips_hosted_reserved",
+      error: "analytics down",
+    });
+    const { rows } = await client.query(
+      "SELECT status FROM clips_hosted_clip_allowances WHERE recording_id = 'track-warns'",
+    );
+    expect(rows).toEqual([{ status: "reserved" }]);
+  });
+
+  it("emits no denial event or IP log from the status snapshot", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const exhausted = policy({
+      perIdentityClipLimit: 1,
+      ipPrefixDailyGrantCap: 1,
+    });
+    await reserve({ recordingId: "snapshot-1", policy: exhausted });
+    mockTrack.mockClear();
+    warn.mockClear();
+    const snapshot = await allowance.getHostedClipAllowanceSnapshot({
+      email: "owner@example.com",
+      userId: "user-1",
+      emailVerified: true,
+      ipPrefix: null,
+      policy: exhausted,
+      now: NOW,
+    });
+    expect(snapshot).toMatchObject({ status: "denied" });
+    expect(mockTrack).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("does not repeat the missing-IP log when a reserve is retried", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const ipCapped = policy({ ipPrefixDailyGrantCap: 5 });
+    await reserve({ recordingId: "retry-ip", policy: ipCapped });
+    await reserve({ recordingId: "retry-ip", policy: ipCapped });
+    expect(
+      warn.mock.calls.filter(
+        ([message]) => message === "[clips-hosted] ip_prefix_unavailable",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("logs, without denying, when the IP prefix cap has no client IP", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const result = await reserve({
+      recordingId: "no-ip",
+      policy: policy({ ipPrefixDailyGrantCap: 1 }),
+    });
+    expect(result).toMatchObject({ ok: true });
+    expect(warn).toHaveBeenCalledWith(
+      "[clips-hosted] ip_prefix_unavailable",
+      expect.objectContaining({ recordingId: "no-ip", authUserId: "user-1" }),
+    );
   });
 
   it("serializes derivative byte additions and records stored bytes after cleanup failure", async () => {
@@ -672,6 +1483,7 @@ describe("hosted clip allowance", () => {
       globalRetainedByteCap: 250,
     });
     await reserve({ recordingId: "derivatives", policy: capped });
+    setHostedConfig({ globalRetainedByteCap: 150 });
     await allowance.consumeHostedClipAllowance({
       recordingId: "derivatives",
       userId: "user-1",
@@ -685,7 +1497,6 @@ describe("hosted clip allowance", () => {
           recordingId: "derivatives",
           userId: "user-1",
           additionalBytes: 10,
-          globalRetainedByteCap: 150,
         }),
       ),
     );
@@ -709,7 +1520,6 @@ describe("hosted clip allowance", () => {
         recordingId: "derivatives",
         userId: "user-1",
         retainedBytes: 0,
-        globalRetainedByteCap: 150,
         now: NOW,
       }),
     ).resolves.toMatchObject({ ok: true, allowance: { quotaBytes: 0 } });
@@ -825,5 +1635,106 @@ describe("hosted clip allowance", () => {
         now: NOW,
       }),
     ).resolves.toMatchObject({ denialReason: "global_storage_cap" });
+  });
+
+  it("reads the status snapshot in a read-only repeatable-read transaction without the global lock", async () => {
+    type RecordedTx = { execute: (query: unknown) => Promise<unknown> };
+    await reserve({ recordingId: "snap-1" });
+    await reserve({ recordingId: "snap-2" });
+    const real = state.db;
+    const seen: { config: unknown; sql: string[] }[] = [];
+    state.db = new Proxy(real, {
+      get(target, prop, receiver) {
+        if (prop !== "transaction") return Reflect.get(target, prop, receiver);
+        return (
+          run: (tx: RecordedTx) => Promise<unknown>,
+          config?: unknown,
+        ) => {
+          const entry = { config, sql: [] as string[] };
+          seen.push(entry);
+          return target.transaction((tx: RecordedTx) => {
+            const execute = tx.execute.bind(tx);
+            tx.execute = (query) => {
+              entry.sql.push(JSON.stringify(query));
+              return execute(query);
+            };
+            return run(tx);
+          }, config);
+        };
+      },
+    });
+    const snapshot = await allowance.getHostedClipAllowanceSnapshot({
+      email: "owner@example.com",
+      emailVerified: true,
+      userId: "user-1",
+      ipPrefix: null,
+      policy: policy(),
+      now: NOW,
+    });
+    expect(snapshot).toMatchObject({
+      reservedCount: 2,
+      consumedCount: 0,
+      remainingCount: 1,
+      status: "available",
+    });
+    await reserve({ recordingId: "snap-3" });
+
+    expect(seen).toHaveLength(2);
+    const [snapshotTx, reserveTx] = seen as [
+      (typeof seen)[number],
+      (typeof seen)[number],
+    ];
+    expect(snapshotTx.config).toEqual({
+      isolationLevel: "repeatable read",
+      accessMode: "read only",
+    });
+    expect(snapshotTx.sql.join("")).not.toContain("pg_advisory_xact_lock");
+    expect(reserveTx.config).toBeUndefined();
+    expect(reserveTx.sql.join("")).toContain("pg_advisory_xact_lock");
+  });
+
+  it("keeps the status snapshot read-only at the database", async () => {
+    await expect(
+      state.db.transaction(
+        (tx: { execute: (query: unknown) => Promise<unknown> }) =>
+          tx.execute(sql`DELETE FROM clips_hosted_clip_allowances`),
+        { isolationLevel: "repeatable read", accessMode: "read only" },
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("returns the identity's remaining clips from the reserve, without a second decrement for an existing reservation", async () => {
+    await expect(reserve({ recordingId: "rem-1" })).resolves.toMatchObject({
+      ok: true,
+      alreadyReserved: false,
+      remainingCount: 2,
+    });
+    await expect(reserve({ recordingId: "rem-2" })).resolves.toMatchObject({
+      alreadyReserved: false,
+      remainingCount: 1,
+    });
+    await expect(reserve({ recordingId: "rem-2" })).resolves.toMatchObject({
+      alreadyReserved: true,
+      remainingCount: 1,
+    });
+    await expect(reserve({ recordingId: "rem-3" })).resolves.toMatchObject({
+      alreadyReserved: false,
+      remainingCount: 0,
+    });
+    await expect(reserve({ recordingId: "rem-4" })).resolves.toEqual({
+      ok: false,
+      reason: "exhausted",
+    });
+  });
+
+  it("gives concurrent reserves distinct remaining counts", async () => {
+    const results = await Promise.all([
+      reserve({ recordingId: "race-1" }),
+      reserve({ recordingId: "race-2" }),
+      reserve({ recordingId: "race-3" }),
+    ]);
+    expect(results.map((r) => (r.ok ? r.remainingCount : -1)).sort()).toEqual([
+      0, 1, 2,
+    ]);
   });
 });

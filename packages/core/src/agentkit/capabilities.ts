@@ -1,4 +1,7 @@
+import { fail } from "../action.js";
+import type { AgentChatReference } from "../agent/types.js";
 import type { CredentialContext } from "../credentials/index.js";
+import { workspaceIntegrationMessagesForUser } from "../localization/workspace-integration-messages.js";
 import { parseMergedKey } from "../mcp-client/remote-store.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 import { hasOAuthTokens } from "../oauth-tokens/index.js";
@@ -6,7 +9,8 @@ import {
   defaultProviderApiCredentialResolver,
   getProviderApiConfig,
   isProviderApiId,
-  listProviderApiIdsForTemplateUse,
+  getRegisteredProviderApiRuntimeOptions,
+  listRegisteredCustomProviderCapabilities,
   type ProviderApiAuthKind,
   type ProviderApiId,
 } from "../provider-api/index.js";
@@ -17,7 +21,7 @@ import {
 } from "../server/request-context.js";
 import { resolveWorkspaceConnectionForApp } from "../workspace-connections/index.js";
 
-export type AgentKitCapabilityAppId = "design" | "slides" | "slides-2";
+export type AgentKitCapabilityAppId = string;
 
 export interface AgentKitIntegrationCapability {
   id: string;
@@ -94,16 +98,18 @@ async function groupHasCredentials(
   keys: readonly string[],
   context: CredentialContext,
 ): Promise<boolean> {
-  const config = getProviderApiConfig(provider);
+  const runtime = getRegisteredProviderApiRuntimeOptions(appId);
+  const config = getProviderApiConfig(provider, runtime?.providerOverrides);
+  const providerWorkspace = workspaceProvider(config.auth);
   const resolved = await Promise.all(
     keys.map((key) =>
-      defaultProviderApiCredentialResolver({
+      (runtime?.resolveCredential ?? defaultProviderApiCredentialResolver)({
         appId,
         provider,
         key,
         ctx: context,
-        workspaceProvider: workspaceProvider(config.auth),
-        localCredentialSource: `${appId}_local`,
+        ...(providerWorkspace ? { workspaceProvider: providerWorkspace } : {}),
+        localCredentialSource: runtime?.localCredentialSource ?? "app_local",
       }),
     ),
   );
@@ -115,7 +121,8 @@ async function isIntegrationAvailable(
   provider: ProviderApiId,
   context: CredentialContext,
 ): Promise<boolean> {
-  const config = getProviderApiConfig(provider);
+  const runtime = getRegisteredProviderApiRuntimeOptions(appId);
+  const config = getProviderApiConfig(provider, runtime?.providerOverrides);
   if (config.auth.type === "oauth-bearer") {
     if (config.auth.workspaceProvider) {
       const connection = await resolveWorkspaceConnectionForApp({
@@ -215,12 +222,14 @@ async function listConnectedMcpIntegrations(): Promise<
 
 export async function isAgentKitFigmaSourceAvailable(
   context: CredentialContext,
+  appId: AgentKitCapabilityAppId = "design",
 ): Promise<boolean> {
   return inCapabilityScope(
     context,
     () =>
-      listProviderApiIdsForTemplateUse("design").includes("figma") &&
-      isIntegrationAvailable("design", "figma", context),
+      (
+        getRegisteredProviderApiRuntimeOptions(appId)?.providerIds ?? []
+      ).includes("figma") && isIntegrationAvailable(appId, "figma", context),
   );
 }
 
@@ -229,13 +238,17 @@ export async function listAgentKitCapabilities(
   context: CredentialContext,
 ): Promise<AgentKitCapabilityCatalog> {
   return inCapabilityScope(context, async () => {
-    const supported = listProviderApiIdsForTemplateUse(appId);
-    const figmaAvailable = await isAgentKitFigmaSourceAvailable(context);
+    const supported = (
+      getRegisteredProviderApiRuntimeOptions(appId)?.providerIds ?? []
+    ).filter(isProviderApiId);
+    const figmaAvailable = await isAgentKitFigmaSourceAvailable(context, appId);
     const integrations = await Promise.all(
-      supported
-        .filter((provider) => provider !== "figma")
-        .map(async (id): Promise<AgentKitIntegrationCapability | null> => {
-          const config = getProviderApiConfig(id);
+      supported.map(
+        async (id): Promise<AgentKitIntegrationCapability | null> => {
+          const config = getProviderApiConfig(
+            id,
+            getRegisteredProviderApiRuntimeOptions(appId)?.providerOverrides,
+          );
           return (await isIntegrationAvailable(appId, id, context))
             ? {
                 id,
@@ -243,7 +256,8 @@ export async function listAgentKitCapabilities(
                 kind: "provider-api" as const,
               }
             : null;
-        }),
+        },
+      ),
     );
     return {
       sources: { figma: { available: figmaAvailable } },
@@ -251,6 +265,9 @@ export async function listAgentKitCapabilities(
         ...integrations.filter(
           (integration): integration is AgentKitIntegrationCapability =>
             integration !== null,
+        ),
+        ...(await listRegisteredCustomProviderCapabilities(appId, context)).map(
+          (entry) => ({ ...entry, kind: "provider-api" as const }),
         ),
         ...(await listConnectedMcpIntegrations()),
       ],
@@ -272,6 +289,7 @@ export async function readAgentKitIntegrationIntent(
         !serverId ||
         !isMcpServerInScope(serverId) ||
         !manager.hasServer(serverId) ||
+        !manager.getStatus().connectedServers.includes(serverId) ||
         !config ||
         !manager
           .getToolsForServer(serverId)
@@ -289,16 +307,34 @@ export async function readAgentKitIntegrationIntent(
         ].join("\n"),
       };
     }
-    const supported = listProviderApiIdsForTemplateUse(appId);
+    if (!isProviderApiId(provider)) {
+      const custom = (
+        await listRegisteredCustomProviderCapabilities(appId, context)
+      ).find((entry) => entry.id === provider);
+      return custom
+        ? {
+            id: provider,
+            title: custom.label,
+            context: `The user selected the connected ${custom.label} integration for this request. Use its available provider tools when relevant; this selection is not retrieved data or proof an operation succeeded.`,
+          }
+        : null;
+    }
+    const supported = (
+      getRegisteredProviderApiRuntimeOptions(appId)?.providerIds ?? []
+    ).filter(isProviderApiId);
     if (
       !isProviderApiId(provider) ||
       !supported.includes(provider) ||
-      provider === "figma" ||
       !(await isIntegrationAvailable(appId, provider, context))
     ) {
       return null;
     }
-    const label = displayLabel(getProviderApiConfig(provider).label);
+    const label = displayLabel(
+      getProviderApiConfig(
+        provider,
+        getRegisteredProviderApiRuntimeOptions(appId)?.providerOverrides,
+      ).label,
+    );
     return {
       id: provider,
       title: label,
@@ -308,4 +344,52 @@ export async function readAgentKitIntegrationIntent(
       ].join("\n"),
     };
   });
+}
+
+export async function resolveAgentKitIntegrationReferences(
+  appId: string,
+  references: readonly AgentChatReference[],
+  context: CredentialContext,
+): Promise<string[]> {
+  const integrations = references.filter(
+    (reference) =>
+      reference.refType === "integration" ||
+      reference.source === "workspace-integration",
+  );
+  if (!integrations.length) return [];
+  const messages = await workspaceIntegrationMessagesForUser(context.userEmail);
+  if (integrations.length > 20) {
+    fail(messages.limit, {
+      errorCode: "workspace_integration_limit",
+      statusCode: 400,
+    });
+  }
+  const selected = new Set<string>();
+  const intents: string[] = [];
+  for (const reference of integrations) {
+    const id = reference.refId;
+    if (
+      !appId.trim() ||
+      reference.type !== "mention" ||
+      reference.refType !== "integration" ||
+      !id ||
+      id.length > 200
+    ) {
+      fail(messages.invalid, {
+        errorCode: "workspace_integration_invalid",
+        statusCode: 400,
+      });
+    }
+    if (selected.has(id)) continue;
+    selected.add(id);
+    const intent = await readAgentKitIntegrationIntent(appId, id, context);
+    if (!intent) {
+      fail(messages.unavailable, {
+        errorCode: "workspace_integration_unavailable",
+        statusCode: 403,
+      });
+    }
+    intents.push(intent.context);
+  }
+  return intents;
 }

@@ -305,6 +305,7 @@ export default {
     updateFailed: "無法更新評論",
     commentsInCluster: "群組中的評論：{{count}}",
     moreActions: "更多操作",
+    moreActionsFor: "{{author}} 的更多操作",
     copyLink: "複製連結",
     linkCopied: "連結已複製",
     copyLinkFailed: "無法複製連結",
@@ -324,6 +325,7 @@ export default {
     addEmoji: "新增表情符號",
     mention: "提及某人",
     noMentions: "找不到人員",
+    mentionsFailed: "無法載入人員",
     reopen: "重新開啟",
     reopening: "正在重新開啟…",
     undo: "復原",
@@ -369,7 +371,6 @@ export default {
     },
     filtersActive: "已套用篩選",
     suggestChanges: "建議修改",
-    replyInThread: "在討論串中回覆",
     applyChangesAndResolve: "套用修改並解決",
     agent: {
       sectionLabel: "代理",
@@ -473,6 +474,7 @@ export default {
   common: {
     loading: "載入中...",
     genericError: "出了點問題",
+    linkedSourceSizeLimit: "此連結元件編輯超過了來源大小限制。",
   },
   editPanel: {
     repeatAffectsAll: "影響全部 {{count}} 個副本",
@@ -585,6 +587,7 @@ export default {
       font: "字型",
       baseSize: "底座尺寸",
       size: "尺寸",
+      fontSizes: "字級階梯",
       weight: "重量",
       color: "顏色",
       align: "對齊",
@@ -1033,6 +1036,9 @@ export default {
       bottom: "乙",
       left: "L",
     },
+    fontPicker: {
+      catalogUnavailable: "無法載入完整字型庫。",
+    },
     fontFamilies: {
       inherit: "繼承",
       sansSerif: "無襯線字型",
@@ -1167,6 +1173,8 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "無法載入此畫面。",
+    selectionPublishFailed: "代理程式可能看不到你最新的選取內容。請重新選取。",
     liveCollaboration: {
       title: "即時協作",
       description:
@@ -1800,30 +1808,17 @@ export default {
       editColor: "編輯 {{name}} 的顏色",
     },
     import: {
-      title: "匯入",
       description: "將 Figma 剪貼簿 HTML 或獨立 HTML 帶入為 Design 螢幕。",
-      figmaUrlTitle: "Figma 畫框網址",
-      figmaUrlDescription: "從 Figma 連結匯入畫框或檔案。",
       figmaUrlLabel: "Figma 畫框或檔案網址",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "正在檢查 Figma 連線…",
-      figmaConnected: "Figma 已連線",
-      figmaConnectedWithSuffix: "Figma 已連線 · ••••{{suffix}}",
       figmaTokenLabel: "Figma 存取權杖",
       figmaTokenDocs: "取得權杖",
       figmaTokenPlaceholder: "貼上您的 Figma 個人存取權杖",
-      figmaTokenDescription:
-        "安全儲存以供 Figma 匯入和代理聊天使用。權杖絕不會加入聊天。",
-      importFigmaUrl: "從 Figma 匯入",
-      saveKeyAndImport: "儲存金鑰並匯入",
       figmaUrlSuccess: "已從 Figma 匯入。",
       figmaImageFallbackWarning:
         "圖像備援：{{count}}。外觀會保留，但這些圖層無法完整編輯。",
       figmaApproximationWarning:
         "近似圖層：{{count}}。HTML/CSS 無法精確呈現所有 Figma 屬性。",
-      figmaPasteTitle: "從 Figma 貼上",
-      figmaPasteDescription:
-        "在 Figma 複製畫框或圖層，然後貼到 Design 畫布。Design 會匯入可見的剪貼簿 HTML。",
       figmaPasteTarget: "貼到畫布",
       figmaPasteApiKeyHint: "連結您的 Figma 存取權杖以取得精確的節點匯入。",
       figmaPasteAccessDenied:
@@ -1831,10 +1826,10 @@ export default {
       figmaPasteMatchGuidance:
         "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
       figmaPasteUnreadable:
-        "剪貼簿中沒有已複製的 Figma 圖層。請在 Figma 中選取畫框，按 Cmd+C 複製後再貼上，或從匯入面板匯入 Figma 連結。",
+        "剪貼簿中沒有已複製的 Figma 圖層。請在 Figma 中選取畫框，按 Cmd+C 複製後再貼上，或在聊天中貼上該畫框的連結。",
       figmaPasteRestLabel: "透過 Figma API 匯入",
       figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
-      figmaPasteLocalKiwiLabel: "已在未登入狀態下匯入 — 僅含幾何與文字",
+      figmaPasteLocalKiwiLabel: "已從 Figma 剪貼簿匯入",
       figmaPasteImagesNeedToken:
         "{{count}} 個圖片{{plural}}需要 Figma 存取權才能載入。",
       figmaPasteImagesDontShowAgain: "不再顯示",
@@ -1865,70 +1860,27 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: "上傳 .fig",
       figUploadDescription:
         "本機匯入，不使用 Figma API 配額。包含內嵌圖片。格式可能隨 Figma 版本變更。上限為 {{max}} MB。",
-      figUploadDescriptionShort:
-        "本機匯入 — 不使用 Figma API 配額。支援的內嵌圖片會一併匯入。",
       figUploadImagesSkippedWarning:
         "為符合瀏覽器上傳限制，已略過 {{count}} 張內嵌圖片。",
-      chooseFigFile: "選擇 .fig 檔案",
       figUploadUploading: "上傳中 {{progress}}%",
       figUploadProcessing: "轉換中…",
-      figImportWarningTitle: "大型 .fig 匯入",
-      figImportWarningDescription:
-        "此檔案包含 {{frames}} 個畫框和 {{nodes}} 個圖層。全部匯入可能會讓編輯器變慢。請選擇需要的頁面。",
-      figImportFrameCount: "已選取 {{selected}} / {{total}} 個畫框",
-      figImportSelectAll: "全選",
-      figImportClearAll: "全部清除",
-      figImportCancel: "取消",
-      figImportSelected: "匯入已選取的 {{count}} 個",
-      figImportAll: "全部匯入",
       figImportAnalyzing: "分析中…",
       figImportSaving: "正在儲存 {{saved}} / {{total}} 個畫框",
-      figImportFrameLimit: "所選頁面的畫框總數不能超過 {{max}} 個。",
       figImportFramesSkippedWarning:
         "已略過 {{count}} 個過於複雜、無法匯入的畫框：{{names}}",
-      figUploadLimits: "最大 {{size}} GB · 每次匯入最多 {{frames}} 個畫框",
-      figmaPasteBodyUnlimited:
-        "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
-      figmaPasteBodyImages:
-        "若無權杖，圖片填充可能遺失。上傳 .fig 檔案可包含內嵌圖片。",
-      quotaCooldownTitle: "Design 已暫停此匯入",
-      quotaCooldownBody:
-        "達到配額上限後，Design 正在限制自身的 Figma 請求速率。配額將自動重設。",
-      rateLimitTitle: "Figma 已暫停此匯入",
-      rateLimitLowSeat:
-        "您的座位類型（檢視者/協作者）的 Figma API 檔案匯入配額有限 — 根據官方 Figma 文件，每月最多 6 次請求。",
-      rateLimitGeneric: "Figma 對此匯入進行了速率限制。配額將自動重設。",
-      rateLimitRetryIn: "請在 {{time}} 後重試。",
-      rateLimitAlternatives: "無配額替代方案：",
-      rateLimitUsePaste: "從 Figma 貼上 — 無限制",
-      rateLimitUseFig: "上傳 .fig — 無限制",
-      rateLimitUpgrade: "查看 Figma 方案選項 →",
-      htmlTitle: "匯入 HTML",
       htmlDescription:
         "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",
-      htmlPlaceholder: "<main>在此貼上獨立 HTML...</main>",
-      importHtml: "匯入 HTML",
-      chooseHtmlFile: "選擇 HTML 檔案",
       allSupportedFiles: "所有支援的檔案",
-      githubTitle: "GitHub",
       githubDescription: "即將推出：直接從儲存庫匯入螢幕和元件。",
-      localTitle: "本機 app",
       localDescription: "使用 /visual-edit 連接任何執行中的本機 app。",
-      visualEditGuidance:
-        "安裝 /visual-edit skill，啟動任意本機 app，然後在該 app repo 中執行橋接命令，讓代理新增 URL 螢幕。",
-      comingSoon: "即將推出",
       warningsToast: "匯入完成但有警告",
       figmaSuccess: "已匯入 Figma 貼上內容",
       htmlSuccess: "已匯入 HTML",
       uploadSuccess: "已匯入檔案",
-      lastImport: "上次匯入",
       errors: {
         figmaTokenMustBeToken: "請貼上 Figma 存取權杖，而不是 Figma 檔案連結。",
-        figmaUrlRequired: "請貼上 Figma 畫框或檔案網址。",
-        invalidFigmaUrl: "請輸入有效的 figma.com 畫框或檔案網址。",
         figmaImportFailed: "無法從 Figma 匯入",
         notHtml: "請貼上或選擇有效的 HTML 以匯入。",
         importFailed: "匯入失敗",
@@ -1936,9 +1888,11 @@ export default {
         uploadFailed: "檔案上傳失敗",
         invalidFigFile: "請選擇副檔名為 .fig 的檔案。",
         unsupportedFileType: "請選擇 .fig、.html 或 .htm 檔案。",
-        importBusy: "另一個匯入正在進行。請先完成或取消。",
+        importBusy: "另一個匯入正在進行。請在其完成後再試一次。",
         figFileTooLarge:
-          "此 .fig 檔案太大 — 上傳上限為 {{max}} MB。請在 Figma 中將要匯入的畫框複製到新檔案，並匯出該檔案為 .fig，或改用「從 Figma 貼上」。",
+          "此檔案太大，無法在此匯入。請改為貼上 Figma 頁面或畫框的連結。",
+        figFileUnreadable:
+          "無法將此檔案讀取為 .fig 檔案。請從 Figma 儲存新的本機副本並匯入。",
       },
     },
     generationMayHaveStopped:
@@ -1972,6 +1926,7 @@ export default {
       duplicate: "複製",
       versionHistory: "版本記錄",
       import: "匯入…",
+      connectLocalApp: "連接本機應用程式",
       delete: "刪除",
       deleteError: "無法刪除此設計",
     },
@@ -2747,32 +2702,49 @@ export default {
   },
   homeContext: {
     websiteReference: "新增網站",
+    websiteReferenceMenu: "新增網站…",
     websiteUrlLabel: "網站 URL",
     websiteUrl: "貼上網站 URL",
-    figmaUrlLabel: "Figma 連結",
     invalidFigmaUrl: "請輸入有效的 figma.com 畫框或檔案 URL。",
     tooMany: "最多選擇 20 個參考。",
     invalidWebsiteUrl: "請輸入有效的 HTTP 或 HTTPS URL。",
     createSystem: "建立設計系統",
     noSystems: "你還沒有設計系統。可以從網站、檔案或 Figma 建立。",
     searchSystems: "搜尋設計系統…",
-    searchFrames: "搜尋 Figma 畫框…",
     searchDesigns: "搜尋設計…",
     searchPresentations: "搜尋簡報…",
     searchDesign: "搜尋設計…",
     useDesignSystem: "使用設計系統",
     notReady: "提示尚未準備好提交。請檢查所選上下文和連線，然後重試。",
     search: "搜尋上下文…",
-    figmaUrl: "貼上 Figma 連結",
-    browse: "瀏覽畫框",
     loadFailed: "無法載入此參考。",
     retry: "重試",
     empty: "沒有相符的參考。",
     none: "無",
-    design: "設計",
+    design: "設計參考",
     slides: "投影片",
     referenceDesign: "參考設計",
-    figmaReference: "新增 Figma",
+    connectFigma: "連接 Figma",
+    figmaReference: "Figma 設計…",
+    figmaDialogTitle: "新增 Figma 設計",
+    figmaDropTitle: "拖入 .fig 檔案",
+    figmaChooseFile: "選擇檔案",
+    figmaPasteHint: "你也可以把複製的框架直接貼到提示中。",
+    figmaAddToPrompt: "加入提示",
+    figmaLinkNeedsConnection:
+      "連結需要已連接的 Figma 帳戶。請改為拖入 .fig 檔案或貼上複製的框架。",
+    figmaReferenceMore: "{{name}} 等 {{count}} 個",
+    figmaReferenceEmpty:
+      "沒有收到任何框架。請在 Figma 中複製一個框架後再試一次。",
+    figmaSelection: "Figma 選取範圍",
+    figmaFileTooLarge:
+      "此檔案太大，無法在這裡讀取。請改為貼上其頁面或框架的連結。",
+    figmaSearch: "搜尋頁面和框架",
+    figmaSelectedCount: "已選取 {{count}} 項",
+    figmaShowFrames: "顯示 {{name}} 中的框架",
+    figmaLinkNotFrame: "請連結到 Figma 頁面或框架。",
+    figmaPageFrameCap:
+      "加入前 {{limit}} 個框架。勾選框架即可自行選擇要加入哪些。",
     referenceDeck: "參考簡報",
     quickSaas: "建立 SaaS 登陸頁",
     quickDashboard: "建立儀表板",
@@ -2782,12 +2754,162 @@ export default {
   },
   home: {
     suggestedPrompts: "建議提示",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "設計一個產品分析儀表板，包含KPI卡片、轉換圖表和活動表格，整體採用自信的數據導向風格。",
+        roadmapWorkspace:
+          "設計一個產品路線圖工作區，包含季度時間軸、優先順序和客戶回饋面板，整體採用平和協作的風格。",
+        onboardingFlow:
+          "設計一個預算應用程式的引導流程，包含進度步驟、目標選擇和帳戶設定，整體採用令人安心的風格。",
+        featureComparison:
+          "設計一個SaaS功能比較頁面，包含方案卡片、功能矩陣和常見問題，整體採用直接且重視轉換的風格。",
+        feedbackPortal:
+          "設計一個客戶回饋入口，包含需求看板、投票控制和狀態篩選，整體採用開放的社群風格。",
+        releaseNotes:
+          "設計一個版本更新中心，包含版本時間軸、功能亮點和移轉說明，整體採用簡潔的編輯風格。",
+        projectWorkspace:
+          "設計一個產品團隊工作區，包含看板欄位、負責人標籤和里程碑，整體採用專注效率的風格。",
+        launchWaitlist:
+          "設計一個產品上市候補名單頁面，包含主視覺、客戶佐證和註冊表單，整體採用樂觀的風格。",
+      },
+      design: {
+        portfolioHome:
+          "設計一個設計師作品集首頁，包含簡短介紹、案例網格、個人簡介和聯絡入口，整體採用精緻的編輯風格。",
+        designSystem:
+          "設計一個設計系統參考頁，包含色彩與字體權杖、元件展示和使用說明，整體採用精準的文件風格。",
+        bankingApp:
+          "設計一個手機銀行應用程式首頁，包含餘額卡片、交易清單和儲蓄目標，整體採用平靜可信的風格。",
+        travelBooking:
+          "設計一個旅遊預訂搜尋頁面，包含目的地篩選、行程卡片和地圖面板，整體採用輕盈冒險的風格。",
+        coffeeShop:
+          "設計一個咖啡店網店，包含精選咖啡、產地故事和訂閱入口，整體採用溫暖細膩的風格。",
+        musicFestival:
+          "設計一個音樂節活動頁面，包含演出陣容、日程和場地地圖，整體採用充滿活力的海報風格。",
+        accessibilityAudit:
+          "設計一個無障礙檢查儀表板，包含評分摘要、問題清單和篩選控制，整體採用清晰高對比風格。",
+        artBook:
+          "設計一個藝術書編輯頁面，包含沉浸式作品、重點引言和章節導覽，整體採用克制的藝廊風格。",
+      },
+      developer: {
+        apiDocs:
+          "設計一個API文件入口，包含側邊導覽、程式碼範例和請求建構器，整體採用精準的技術風格。",
+        deploymentDashboard:
+          "設計一個部署儀表板，包含環境卡片、即時記錄和回復控制，整體採用平靜的營運風格。",
+        componentPlayground:
+          "設計一個元件試驗場，包含屬性控制、狀態變體和程式碼面板，整體採用清爽的開發者風格。",
+        databaseConsole:
+          "設計一個資料庫控制台，包含查詢編輯器、結構樹和結果表格，整體採用克制的技術風格。",
+        issueTriage:
+          "設計一個問題分流看板，包含篩選、優先級徽章和負責人佇列，整體採用清楚專注的風格。",
+        authSettings:
+          "設計一個驗證設定頁，包含服務供應商卡片、回呼網址和權限清單，整體採用安全安心的風格。",
+        workflowBuilder:
+          "設計一個CI工作流程建構器，包含步驟節點、執行紀錄和分支選擇，整體採用精準的技術風格。",
+        developerPortfolio:
+          "設計一個開發者作品集，包含專案卡片、工具組合和時間軸，整體採用沉穩的深色風格。",
+      },
+      marketing: {
+        campaignLanding:
+          "設計一個行銷活動頁面，包含醒目主視覺、主要優勢、客戶佐證和註冊入口，整體採用活力風格。",
+        emailBuilder:
+          "設計一個電子郵件行銷編輯器，包含主旨預覽、內容區塊和受眾摘要，整體採用清楚友善的風格。",
+        socialCalendar:
+          "設計一個社群內容日曆，包含頻道分頁、排程貼文和成效指標，整體採用明亮的編輯風格。",
+        brandCampaign:
+          "設計一個品牌活動頁面，包含標題、藝術指導和素材藝廊，整體採用自信一致的風格。",
+        webinarRegistration:
+          "設計一個網路研討會報名頁，包含講者卡片、議程和報名表單，整體採用可信親切的風格。",
+        seoBrief:
+          "設計一份SEO內容簡報，包含關鍵字群組、內容大綱和競品備註，整體採用專注研究的風格。",
+        launchMetrics:
+          "設計一個上市指標儀表板，包含頻道卡片、轉換圖表和活動表格，整體採用分析型風格。",
+        newsletterSignup:
+          "設計一個電子報訂閱頁，包含編輯預覽、主題選擇和電子郵件欄位，整體採用溫暖簡潔的風格。",
+      },
+      sales: {
+        leadWorkspace:
+          "設計一個銷售線索工作區，包含聯絡資訊、活動時間軸和資格欄位，整體採用果斷專業的風格。",
+        accountBrief:
+          "設計一份客戶帳戶研究簡報，包含公司概況、相關人員和近期動態，整體採用清楚的主管風格。",
+        productDemo:
+          "設計一個產品展示頁，包含使用情境分頁、產品畫面和客戶佐證，整體採用自信有說服力的風格。",
+        proposalBuilder:
+          "設計一個提案建構器，包含範圍章節、價格卡片和時間安排，整體採用精緻的顧問風格。",
+        pipelineDashboard:
+          "設計一個銷售管道儀表板，包含階段欄位、商機金額和預測圖表，整體採用簡潔商務風格。",
+        meetingBooking:
+          "設計一個會議預約頁，包含日曆時段、議程預覽和表單，整體採用專業親切的風格。",
+        customerStory:
+          "設計一個客戶案例頁面，包含挑戰、成果、引言和指標，整體採用以證據為本的編輯風格。",
+        accountHandoff:
+          "設計一個帳戶交接工作區，包含客戶目標、聯絡人和待辦事項，整體採用平靜協作的風格。",
+      },
+      ops: {
+        inventoryDashboard:
+          "設計一個庫存儀表板，包含庫存水位、補貨提醒和類別篩選，整體採用實用的營運風格。",
+        staffScheduler:
+          "設計一個員工排班表，包含班次網格、可用時間和請假申請，整體做到一目了然。",
+        vendorPortal:
+          "設計一個供應商加入入口，包含檢查清單、文件上傳狀態和聯絡人，整體採用清楚安心的風格。",
+        incidentResponse:
+          "設計一個事故應變頁面，包含嚴重程度橫幅、事件時間軸和負責人面板，整體採用冷靜專注的風格。",
+        expenseApprovals:
+          "設計一個費用核准佇列，包含收據預覽、政策提醒和金額總計，整體採用中性高效的風格。",
+        warehouseReceiving:
+          "設計一個倉庫收貨頁面，包含貨運資訊、掃描狀態和商品清單，整體做到清楚易懂。",
+        automationControl:
+          "設計一個工作流程控制面板，包含自動化卡片、執行紀錄和失敗提醒，整體採用可靠的營運風格。",
+        helpdeskQueue:
+          "設計一個內部服務台佇列，包含請求卡片、狀態篩選和指派控制，整體採用清楚友善的風格。",
+      },
+      individual: {
+        personalPortfolio:
+          "設計一個個人作品集，包含簡短簡介、精選作品、技能和聯絡方式，整體採用溫暖的編輯風格。",
+        mealPlanner:
+          "設計一個餐點規劃應用程式頁面，包含每週食譜、採買清單和飲食篩選，整體採用實用友善的風格。",
+        homeBudget:
+          "設計一個家庭預算儀表板，包含每月摘要、分類圖表和帳單清單，整體採用平靜支持的風格。",
+        tripPlanner:
+          "設計一個旅行規劃器，包含行程時間軸、地圖和預訂卡片，整體採用輕盈冒險的風格。",
+        readingJournal:
+          "設計一個閱讀日誌，包含書籍封面、進度筆記和星級評分，整體採用安靜的文學風格。",
+        invoiceTracker:
+          "設計一個自由工作者發票追蹤器，包含客戶清單、付款狀態和到期日，整體採用整潔專業的風格。",
+        habitTracker:
+          "設計一個習慣追蹤應用程式，包含每日打卡、連續紀錄卡片和進度圖表，整體採用溫和鼓勵的風格。",
+        neighborhoodEvents:
+          "設計一個社區活動頁面，包含活動卡片、在地篩選和報名控制，整體採用熱情友善的社群風格。",
+      },
+      general: {
+        saasHomepage:
+          "設計一個SaaS首頁，包含主視覺、功能區塊和客戶佐證，整體採用清楚親切的風格。",
+        analyticsDashboard:
+          "設計一個分析儀表板，包含KPI卡片、趨勢圖表和活動表格，整體採用平靜的數據導向風格。",
+        habitApp:
+          "設計一個習慣應用程式手機首頁，包含每日目標、進度環和提醒，整體採用友善鼓勵的風格。",
+        onlineStore:
+          "設計一個網店首頁，包含精選商品、類別卡片和客戶評價，整體採用溫暖精緻的風格。",
+        creativePortfolio:
+          "設計一個創意作品集頁面，包含簡短介紹、專案網格和個人簡介，整體採用富有表現力的編輯風格。",
+        bookingPage:
+          "設計一個服務預約頁，包含可預約日曆、服務卡片和評價摘錄，整體採用清楚可信的風格。",
+        adminDashboard:
+          "設計一個管理儀表板，包含側邊導覽、摘要卡片和近期活動，整體採用克制實用的風格。",
+        communityEvent:
+          "設計一個社區活動頁面，包含活動安排、場地資訊和講者，整體採用熱情歡迎的風格。",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "後續步驟",
+      refineWithPrompt: "使用提示詞調整",
+      export: "匯出",
+      shareLink: "分享連結",
+      dismiss: "關閉",
+    },
     import: "匯入",
-    importOptions: "匯入選項",
-    figmaLink: "Figma 連結",
     importFromFigma: "從 Figma 匯入",
     figmaFile: "Figma 檔案 (.fig)",
-    figmaFileMaxSize: "最大 {{max}} GB",
     openImport: "開啟匯入",
     importSelectedFile: "匯入所選檔案",
     starterSaasPrompt:
@@ -2858,6 +2980,89 @@ export default {
     paginationPrevious: "上一頁",
     paginationNext: "下一頁",
     paginationPage: "第 {{page}} / {{totalPages}} 頁",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "產品分析儀表板",
+        roadmapWorkspace: "產品路線圖工作區",
+        onboardingFlow: "預算應用程式的引導流程",
+        featureComparison: "SaaS功能比較頁面",
+        feedbackPortal: "客戶回饋入口",
+        releaseNotes: "版本更新中心",
+        projectWorkspace: "產品團隊工作區",
+        launchWaitlist: "產品上市候補名單頁面",
+      },
+      design: {
+        portfolioHome: "設計師作品集首頁",
+        designSystem: "設計系統參考頁",
+        bankingApp: "手機銀行應用程式首頁",
+        travelBooking: "旅遊預訂搜尋頁面",
+        coffeeShop: "咖啡店網店",
+        musicFestival: "音樂節活動頁面",
+        accessibilityAudit: "無障礙檢查儀表板",
+        artBook: "藝術書編輯頁面",
+      },
+      developer: {
+        apiDocs: "API文件入口",
+        deploymentDashboard: "部署儀表板",
+        componentPlayground: "元件試驗場",
+        databaseConsole: "資料庫控制台",
+        issueTriage: "問題分流看板",
+        authSettings: "驗證設定頁",
+        workflowBuilder: "CI工作流程建構器",
+        developerPortfolio: "開發者作品集",
+      },
+      marketing: {
+        campaignLanding: "行銷活動頁面",
+        emailBuilder: "電子郵件行銷編輯器",
+        socialCalendar: "社群內容日曆",
+        brandCampaign: "品牌活動頁面",
+        webinarRegistration: "網路研討會報名頁",
+        seoBrief: "一份SEO內容簡報",
+        launchMetrics: "上市指標儀表板",
+        newsletterSignup: "電子報訂閱頁",
+      },
+      sales: {
+        leadWorkspace: "銷售線索工作區",
+        accountBrief: "一份客戶帳戶研究簡報",
+        productDemo: "產品展示頁",
+        proposalBuilder: "提案建構器",
+        pipelineDashboard: "銷售管道儀表板",
+        meetingBooking: "會議預約頁",
+        customerStory: "客戶案例頁面",
+        accountHandoff: "帳戶交接工作區",
+      },
+      ops: {
+        inventoryDashboard: "庫存儀表板",
+        staffScheduler: "員工排班表",
+        vendorPortal: "供應商加入入口",
+        incidentResponse: "事故應變頁面",
+        expenseApprovals: "費用核准佇列",
+        warehouseReceiving: "倉庫收貨頁面",
+        automationControl: "工作流程控制面板",
+        helpdeskQueue: "內部服務台佇列",
+      },
+      individual: {
+        personalPortfolio: "個人作品集",
+        mealPlanner: "餐點規劃應用程式頁面",
+        homeBudget: "家庭預算儀表板",
+        tripPlanner: "旅行規劃器",
+        readingJournal: "閱讀日誌",
+        invoiceTracker: "自由工作者發票追蹤器",
+        habitTracker: "習慣追蹤應用程式",
+        neighborhoodEvents: "社區活動頁面",
+      },
+      general: {
+        saasHomepage: "SaaS首頁",
+        analyticsDashboard: "分析儀表板",
+        habitApp: "習慣應用程式手機首頁",
+        onlineStore: "網店首頁",
+        creativePortfolio: "創意作品集頁面",
+        bookingPage: "服務預約頁",
+        adminDashboard: "管理儀表板",
+        communityEvent: "社區活動頁面",
+      },
+    },
   },
   templatesPage: {
     previewEmpty: "此範本中沒有可預覽的畫面。",

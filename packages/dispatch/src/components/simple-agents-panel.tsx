@@ -46,6 +46,7 @@ import {
 } from "../lib/simple-agent-profile.js";
 import { ActionQueryError } from "./action-query-error";
 import { AppIcon } from "./app-icon";
+import { useNotifyBuildInBuilder } from "./build-in-builder";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -280,7 +281,6 @@ function AgentEditorDialog({
       setOpen(false);
       onSaved?.();
     },
-    onError: (error) => toast.error(error.message),
   });
   const update = useActionMutation("update-workspace-resource", {
     onSuccess: () => {
@@ -288,7 +288,6 @@ function AgentEditorDialog({
       setOpen(false);
       onSaved?.();
     },
-    onError: (error) => toast.error(error.message),
   });
 
   const pending = create.isPending || update.isPending;
@@ -484,7 +483,6 @@ function AgentPackDialog({
         },
       });
     },
-    onError: (error) => toast.error(error.message),
   });
   const create = useActionMutation("create-workspace-resource", {
     onSuccess: (result) => {
@@ -500,7 +498,6 @@ function AgentPackDialog({
         },
       });
     },
-    onError: (error) => toast.error(error.message),
   });
   const remove = useActionMutation("delete-workspace-resource", {
     onSuccess: () => {
@@ -509,7 +506,6 @@ function AgentPackDialog({
       void query.refetch();
       onChanged?.();
     },
-    onError: (error) => toast.error(error.message),
   });
 
   const pack = readAgentPack(query.data, query.isError);
@@ -781,7 +777,6 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
       setOpen(false);
       onImported?.();
     },
-    onError: (error) => toast.error(error.message),
   });
   const connect = useActionMutation("connect-external-agent", {
     onSuccess: () => {
@@ -789,7 +784,6 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
       setOpen(false);
       onImported?.();
     },
-    onError: (error) => toast.error(error.message),
   });
   const importPack = useActionMutation("import-agent-pack", {
     onSuccess: (result: { status: string; warnings?: string[] }) => {
@@ -804,7 +798,6 @@ function ImportAgentDialog({ onImported }: { onImported?: () => void }) {
       setOpen(false);
       onImported?.();
     },
-    onError: (error) => toast.error(error.message),
   });
 
   function reset() {
@@ -1113,7 +1106,6 @@ function DeleteAgentButton({
       toast.success("Agent removed");
       onDeleted?.();
     },
-    onError: (error) => toast.error(error.message),
   });
 
   return (
@@ -1157,11 +1149,16 @@ function AgentRow({
     { agentId: resource.id },
     { enabled: false },
   );
+  const notifyBuildInBuilder = useNotifyBuildInBuilder();
   const promote = useActionMutation<
     AgentAppCreationResult,
     AgentAppCreationInput
   >("start-workspace-app-creation", {
     onSuccess: (result) => {
+      if (result.mode === "builder-managed" && result.url) {
+        notifyBuildInBuilder(result.url);
+        return;
+      }
       if (result.mode === "local-agent") {
         sendToAgentChat({
           message: result.prompt ?? result.message,
@@ -1188,7 +1185,6 @@ function AgentRow({
       }
       toast.error(result.message);
     },
-    onError: (error) => toast.error(error.message),
   });
 
   function chat() {
@@ -1317,6 +1313,7 @@ interface AgentAppCreationInput {
 interface AgentAppCreationResult {
   mode:
     | "builder"
+    | "builder-managed"
     | "local-agent"
     | "builder-unavailable"
     | "app-id-taken"

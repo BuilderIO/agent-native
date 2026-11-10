@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import { isEncryptedSecretValue } from "../secrets/crypto.js";
 import { mutateSetting } from "../settings/store.js";
 import {
   deleteOAuthTokensIfRevision,
@@ -30,7 +31,7 @@ export interface OAuthCredentialIdentity {
 
 export interface OAuthCredentialTokens {
   access_token: string;
-  refresh_token?: string;
+  refresh_token?: string | undefined;
   [key: string]: unknown;
 }
 
@@ -62,13 +63,25 @@ interface StoredCredentialSnapshot<
   storageVersion: string;
 }
 
+/**
+ * Why a stored row is not a credential. `unreadable` is ciphertext this
+ * process's key cannot open (a database copied from another deployment, or a
+ * rotated key): the row is intact and someone holds the right key, so it is not
+ * the same as a row with the wrong shape.
+ */
+export type OAuthCredentialMalformedReason =
+  | "structure"
+  | "identity"
+  | "validation"
+  | "unreadable";
+
 export type OAuthCredentialState<T extends OAuthCredential = OAuthCredential> =
   | { kind: "missing" }
   | {
       kind: "malformed";
       revision: number;
       legacyRevision: number;
-      reason: "structure" | "identity" | "validation";
+      reason: OAuthCredentialMalformedReason;
     }
   | ({
       kind: "connected" | "expired" | "reconnect_required";
@@ -82,7 +95,7 @@ type StoredOAuthCredentialState<T extends OAuthCredential = OAuthCredential> =
       legacyRevision: number;
       storageOwner: string;
       storageVersion: string;
-      reason: "structure" | "identity" | "validation";
+      reason: OAuthCredentialMalformedReason;
     }
   | ({
       kind: "connected" | "expired" | "reconnect_required";
@@ -93,6 +106,7 @@ export interface OAuthCredentialAccessResult<
 > {
   state: OAuthCredentialState<T>;
   accessToken: string | null;
+  refreshFailure?: "transient";
 }
 
 export interface OAuthRefreshContext<T extends OAuthCredential> {
@@ -347,7 +361,12 @@ async function readStoredOAuthCredentialState<
       legacyRevision: stored.legacyRevision,
       storageOwner,
       storageVersion: stored.storageVersion,
-      reason: "structure",
+      // The store reads ciphertext it cannot open as an empty object.
+      reason:
+        isEncryptedSecretValue(stored.storageVersion) &&
+        Object.keys(parsed).length === 0
+          ? "unreadable"
+          : "structure",
     };
   }
   if (
@@ -544,12 +563,35 @@ export async function resolveOAuthCredentialAccess<
     return { state, accessToken: null };
   }
   if (!state.credential.tokens.refresh_token) {
+    if (state.kind === "expired" || options.forceRefresh) {
+      await markReconnectRequired(
+        identity,
+        state,
+        options.legacyAccountKey === true,
+      );
+      state = await readStoredOAuthCredentialState<T>(identity, {
+        ...(options.allowLegacy !== undefined
+          ? { allowLegacy: options.allowLegacy }
+          : {}),
+        ...(options.legacyAccountKey !== undefined
+          ? { legacyAccountKey: options.legacyAccountKey }
+          : {}),
+        now: dependencies.now(),
+        ...(options.validateCredential
+          ? { validateCredential: options.validateCredential }
+          : {}),
+      });
+      return {
+        state,
+        accessToken:
+          state.kind === "connected"
+            ? state.credential.tokens.access_token
+            : null,
+      };
+    }
     return {
       state,
-      accessToken:
-        state.kind === "connected"
-          ? state.credential.tokens.access_token
-          : null,
+      accessToken: state.credential.tokens.access_token,
     };
   }
 
@@ -707,6 +749,54 @@ export async function resolveOAuthCredentialAccess<
           validateCredential: options.validateCredential,
         });
         if (latest.kind === "connected") {
+          if (options.forceRefresh && latest.revision === baselineRevision) {
+            if (
+              options.shouldMarkReconnectRequiredOnRefreshFailure?.(error) ===
+              true
+            ) {
+              await markReconnectRequired(
+                identity,
+                latest,
+                options.legacyAccountKey === true,
+              );
+              const reconnect = await readStoredOAuthCredentialState<T>(
+                identity,
+                {
+                  ...(options.allowLegacy !== undefined
+                    ? { allowLegacy: options.allowLegacy }
+                    : {}),
+                  ...(options.legacyAccountKey !== undefined
+                    ? { legacyAccountKey: options.legacyAccountKey }
+                    : {}),
+                  now: dependencies.now(),
+                  ...(options.validateCredential
+                    ? { validateCredential: options.validateCredential }
+                    : {}),
+                },
+              );
+              if (
+                reconnect.kind === "connected" &&
+                reconnect.revision !== latest.revision
+              ) {
+                return {
+                  state: reconnect,
+                  accessToken: reconnect.credential.tokens.access_token,
+                };
+              }
+              return { state: reconnect, accessToken: null };
+            }
+            if (
+              options.shouldMarkReconnectRequiredOnRefreshFailure?.(error) ===
+              false
+            ) {
+              return {
+                state: latest,
+                accessToken: null,
+                refreshFailure: "transient",
+              };
+            }
+            return { state: latest, accessToken: null };
+          }
           return {
             state: latest,
             accessToken: latest.credential.tokens.access_token,
@@ -717,7 +807,11 @@ export async function resolveOAuthCredentialAccess<
             options.shouldMarkReconnectRequiredOnRefreshFailure?.(error) ===
             false
           ) {
-            return { state: latest, accessToken: null };
+            return {
+              state: latest,
+              accessToken: null,
+              refreshFailure: "transient",
+            };
           }
           await markReconnectRequired(
             identity,
@@ -730,6 +824,15 @@ export async function resolveOAuthCredentialAccess<
             now: dependencies.now(),
             validateCredential: options.validateCredential,
           });
+          if (
+            reconnect.kind === "connected" &&
+            reconnect.revision !== latest.revision
+          ) {
+            return {
+              state: reconnect,
+              accessToken: reconnect.credential.tokens.access_token,
+            };
+          }
           return { state: reconnect, accessToken: null };
         }
         return { state: latest, accessToken: null };
@@ -748,7 +851,16 @@ export async function resolveOAuthCredentialAccess<
   return {
     state,
     accessToken:
-      state.kind === "connected" ? state.credential.tokens.access_token : null,
+      state.kind === "connected" &&
+      (!options.forceRefresh || state.revision !== initialRevision)
+        ? state.credential.tokens.access_token
+        : null,
+    ...(state.kind === "expired" ||
+    (options.forceRefresh &&
+      state.kind === "connected" &&
+      state.revision === initialRevision)
+      ? { refreshFailure: "transient" as const }
+      : {}),
   };
 }
 
@@ -971,7 +1083,11 @@ export async function revokeOAuthCredential<T extends OAuthCredential>(
   } else if (state.kind === "malformed") {
     remote = "not_attempted";
   }
-  if (state.kind === "malformed" && state.reason !== "structure") {
+  if (
+    state.kind === "malformed" &&
+    state.reason !== "structure" &&
+    state.reason !== "unreadable"
+  ) {
     return { remote, local: "replaced" };
   }
   const deleted = await deleteOAuthTokensIfRevision(

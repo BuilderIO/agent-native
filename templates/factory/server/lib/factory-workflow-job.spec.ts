@@ -12,10 +12,12 @@ vi.mock("@agent-native/core/jobs", async (importActual) => {
 
 import * as kit from "../workflow-host/testing/workflow-actions-kit.js";
 import { buildGraph, STORY_GRAPHS } from "../workflow/story-graphs.fixture.js";
+import { readFactoryAutomationConfig } from "./factory-automation-config.js";
 import {
   findFactoryAutomationDefinition,
   listFactoryAutomationDefinitions,
 } from "./factory-automation-resources.js";
+import { factoryRepositoryFromSources } from "./factory-repository-scope.js";
 import { readAutomationFactoryId } from "./factory-scope.js";
 import {
   WorkflowJobError,
@@ -178,6 +180,93 @@ describe("planWorkflowJob", () => {
       authorMode: "exclude",
       authorIds: "12345",
       workLimit: "7",
+    });
+  });
+
+  describe("the repository a workflow declares it acts on", () => {
+    const githubPoll = (scope?: string) => ({
+      source: "inbox-poll",
+      poller: "github",
+      takeLimit: 3,
+      ...(scope ? { filter: { scopes: [scope] } } : {}),
+    });
+    const declaring = (repository: unknown) => ({ extras: { repository } });
+
+    it("is the job's repository when the graph has no GitHub source, so the merge gate has one to allow", () => {
+      const plan = planOf(
+        graphWith([], { settings: declaring("Example-Org/example-repo") }),
+      );
+      expect(plan.config.repository).toBe("Example-Org/example-repo");
+    });
+
+    it("is normalized like a source's scope", () => {
+      const plan = planOf(
+        graphWith([], {
+          settings: declaring("https://github.com/Example-Org/example-repo"),
+        }),
+      );
+      expect(plan.config.repository).toBe("Example-Org/example-repo");
+    });
+
+    it("leaves the job without a repository when the graph declares none, never a default", () => {
+      for (const settings of [undefined, {}, { extras: {} }, declaring("")]) {
+        const plan = planOf(
+          graphWith([], settings === undefined ? {} : { settings }),
+        );
+        expect(plan.config.repository).toBeUndefined();
+      }
+    });
+
+    it("agrees with a GitHub source that polls the same repository, whatever the case", () => {
+      const plan = planOf(
+        graphWith([githubPoll("example-org/EXAMPLE-repo")], {
+          settings: declaring("Example-Org/example-repo"),
+        }),
+      );
+      expect(plan.config.repository).toBe("example-org/EXAMPLE-repo");
+    });
+
+    it("refuses a different repository than its GitHub source polls", () => {
+      const { plan, issues } = planWorkflowJob(
+        graphWith([githubPoll("example-org/other-repo")], {
+          settings: declaring("example-org/example-repo"),
+        }),
+        noFallback,
+      );
+      expect(plan).toBeNull();
+      expect(issues).toEqual([
+        expect.objectContaining({ code: "repository_conflict" }),
+      ]);
+    });
+
+    it.each([
+      ["text that is not a repository", "not a repository"],
+      ["a number", 42],
+      ["a list", ["example-org/example-repo"]],
+    ])(
+      "refuses %s rather than leave the gate with nothing",
+      (_label, value) => {
+        const { plan, issues } = planWorkflowJob(
+          graphWith([], { settings: declaring(value) }),
+          noFallback,
+        );
+        expect(plan).toBeNull();
+        expect(issues).toEqual([
+          expect.objectContaining({
+            code: "repository_invalid",
+            detail: expect.stringContaining('"owner/name"'),
+          }),
+        ]);
+      },
+    );
+
+    it("gives the Builder-to-merge story a repository the gate can allow", () => {
+      const { plan, issues } = planWorkflowJob(
+        STORY_GRAPHS["builder-to-merge"],
+        noFallback,
+      );
+      expect(issues).toEqual([]);
+      expect(plan?.config.repository).toBe("example-org/example-repo");
     });
   });
 
@@ -438,6 +527,39 @@ describe("createWorkflowJob", () => {
       /^factories\/support-triage\/workflow-bug-report-to-builder-/,
     );
     expect(definition?.meta.appId).toBe(WORKFLOW_JOB_APP_ID);
+  });
+
+  it("writes the declared repository into the job file, which is where the merge gate reads it, and writes none when none is declared", async () => {
+    const created = async (settings?: Record<string, unknown>) => {
+      const { id } = await createWorkflowJob({
+        orgId: kit.ORG_ID,
+        factoryId: kit.FACTORY_ID,
+        ownerEmail: kit.USER_EMAIL,
+        name: "Builder to merge",
+        plan: planOf(graphWith([], settings === undefined ? {} : { settings })),
+      });
+      const definition = await findFactoryAutomationDefinition(
+        kit.ORG_ID,
+        kit.FACTORY_ID,
+        id,
+      );
+      if (!definition) throw new Error("expected the job file");
+      return readFactoryAutomationConfig(
+        definition.resource.content,
+        definition.name,
+      );
+    };
+
+    const declared = await created({
+      extras: { repository: "example-org/example-repo" },
+    });
+    expect(factoryRepositoryFromSources(declared.repository, null)).toBe(
+      "example-org/example-repo",
+    );
+    const undeclared = await created();
+    expect(
+      factoryRepositoryFromSources(undeclared.repository, null),
+    ).toBeNull();
   });
 
   it("puts a workflow in the default Factory under the factory folder too", async () => {

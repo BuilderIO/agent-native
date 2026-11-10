@@ -76,7 +76,6 @@ describe("ReviewThreadMenu", () => {
         <ReviewThreadMenu
           onSendToAgent={vi.fn()}
           onSuggestChanges={vi.fn()}
-          onReplyInThread={vi.fn()}
           onApplyAndResolve={vi.fn()}
           onCopyLink={vi.fn()}
           onDelete={vi.fn()}
@@ -87,7 +86,6 @@ describe("ReviewThreadMenu", () => {
     expect(menuLabels()).toEqual([
       "Send to agent",
       "Suggest changes",
-      "Reply in thread",
       "---",
       "Apply changes and resolve",
       "---",
@@ -145,16 +143,16 @@ describe("ReviewThreadMenu", () => {
   });
 
   it("renders a menu when only an agent handler is passed", async () => {
-    act(() => root.render(<ReviewThreadMenu onReplyInThread={vi.fn()} />));
+    act(() => root.render(<ReviewThreadMenu onSuggestChanges={vi.fn()} />));
     await open();
-    expect(menuLabels()).toEqual(["Reply in thread"]);
+    expect(menuLabels()).toEqual(["Suggest changes"]);
   });
 
+  // oracle-change: Reply in thread left the menu; an agent is asked with an @mention
   it("calls the handler of the chosen agent item", async () => {
     const handlers = {
       onSendToAgent: vi.fn(),
       onSuggestChanges: vi.fn(),
-      onReplyInThread: vi.fn(),
       onApplyAndResolve: vi.fn(),
     };
     const choose = async (label: string) => {
@@ -167,11 +165,9 @@ describe("ReviewThreadMenu", () => {
     };
     await choose("Send to agent");
     await choose("Suggest changes");
-    await choose("Reply in thread");
     await choose("Apply changes and resolve");
     expect(handlers.onSendToAgent).toHaveBeenCalledTimes(1);
     expect(handlers.onSuggestChanges).toHaveBeenCalledTimes(1);
-    expect(handlers.onReplyInThread).toHaveBeenCalledTimes(1);
     expect(handlers.onApplyAndResolve).toHaveBeenCalledTimes(1);
   });
 

@@ -32,6 +32,13 @@ function storeBootstrapResult(sql: string) {
   if (/CREATE TABLE IF NOT EXISTS chat_thread_viewer_state/i.test(sql)) {
     return { rows: [], rowsAffected: 0 };
   }
+  if (
+    /^(?:CREATE TABLE IF NOT EXISTS|CREATE INDEX IF NOT EXISTS|ALTER TABLE)\s+agent_chat_submission_inbox/i.test(
+      sql.trimStart(),
+    )
+  ) {
+    return { rows: [], rowsAffected: 0 };
+  }
   if (/FROM information_schema\.columns/i.test(sql)) {
     return { rows: [], rowsAffected: 0 };
   }
@@ -4033,7 +4040,27 @@ describe("chat thread store", () => {
         promotionClaim: { id: "stalled-promoter", expiresAt: 129_999 },
       });
 
+      const submission = submissionRows[0];
+      const threadRow = row;
+      if (!submission || !threadRow)
+        throw new Error("Queued interruption receipt disappeared");
+      submission.interrupt_run_id = "different-run";
       now.mockReturnValue(70_001);
+      expect(
+        await renewQueuedSubmissionInterruptClaim({
+          threadId: "thread-1",
+          messageId: message.id,
+          runId: "run-being-interrupted",
+          claimId: "stalled-promoter",
+        }),
+      ).toBe(false);
+      expect(JSON.parse(threadRow.thread_data).queuedMessages[0]).toMatchObject(
+        {
+          promotionClaim: { id: "stalled-promoter", expiresAt: 129_999 },
+        },
+      );
+      submission.interrupt_run_id = "run-being-interrupted";
+
       const blockedRemove = await mutateThreadQueuedMessages("thread-1", {
         type: "remove",
         messageId: message.id,

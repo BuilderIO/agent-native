@@ -96,15 +96,7 @@ async function openHomeDesignSystemPicker(page: Page) {
     .locator("[data-design-home-composer]")
     .getByRole("button", { name: "Add context", exact: true })
     .click();
-  const addContext = page.getByRole("menuitem", {
-    name: "Add context",
-    exact: true,
-  });
-  await expect(addContext).toBeVisible();
-  await addContext.press("ArrowRight");
-  const design = page.getByRole("menuitem", { name: "Design", exact: true });
-  await expect(design).toBeVisible();
-  await design.press("ArrowRight");
+  // oracle-change: Use a design system is now a direct menu item.
   const useDesignSystem = page.getByRole("menuitem", {
     name: "Use a design system",
     exact: true,
@@ -141,15 +133,6 @@ async function skipPromptToNewDesign(app: App, page: Page) {
 }
 
 async function configureHomeComposerLoopback(page: Page) {
-  // The loopback model's canned reply isn't valid home-suggestions JSON, so the
-  // real action answers 502. Suggestions read as unavailable instead.
-  await page.route(
-    "**/_agent-native/actions/generate-home-suggestions**",
-    (route) =>
-      route.fulfill({
-        json: { status: "unavailable", reason: "timeout", suggestions: [] },
-      }),
-  );
   await page.context().addInitScript(() => {
     if (location.origin === "null") return;
     const selection = JSON.stringify({
@@ -195,7 +178,7 @@ test("home context actions wait for the organization draft scope", async ({
     await expect(addContext).toBeEnabled({ timeout: 30_000 });
     await addContext.click();
     await expect(
-      page.getByRole("menuitem", { name: "Add context", exact: true }),
+      page.getByRole("menuitem", { name: "Reference a design", exact: true }),
     ).toBeVisible();
   } finally {
     releaseOrganization();

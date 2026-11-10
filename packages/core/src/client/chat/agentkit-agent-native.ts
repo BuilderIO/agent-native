@@ -1,5 +1,7 @@
+import type { AgentKitUploadDriver } from "@agent-native/agentkit";
 import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import type {
+  AgentTransport,
   AgentAnnotation,
   AgentAnnotationSnapshot,
   AgentCapabilitiesDiscovery,
@@ -72,6 +74,10 @@ import {
   type AgentKitProtocolAdapter,
   type CreateAgentKitProtocolAdapterOptions,
 } from "./agentkit-protocol.js";
+import {
+  createAgentNativeUploadRuntime,
+  fileUploadUrlForChatApi,
+} from "./native-uploads.js";
 import { trackRunFeedback, trackRunOutcome } from "./run-outcome-telemetry.js";
 import { runOutcomeForCode } from "./run-outcome.js";
 import {
@@ -81,6 +87,18 @@ import {
   type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
 import { trackTurnSubmitted } from "./turn-submitted-telemetry.js";
+
+const nativeUploadCleanups = new WeakMap<object, () => void>();
+
+export function getAgentNativeAgentKitUploadDriver(
+  transport: AgentTransport,
+): AgentKitUploadDriver | undefined {
+  return nativeUploadCleanups.has(transport) ? transport.upload : undefined;
+}
+
+export function clearAgentNativeAgentKitUploads(transport: object): void {
+  nativeUploadCleanups.get(transport)?.();
+}
 
 export interface CreateAgentNativeAgentKitTransportOptions extends CreateAgentNativeChatRuntimeOptions {
   /** Optional host runtime executed through AgentKit's protocol lifecycle. */
@@ -1313,8 +1331,6 @@ function reconcileDurableMessages(
       snapshotReply.id !== durableReply.id &&
       eventMessageIds?.size === 1 &&
       eventMessageIds.has(snapshotReply.id) &&
-      snapshotReply.parts.length > 0 &&
-      snapshotReply.parts.every((part) => part.type === "text") &&
       snapshotText.length > 0 &&
       durableText.length > 0 &&
       snapshotText !== durableText &&
@@ -2890,6 +2906,16 @@ export function createAgentNativeAgentKitTransport(
   const apiUrl = options.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const fetcher = options.fetch ?? fetch;
   const now = options.adapter?.now ?? (() => new Date().toISOString());
+  const defaultUploads =
+    !options.operations?.createUpload &&
+    !options.operations?.completeUpload &&
+    !options.operations?.cancelUpload
+      ? createAgentNativeUploadRuntime({
+          url: fileUploadUrlForChatApi(apiUrl),
+          fetch: fetcher,
+          headers: (threadId) => headers({ sessionId: threadId }),
+        })
+      : undefined;
   const promotionClaimIds = new Map<string, string>();
   const durableAssistantMessageIdsByRun = new Map<string, string | null>();
   const assistantHistoryMessageIdsByRun = new Map<string, string>();
@@ -4389,6 +4415,7 @@ export function createAgentNativeAgentKitTransport(
         threadId: input.threadId,
         tabId: input.threadId,
         runId: run.runId,
+        reason: "run.submitted",
       });
       return run;
     } catch (error) {
@@ -4556,6 +4583,7 @@ export function createAgentNativeAgentKitTransport(
       connectionRequests: true,
     },
     operations: {
+      ...defaultUploads?.operations,
       getThread: async ({ threadId }) => {
         const thread = await snapshot(threadId);
         if (!thread) return null;
@@ -5198,6 +5226,11 @@ export function createAgentNativeAgentKitTransport(
     : `${apiUrl}/capabilities`;
   transport = {
     ...protocolTransport,
+    ...(defaultUploads ? { upload: defaultUploads.upload } : {}),
+    async dispose() {
+      defaultUploads?.dispose();
+      await protocolTransport.dispose();
+    },
     assertAiSetupReady,
     startRun: (input, context) => startRunTrackingRunningState(input, context),
     async discoverCapabilities(
@@ -5345,6 +5378,7 @@ export function createAgentNativeAgentKitTransport(
           switch (sourceEvent.type) {
             case "message.created":
             case "message.completed":
+            case "message.replaced":
               if (sourceEvent.message.role === "assistant") {
                 const messageId = foldedMessageIdFor(sourceEvent.message.id);
                 if (messageId && messageId !== sourceEvent.message.id) {
@@ -5466,5 +5500,7 @@ export function createAgentNativeAgentKitTransport(
       }
     },
   };
+  if (defaultUploads)
+    nativeUploadCleanups.set(transport, defaultUploads.dispose);
   return transport;
 }

@@ -42,6 +42,7 @@ import {
   hasConfiguredCloudProvider,
   MODEL_SELECTOR_POPOVER_STYLE,
   mentionItemMatchesQuery,
+  mentionItemsForQuery,
   modelProviderGroupLabel,
   resolveContextChipBackspaceAction,
   shouldRenderModelSelector,
@@ -456,7 +457,7 @@ describe("createTiptapComposerExtensions", () => {
     });
     act(() => {
       Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-        .find((button) => button.textContent?.trim() === "Add context")
+        .find((button) => button.textContent?.trim() === "Commands")
         ?.dispatchEvent(
           new KeyboardEvent("keydown", {
             key: "ArrowRight",
@@ -492,6 +493,78 @@ describe("createTiptapComposerExtensions", () => {
     expect(
       container.querySelector('[data-agent-composer-slot="mode-row"]'),
     ).toBeNull();
+  });
+
+  it("lets a first-paint handoff override a saved prompt when requested", async () => {
+    const scope = "draft-recovery:first-paint";
+    localStorage.setItem(getComposerDraftKey(scope), "<p>Saved prompt</p>");
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: scope,
+            initialText: "Typed before hydration",
+            initialTextKey: "first-paint",
+            initialTextOverridesSavedDraft: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Typed before hydration");
+  });
+
+  it("can suppress only initial text notifications for the first-paint shell", async () => {
+    const onTextChange = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: "first-paint-notification",
+            initialTextOverridesSavedDraft: true,
+            suppressInitialTextChange: true,
+            includeDefaultSlashSkills: false,
+            onTextChange,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onTextChange).not.toHaveBeenCalled();
+
+    act(() => focusRef.current?.setText("Typed while loading"));
+    expect(onTextChange).toHaveBeenCalledWith("Typed while loading");
   });
 
   it("does not restore a stale draft after the composer is cleared", async () => {
@@ -747,10 +820,6 @@ describe("createTiptapComposerExtensions", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    const addContextItem = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.trim() === "Add context");
-    await act(async () => addContextItem?.click());
     const clickMenuItem = async (label: string) => {
       const item = Array.from(
         document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
@@ -2387,7 +2456,7 @@ describe("createTiptapComposerExtensions", () => {
     ).toBe(false);
   });
 
-  it("puts Stop in Send's place until a draft exists, then beside Send", async () => {
+  it("shows one primary control: Stop while empty, Send once a draft exists", async () => {
     const stop = vi.fn();
     const focusRef: React.MutableRefObject<TiptapComposerHandle | null> = {
       current: null,
@@ -2446,15 +2515,15 @@ describe("createTiptapComposerExtensions", () => {
     expect(stopButton()).not.toBeNull();
     expect(send()).toBeNull();
 
+    // oracle-change: a draft now swaps Stop for Send, so there is no Stop-before-Send order to check.
     act(() => focusRef.current?.setText("Follow-up while it runs"));
-    expect(stopButton()).not.toBeNull();
+    expect(
+      container.querySelector<HTMLElement>(
+        '[data-agent-composer-slot="stop-slot"]',
+      )?.hidden,
+    ).toBe(true);
     expect(send()?.disabled).toBe(false);
     expect(send()?.getAttribute("aria-label")).toBe("Queue message");
-    // Stop precedes Send, so Send keeps the trailing position.
-    expect(
-      stopButton()!.compareDocumentPosition(send()!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
 
     await pressEscape();
     expect(stop).toHaveBeenCalledOnce();
@@ -3314,7 +3383,7 @@ describe("createTiptapComposerExtensions", () => {
 });
 
 describe("TiptapComposer storage gate", () => {
-  it("opens storage setup from Upload File without exposing a file picker", async () => {
+  it("opens storage setup from Files and images without exposing a file picker", async () => {
     const onAttachmentRequest = vi.fn();
 
     function Harness() {
@@ -3359,14 +3428,75 @@ describe("TiptapComposer storage gate", () => {
     const uploadItem = Array.from(
       document.querySelectorAll<HTMLElement>("[role=menuitem]"),
     ).at(0);
-    expect(uploadItem).toBeDefined();
+    expect(uploadItem?.textContent).toBe("Files and images");
     await act(async () => uploadItem?.click());
-    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    await act(async () =>
+      vi.waitFor(() => expect(onAttachmentRequest).toHaveBeenCalledOnce()),
+    );
     expect(container.querySelector('input[type="file"]')).toBeNull();
   });
 });
 
 describe("TiptapComposer paste handling", () => {
+  it.each([
+    [true, ""],
+    [false, "Pasted words"],
+  ])(
+    "lets the app claim a paste as context (claimed: %s)",
+    async (claimed, expectedText) => {
+      const onPasteContext = vi.fn(() => claimed);
+
+      function Harness() {
+        const runtime = useLocalRuntime(emptyChatModelAdapter);
+        return React.createElement(
+          AssistantRuntimeProvider,
+          { runtime },
+          React.createElement(
+            TooltipProvider,
+            null,
+            React.createElement(TiptapComposer, {
+              attachmentsEnabled: false,
+              includeDefaultSlashSkills: false,
+              plusMenuMode: "hidden",
+              providerConnectStatusEnabled: false,
+              voiceEnabled: false,
+              onPasteContext,
+            }),
+          ),
+        );
+      }
+
+      await act(async () => {
+        root.render(React.createElement(Harness));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const editor = container.querySelector<HTMLElement>(
+        ".agent-composer-prosemirror",
+      );
+      const clipboardData = {
+        files: [],
+        getData: (type: string) =>
+          type === "text/plain" ? "Pasted words" : "",
+      };
+      const pasteEvent = new Event("paste", {
+        bubbles: true,
+        cancelable: true,
+      });
+      Object.defineProperty(pasteEvent, "clipboardData", {
+        value: clipboardData,
+      });
+
+      await act(async () => {
+        editor?.dispatchEvent(pasteEvent);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(onPasteContext).toHaveBeenCalledWith(clipboardData);
+      expect(editor?.textContent).toBe(expectedText);
+    },
+  );
+
   it("keeps text from a mixed text and image paste when uploads are disabled", async () => {
     const pastedText = "Keep this text";
 
@@ -5532,6 +5662,37 @@ describe("mentionItemMatchesQuery", () => {
   });
 });
 
+describe("mentionItemsForQuery", () => {
+  const person = {
+    id: "member:sam@gmail.example",
+    label: "Sam Lee",
+    description: "sam@gmail.example",
+    source: "content",
+    refType: "content-comment-member",
+  };
+  const agent = {
+    id: "ai:anthropic:claude-sonnet-5",
+    label: "Claude Sonnet 5",
+    description: "Anthropic",
+    aliases: ["Sonnet", "AI"],
+    source: "content",
+    refType: "content-comment-ai-recipient",
+  };
+
+  it("keeps the given order when nothing is named exactly", () => {
+    expect(mentionItemsForQuery([person, agent], "")).toEqual([person, agent]);
+    expect(mentionItemsForQuery([person, agent], "s")).toEqual([person, agent]);
+  });
+
+  it("puts the item a whole name or alias names ahead of partial matches", () => {
+    expect(mentionItemsForQuery([person, agent], "ai")).toEqual([
+      agent,
+      person,
+    ]);
+    expect(mentionItemsForQuery([person, agent], "Sam Lee")).toEqual([person]);
+  });
+});
+
 describe("modelProviderGroupLabel", () => {
   it("drops the Builder.io suffix when the family name is unique", () => {
     const builder = { engine: "builder", label: "OpenAI · Builder.io" };
@@ -5587,4 +5748,86 @@ describe("voice composer insertion", () => {
       }),
     ).toBe(false);
   });
+});
+
+describe("TiptapComposer editor updates", () => {
+  it.each(["draft scope switch", "insertText"])(
+    "reports an identical inline reference after a silent clear via %s",
+    async (clearMethod) => {
+      const onReferencesChange = vi.fn();
+      const onTextChange = vi.fn();
+      const focusRef = React.createRef<TiptapComposerHandle>();
+      const reference = {
+        label: "Document",
+        refType: "file",
+        refId: "one",
+      };
+
+      function Harness({ scope }: { scope: string }) {
+        const runtime = useLocalRuntime(emptyChatModelAdapter);
+        return React.createElement(
+          AssistantRuntimeProvider,
+          { runtime },
+          React.createElement(
+            TooltipProvider,
+            null,
+            React.createElement(TiptapComposer, {
+              focusRef,
+              draftScope: scope,
+              onReferencesChange,
+              onTextChange,
+              includeDefaultSlashSkills: false,
+              plusMenuMode: "hidden",
+              voiceEnabled: false,
+            }),
+          ),
+        );
+      }
+
+      await act(async () => {
+        root.render(React.createElement(Harness, { scope: "scope-a" }));
+      });
+      await act(async () => focusRef.current?.insertReference(reference));
+      expect(onReferencesChange).toHaveBeenLastCalledWith([
+        expect.objectContaining({ name: "Document", refId: "one" }),
+      ]);
+      onReferencesChange.mockClear();
+      onTextChange.mockClear();
+
+      if (clearMethod === "draft scope switch") {
+        await act(async () => {
+          root.render(React.createElement(Harness, { scope: "scope-b" }));
+        });
+        expect(onTextChange).toHaveBeenLastCalledWith("");
+      } else {
+        const execCommand = Object.getOwnPropertyDescriptor(
+          document,
+          "execCommand",
+        );
+        Object.defineProperty(document, "execCommand", {
+          configurable: true,
+          value: vi.fn(() => false),
+        });
+        try {
+          await act(async () => focusRef.current?.insertText("Replacement"));
+        } finally {
+          if (execCommand)
+            Object.defineProperty(document, "execCommand", execCommand);
+          else Reflect.deleteProperty(document, "execCommand");
+        }
+        expect(onTextChange).toHaveBeenLastCalledWith("Replacement");
+      }
+      expect(focusRef.current?.getDraftSnapshot?.().referenceKeys).toEqual([]);
+      const afterClear = [...onReferencesChange.mock.calls];
+      await act(async () => focusRef.current?.insertReference(reference));
+
+      expect(afterClear).toEqual([[[]]]);
+      expect(onReferencesChange).toHaveBeenLastCalledWith([
+        expect.objectContaining({ name: "Document", refId: "one" }),
+      ]);
+      expect(onReferencesChange).toHaveBeenCalledTimes(2);
+      await act(async () => focusRef.current?.setSelection(1));
+      expect(onReferencesChange).toHaveBeenCalledTimes(2);
+    },
+  );
 });

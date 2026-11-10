@@ -814,6 +814,27 @@ describe("integrations plugin routes", () => {
     );
   });
 
+  it("keeps a Personal lookup from restoring the session's organization", async () => {
+    getSessionMock.mockResolvedValue({
+      email: "alice+qa@agent-native.test",
+      orgId: "org-stale",
+    });
+    getOrgContextMock.mockResolvedValue({ orgId: null, role: null });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/status",
+    );
+
+    expect(result.status).toBe(200);
+    expect(runWithRequestContextMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org-stale" }),
+      expect.any(Function),
+    );
+  });
+
   it("requires a session before mutating integration config", async () => {
     getSessionMock.mockResolvedValueOnce(null);
     const nitroApp = createNitroApp();

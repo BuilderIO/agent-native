@@ -60,11 +60,17 @@ import type {
   DocumentPropertyRelationTarget,
 } from "@shared/api";
 import { contentDatabaseViewsShowPageText } from "@shared/database-item-layout";
+import { OPENING_DATABASE_ROW_LIMIT } from "@shared/database-open-table-query";
 import { hydrateContentDatabaseResponse } from "@shared/database-row-properties";
 import type { Query, QueryClient } from "@tanstack/react-query";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 import { documentQueryFilter } from "../lib/document-query";
+import {
+  openingDatabaseQueryKey,
+  usePageOpenCollectionClaim,
+} from "../lib/page-open-collection";
 import {
   contentNavigationBranchFilter,
   contentNavigationContextFilter,
@@ -782,6 +788,15 @@ export function useContentDatabase(
   options?: { refetchOnMount?: "always"; systemRole?: string | null },
 ) {
   const queryClient = useQueryClient();
+  // A mount that refreshes its table every time still takes this open's own
+  // read of it rather than reading it again.
+  const openingRead = usePageOpenCollectionClaim(
+    documentId &&
+      limit === OPENING_DATABASE_ROW_LIMIT &&
+      options?.refetchOnMount === "always"
+      ? openingDatabaseQueryKey(documentId)
+      : null,
+  );
   const baseQuery = useActionQuery<ContentDatabaseResponse>(
     "get-content-database",
     documentId ? { documentId, limit } : undefined,
@@ -797,7 +812,7 @@ export function useContentDatabase(
           ? readCachedContentDatabaseResponse(queryClient, documentId)
           : undefined,
       initialDataUpdatedAt: 0,
-      refetchOnMount: options?.refetchOnMount,
+      refetchOnMount: openingRead === "fresh" ? false : options?.refetchOnMount,
       meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
@@ -915,6 +930,37 @@ export function useContentDatabaseById(
       meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
+}
+
+/**
+ * The view a row's full page was opened from, named in the page's address. It
+ * needs only the collection's metadata; what the collection already read shows
+ * it at once. A view that can't be read leaves the page's own layout.
+ */
+export function useContentDatabaseRowView(
+  databaseId: string | null,
+  databaseDocumentId: string | null,
+  viewId: string | null,
+) {
+  const queryClient = useQueryClient();
+  const read = useContentDatabaseById(viewId ? databaseId : null, {
+    limit: 0,
+  });
+  const cached = useMemo(
+    () =>
+      viewId && databaseDocumentId
+        ? readCachedContentDatabaseResponse(queryClient, databaseDocumentId)
+        : undefined,
+    [databaseDocumentId, queryClient, viewId],
+  );
+  const response =
+    read.data && !isContentDatabaseUnavailable(read.data) ? read.data : cached;
+  return {
+    view:
+      response?.database.viewConfig.views.find((view) => view.id === viewId) ??
+      null,
+    pending: !response && read.isLoading,
+  };
 }
 
 export function useCreateContentDatabase(
@@ -1926,6 +1972,7 @@ export function useProcessBuilderBodyHydration(documentId: string) {
     ProcessBuilderBodyHydrationRequest
   >("process-builder-body-hydration", {
     skipActionQueryInvalidation: true,
+    errorNotification: "caller",
     onSuccess: (data, variables) => {
       if (data.remaining === 0 || variables.documentId) {
         invalidateBuilderBodyHydrationQueries(

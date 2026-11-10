@@ -47,6 +47,23 @@ export function formatRunTime(
   });
 }
 
+/**
+ * When a run started, as the reader's own date and clock to the second, so two
+ * runs a few minutes apart do not both read "3 days ago". A stamp that does not
+ * parse comes back as null, never as a made-up time.
+ */
+export function formatRunStart(
+  run: { startedAt: string },
+  locale: string,
+): string | null {
+  const at = Date.parse(run.startedAt);
+  if (!Number.isFinite(at)) return null;
+  return new Date(at).toLocaleString(locale, {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  });
+}
+
 export type ScheduleSummary =
   | { kind: "minutes"; minutes: number }
   | { kind: "hours"; hours: number }

@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   DEFAULT_LAYOUT_GRID,
   normalizeLayoutGridSize,
@@ -11,6 +12,8 @@ import {
   applyDesignDataOperations,
   type DesignDataOperation,
 } from "@/pages/design-editor/data-operations";
+
+import { designMetadataQueryKey } from "../design-query-key";
 
 export interface SetLayoutGridArgs {
   id: string | undefined;
@@ -47,13 +50,16 @@ export function runSetLayoutGrid(
     operation,
   ]);
   designDataJsonRef.current = nextData;
-  queryClient.setQueryData(["action", "get-design", { id }], (old: unknown) => {
+  queryClient.setQueryData(designMetadataQueryKey(id), (old: unknown) => {
     if (!old || typeof old !== "object") return old;
     return { ...old, data: JSON.stringify(nextData) };
   });
   args.updateDesignMutation.mutate(
     { id, dataOperations: [operation] } as never,
     {
+      onError: (error) => {
+        reportWriteFailure(error);
+      },
       onSettled: () => {
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],

@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
@@ -18,6 +17,7 @@ import { z } from "zod";
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import { noteGenerationFirstOutput } from "../server/lib/generation-completion.js";
 import {
@@ -183,7 +183,7 @@ export default defineAction({
     "For longer decks or live in-app generation, create the deck with slides: [], then add every generated slide with add-slide sequentially so each write preserves per-slide Creative Context provenance; pass generationComplete=false on intermediate writes and true on the final write; use patch-deck for edits to existing slides or deck structure, and never issue parallel writes to the same deck. The new deck is also opened in the connected Slides UI. " +
     "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
     "Pass deckId to replace an existing deck. " +
-    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. The action resolves and attaches the effective default; use design-system context available before this call to author its slides, and use returned agentContext before adding slides in the empty-deck workflow. After all slide writes, call get-layout-overflows once for final verification and once more only after a repair; if measurements are unknown, report the unmeasured slides and wait for a new editor measurement before checking again. Every generated slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, choose and record one subject-appropriate deck-level visual contract with semantic --deck-* values, then reuse its canvas, type, spacing, surface, and accent tokens across every slide; vary composition instead of alternating themes or using a stock provider/brand palette." +
+    "Returns the deck id, title, effective designSystemId, linked designSystem.agentContext when readable, and slide count. The action resolves and attaches the effective default; use design-system context available before this call to author its slides, and use returned agentContext before adding slides in the empty-deck workflow. After all slide writes, call get-layout-overflows once for final verification and once more only after a repair; if measurements are unknown, report the unmeasured slides and wait for a new editor measurement before checking again. Every generated slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. Slides render on a fixed canvas for the deck's aspectRatio with no scrolling, so anything past its edge is cut off: 16:9 is 960x540px, 4:3 960x720, 1:1 1080x1080, 4:5 864x1080 and 9:16 540x960; content gets the canvas minus the `fmd-slide` padding, so the default 16:9 deck with `padding: 64px 80px` leaves 800x412px. Size for that canvas, not a 1920x1080 screen: on 16:9, headline 32-44px, body 16-20px, labels 12-14px, gaps 12-24px, and at most a headline plus about four short items or a 2x2 grid of cards with one short sentence each; scale the budget with the canvas for other ratios. Total each slide's height (font-size x line-height x wrapped lines, plus padding and gaps) before writing it, and split dense material across more slides instead of shrinking text. Keep text in normal flex or grid flow; never absolutely position footers or labels over content. If no design system is linked, choose and record one subject-appropriate deck-level visual contract with semantic --deck-* values, then reuse its canvas, type, spacing, surface, and accent tokens across every slide; vary composition instead of alternating themes or using a stock provider/brand palette." +
     HYGIENE_ACTION_DESCRIPTION,
   schema: z.object({
     title: z.string().describe("Deck title"),
@@ -251,6 +251,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  eagerInputStreaming: true,
   run: async (
     {
       title,
@@ -514,7 +515,7 @@ export default defineAction({
             .update(schema.decks)
             .set({
               title: existingDeckTitle,
-              data: JSON.stringify(data),
+              ...deckDataColumns(data),
               designSystemId: designSystemId ?? previousDesignSystemId,
               updatedAt: writeNow,
             })
@@ -564,10 +565,6 @@ export default defineAction({
             "navigate",
             deckNavigationCommand(deckId),
           );
-          await writeAppState("refresh-signal", {
-            ts: writeNow,
-            source: "create-deck",
-          });
           loadedDesignSystem = await loadAgentDesignSystemContext(
             designSystemId ?? previousDesignSystemId,
             getDesignSystem,
@@ -682,7 +679,7 @@ export default defineAction({
       await db.insert(schema.decks).values({
         id,
         title: resolvedTitle,
-        data: JSON.stringify(data),
+        ...deckDataColumns(data),
         designSystemId: resolvedDesignSystemId ?? null,
         ownerEmail,
         orgId: getRequestOrgId(),
@@ -704,10 +701,6 @@ export default defineAction({
         });
         await notifyClients(id);
         await writeAppStateForCurrentTab("navigate", deckNavigationCommand(id));
-        await writeAppState("refresh-signal", {
-          ts: now,
-          source: "create-deck",
-        });
         loadedDesignSystem = await loadAgentDesignSystemContext(
           resolvedDesignSystemId,
           getDesignSystem,

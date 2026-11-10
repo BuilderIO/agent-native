@@ -344,6 +344,8 @@ export default {
   common: {
     loading: "Wird geladen...",
     genericError: "Etwas ist schief gelaufen",
+    linkedSourceSizeLimit:
+      "Diese Bearbeitung der verknüpften Komponente überschreitet das Größenlimit der Quelldaten.",
   },
   editPanel: {
     colorInputLabel: "Farbe",
@@ -444,6 +446,7 @@ export default {
       font: "Schriftart",
       baseSize: "Basisgröße",
       size: "Größe",
+      fontSizes: "Schriftskala",
       weight: "Gewicht",
       color: "Farbe",
       align: "Ausrichten",
@@ -897,6 +900,10 @@ export default {
       bottom: "B",
       left: "L",
     },
+    fontPicker: {
+      catalogUnavailable:
+        "Die vollständige Schriftbibliothek konnte nicht geladen werden.",
+    },
     fontFamilies: {
       inherit: "Erben",
       sansSerif: "Ohne Serifen",
@@ -1048,6 +1055,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Dieser Bildschirm konnte nicht geladen werden.",
+    selectionPublishFailed:
+      "Der Agent sieht deine neueste Auswahl möglicherweise nicht. Wähle sie erneut aus.",
     liveCollaboration: {
       title: "Live-Zusammenarbeit",
       description:
@@ -1644,32 +1654,18 @@ export default {
       editColor: "Farbe von {{name}} bearbeiten",
     },
     import: {
-      title: "Import",
       description:
         "Bringe Figma-Zwischenablage-HTML oder eigenständiges HTML als Design-Bildschirme hinein.",
-      figmaUrlTitle: "Figma-Frame-URL",
-      figmaUrlDescription:
-        "Frame oder Datei über einen Figma-Link importieren.",
       figmaUrlLabel: "Figma-Frame- oder Datei-URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "Figma-Verbindung wird geprüft…",
-      figmaConnected: "Figma verbunden",
-      figmaConnectedWithSuffix: "Figma verbunden · ••••{{suffix}}",
       figmaTokenLabel: "Figma-Zugriffstoken",
       figmaTokenDocs: "Token abrufen",
       figmaTokenPlaceholder: "Persönliches Figma-Zugriffstoken einfügen",
-      figmaTokenDescription:
-        "Sicher für Figma-Importe und Agent-Chat gespeichert. Das Token wird nie zum Chat hinzugefügt.",
-      importFigmaUrl: "Aus Figma importieren",
-      saveKeyAndImport: "Schlüssel speichern und importieren",
       figmaUrlSuccess: "Aus Figma importiert.",
       figmaImageFallbackWarning:
         "Bild-Fallbacks: {{count}}. Das Erscheinungsbild bleibt erhalten, aber diese Ebenen sind nicht vollständig bearbeitbar.",
       figmaApproximationWarning:
         "Angenäherte Ebenen: {{count}}. HTML/CSS kann nicht jede Figma-Eigenschaft exakt darstellen.",
-      figmaPasteTitle: "Aus Figma einfügen",
-      figmaPasteDescription:
-        "Kopiere einen Frame oder Layer in Figma und füge ihn in die Design-Leinwand ein. Design importiert das sichtbare Zwischenablage-HTML.",
       figmaPasteTarget: "In die Leinwand einfügen",
       figmaPasteApiKeyHint:
         "Verbinde deinen Figma-Zugriffstoken für exakte Node-Importe.",
@@ -1678,11 +1674,10 @@ export default {
       figmaPasteMatchGuidance:
         "Konnte nicht mit bestimmten Figma-Nodes abgeglichen werden. Füge stattdessen einen Frame-Link für einen exakten Import ein.",
       figmaPasteUnreadable:
-        "In dieser Zwischenablage sind keine kopierten Figma-Ebenen. Wähle in Figma einen Frame aus, kopiere ihn mit Cmd+C und füge ihn erneut ein – oder importiere einen Figma-Link über das Import-Panel.",
+        "In dieser Zwischenablage sind keine kopierten Figma-Ebenen. Wähle in Figma einen Frame aus, kopiere ihn mit Cmd+C und füge ihn erneut ein, oder füge einen Link zum Frame in den Chat ein.",
       figmaPasteRestLabel: "Über die Figma-API importiert",
       figmaPasteHtmlLabel: "Aus der Zwischenablage-Vorschau importiert",
-      figmaPasteLocalKiwiLabel:
-        "Ohne Token importiert — nur Geometrie und Text",
+      figmaPasteLocalKiwiLabel: "Aus der Figma-Zwischenablage importiert",
       figmaPasteImagesNeedToken:
         "{{count}} Bild{{plural}} benötigt{{plural}} Figma-Zugriff zum Laden.",
       figmaPasteImagesDontShowAgain: "Nicht mehr anzeigen",
@@ -1714,74 +1709,29 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: ".fig hochladen",
       figUploadDescription:
         "Experimentell: Das .fig-Format von Figma ist proprietär und kann sich ändern. Unterstützte Ebenen werden zu bearbeitbaren Screens; einige Funktionen können abweichen. Maximal {{max}} MB.",
-      chooseFigFile: ".fig-Datei wählen",
       figUploadUploading: "Wird hochgeladen: {{progress}} %",
       figUploadProcessing: "Wird konvertiert…",
-      figImportWarningTitle: "Großer .fig-Import",
-      figImportWarningDescription:
-        "Diese Datei enthält {{frames}} Frames und {{nodes}} Ebenen. Alles zu importieren kann den Editor verlangsamen. Wähle die benötigten Seiten aus.",
-      figImportFrameCount: "{{selected}} von {{total}} Frames ausgewählt",
-      figImportSelectAll: "Alle auswählen",
-      figImportClearAll: "Alle löschen",
-      figImportCancel: "Abbrechen",
-      figImportSelected: "{{count}} ausgewählte importieren",
-      figImportAll: "Alle importieren",
       figImportAnalyzing: "Wird analysiert…",
       figImportSaving: "{{saved}} von {{total}} Frames werden gespeichert",
-      figImportFrameLimit:
-        "Wähle Seiten mit insgesamt höchstens {{max}} Frames aus.",
       figImportFramesSkippedWarning:
         "{{count}} Frames waren zu komplex für den Import und wurden übersprungen: {{names}}",
-      figUploadLimits: "Bis zu {{size}} GB · {{frames}} Frames pro Import",
-      figUploadDescriptionShort:
-        "Lokaler Import — kein Figma-API-Kontingent. Unterstützte eingebettete Bilder werden eingeschlossen.",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "Design hat diesen Import angehalten",
-      quotaCooldownBody:
-        "Design drosselt seine eigenen Figma-Anfragen, nachdem ein Kontingentlimit erreicht wurde. Das wird automatisch zurückgesetzt.",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "HTML importieren",
       htmlDescription:
         "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neuen Bildschirm, ohne es in diese Editor-UI einzufügen.",
-      htmlPlaceholder: "<main>Eigenständiges HTML hier einfügen...</main>",
-      importHtml: "HTML importieren",
-      chooseHtmlFile: "HTML-Datei wählen",
       allSupportedFiles: "Alle unterstützten Dateien",
-      githubTitle: "GitHub",
       githubDescription:
         "Demnächst: Bildschirme und Komponenten direkt aus einem Repository importieren.",
-      localTitle: "Lokale App",
       localDescription: "Verbinde jede laufende lokale App mit /visual-edit.",
-      visualEditGuidance:
-        "Installiere die /visual-edit-Skill, starte eine lokale App und führe dann den Bridge-Befehl aus diesem App-Repo aus, damit dein Agent URL-basierte Bildschirme hinzufügen kann.",
-      comingSoon: "Demnächst",
       warningsToast: "Import mit Warnungen abgeschlossen",
       figmaSuccess: "Figma-Einfügung importiert",
       htmlSuccess: "HTML importiert",
       uploadSuccess: "Datei importiert",
-      lastImport: "Letzter Import",
       errors: {
         figmaTokenMustBeToken:
           "Füge ein Figma-Zugriffstoken ein, keinen Figma-Dateilink.",
-        figmaUrlRequired: "Figma-Frame- oder Datei-URL einfügen.",
-        invalidFigmaUrl: "Gültige figma.com-URL eingeben.",
         figmaImportFailed: "Import aus Figma fehlgeschlagen",
         notHtml: "Füge gültiges HTML ein oder wähle es zum Importieren aus.",
         importFailed: "Import fehlgeschlagen",
@@ -1790,9 +1740,11 @@ export default {
         invalidFigFile: "Wähle eine Datei mit der Endung .fig.",
         unsupportedFileType: "Wähle eine .fig-, .html- oder .htm-Datei.",
         importBusy:
-          "Ein anderer Import läuft gerade. Schließe ihn ab oder brich ihn ab.",
+          "Ein anderer Import läuft gerade. Versuche es erneut, wenn er abgeschlossen ist.",
         figFileTooLarge:
-          "Diese .fig-Datei ist zu groß – Uploads sind auf {{max}} MB begrenzt. Kopiere in Figma nur den gewünschten Frame in eine neue Datei und exportiere diese als .fig, oder nutze „Aus Figma einfügen“.",
+          "Diese Datei ist zu groß, um sie hier zu importieren. Füge stattdessen einen Link zur Figma-Seite oder zum Frame ein.",
+        figFileUnreadable:
+          "Diese Datei kann nicht als .fig-Datei gelesen werden. Speichere in Figma eine neue lokale Kopie und importiere sie.",
       },
     },
     generationMayHaveStopped:
@@ -1857,6 +1809,7 @@ export default {
       duplicate: "Duplizieren",
       versionHistory: "Versionsverlauf",
       import: "Importieren…",
+      connectLocalApp: "Lokale App verbinden",
       delete: "Löschen",
       deleteError: "Dieses Design konnte nicht gelöscht werden",
     },
@@ -2730,9 +2683,9 @@ export default {
   },
   homeContext: {
     websiteReference: "Website hinzufügen",
+    websiteReferenceMenu: "Website hinzufügen…",
     websiteUrlLabel: "Website-URL",
     websiteUrl: "Website-URL einfügen",
-    figmaUrlLabel: "Figma-Link",
     invalidFigmaUrl:
       "Gib eine gültige Frame- oder Datei-URL von figma.com ein.",
     tooMany: "Wähle bis zu 20 Referenzen.",
@@ -2741,7 +2694,6 @@ export default {
     noSystems:
       "Du hast noch kein Designsystem. Erstelle eines aus einer Website, Dateien oder Figma.",
     searchSystems: "Designsysteme suchen…",
-    searchFrames: "Figma-Frames suchen…",
     searchDesigns: "Designs suchen…",
     searchPresentations: "Präsentationen suchen…",
     searchDesign: "Design suchen…",
@@ -2749,16 +2701,35 @@ export default {
     notReady:
       "Die Anfrage ist noch nicht bereit. Prüfe den ausgewählten Kontext und die Verbindung und versuche es erneut.",
     search: "Kontext suchen…",
-    figmaUrl: "Figma-Link einfügen",
-    browse: "Frames durchsuchen",
     loadFailed: "Diese Referenz konnte nicht geladen werden.",
     retry: "Erneut versuchen",
     empty: "Keine passenden Referenzen.",
     none: "Keine",
-    design: "Design",
+    design: "Designreferenzen",
     slides: "Folien",
     referenceDesign: "Ein Design als Referenz verwenden",
-    figmaReference: "Figma hinzufügen",
+    connectFigma: "Figma verbinden",
+    figmaReference: "Figma-Design…",
+    figmaDialogTitle: "Figma-Design hinzufügen",
+    figmaDropTitle: "Lege eine .fig-Datei ab",
+    figmaChooseFile: "Datei auswählen",
+    figmaPasteHint:
+      "Du kannst einen kopierten Frame auch direkt in den Prompt einfügen.",
+    figmaAddToPrompt: "Zum Prompt hinzufügen",
+    figmaLinkNeedsConnection:
+      "Links benötigen ein verbundenes Figma-Konto. Lege stattdessen eine .fig-Datei ab oder füge einen kopierten Frame ein.",
+    figmaReferenceMore: "{{name}} und {{count}} weitere",
+    figmaReferenceEmpty:
+      "Es kamen keine Frames an. Kopiere einen Frame in Figma und versuche es erneut.",
+    figmaSelection: "Figma-Auswahl",
+    figmaFileTooLarge:
+      "Diese Datei ist zu groß, um sie hier zu lesen. Füge stattdessen einen Link zu ihrer Seite oder ihrem Frame ein.",
+    figmaSearch: "Seiten und Frames durchsuchen",
+    figmaSelectedCount: "{{count}} ausgewählt",
+    figmaShowFrames: "Frames in {{name}} anzeigen",
+    figmaLinkNotFrame: "Verlinke eine Figma-Seite oder einen Frame.",
+    figmaPageFrameCap:
+      "Fügt die ersten {{limit}} Frames hinzu. Wähle Frames aus, um festzulegen, welche.",
     referenceDeck: "Eine Präsentation als Referenz verwenden",
     quickSaas: "SaaS-Landingpage erstellen",
     quickDashboard: "Dashboard erstellen",
@@ -2768,12 +2739,162 @@ export default {
   },
   home: {
     suggestedPrompts: "Vorgeschlagene Prompts",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "Erstelle ein Produktanalyse-Dashboard mit KPI-Karten, Conversion-Diagramm und Aktivitätstabelle in einem sicheren, datenorientierten Ton.",
+        roadmapWorkspace:
+          "Gestalte einen Roadmap-Arbeitsbereich mit Quartalszeitachse, Prioritäten und Kundenfeedback in einem ruhigen, kooperativen Ton.",
+        onboardingFlow:
+          "Erstelle den Einstieg einer Budget-App mit Fortschrittsschritten, Zielen und Kontoeinrichtung in einem beruhigenden Ton.",
+        featureComparison:
+          "Gestalte einen SaaS-Funktionsvergleich mit Tarifkarten, Funktionsmatrix und FAQ in einem direkten, conversion-orientierten Ton.",
+        feedbackPortal:
+          "Erstelle ein Feedbackportal mit Ideenboard, Abstimmungen und Statusfiltern in einem offenen, gemeinschaftlichen Ton.",
+        releaseNotes:
+          "Gestalte ein Update-Center mit Versionszeitachse, Highlights und Migrationshinweisen in einem prägnanten Editorial-Ton.",
+        projectWorkspace:
+          "Erstelle einen Produktarbeitsbereich mit Kanban-Spalten, Zuständigkeiten und Meilensteinen in einem produktiven Ton.",
+        launchWaitlist:
+          "Gestalte eine Wartelistenseite mit Titelbereich, Nachweisen und Anmeldeformular in einem optimistischen Ton.",
+      },
+      design: {
+        portfolioHome:
+          "Gestalte die Startseite eines Design-Portfolios mit Kurzvorstellung, Projektübersicht, Profil und Kontakt in einem sorgfältigen Editorial-Ton.",
+        designSystem:
+          "Erstelle eine Designsystem-Referenz mit Farb- und Typografie-Tokens, Komponentenübersicht und Nutzungshinweisen in einem präzisen Dokumentationston.",
+        bankingApp:
+          "Erstelle den Startbildschirm einer Mobile-Banking-App mit Kontostand, Umsätzen und Sparzielen in einem ruhigen, vertrauenswürdigen Ton.",
+        travelBooking:
+          "Gestalte eine Reisesuche mit Zielfiltern, Reiseplänen und Karte in einem leichten, abenteuerlichen Ton.",
+        coffeeShop:
+          "Erstelle einen Kaffeeshop mit ausgewählten Bohnen, Herkunftsgeschichten und Abo-CTA in einem warmen, haptischen Ton.",
+        musicFestival:
+          "Gestalte eine Festival-Seite mit Line-up, Zeitplan und Geländeplan in einem energiegeladenen Poster-Stil.",
+        accessibilityAudit:
+          "Erstelle ein Barrierefreiheits-Dashboard mit Punktzahl, Problemliste und Filtern in einem klaren kontrastreichen Stil.",
+        artBook:
+          "Gestalte eine Kunstbuch-Seite mit immersiven Werken, Zitat und Kapitelnavigation in einem zurückhaltenden Galerieton.",
+      },
+      developer: {
+        apiDocs:
+          "Erstelle ein API-Dokuportal mit Seitennavigation, Codebeispielen und Anfrage-Builder in einem präzisen technischen Ton.",
+        deploymentDashboard:
+          "Gestalte ein Deployment-Dashboard mit Umgebungs-Karten, Live-Logs und Rollback-Steuerung in einem ruhigen operativen Ton.",
+        componentPlayground:
+          "Erstelle einen Komponenten-Spielplatz mit Props-Steuerung, Zustandsvarianten und Codefeld in einem klaren Entwicklerstil.",
+        databaseConsole:
+          "Gestalte eine Datenbankkonsole mit Abfrageeditor, Schema-Baum und Ergebnistabelle in einem sachlichen Technikstil.",
+        issueTriage:
+          "Erstelle ein Issue-Board mit Filtern, Prioritäten und Zuständigkeitsliste in einem klaren, fokussierten Ton.",
+        authSettings:
+          "Gestalte Auth-Einstellungen mit Anbieter-Karten, Callback-URL und Berechtigungen in einem sicheren, beruhigenden Ton.",
+        workflowBuilder:
+          "Erstelle einen CI-Workflow-Builder mit Schritten, Ausführungshistorie und Branch-Auswahl in einem präzisen technischen Ton.",
+        developerPortfolio:
+          "Gestalte ein Entwicklerportfolio mit Projekten, Toolset und Zeitachse in einem dunklen, fokussierten Stil.",
+      },
+      marketing: {
+        campaignLanding:
+          "Gestalte eine Kampagnenseite mit starker Überschrift, Vorteilen, Kundenbelegen und Anmeldung in einem energiegeladenen Ton.",
+        emailBuilder:
+          "Erstelle einen E-Mail-Editor mit Betreffvorschau, Inhaltsblöcken und Zielgruppenübersicht in einem klaren, freundlichen Ton.",
+        socialCalendar:
+          "Gestalte einen Social-Content-Kalender mit Kanalreitern, geplanten Posts und Leistungswerten in einem hellen Editorial-Stil.",
+        brandCampaign:
+          "Erstelle eine Markenkampagne mit Überschrift, Art Direction und Asset-Galerie in einem sicheren, stimmigen Ton.",
+        webinarRegistration:
+          "Gestalte eine Webinar-Anmeldung mit Sprecherkarten, Agenda und Formular in einem glaubwürdigen, einladenden Ton.",
+        seoBrief:
+          "Erstelle ein SEO-Briefing mit Keyword-Gruppen, Gliederung und Wettbewerbsnotizen in einem fokussierten Rechercheton.",
+        launchMetrics:
+          "Gestalte ein Launch-Dashboard mit Kanal-Karten, Conversion-Diagramm und Kampagnentabelle in einem analytischen Ton.",
+        newsletterSignup:
+          "Erstelle eine Newsletter-Seite mit redaktioneller Vorschau, Themenwahl und E-Mail-Feld in einem warmen, knappen Ton.",
+      },
+      sales: {
+        leadWorkspace:
+          "Erstelle einen Vertriebsarbeitsbereich mit Kontaktdaten, Aktivitätsverlauf und Qualifizierungsfeldern in einem entschlossenen, professionellen Ton.",
+        accountBrief:
+          "Gestalte ein Account-Briefing mit Unternehmensprofil, Beteiligten und aktuellen Signalen in einem klaren Executive-Stil.",
+        productDemo:
+          "Erstelle eine Produktdemo-Seite mit Anwendungsreitern, Screenshots und Kundenbelegen in einem überzeugenden, sicheren Ton.",
+        proposalBuilder:
+          "Gestalte einen Angebots-Builder mit Leistungsumfang, Preiskarten und Zeitplan in einem sorgfältigen Beratungston.",
+        pipelineDashboard:
+          "Erstelle ein Pipeline-Dashboard mit Phasen, Deal-Werten und Prognosediagramm in einem prägnanten Geschäftsstil.",
+        meetingBooking:
+          "Gestalte eine Terminbuchung mit Kalenderzeiten, Agenda-Vorschau und Formular in einem einladenden professionellen Ton.",
+        customerStory:
+          "Erstelle eine Kundengeschichte mit Herausforderung, Ergebnissen, Zitat und Kennzahlen in einem faktenbasierten Editorial-Ton.",
+        accountHandoff:
+          "Gestalte eine Account-Übergabe mit Kundenzielen, Kontakten und offenen Aufgaben in einem ruhigen kooperativen Ton.",
+      },
+      ops: {
+        inventoryDashboard:
+          "Erstelle ein Bestands-Dashboard mit Lagerständen, Nachbestellwarnungen und Kategorienfiltern in einem praktischen operativen Ton.",
+        staffScheduler:
+          "Gestalte einen Dienstplan mit Schichtübersicht, Verfügbarkeit und Abwesenheiten in einem gut scannbaren Stil.",
+        vendorPortal:
+          "Erstelle ein Lieferantenportal mit Checkliste, Dokumentenstatus und Kontakten in einem klaren beruhigenden Ton.",
+        incidentResponse:
+          "Gestalte eine Incident-Seite mit Schweregrad, Ereignisverlauf und Zuständigkeit in einem ruhigen fokussierten Ton.",
+        expenseApprovals:
+          "Erstelle eine Ausgabenfreigabe mit Belegen, Richtlinienhinweisen und Summen in einem neutralen effizienten Stil.",
+        warehouseReceiving:
+          "Gestalte eine Wareneingangs-App mit Lieferdetails, Scanstatus und Artikelliste in einem sehr klaren Stil.",
+        automationControl:
+          "Erstelle ein Workflow-Panel mit Automationen, Verlauf und Fehlerwarnungen in einem sicheren operativen Ton.",
+        helpdeskQueue:
+          "Gestalte eine interne Support-Queue mit Anfragen, Statusfiltern und Zuweisungen in einem klaren hilfreichen Ton.",
+      },
+      individual: {
+        personalPortfolio:
+          "Gestalte ein persönliches Portfolio mit Kurzbiografie, ausgewählten Arbeiten, Fähigkeiten und Kontakt in einem warmen Editorial-Ton.",
+        mealPlanner:
+          "Erstelle einen Essensplan mit Wochenrezepten, Einkaufsliste und Ernährungsfiltern in einem freundlichen praktischen Stil.",
+        homeBudget:
+          "Gestalte ein Haushaltsbudget mit Monatsübersicht, Kategorien-Diagramm und Rechnungen in einem ruhigen unterstützenden Ton.",
+        tripPlanner:
+          "Erstelle einen Reiseplaner mit Zeitachse, Karte und Reservierungen in einem leichten abenteuerlichen Stil.",
+        readingJournal:
+          "Gestalte ein Lesetagebuch mit Buchcovern, Fortschrittsnotizen und Bewertungen in einem ruhigen literarischen Ton.",
+        invoiceTracker:
+          "Erstelle eine Freiberufler-Rechnungsübersicht mit Kunden, Zahlungsstatus und Fristen in einem ordentlichen professionellen Stil.",
+        habitTracker:
+          "Gestalte einen Habit-Tracker mit Tages-Check-ins, Serien und Fortschrittsdiagramm in einem sanft motivierenden Ton.",
+        neighborhoodEvents:
+          "Erstelle eine Nachbarschaftsseite mit Veranstaltungen, lokalen Filtern und RSVP-Steuerung in einem einladenden Gemeinschaftston.",
+      },
+      general: {
+        saasHomepage:
+          "Erstelle eine SaaS-Startseite mit Titelbereich, Funktionsabschnitten und Kundenbelegen in einem klaren einladenden Ton.",
+        analyticsDashboard:
+          "Gestalte ein Analyse-Dashboard mit KPI-Karten, Trenddiagramm und Aktivitätstabelle in einem ruhigen datenorientierten Ton.",
+        habitApp:
+          "Erstelle den Startbildschirm einer Habit-App mit Tageszielen, Fortschrittsringen und Erinnerungen in einem freundlichen ermutigenden Ton.",
+        onlineStore:
+          "Gestalte eine Shop-Startseite mit ausgewählten Produkten, Kategorien und Kundenbewertungen in einem warmen gepflegten Stil.",
+        creativePortfolio:
+          "Erstelle ein Kreativportfolio mit Kurzvorstellung, Projektübersicht und Profil in einem ausdrucksstarken Editorial-Ton.",
+        bookingPage:
+          "Gestalte eine Buchungsseite mit Verfügbarkeitskalender, Services und Bewertungen in einem klaren vertrauenswürdigen Ton.",
+        adminDashboard:
+          "Erstelle ein Admin-Dashboard mit Seitennavigation, Übersichtskarten und aktuellen Aktivitäten in einem sachlichen praktischen Stil.",
+        communityEvent:
+          "Gestalte eine Veranstaltungsseite mit Zeitplan, Ort und Sprechern in einem einladenden festlichen Ton.",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "Nächste Schritte",
+      refineWithPrompt: "Mit einer Eingabe verfeinern",
+      export: "Exportieren",
+      shareLink: "Link teilen",
+      dismiss: "Schließen",
+    },
     import: "Importieren",
-    importOptions: "Importoptionen",
-    figmaLink: "Figma-Link",
     importFromFigma: "Aus Figma importieren",
     figmaFile: "Figma-Datei (.fig)",
-    figmaFileMaxSize: "Bis zu {{max}} GB",
     openImport: "Import öffnen",
     importSelectedFile: "Ausgewählte Datei importieren",
     starterSaasPrompt:
@@ -2846,6 +2967,89 @@ export default {
     paginationPrevious: "Zurück",
     paginationNext: "Weiter",
     paginationPage: "Seite {{page}} von {{totalPages}}",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "Produktanalyse-Dashboard",
+        roadmapWorkspace: "Roadmap-Arbeitsbereich",
+        onboardingFlow: "Einstieg einer Budget-App",
+        featureComparison: "SaaS-Funktionsvergleich",
+        feedbackPortal: "Feedbackportal",
+        releaseNotes: "Update-Center",
+        projectWorkspace: "Produktarbeitsbereich",
+        launchWaitlist: "Wartelistenseite",
+      },
+      design: {
+        portfolioHome: "Startseite eines Design-Portfolios",
+        designSystem: "Designsystem-Referenz",
+        bankingApp: "Startbildschirm einer Mobile-Banking-App",
+        travelBooking: "Reisesuche",
+        coffeeShop: "Kaffeeshop",
+        musicFestival: "Festival-Seite",
+        accessibilityAudit: "Barrierefreiheits-Dashboard",
+        artBook: "Kunstbuch-Seite",
+      },
+      developer: {
+        apiDocs: "API-Dokuportal",
+        deploymentDashboard: "Deployment-Dashboard",
+        componentPlayground: "Komponenten-Spielplatz",
+        databaseConsole: "Datenbankkonsole",
+        issueTriage: "Issue-Board",
+        authSettings: "Auth-Einstellungen",
+        workflowBuilder: "CI-Workflow-Builder",
+        developerPortfolio: "Entwicklerportfolio",
+      },
+      marketing: {
+        campaignLanding: "Kampagnenseite",
+        emailBuilder: "E-Mail-Editor",
+        socialCalendar: "Social-Content-Kalender",
+        brandCampaign: "Markenkampagne",
+        webinarRegistration: "Webinar-Anmeldung",
+        seoBrief: "SEO-Briefing",
+        launchMetrics: "Launch-Dashboard",
+        newsletterSignup: "Newsletter-Seite",
+      },
+      sales: {
+        leadWorkspace: "Vertriebsarbeitsbereich",
+        accountBrief: "Account-Briefing",
+        productDemo: "Produktdemo-Seite",
+        proposalBuilder: "Angebots-Builder",
+        pipelineDashboard: "Pipeline-Dashboard",
+        meetingBooking: "Terminbuchung",
+        customerStory: "Kundengeschichte",
+        accountHandoff: "Account-Übergabe",
+      },
+      ops: {
+        inventoryDashboard: "Bestands-Dashboard",
+        staffScheduler: "Dienstplan",
+        vendorPortal: "Lieferantenportal",
+        incidentResponse: "Incident-Seite",
+        expenseApprovals: "Ausgabenfreigabe",
+        warehouseReceiving: "Wareneingangs-App",
+        automationControl: "Workflow-Panel",
+        helpdeskQueue: "interne Support-Queue",
+      },
+      individual: {
+        personalPortfolio: "persönliches Portfolio",
+        mealPlanner: "Essensplan",
+        homeBudget: "Haushaltsbudget",
+        tripPlanner: "Reiseplaner",
+        readingJournal: "Lesetagebuch",
+        invoiceTracker: "Freiberufler-Rechnungsübersicht",
+        habitTracker: "Habit-Tracker",
+        neighborhoodEvents: "Nachbarschaftsseite",
+      },
+      general: {
+        saasHomepage: "SaaS-Startseite",
+        analyticsDashboard: "Analyse-Dashboard",
+        habitApp: "Startbildschirm einer Habit-App",
+        onlineStore: "Shop-Startseite",
+        creativePortfolio: "Kreativportfolio",
+        bookingPage: "Buchungsseite",
+        adminDashboard: "Admin-Dashboard",
+        communityEvent: "Veranstaltungsseite",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "Visuelle Bearbeitung",
@@ -3227,6 +3431,7 @@ export default {
     updateFailed: "Kommentar konnte nicht aktualisiert werden",
     commentsInCluster: "Kommentare in der Gruppe: {{count}}",
     moreActions: "Weitere Aktionen",
+    moreActionsFor: "Weitere Aktionen für {{author}}",
     copyLink: "Link kopieren",
     linkCopied: "Link kopiert",
     copyLinkFailed: "Link konnte nicht kopiert werden",
@@ -3246,6 +3451,7 @@ export default {
     addEmoji: "Emoji hinzufügen",
     mention: "Jemanden erwähnen",
     noMentions: "Keine Personen gefunden",
+    mentionsFailed: "Personen konnten nicht geladen werden",
     reopen: "Wieder öffnen",
     reopening: "Wird wieder geöffnet…",
     undo: "Rückgängig",
@@ -3298,7 +3504,6 @@ export default {
     },
     filtersActive: "Filter angewendet",
     suggestChanges: "Änderungen vorschlagen",
-    replyInThread: "Im Thread antworten",
     applyChangesAndResolve: "Änderungen übernehmen und erledigen",
     agent: {
       sectionLabel: "Agenten",

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { noteExternalWrite } from "@agent-native/core/action";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -43,6 +44,7 @@ export async function storeLocalImportedAsset(args: {
     "import-assets",
     tenantFileKey(args.email),
   );
+  noteExternalWrite("local-disk");
   await mkdir(directory, { recursive: true });
   await writeFile(path.join(directory, `${id}-${safeFilename}`), args.data);
 

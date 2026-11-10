@@ -5,6 +5,7 @@ import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
+  hasStoredBuilderApiOAuthGrant,
   isBuilderReauthorizationRequired,
   resolveBuilderApiAuthorization,
   resolveBuilderRequestAuthorization,
@@ -41,6 +42,7 @@ describe("Builder status reauthorization", () => {
 
 const getBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const hasBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
+const hasStoredBuilderOAuthGrantForUseMock = vi.hoisted(() => vi.fn());
 const resolveBuilderCredentialMock = vi.hoisted(() => vi.fn());
 const resolveBuilderCredentialsMock = vi.hoisted(() => vi.fn());
 const listRemoteServersMock = vi.hoisted(() => vi.fn());
@@ -65,6 +67,7 @@ const getRequestBuilderStorageCredentialOrgIdMock = vi.hoisted(() => vi.fn());
 vi.mock("./builder-oauth.js", () => ({
   getBuilderOAuthSession: getBuilderOAuthSessionMock,
   hasBuilderOAuthSession: hasBuilderOAuthSessionMock,
+  hasStoredBuilderOAuthGrantForUse: hasStoredBuilderOAuthGrantForUseMock,
 }));
 vi.mock("./credential-provider.js", () => ({
   CredentialStoreUnavailableError: CredentialStoreUnavailableErrorMock,
@@ -118,6 +121,7 @@ beforeEach(() => {
   getRequestOrgIdMock.mockReturnValue(undefined);
   getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue(undefined);
   hasBuilderOAuthSessionMock.mockResolvedValue(false);
+  hasStoredBuilderOAuthGrantForUseMock.mockResolvedValue(false);
   getBuilderOAuthSessionMock.mockResolvedValue(null);
   resolveBuilderCredentialMock.mockResolvedValue(null);
   resolveBuilderCredentialsMock.mockResolvedValue({
@@ -672,5 +676,38 @@ describe("hasBuilderApiCredentialCustody", () => {
 
   it("is false when nothing is connected", async () => {
     await expect(hasBuilderApiCredentialCustody()).resolves.toBe(false);
+  });
+});
+
+describe("hasStoredBuilderApiOAuthGrant", () => {
+  it("looks for the grant in the same scope custody reads", async () => {
+    hasStoredBuilderOAuthGrantForUseMock.mockResolvedValue(true);
+
+    await expect(hasStoredBuilderApiOAuthGrant()).resolves.toBe(true);
+    expect(hasStoredBuilderOAuthGrantForUseMock).toHaveBeenCalledWith(
+      "user@example.com",
+      null,
+    );
+  });
+
+  it("looks only at the storage grant org for storage-only requests", async () => {
+    getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue("storage-org");
+
+    await expect(hasStoredBuilderApiOAuthGrant()).resolves.toBe(false);
+    expect(hasStoredBuilderOAuthGrantForUseMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "storage-org",
+      { orgOnly: true },
+    );
+  });
+
+  it("reports a store outage instead of no grant", async () => {
+    hasStoredBuilderOAuthGrantForUseMock.mockRejectedValue(
+      Object.assign(new Error("connection failure"), { code: "08006" }),
+    );
+
+    await expect(hasStoredBuilderApiOAuthGrant()).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableErrorMock,
+    );
   });
 });

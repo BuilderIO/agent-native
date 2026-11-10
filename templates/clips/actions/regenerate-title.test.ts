@@ -5,10 +5,17 @@ const expiryAccess = vi.hoisted(() => ({
   expiresAt: null as string | null,
 }));
 
+type Rows = Array<Record<string, unknown>>;
 const mockSelectRows = vi.hoisted(() => ({
-  queue: [] as Array<Array<Record<string, unknown>>>,
+  queue: [] as Array<Rows | (() => Rows)>,
 }));
-const mockUpdateWhere = vi.hoisted(() => vi.fn(async () => undefined));
+const mockRemoval = vi.hoisted(() => ({ at: null as string | null }));
+const mockUpdateReturning = vi.hoisted(() =>
+  vi.fn(async () => [{ id: "rec_1" }]),
+);
+const mockUpdateWhere = vi.hoisted(() =>
+  vi.fn(() => ({ returning: mockUpdateReturning })),
+);
 const mockUpdateSet = vi.hoisted(() =>
   vi.fn(() => ({ where: mockUpdateWhere })),
 );
@@ -18,12 +25,19 @@ const mockReadAppState = vi.hoisted(() =>
 );
 const mockCompareAndSetManyAppState = vi.hoisted(() => vi.fn(async () => true));
 const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
+const mockLoadAgentsContext = vi.hoisted(() => vi.fn(async () => ""));
 
 const mockDb = vi.hoisted(() => ({
-  select: vi.fn(() => ({
+  select: vi.fn((projection?: Record<string, unknown>) => ({
     from: vi.fn(() => ({
       where: vi.fn(() => ({
-        limit: vi.fn(async () => mockSelectRows.queue.shift() ?? []),
+        limit: vi.fn(async () => {
+          if (projection && "removedAt" in projection) {
+            return [{ removedAt: mockRemoval.at }];
+          }
+          const next = mockSelectRows.queue.shift() ?? [];
+          return typeof next === "function" ? next() : next;
+        }),
       })),
     })),
   })),
@@ -88,7 +102,7 @@ vi.mock("./cleanup-transcript.js", () => ({
 }));
 
 vi.mock("./lib/agents-md-context.js", () => ({
-  loadAgentsMdContext: vi.fn(async () => ""),
+  loadAgentsMdContext: mockLoadAgentsContext,
 }));
 
 vi.mock("./lib/builder-credits-state.js", () => ({
@@ -134,8 +148,193 @@ describe("regenerate-title fallback refinement", () => {
     expiryAccess.expiresAt = null;
     vi.clearAllMocks();
     mockSelectRows.queue = [];
+    mockRemoval.at = null;
     mockReadAppState.mockResolvedValue(null);
     mockCompareAndSetManyAppState.mockResolvedValue(true);
+    mockUpdateReturning.mockResolvedValue([{ id: "rec_1" }]);
+    mockLoadAgentsContext.mockResolvedValue("");
+  });
+
+  it("does not automatically replace a manually chosen default title", async () => {
+    mockSelectRows.queue = [
+      [
+        {
+          id: "rec_1",
+          title: "Untitled recording",
+          titleSource: "manual",
+          updatedAt: "one",
+          description: "Saved",
+        },
+      ],
+    ];
+    await expect(
+      regenerateTitle.run({ recordingId: "rec_1", automatic: true }),
+    ).resolves.toMatchObject({
+      updated: false,
+      skipped: true,
+      reason: "Recording title is manual",
+    });
+    expect(mockCleanupTranscriptRun).not.toHaveBeenCalled();
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("allows an explicit request to regenerate a manually chosen default title", async () => {
+    const manual = {
+      title: "Untitled recording",
+      titleSource: "manual",
+      updatedAt: "one",
+    };
+    mockSelectRows.queue = [
+      [{ id: "rec_1", ...manual, description: "Saved" }],
+      [
+        {
+          status: "ready",
+          fullText: "A representative transcript for the recording.",
+          segmentsJson: "[]",
+        },
+      ],
+      [manual],
+    ];
+    mockCleanupTranscriptRun.mockResolvedValueOnce({
+      title: "Generated title",
+      provider: "builder",
+    });
+    await expect(
+      regenerateTitle.run({ recordingId: "rec_1" }),
+    ).resolves.toMatchObject({ updated: true, title: "Generated title" });
+  });
+
+  describe("when earlier audio is removed while the title generates", () => {
+    const untitled = {
+      title: "Untitled recording",
+      titleSource: "default",
+      updatedAt: "one",
+    };
+    const removedAt = "2026-11-03T10:00:00.000Z";
+    const staleRead = [
+      [{ id: "rec_1", ...untitled, description: "" }],
+      [
+        {
+          status: "ready",
+          fullText: "Audio the user is about to remove.",
+          segmentsJson: "[]",
+        },
+      ],
+    ];
+
+    it("drops a generated title", async () => {
+      mockSelectRows.queue = [...staleRead, [untitled]];
+      mockCleanupTranscriptRun.mockImplementationOnce(async () => {
+        mockRemoval.at = removedAt;
+        return { title: "Title from removed audio", provider: "builder" };
+      });
+
+      await expect(
+        regenerateTitle.run({ recordingId: "rec_1" }),
+      ).resolves.toMatchObject({ updated: false, reason: "title_changed" });
+
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    });
+
+    it("drops a fallback title", async () => {
+      mockSelectRows.queue = [...staleRead, [untitled]];
+      mockCleanupTranscriptRun.mockImplementationOnce(async () => {
+        mockRemoval.at = removedAt;
+        throw new Error("no provider");
+      });
+
+      await expect(
+        regenerateTitle.run({ recordingId: "rec_1" }),
+      ).resolves.toMatchObject({ updated: false, reason: "title_changed" });
+
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["matches the current title", "Agent Credits Cost $63"],
+      ["comes back empty", ""],
+    ])(
+      "queues no refinement of the old text when the model's title %s",
+      async (_case, generated) => {
+        const title = "Agent Credits Cost $63";
+        const current = { title, titleSource: "ai", updatedAt: "one" };
+        mockSelectRows.queue = [
+          [{ id: "rec_1", ...current, description: "" }],
+          [
+            {
+              status: "ready",
+              fullText:
+                "It's easier to just walk through this real quick. Regarding your question about the agent credits costing $63, there are two reasons. The CPQ tool cannot show the SLA fee as a separate line item today.",
+              segmentsJson: "[]",
+            },
+          ],
+          [current],
+          [current],
+        ];
+        mockCleanupTranscriptRun.mockImplementationOnce(async () => {
+          mockRemoval.at = removedAt;
+          return { title: generated, provider: "builder" };
+        });
+
+        await expect(
+          regenerateTitle.run({ recordingId: "rec_1" }),
+        ).resolves.toMatchObject({ updated: false, reason: "title_changed" });
+
+        expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+      },
+    );
+
+    it("queues no full-video request carrying text read before the removal", async () => {
+      const { readIncludeFullVideoInAi } =
+        await import("./lib/clips-ai-prefs.js");
+      vi.mocked(readIncludeFullVideoInAi).mockResolvedValueOnce(true);
+      mockSelectRows.queue = [
+        () => {
+          mockRemoval.at = removedAt;
+          return [{ id: "rec_1", ...untitled, description: "" }];
+        },
+        [
+          {
+            status: "ready",
+            fullText: "What remains.",
+            segmentsJson: "[]",
+            earlierAudioRemovedAt: removedAt,
+          },
+        ],
+      ];
+
+      await expect(
+        regenerateTitle.run({ recordingId: "rec_1" }),
+      ).resolves.toMatchObject({ updated: false, reason: "title_changed" });
+    });
+
+    it("drops a title whose current title was read just before the removal", async () => {
+      mockSelectRows.queue = [
+        () => {
+          mockRemoval.at = removedAt;
+          return [{ id: "rec_1", ...untitled, description: "" }];
+        },
+        [
+          {
+            status: "ready",
+            fullText: "What remains.",
+            segmentsJson: "[]",
+            earlierAudioRemovedAt: removedAt,
+          },
+        ],
+        [untitled],
+      ];
+      mockCleanupTranscriptRun.mockResolvedValueOnce({
+        title: "Title from removed audio",
+        provider: "builder",
+      });
+
+      await expect(
+        regenerateTitle.run({ recordingId: "rec_1" }),
+      ).resolves.toMatchObject({ updated: false, reason: "title_changed" });
+
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    });
   });
 
   it.each([false, true])(
@@ -209,6 +408,82 @@ describe("regenerate-title fallback refinement", () => {
     },
   );
 
+  it("does not overwrite a manual edit made while the generated title is being saved", async () => {
+    mockSelectRows.queue = [
+      [
+        {
+          id: "rec_1",
+          title: "Untitled recording",
+          titleSource: "default",
+          description: "Saved",
+        },
+      ],
+      [
+        {
+          status: "ready",
+          fullText: "A representative transcript for the recording.",
+          segmentsJson: "[]",
+        },
+      ],
+      [{ title: "Untitled recording", titleSource: "default" }],
+    ];
+    mockCleanupTranscriptRun.mockResolvedValueOnce({
+      title: "Generated title",
+      provider: "builder",
+    });
+    mockUpdateReturning.mockResolvedValueOnce([]);
+    await expect(
+      regenerateTitle.run({ recordingId: "rec_1" }),
+    ).resolves.toMatchObject({
+      updated: false,
+      skipped: true,
+      reason: "title_changed",
+    });
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it.each(["generated", "fallback"])(
+    "preserves a manual rename back to the original title on the %s path",
+    async (path) => {
+      const original = {
+        id: "rec_1",
+        title: "Untitled recording",
+        titleSource: "default",
+        updatedAt: "2026-01-01T00:00:00Z",
+        description: "Saved",
+      };
+      const renamed = {
+        title: original.title,
+        titleSource: "manual",
+        updatedAt: "2026-01-01T00:00:01Z",
+      };
+      mockSelectRows.queue = [
+        [original],
+        [
+          {
+            status: "ready",
+            fullText: "A representative transcript for the recording.",
+            segmentsJson: "[]",
+          },
+        ],
+        [renamed],
+      ];
+      if (path === "generated") {
+        mockCleanupTranscriptRun.mockResolvedValueOnce({
+          title: "Generated title",
+          provider: "builder",
+        });
+      } else {
+        mockCleanupTranscriptRun.mockRejectedValueOnce(
+          new Error("provider unavailable"),
+        );
+      }
+      const result = await regenerateTitle.run({ recordingId: "rec_1" });
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ updated: false, skipped: true });
+    },
+  );
+
   it("keeps a heuristic title replaceable and queues richer metadata", async () => {
     const transcript = `
       It’s easier to just walk through this real quick.
@@ -236,6 +511,7 @@ describe("regenerate-title fallback refinement", () => {
         },
       ],
       [{ title: "Untitled recording", titleSource: "default" }],
+      [{ title: "Agent Credits Cost $63", titleSource: "context" }],
     ];
 
     const result = await regenerateTitle.run({

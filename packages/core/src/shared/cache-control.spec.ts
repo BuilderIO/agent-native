@@ -3,17 +3,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
+  DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
   DISABLED_SSR_CACHE_CONTROL,
   DISABLED_SSR_CACHE_HEADERS,
   isSsrCacheEnabled,
   parseSsrCacheSetting,
+  parseSsrMaxAge,
   resolveSsrCacheHeaders,
+  resolveSsrCachePolicy,
   resolveChunkRecoveryCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_CACHE_ENV_VAR,
   SSR_HTML_CONTENT_TYPE,
   SSR_QUERY_CACHE_KEY_HEADER,
   ssrCacheHeadersForPolicy,
+  ssrCacheHeadersWithin,
   withSsrHtmlContentType,
 } from "./cache-control.js";
 import { CHUNK_RECOVERY_QUERY_PARAM } from "./route-chunk-recovery-bootstrap.js";
@@ -149,6 +153,100 @@ describe("ssrCacheHeadersForPolicy", () => {
         "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600",
       "netlify-cdn-cache-control":
         "public, durable, s-maxage=30, stale-while-revalidate=30, stale-if-error=3600",
+    });
+  });
+});
+
+describe("parseSsrMaxAge", () => {
+  it("reads whole seconds", () => {
+    expect(parseSsrMaxAge("20")).toBe(20);
+    expect(parseSsrMaxAge(" 0 ")).toBe(0);
+  });
+
+  it("ignores an unset value", () => {
+    expect(parseSsrMaxAge(undefined)).toBeNull();
+    expect(parseSsrMaxAge(null)).toBeNull();
+  });
+
+  it("stores nothing for a value that isn't whole seconds", () => {
+    for (const raw of ["", "  ", "-5", "1.5", "20s", "soon"]) {
+      expect(parseSsrMaxAge(raw)).toBe(0);
+    }
+  });
+
+  it("clamps absurd durations to one year", () => {
+    expect(parseSsrMaxAge("99999999999")).toBe(31_536_000);
+  });
+});
+
+describe("ssrCacheHeadersWithin", () => {
+  it("keeps a route's copy in shared caches for the window it names", () => {
+    expect(ssrCacheHeadersWithin({ kind: "default" }, 20)).toEqual({
+      "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+      "cdn-cache-control": "public, s-maxage=20, stale-while-revalidate=20",
+      "netlify-cdn-cache-control":
+        "public, durable, s-maxage=20, stale-while-revalidate=20",
+    });
+  });
+
+  it("never serves a stale copy on origin errors", () => {
+    const headers = ssrCacheHeadersWithin({ kind: "default" }, 20);
+    for (const value of Object.values(headers)) {
+      expect(value).not.toContain("stale-if-error");
+    }
+  });
+
+  it("never stores a route that asks for zero seconds", () => {
+    expect(ssrCacheHeadersWithin({ kind: "default" }, 0)).toEqual(
+      DISABLED_SSR_CACHE_HEADERS,
+    );
+  });
+
+  it("never lengthens the deployment's windows", () => {
+    expect(ssrCacheHeadersWithin({ kind: "disabled" }, 20)).toEqual(
+      DISABLED_SSR_CACHE_HEADERS,
+    );
+    expect(
+      ssrCacheHeadersWithin({ kind: "maxAge", seconds: 10 }, 20)[
+        "netlify-cdn-cache-control"
+      ],
+    ).toBe("public, durable, s-maxage=10, stale-while-revalidate=10");
+    expect(
+      ssrCacheHeadersWithin({ kind: "default" }, 31_536_000)[
+        "netlify-cdn-cache-control"
+      ],
+    ).toBe("public, durable, s-maxage=31536000, stale-while-revalidate=604800");
+  });
+
+  it("caps each CDN header at its own deployment window", () => {
+    const headers = ssrCacheHeadersWithin({ kind: "default" }, 3600);
+
+    expect(headers["cdn-cache-control"]).toBe(
+      "public, s-maxage=600, stale-while-revalidate=3600",
+    );
+    expect(headers["netlify-cdn-cache-control"]).toBe(
+      "public, durable, s-maxage=3600, stale-while-revalidate=3600",
+    );
+  });
+
+  it("caps at the same windows the default policy names", () => {
+    expect(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL).toContain(
+      "s-maxage=31536000, stale-while-revalidate=604800",
+    );
+  });
+});
+
+describe("resolveSsrCachePolicy", () => {
+  it("reads the deployment policy from the env var", () => {
+    expect(resolveSsrCachePolicy(envWith(undefined))).toEqual({
+      kind: "default",
+    });
+    expect(resolveSsrCachePolicy(envWith("off"))).toEqual({
+      kind: "disabled",
+    });
+    expect(resolveSsrCachePolicy(envWith("5m"))).toEqual({
+      kind: "maxAge",
+      seconds: 300,
     });
   });
 });

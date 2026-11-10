@@ -2,6 +2,7 @@
 
 import type { RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
 vi.mock("@/lib/svg-paste", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/svg-paste")>()),
@@ -15,6 +16,9 @@ vi.mock("@/lib/svg-paste", async (importOriginal) => ({
       : null,
 }));
 
+import { writeCollabText } from "../collab-sync";
+import { cancelPendingPastedMediaAbsentFromContent } from "../domains/pending-pasted-media";
+import { LOCAL_EDIT_ORIGIN } from "../editor-session";
 import { findScreenFrameAtCanvasPoint } from "../overview-camera";
 import type { DesignFile } from "../types";
 import {
@@ -25,6 +29,7 @@ import {
   runPastedImageFiles,
   type PastedImageFilesArgs,
 } from "./pasted-image-files";
+import { runRedo } from "./redo";
 
 class DecodedImage {
   set src(_value: string) {
@@ -72,6 +77,48 @@ function args(
     viewModeRef: ref("single"),
     zoom: 100,
   };
+}
+
+function runYjsRedo(
+  ydoc: Y.Doc,
+  undoManager: Y.UndoManager,
+  cancelPendingPastedMediaForHistoryReplay: (
+    screenId: string,
+    previousContent: string,
+    replayedContent: string,
+  ) => void,
+  replacePreviewContent: PastedImageFilesArgs["replacePreviewContent"],
+) {
+  runRedo({
+    activeEditorDragRef: ref(false),
+    activeFile: {
+      id: "screen-1",
+      fileType: "html",
+      updatedAt: "2024-01-01T00:00:00Z",
+    } as DesignFile,
+    canEditDesign: true,
+    contentRedoStackRef: ref([]),
+    fileHistoryMutationPendingRef: ref(false),
+    historyOrderRef: ref([]),
+    isSynced: true,
+    lastLocalContentRef: ref(null),
+    markPendingLocalFileContent: vi.fn(),
+    pendingLiveNonStyleRedoStackRef: ref([]),
+    pendingVisualStyleRedoStackRef: ref([]),
+    queueFileContentSave: vi.fn(),
+    redoOrderRef: ref(["content"]),
+    recordLocalContentHistoryChangeFallback: vi.fn(),
+    replacePreviewContent,
+    setContentRenderRevision: vi.fn(),
+    setHoveredElement: vi.fn(),
+    setSelectedElement: vi.fn(),
+    setSelectedLayerIdsState: vi.fn(),
+    syncUndoRedoState: vi.fn(),
+    undoManagerRef: ref(undoManager),
+    viewModeRef: ref("single"),
+    ydoc,
+    cancelPendingPastedMediaForHistoryReplay,
+  } as unknown as Parameters<typeof runRedo>[0]);
 }
 
 const file = new File(["image"], "photo.png", { type: "image/png" });
@@ -183,6 +230,50 @@ describe("runPastedImageFiles", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview");
   });
 
+  it("restores the active preview and leaves selection unchanged when publication is refused", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:refused-preview");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL");
+    let resolveUpload!: (url: string) => void;
+    const upload = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const previews: string[] = [];
+    const replacePreviewContent = vi.fn((content: string) => {
+      previews.push(content);
+    });
+    const applyLocalContentUpdate = vi.fn(() => ({
+      status: "refused" as const,
+    }));
+    const selectInsertedLayers = vi.fn();
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      replacePreviewContent,
+      upload,
+    );
+    pasteArgs.selectInsertedLayers = selectInsertedLayers;
+
+    expect(
+      runPastedImageFiles(pasteArgs, [file], {
+        fileId: "screen-1",
+        point: { x: 40, y: 60 },
+      }),
+    ).toBe(true);
+    await vi.waitFor(() => expect(previews).toHaveLength(1));
+    expect(selectInsertedLayers).not.toHaveBeenCalled();
+
+    resolveUpload("https://cdn.example/photo.png");
+    await vi.waitFor(() =>
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:refused-preview"),
+    );
+
+    expect(previews[0]).toContain('src="blob:refused-preview"');
+    expect(previews[1]).toBe("<main></main>");
+    expect(selectInsertedLayers).not.toHaveBeenCalled();
+  });
+
   it("preserves a small 17 by 9 image's native dimensions", async () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:small-icon");
     const previews: string[] = [];
@@ -266,8 +357,8 @@ describe("runPastedImageFiles", () => {
     );
   });
 
-  it("does not resurrect a preview deleted while its upload is pending", async () => {
-    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:deleted");
+  it("does not persist a pending paste after redo removes it from history", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:redo-deleted");
     const applyLocalContentUpdate = vi.fn();
     let resolveUpload!: (url: string) => void;
     const upload = vi.fn(
@@ -277,33 +368,333 @@ describe("runPastedImageFiles", () => {
         }),
     );
     let previewContent: string | null = null;
+    const pendingByScreen = new Map<string, Map<string, boolean>>();
+    const registerPendingPastedMedia = (screenId: string, nodeId: string) => {
+      let pending = pendingByScreen.get(screenId);
+      if (!pending) {
+        pending = new Map();
+        pendingByScreen.set(screenId, pending);
+      }
+      pending.set(nodeId, false);
+    };
     const replacePreviewContent = vi.fn((content: string) => {
       previewContent = content;
+      return "applied" as const;
     });
-
-    runPastedImageFiles(
-      args(
-        applyLocalContentUpdate,
-        replacePreviewContent,
-        upload,
-        () => "<main></main>",
-        () => previewContent,
-      ),
-      [file],
-      { fileId: "screen-1", point: { x: 0, y: 0 } },
+    const clearPendingPastedMedia = vi.fn(
+      (screenId: string, nodeId: string) => {
+        const pending = pendingByScreen.get(screenId);
+        pending?.delete(nodeId);
+        if (pending?.size === 0) pendingByScreen.delete(screenId);
+      },
     );
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      replacePreviewContent,
+      upload,
+      () => "<main></main>",
+      () => previewContent,
+    );
+    pasteArgs.registerPendingPastedMedia = registerPendingPastedMedia;
+    pasteArgs.isPendingPastedMediaCancelled = (screenId, nodeId) =>
+      pendingByScreen.get(screenId)?.get(nodeId) === true;
+    pasteArgs.clearPendingPastedMedia = clearPendingPastedMedia;
+
+    runPastedImageFiles(pasteArgs, [file], {
+      fileId: "screen-1",
+      point: { x: 0, y: 0 },
+    });
 
     await vi.waitFor(() => expect(upload).toHaveBeenCalledWith(file));
     await vi.waitFor(() =>
       expect(replacePreviewContent).toHaveBeenCalledOnce(),
     );
-    previewContent = "<main></main>";
-    await vi.waitFor(() => expect(upload).toHaveBeenCalled());
-    resolveUpload("https://cdn.example/deleted.png");
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(previewContent).toContain("blob:redo-deleted");
+    const pastedImageId = new DOMParser()
+      .parseFromString(previewContent ?? "", "text/html")
+      .querySelector<HTMLImageElement>('img[src="blob:redo-deleted"]')
+      ?.dataset.agentNativeNodeId;
+    expect(pastedImageId).toBeTruthy();
+
+    const ydoc = new Y.Doc();
+    const ytext = ydoc.getText("content");
+    ytext.insert(0, previewContent ?? "");
+    const undoManager = new Y.UndoManager(ytext, {
+      trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+    });
+    writeCollabText(ydoc, ytext, "<main></main>", LOCAL_EDIT_ORIGIN);
+    undoManager.stopCapturing();
+    undoManager.undo();
+
+    const cancelPendingPastedMediaForHistoryReplay = (
+      screenId: string,
+      _previousContent: string,
+      replayedContent: string,
+    ) =>
+      cancelPendingPastedMediaAbsentFromContent(
+        pendingByScreen,
+        screenId,
+        replayedContent,
+      );
+    runYjsRedo(
+      ydoc,
+      undoManager,
+      cancelPendingPastedMediaForHistoryReplay,
+      replacePreviewContent,
+    );
+    const cancelledBeforeUpload =
+      pendingByScreen.get("screen-1")?.get(pastedImageId!) === true;
+    resolveUpload("https://cdn.example/redo-deleted.png");
+    await vi.waitFor(() => expect(clearPendingPastedMedia).toHaveBeenCalled());
+
+    expect(cancelledBeforeUpload).toBe(true);
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(previewContent).not.toContain(pastedImageId);
+    undoManager.destroy();
+    ydoc.destroy();
+  });
+
+  it("does not persist a pending paste after unrelated history replay", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:undo-unrelated");
+    const applyLocalContentUpdate = vi.fn();
+    let resolveUpload!: (url: string) => void;
+    const upload = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    let previewContent: string | null = null;
+    const pendingByScreen = new Map<string, Map<string, boolean>>();
+    const registerPendingPastedMedia = (screenId: string, nodeId: string) => {
+      let pending = pendingByScreen.get(screenId);
+      if (!pending) {
+        pending = new Map();
+        pendingByScreen.set(screenId, pending);
+      }
+      pending.set(nodeId, false);
+    };
+    const replacePreviewContent = vi.fn((content: string) => {
+      previewContent = content;
+    });
+    const clearPendingPastedMedia = vi.fn(
+      (screenId: string, nodeId: string) => {
+        const pending = pendingByScreen.get(screenId);
+        pending?.delete(nodeId);
+        if (pending?.size === 0) pendingByScreen.delete(screenId);
+      },
+    );
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      replacePreviewContent,
+      upload,
+      () => "<main></main>",
+      () => previewContent,
+    );
+    pasteArgs.registerPendingPastedMedia = registerPendingPastedMedia;
+    pasteArgs.isPendingPastedMediaCancelled = (screenId, nodeId) =>
+      pendingByScreen.get(screenId)?.get(nodeId) === true;
+    pasteArgs.clearPendingPastedMedia = clearPendingPastedMedia;
+
+    runPastedImageFiles(pasteArgs, [file], {
+      fileId: "screen-1",
+      point: { x: 0, y: 0 },
+    });
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledWith(file));
+    await vi.waitFor(() =>
+      expect(replacePreviewContent).toHaveBeenCalledOnce(),
+    );
+    const pastedImageId = new DOMParser()
+      .parseFromString(previewContent ?? "", "text/html")
+      .querySelector<HTMLImageElement>('img[src="blob:undo-unrelated"]')
+      ?.dataset.agentNativeNodeId;
+    expect(pastedImageId).toBeTruthy();
+
+    cancelPendingPastedMediaAbsentFromContent(
+      pendingByScreen,
+      "screen-1",
+      "<main>unrelated undo result</main>",
+    );
+    const cancelledBeforeUpload =
+      pendingByScreen.get("screen-1")?.get(pastedImageId!) === true;
+    replacePreviewContent("<main>unrelated undo result</main>");
+    resolveUpload("https://cdn.example/undo-unrelated.png");
+    await vi.waitFor(() => expect(clearPendingPastedMedia).toHaveBeenCalled());
+
+    expect(cancelledBeforeUpload).toBe(true);
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(previewContent).not.toContain(pastedImageId);
+  });
+
+  it("keeps unrelated undo content visible when a pending upload rejects", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:undo-upload-error");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL");
+    const replayedContent = "<main>unrelated undo result</main>";
+    const applyLocalContentUpdate = vi.fn();
+    let rejectUpload!: (error: Error) => void;
+    const upload = vi.fn(
+      () =>
+        new Promise<string>((_resolve, reject) => {
+          rejectUpload = reject;
+        }),
+    );
+    let previewContent: string | null = null;
+    const previews: string[] = [];
+    const pendingByScreen = new Map<string, Map<string, boolean>>();
+    const replacePreviewContent = vi.fn((content: string) => {
+      previews.push(content);
+      previewContent = content;
+    });
+    const clearPendingPastedMedia = vi.fn(
+      (screenId: string, nodeId: string) => {
+        const pending = pendingByScreen.get(screenId);
+        pending?.delete(nodeId);
+        if (pending?.size === 0) pendingByScreen.delete(screenId);
+      },
+    );
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      replacePreviewContent,
+      upload,
+      () => replayedContent,
+      () => previewContent,
+    );
+    pasteArgs.registerPendingPastedMedia = (screenId, nodeId) => {
+      let pending = pendingByScreen.get(screenId);
+      if (!pending) {
+        pending = new Map();
+        pendingByScreen.set(screenId, pending);
+      }
+      pending.set(nodeId, false);
+    };
+    pasteArgs.isPendingPastedMediaCancelled = (screenId, nodeId) =>
+      pendingByScreen.get(screenId)?.get(nodeId) === true;
+    pasteArgs.clearPendingPastedMedia = clearPendingPastedMedia;
+
+    runPastedImageFiles(pasteArgs, [file], {
+      fileId: "screen-1",
+      point: { x: 0, y: 0 },
+    });
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledWith(file));
+    const pastedImageId = new DOMParser()
+      .parseFromString(previewContent ?? "", "text/html")
+      .querySelector<HTMLImageElement>('img[src="blob:undo-upload-error"]')
+      ?.dataset.agentNativeNodeId;
+    expect(pastedImageId).toBeTruthy();
+
+    cancelPendingPastedMediaAbsentFromContent(
+      pendingByScreen,
+      "screen-1",
+      replayedContent,
+    );
+    expect(pendingByScreen.get("screen-1")?.get(pastedImageId!)).toBe(true);
+    replacePreviewContent(replayedContent);
+    rejectUpload(new Error("upload failed"));
+    await vi.waitFor(() => expect(clearPendingPastedMedia).toHaveBeenCalled());
+
+    expect(previews).toEqual([
+      expect.stringContaining("blob:undo-upload-error"),
+      replayedContent,
+      replayedContent,
+    ]);
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(pendingByScreen.has("screen-1")).toBe(false);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:undo-upload-error");
+  });
+
+  it("does not reinsert a deleted pending image after switching screens", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:switched-delete");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL");
+    const applyLocalContentUpdate = vi.fn();
+    const replacePreviewContent = vi.fn();
+    let resolveUpload!: (url: string) => void;
+    const upload = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const activeFileIdRef = { current: "screen-1" };
+    let cancelled = false;
+    const clearPendingPastedMedia = vi.fn();
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      replacePreviewContent,
+      upload,
+    );
+    pasteArgs.activeFileIdRef = activeFileIdRef;
+    pasteArgs.registerPendingPastedMedia = vi.fn();
+    pasteArgs.isPendingPastedMediaCancelled = () => cancelled;
+    pasteArgs.clearPendingPastedMedia = clearPendingPastedMedia;
+
+    expect(
+      runPastedImageFiles(pasteArgs, [file], {
+        fileId: "screen-1",
+        point: { x: 40, y: 60 },
+      }),
+    ).toBe(true);
+    await vi.waitFor(() =>
+      expect(replacePreviewContent).toHaveBeenCalledOnce(),
+    );
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledWith(file));
+
+    cancelled = true;
+    activeFileIdRef.current = "screen-2";
+    resolveUpload("https://cdn.example/deleted-after-switch.png");
+    await vi.waitFor(() =>
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:switched-delete"),
+    );
 
     expect(applyLocalContentUpdate).not.toHaveBeenCalled();
-    expect(previewContent).toBe("<main></main>");
+    expect(replacePreviewContent).toHaveBeenCalledOnce();
+    expect(clearPendingPastedMedia).toHaveBeenCalledWith(
+      "screen-1",
+      expect.any(String),
+    );
+  });
+
+  it("keeps a pending paste when switching away and back rebuilds its preview", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:screen-switch-back");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    let resolveUpload!: (url: string) => void;
+    const upload = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const applyLocalContentUpdate = vi.fn();
+    let previewContent: string | null = null;
+    const replacePreviewContent = vi.fn((content: string) => {
+      previewContent = content;
+    });
+    const activeFileIdRef = ref<string | null | undefined>("screen-1");
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      replacePreviewContent,
+      upload,
+      () => "<main></main>",
+      () => previewContent,
+    );
+    pasteArgs.activeFileIdRef = activeFileIdRef;
+
+    runPastedImageFiles(pasteArgs, [file], {
+      fileId: "screen-1",
+      point: { x: 40, y: 60 },
+    });
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledWith(file));
+    await vi.waitFor(() => expect(previewContent).toContain("blob:"));
+
+    activeFileIdRef.current = "screen-2";
+    await Promise.resolve();
+    activeFileIdRef.current = "screen-1";
+    previewContent = "<main></main>";
+    resolveUpload("https://cdn.example/screen-switch-back.png");
+
+    await vi.waitFor(() => expect(applyLocalContentUpdate).toHaveBeenCalled());
+    expect(applyLocalContentUpdate.mock.calls[0]?.[0]).toContain(
+      "https://cdn.example/screen-switch-back.png",
+    );
   });
 
   it("inserts video at its intrinsic size and replaces the blob URL", async () => {
@@ -408,6 +799,110 @@ describe("runPastedImageFiles durable base", () => {
     expect(written.querySelector("img")?.getAttribute("src")).toBe(
       "https://cdn.example/photo.png",
     );
+  });
+
+  it("writes to the target screen without previewing it after an active screen switch", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:screen-switch");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const screenOne = '<main data-screen="one"></main>';
+    const screenTwo = '<main data-screen="two"></main>';
+    let activeFileId = "screen-1";
+    let resolveUpload: (url: string) => void = () => {};
+    const upload = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const activeFileIdRef = ref<string | null | undefined>(activeFileId);
+    const applyLocalContentUpdate = vi.fn();
+    const applyFileContentUpdate = vi.fn();
+    const getFreshActiveContent = vi.fn(() =>
+      activeFileId === "screen-1" ? screenOne : screenTwo,
+    );
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      vi.fn(),
+      upload,
+      getFreshActiveContent,
+    );
+    pasteArgs.activeFileIdRef = activeFileIdRef;
+    pasteArgs.applyFileContentUpdate = applyFileContentUpdate;
+    pasteArgs.getScreenContent = (screenId) =>
+      screenId === "screen-1" ? screenOne : screenTwo;
+
+    runPastedImageFiles(pasteArgs, [file], {
+      fileId: "screen-1",
+      point: { x: 0, y: 0 },
+    });
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce());
+
+    activeFileId = "screen-2";
+    activeFileIdRef.current = activeFileId;
+    resolveUpload("https://cdn.example/screen-switch.png");
+
+    await vi.waitFor(() =>
+      expect(applyFileContentUpdate).toHaveBeenCalledOnce(),
+    );
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(applyFileContentUpdate).toHaveBeenCalledWith(
+      "screen-1",
+      expect.stringContaining('data-screen="one"'),
+      expect.objectContaining({ skipPreview: true }),
+    );
+    expect(getFreshActiveContent).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes the preview when an explicit inactive target becomes active", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:inactive-target");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const screenOne = '<main data-screen="one"></main>';
+    const screenTwo = '<main data-screen="two"></main>';
+    let activeFileId = "screen-1";
+    let resolveUpload: (url: string) => void = () => {};
+    const upload = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const activeFileIdRef = ref<string | null | undefined>(activeFileId);
+    const applyLocalContentUpdate = vi.fn();
+    const applyFileContentUpdate = vi.fn();
+    const getFreshActiveContent = vi.fn(() => screenOne);
+    const replacePreviewContent = vi.fn();
+    const pasteArgs = args(
+      applyLocalContentUpdate,
+      replacePreviewContent,
+      upload,
+      getFreshActiveContent,
+    );
+    pasteArgs.activeFileIdRef = activeFileIdRef;
+    pasteArgs.applyFileContentUpdate = applyFileContentUpdate;
+    pasteArgs.getScreenContent = (screenId) =>
+      screenId === "screen-1" ? screenOne : screenTwo;
+
+    runPastedImageFiles(pasteArgs, [file], {
+      fileId: "screen-2",
+      point: { x: 0, y: 0 },
+    });
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce());
+
+    activeFileId = "screen-2";
+    activeFileIdRef.current = activeFileId;
+    resolveUpload("https://cdn.example/inactive-target.png");
+
+    await vi.waitFor(() =>
+      expect(applyFileContentUpdate).toHaveBeenCalledOnce(),
+    );
+    expect(applyFileContentUpdate).toHaveBeenCalledWith(
+      "screen-2",
+      expect.stringContaining('data-screen="two"'),
+      expect.objectContaining({ skipPreview: false }),
+    );
+    expect(applyLocalContentUpdate).not.toHaveBeenCalled();
+    expect(getFreshActiveContent).not.toHaveBeenCalled();
+    expect(replacePreviewContent).not.toHaveBeenCalled();
   });
 });
 

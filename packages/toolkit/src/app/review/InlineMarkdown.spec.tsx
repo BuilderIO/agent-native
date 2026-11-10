@@ -97,6 +97,27 @@ describe("InlineMarkdown", () => {
 
     expect(container.querySelector("ol")?.className).toContain("list-decimal");
     expect(container.querySelector("ul")?.className).toContain("list-disc");
+    expect(container.querySelector("blockquote")?.textContent?.trim()).toBe(
+      "quoted text",
+    );
+    expect(container.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
+    expect(container.querySelector("p.font-semibold")?.textContent).toBe(
+      "Heading",
+    );
+
+    act(() => {
+      root.render(
+        <InlineMarkdown
+          renderLists
+          content={"5. fifth\n6. sixth\n\n```\nconst x = 1;\n```"}
+        />,
+      );
+    });
+
+    expect(container.querySelector("ol")?.getAttribute("start")).toBe("5");
+    expect(container.querySelector("pre > code")?.textContent).toBe(
+      "const x = 1;\n",
+    );
 
     act(() => {
       root.render(
@@ -174,5 +195,24 @@ describe("InlineMarkdown", () => {
     ).toEqual(["@Sam Lee", "@Sam"]);
     expect(container.querySelector("a")).toBeNull();
     expect(container.textContent).toBe(content);
+  });
+
+  it("shows a protected span's own text inside code", () => {
+    act(() => {
+      root.render(
+        <InlineMarkdown
+          renderLists
+          content={"`@[Sam]` and\n\n```\nping @[Sam]\n```"}
+          protectedSpans={[{ source: "@[Sam]", label: "@Sam [x]" }]}
+          renderProtectedSpan={(span) => <mark>{span.label}</mark>}
+        />,
+      );
+    });
+
+    const codes = [...container.querySelectorAll("code")].map(
+      (code) => code.textContent,
+    );
+    expect(codes).toEqual(["@[Sam]", "ping @[Sam]\n"]);
+    expect(container.textContent).not.toContain("inline-markdown-protected");
   });
 });

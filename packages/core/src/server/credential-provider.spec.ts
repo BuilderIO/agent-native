@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockReadAppSecret = vi.fn();
+const mockReadAppSecretMeta = vi.fn();
 const mockReadAppSecrets = vi.fn();
 const mockWriteAppSecret = vi.fn();
 const mockDeleteAppSecret = vi.fn();
@@ -49,6 +50,7 @@ const MockBuilderOAuthScopeError = vi.hoisted(
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
+  readAppSecretMeta: (...args: any[]) => mockReadAppSecretMeta(...args),
   readAppSecrets: (...args: any[]) => mockReadAppSecrets(...args),
   writeAppSecret: (...args: any[]) => mockWriteAppSecret(...args),
   deleteAppSecret: (...args: any[]) => mockDeleteAppSecret(...args),
@@ -95,6 +97,9 @@ import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   BUILDER_AUTH_FAILURE_TTL_MS,
   builderCredentialFingerprint,
+  builderCreditsRefusalStatus,
+  resetBuilderCreditsRefusedWarningForTests,
+  resolveUsableBuilderGatewayDeployCredentials,
   canUseDeployCredentialFallbackForRequest,
   clearBuilderGatewayAuthFailure,
   CredentialStoreUnavailableError,
@@ -102,6 +107,7 @@ import {
   assertCredentialStoreReadable,
   getBuilderCredentialAuthFailure,
   getBuilderKeyConnections,
+  hasCompletedAutomaticBuilderSignup,
   gatewayLaneUnavailableMessage,
   getProviderCredentialAuthFailure,
   isBuilderGatewayDeployConfigured,
@@ -206,6 +212,7 @@ beforeEach(() => {
   delete process.env.SLACK_BOT_TOKEN;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
+  mockReadAppSecretMeta.mockResolvedValue(null);
   mockReadAppSecrets.mockImplementation(
     async ({ keys, scope, scopeId }: any) => {
       const entries = await Promise.all(
@@ -273,6 +280,140 @@ describe("resolveCredentialWriteScope", () => {
 });
 
 describe("writeBuilderCredentials", () => {
+  it("commits an automatic signup receipt with the private key only after other writes finish", async () => {
+    let finish!: () => void;
+    mockWriteAppSecret.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = writeBuilderCredentials(
+      "a@b.com",
+      { privateKey: "bpk-auto-private", publicKey: "public" },
+      { automaticSignupReceipt: "clips_builder_signup_v1:attempt" },
+    );
+    await vi.waitFor(() => expect(mockWriteAppSecret).toHaveBeenCalledOnce());
+    expect(mockWriteAppSecret.mock.calls[0]?.[0].key).toBe(
+      "BUILDER_PUBLIC_KEY",
+    );
+    finish();
+    await pending;
+    expect(mockWriteAppSecret.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({
+        key: "BUILDER_PRIVATE_KEY",
+        scope: "user",
+        scopeId: "a@b.com",
+        description:
+          "Automatic Builder signup: clips_builder_signup_v1:attempt",
+      }),
+    );
+  });
+
+  it("settles every failed automatic batch before returning without a receipt", async () => {
+    let finish!: () => void;
+    mockWriteAppSecret.mockImplementation(({ key }) =>
+      key === "BUILDER_PUBLIC_KEY"
+        ? Promise.reject(new Error("write unavailable"))
+        : new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+    );
+    let settled = false;
+    const pending = writeBuilderCredentials(
+      "a@b.com",
+      {
+        privateKey: "bpk-auto-private",
+        publicKey: "public",
+        orgName: "Example",
+      },
+      { automaticSignupReceipt: "clips:attempt" },
+    ).catch((error) => {
+      settled = true;
+      return error;
+    });
+    await vi.waitFor(() => expect(mockWriteAppSecret).toHaveBeenCalledTimes(2));
+    expect(settled).toBe(false);
+    expect(
+      mockWriteAppSecret.mock.calls.some(
+        ([args]) => args.key === "BUILDER_PRIVATE_KEY",
+      ),
+    ).toBe(false);
+    finish();
+    expect(await pending).toBeInstanceOf(Error);
+    expect(
+      mockWriteAppSecret.mock.calls.some(([args]) => args.description),
+    ).toBe(false);
+  });
+
+  it("reconciles only the matching completed automatic attempt and a usable personal pair", async () => {
+    mockReadAppSecretMeta.mockResolvedValue({
+      description: "Automatic Builder signup: clips:attempt",
+      updatedAt: 200,
+      last4: "••••vate",
+    });
+    mockReadAppSecrets.mockResolvedValue(
+      new Map([
+        ["BUILDER_PRIVATE_KEY", { value: "bpk-private", updatedAt: 200 }],
+        ["BUILDER_PUBLIC_KEY", { value: "public", updatedAt: 100 }],
+      ]),
+    );
+    expect(
+      await hasCompletedAutomaticBuilderSignup("a@b.com", "clips:attempt", 150),
+    ).toBe(true);
+    expect(mockReadAppSecretMeta).toHaveBeenCalledWith({
+      key: "BUILDER_PRIVATE_KEY",
+      scope: "user",
+      scopeId: "a@b.com",
+    });
+    mockReadAppSecretMeta.mockClear();
+    mockReadAppSecrets.mockClear();
+    expect(
+      await hasCompletedAutomaticBuilderSignup(
+        "a@b.com",
+        "clips:attempt",
+        150,
+        { orgId: "qa-org", role: "owner" },
+      ),
+    ).toBe(true);
+    expect(mockReadAppSecretMeta).toHaveBeenCalledWith({
+      key: "BUILDER_PRIVATE_KEY",
+      scope: "org",
+      scopeId: "qa-org",
+    });
+    expect(mockReadAppSecrets).toHaveBeenCalledWith({
+      keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+      scope: "org",
+      scopeId: "qa-org",
+    });
+    expect(
+      await hasCompletedAutomaticBuilderSignup(
+        "a@b.com",
+        "slides:attempt",
+        150,
+      ),
+    ).toBe(false);
+    expect(
+      await hasCompletedAutomaticBuilderSignup("a@b.com", "clips:attempt", 201),
+    ).toBe(false);
+    mockReadAppSecrets.mockResolvedValue(
+      new Map([
+        ["BUILDER_PRIVATE_KEY", { value: "bpk-private", updatedAt: 200 }],
+      ]),
+    );
+    expect(
+      await hasCompletedAutomaticBuilderSignup("a@b.com", "clips:attempt", 150),
+    ).toBe(false);
+    mockReadAppSecretMeta.mockResolvedValue({
+      description: null,
+      updatedAt: 200,
+      last4: "••••vate",
+    });
+    expect(
+      await hasCompletedAutomaticBuilderSignup("a@b.com", "clips:attempt", 150),
+    ).toBe(false);
+  });
+
   it("writes at user scope without options (legacy callers)", async () => {
     const target = await writeBuilderCredentials("a@b.com", {
       privateKey: "bpk-test-private",
@@ -3196,7 +3337,7 @@ describe("Builder gateway credential lane", () => {
     );
   });
 
-  it("does not resolve the credits lane inside the dev-preview runtime", async () => {
+  it("does not resolve the credits lane inside a workspace runtime", async () => {
     hostedVisitor();
     process.env.AGENT_NATIVE_WORKSPACE = "1";
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
@@ -3209,6 +3350,116 @@ describe("Builder gateway credential lane", () => {
       publicKey: null,
       lane: null,
     });
+  });
+
+  it("resolves the credits pair Fusion injects into the preview for a signed-in user", async () => {
+    hostedVisitor();
+    process.env.FUSION_ENVIRONMENT = "cloud-v2";
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    expect(
+      canUseDeployCredentialFallbackForRequest("BUILDER_GATEWAY_TOKEN"),
+    ).toBe(true);
+    expect(
+      canUseDeployCredentialFallbackForRequest("BUILDER_PRIVATE_KEY"),
+    ).toBe(false);
+    await expect(
+      resolveBuilderGatewayCredentialsDetailed(),
+    ).resolves.toMatchObject({
+      privateKey: "btk-preview-token",
+      publicKey: "space-abc",
+      lane: "gateway-deploy",
+    });
+    await expect(resolveHasBuilderGatewayCredential()).resolves.toBe(true);
+    expect(isBuilderGatewayDeployConfigured()).toBe(false);
+  });
+
+  it("does not resolve a gateway token without its space id where the pair is allowed", async () => {
+    process.env.NODE_ENV = "development";
+    mockGetRequestUserEmail.mockReturnValue(undefined);
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+
+    await expect(
+      resolveUsableBuilderGatewayDeployCredentials(),
+    ).resolves.toBeNull();
+  });
+});
+
+describe("Builder credits refusal reporting", () => {
+  const refusingRuntime = () => {
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    mockGetRequestUserEmail.mockReturnValue("visitor@example.com");
+  };
+
+  beforeEach(() => {
+    resetBuilderCreditsRefusedWarningForTests();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("reports a deployed pair the runtime refuses when chat is not eligible", () => {
+    refusingRuntime();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    expect(builderCreditsRefusalStatus(false)).toEqual({
+      builderCreditsRefused: true,
+    });
+    expect(builderCreditsRefusalStatus(true)).toEqual({});
+  });
+
+  it.each([
+    ["only the token", "btk-site-token", undefined],
+    ["only the space id", undefined, "space-abc"],
+    ["a blank token", "   ", "space-abc"],
+    ["a blank space id", "btk-site-token", "   "],
+  ])("reports nothing with %s deployed", (_label, token, spaceId) => {
+    refusingRuntime();
+    if (token !== undefined) process.env.BUILDER_GATEWAY_TOKEN = token;
+    if (spaceId !== undefined) process.env.BUILDER_GATEWAY_SPACE_ID = spaceId;
+
+    expect(builderCreditsRefusalStatus(false)).toEqual({});
+  });
+
+  it("reports nothing where the runtime allows the pair", () => {
+    process.env.FUSION_ENVIRONMENT = "cloud-v2";
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    expect(builderCreditsRefusalStatus(false)).toEqual({});
+  });
+
+  it("warns once per process naming both keys when the runtime refuses the pair", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    refusingRuntime();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    await expect(
+      resolveUsableBuilderGatewayDeployCredentials(),
+    ).resolves.toBeNull();
+    await expect(
+      resolveUsableBuilderGatewayDeployCredentials(),
+    ).resolves.toBeNull();
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/BUILDER_GATEWAY_TOKEN.*BUILDER_GATEWAY_SPACE_ID/),
+    );
+  });
+
+  it("does not warn when no pair is deployed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    refusingRuntime();
+
+    await expect(
+      resolveUsableBuilderGatewayDeployCredentials(),
+    ).resolves.toBeNull();
+
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

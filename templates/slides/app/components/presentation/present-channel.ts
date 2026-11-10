@@ -1,3 +1,5 @@
+import type { SlideNavigationCommand } from "./slide-navigation";
+
 export type PresentMessage =
   | {
       type: "state";
@@ -5,7 +7,7 @@ export type PresentMessage =
       /** Build step on that slide, as the audience shows it at the target. */
       buildStep: number;
     }
-  | { type: "command"; command: "next" | "prev" }
+  | { type: "command"; command: SlideNavigationCommand }
   | { type: "hello" }
   /**
    * The audience is going away. The presenter stops treating it as connected
@@ -25,7 +27,11 @@ export function advancePresentIndex(
     : Math.max(0, current - 1);
 }
 
+export function presentChannelSupported(): boolean {
+  return typeof BroadcastChannel !== "undefined";
+}
+
 export function openPresentChannel(deckId: string): BroadcastChannel | null {
-  if (typeof BroadcastChannel === "undefined") return null;
+  if (!presentChannelSupported()) return null;
   return new BroadcastChannel(`slides-present:${deckId}`);
 }

@@ -1122,7 +1122,7 @@ export function createIntegrationsPlugin(
           ownerEmail: session.email,
           ...(await resolveIntegrationRequestScope({
             ownerEmail: session.email,
-            orgId: orgCtx?.orgId ?? session.orgId ?? null,
+            orgId: orgCtx?.orgId ?? null,
             principalType: "user",
           })),
         };
@@ -2860,7 +2860,7 @@ export function createIntegrationsPlugin(
         const org = await getIntegrationOrgContext(event);
         const actor = {
           userEmail: session.email,
-          orgId: org?.orgId ?? session.orgId ?? null,
+          orgId: org?.orgId ?? null,
           isOrgAdmin: org?.role === "owner" || org?.role === "admin",
         };
         if (method === "GET") {
@@ -3109,7 +3109,7 @@ export function createIntegrationsPlugin(
         try {
           assertSlackInstallAccess({
             email: session.email,
-            orgId: org?.orgId ?? session.orgId ?? null,
+            orgId: org?.orgId ?? null,
             orgRole: org?.role ?? null,
           });
         } catch (err) {
@@ -3122,7 +3122,7 @@ export function createIntegrationsPlugin(
         try {
           requestScope = await resolveIntegrationRequestScope({
             ownerEmail: session.email,
-            orgId: org?.orgId ?? session.orgId ?? null,
+            orgId: org?.orgId ?? null,
             principalType: "user",
           });
         } catch (error) {
@@ -3158,7 +3158,7 @@ export function createIntegrationsPlugin(
             const state = encodeOAuthState({
               redirectUri,
               owner: session.email,
-              orgId: org?.orgId ?? session.orgId ?? undefined,
+              orgId: org?.orgId ?? undefined,
               app: "agent-native:slack",
               addAccount: true,
               returnUrl:
@@ -3210,7 +3210,7 @@ export function createIntegrationsPlugin(
           !session?.email ||
           !state.owner ||
           session.email.toLowerCase() !== state.owner.toLowerCase() ||
-          (state.orgId ?? null) !== (org?.orgId ?? session.orgId ?? null)
+          (state.orgId ?? null) !== (org?.orgId ?? null)
         ) {
           return oauthErrorPage(
             "Your Slack install session expired or changed. Sign in and start again.",
@@ -3221,7 +3221,7 @@ export function createIntegrationsPlugin(
         try {
           const access = assertSlackInstallAccess({
             email: session.email,
-            orgId: org?.orgId ?? session.orgId ?? null,
+            orgId: org?.orgId ?? null,
             orgRole: org?.role ?? null,
           });
           const requestScope = await resolveIntegrationRequestScope({

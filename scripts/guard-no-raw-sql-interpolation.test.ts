@@ -32,6 +32,25 @@ function source(lines: string[]): string {
 }
 
 describe("raw SQL interpolation guard", () => {
+  it("distinguishes interpolated bound values from SQL interpolation", () => {
+    const text = source([
+      "function save(threadId: string, runId: string) {",
+      '  database.execute({ sql: "INSERT INTO runs VALUES (?, ?)", args: [threadId, runId] });',
+      "}",
+      "save(`thread-${id}`, `run-${id}`);",
+      'database.execute({ sql: "SELECT * FROM runs WHERE id = ?", args: [`run-${id}`] });',
+      "database.execute({ sql: `SELECT * FROM ${table}`, args: [] });",
+      "database.execute(`DELETE FROM runs WHERE id = ${id}`);",
+    ]);
+    expect(
+      findRawSqlInterpolationViolations(
+        FILE,
+        text,
+        new Set([1, 2, 3, 4, 5, 6, 7]),
+      ).map((finding) => finding.line),
+    ).toEqual([6, 7]);
+  });
+
   it("finds interpolated SQL template properties on added lines", () => {
     const text = source([
       "const query = {",
@@ -530,6 +549,35 @@ describe("raw SQL interpolation guard", () => {
           snippet: "database.execute(statement);",
         },
       ],
+    );
+  });
+
+  it("skips tracing calls that cannot reach an execute sink", () => {
+    // Each step reads the two before it inside a loop, so tracing every path
+    // through the reassignments doubles per step. A helper that never executes
+    // SQL must not trigger that trace, or a large file never finishes.
+    const steps = 32;
+    const text = source([
+      "declare const seed: string;",
+      "function note(value: string) { return value.length; }",
+      ...Array.from(
+        { length: steps },
+        (_, index) => `let step${index}: string = seed;`,
+      ),
+      "while (true) {",
+      ...Array.from(
+        { length: steps - 1 },
+        (_, index) =>
+          `  if (seed.length > ${index + 1}) step${index + 1} = step${index} + step${Math.max(0, index - 1)} + seed;`,
+      ),
+      `  note(step${steps - 1});`,
+      "  if (seed) break;",
+      "}",
+      'database.execute("SELECT 1");',
+    ]);
+
+    expect(findRawSqlInterpolationViolations(FILE, text, new Set([1]))).toEqual(
+      [],
     );
   });
 

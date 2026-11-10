@@ -6,13 +6,21 @@ import { getDbExec, getScopedDbExec } from "../db/client.js";
 import type { ExtensionChangeTarget } from "../extensions/change-marker.js";
 import { isOrgMember } from "../org/membership.js";
 import { invalidateCollabAccessCache } from "../server/poll.js";
-import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import { assertWorkspaceUserGroupIds } from "../workspace-connections/groups.js";
 import { assertAccess, ForbiddenError } from "./access.js";
 import {
   getExtensionShareChangeTargets,
   notifyExtensionShareChanged,
 } from "./actions/extension-change.js";
+import {
+  isAnyOrgAgent,
+  isShareableAgent,
+  orgAgentName,
+} from "./agent-principals.js";
 import {
   requireShareableResource,
   type ShareableResourceRegistration,
@@ -55,6 +63,16 @@ export async function isOrgMemberOrInvited(
     args: [orgId, lower],
   });
   return invited.rows.length > 0;
+}
+
+/** A person in the org (or invited to it), or one of the org's agents. */
+// raw-sql-ok: only bound args; the flagged flow is the constant column list in listServicePrincipalPolicies.
+export async function isOrgPrincipal(
+  orgId: string,
+  email: string,
+): Promise<boolean> {
+  if (await isOrgMemberOrInvited(orgId, email)) return true;
+  return isShareableAgent(orgId, email);
 }
 
 function nanoid(size = 12): string {
@@ -153,6 +171,27 @@ export async function grantResourceAccess(
       errorCode: "invalid_user_share_principal",
     });
   }
+  const grantOrgId = access.resource?.orgId as string | undefined | null;
+  if (
+    input.principalType === "user" &&
+    ((grantOrgId && orgAgentName(principalId, grantOrgId) !== null) ||
+      (await isAnyOrgAgent(principalId)))
+  ) {
+    // Agents are suggested only to people acting inside the resource's org,
+    // so an outside collaborator with admin access cannot grant one either.
+    // Another org's agent, or any agent on a resource with no org, is refused.
+    const actingOrgId = getRequestOrgId()?.toLowerCase();
+    if (
+      !grantOrgId ||
+      orgAgentName(principalId, grantOrgId) === null ||
+      actingOrgId !== grantOrgId.toLowerCase() ||
+      !(await isShareableAgent(grantOrgId, principalId))
+    ) {
+      throw new ForbiddenError(
+        `${principalId} can only be added by someone in its organization.`,
+      );
+    }
+  }
   if (input.principalType === "group") {
     const resourceOrgId = access.resource?.orgId as string | undefined | null;
     if (!resourceOrgId) {
@@ -187,7 +226,8 @@ export async function grantResourceAccess(
       );
     }
     if (input.principalType === "user") {
-      const ok = await isOrgMemberOrInvited(resourceOrgId, principalId);
+      // raw-sql-ok: only bound args; the flagged flow is the constant column list in listServicePrincipalPolicies.
+      const ok = await isOrgPrincipal(resourceOrgId, principalId);
       if (!ok) {
         throw new ForbiddenError(
           `${principalId} is not in your organization. Invite them to the organization first, then share.`,

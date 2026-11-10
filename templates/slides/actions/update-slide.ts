@@ -18,6 +18,7 @@ import { z } from "zod";
 import { normalizeSlidePaddingForWrite } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import {
   createDeckVersionSnapshot,
   deckVersionChangeGroupFromAction,
@@ -41,12 +42,16 @@ import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
-import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
+import {
+  assertSlideAnimationsResolve,
+  type RepointedReveal,
+} from "../server/lib/validate-slide-animations.js";
 import { generationTimingFields } from "../shared/generation-timing.js";
 import {
   createLayoutFitRevision,
   hashSlideContent,
 } from "../shared/slide-fit.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import { getDeckUrl } from "./_app-url.js";
 import {
@@ -146,7 +151,7 @@ function assertNoNewUnresolvedPlaceholders(
 export default defineAction({
   title: "Edit one Slides slide",
   description:
-    'Edit exactly one Slides slide. For a focused edit or translation of current or selected text, use one literal replace item in edits with the exact text and expectedMatches=1; when view-screen supplies an objectId for a selected element, use that objectId instead of find to replace only that element\'s inner content. The top-level objectId and replace fields are also supported as a compact alternative to edits. When view-screen already supplies the target, do not fetch the full deck, use fullContent, or wait for layout-fit. The exception is a verified layout overflow: call get-deck with slideId to read the complete HTML and contentHash, then make one fullContent repair with that baseContentHash. For a style request, get-deck\'s designSystem and deckStyle (also printed by view-screen) are authoritative; for anything beyond colors (spacing, element order, sizes) first read the representativeSlideId with a targeted get-deck and mirror its structure. Introduce colors or fonts the deck does not already use only when the user asks for them. Use targeted get-deck with slideId only if the selection text is missing, truncated, ambiguous, the literal match fails, or the edit changes markup or layout; pass that slide\'s exact contentHash as baseContentHash for fullContent and objectId writes. Use a supplied current slide hash for focused text edits when available. Use exactly one input mode: edits, legacy find/replace or objectId/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated. For a style request, send edits that change only the requested CSS declarations, for example edits: [{"find":"...","replace":"...","occurrence":1}] — occurrence, not expectedMatches, because a CSS declaration often repeats on a slide and expectedMatches rejects that outright. To copy one slide\'s look onto others ("make every slide match slide 1"), read the reference slide and each target with get-deck (slideId, compact=false), change only the .fmd-slide wrapper\'s own background declaration, and leave interior card, image, and gradient fills alone unless the user asked for those too. A deck-wide restyle is one patch-deck call covering every slide, not one update-slide per slide; give each patch-slide the same find/replace edits instead of rewriting fields.content; reserve update-slide for one or a few targeted slides. Never use unresolved placeholder markers as stand-ins for preserved content. Content edits keep existing click-reveal steps. A content edit that newly leaves a step unresolved, or moves a kept step onto a different element, fails with a slide_animation_* error (400) and writes nothing; a step already unresolved before the edit does not block it. Use patch-deck with the complete animations list when a content edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously. Finish all slide edits before calling get-layout-overflows once; after a repair, check once more. If it returns unknown, do not call again this turn unless the editor has produced a new measurement.' +
+    'Edit exactly one Slides slide. For a focused edit or translation of current or selected text, use one literal replace item in edits with the exact text and expectedMatches=1; when view-screen supplies an objectId for a selected element, use that objectId instead of find to replace only that element\'s inner content. The top-level objectId and replace fields are also supported as a compact alternative to edits. When view-screen already supplies the target, do not fetch the full deck, use fullContent, or wait for layout-fit. The exception is a verified layout overflow: call get-deck with slideId to read the complete HTML and contentHash, then make one fullContent repair with that baseContentHash. For a style request, get-deck\'s designSystem and deckStyle (also printed by view-screen) are authoritative; for anything beyond colors (spacing, element order, sizes) first read the representativeSlideId with a targeted get-deck and mirror its structure. Introduce colors or fonts the deck does not already use only when the user asks for them. Use targeted get-deck with slideId only if the selection text is missing, truncated, ambiguous, the literal match fails, or the edit changes markup or layout; pass that slide\'s exact contentHash as baseContentHash for fullContent and objectId writes. Use a supplied current slide hash for focused text edits when available. Use exactly one input mode: edits, legacy find/replace or objectId/replace, or fullContent. Mixed modes are rejected and write nothing. Prefer edits over fullContent so unrelated markup is not regenerated. For a style request, send edits that change only the requested CSS declarations, for example edits: [{"find":"...","replace":"...","occurrence":1}] — occurrence, not expectedMatches, because a CSS declaration often repeats on a slide and expectedMatches rejects that outright. To copy one slide\'s look onto others ("make every slide match slide 1"), read the reference slide and each target with get-deck (slideId, compact=false), change only the .fmd-slide wrapper\'s own background declaration, and leave interior card, image, and gradient fills alone unless the user asked for those too. A deck-wide restyle is one patch-deck call covering every slide, not one update-slide per slide; give each patch-slide the same find/replace edits instead of rewriting fields.content; reserve update-slide for one or a few targeted slides. Never use unresolved placeholder markers as stand-ins for preserved content. Content edits keep existing click-reveal steps, moving each to its target\'s new path; the result\'s repointedReveals lists every move as { slideId, animationIndex, animationId, fromPath, toPath }. A content edit that newly leaves a step unresolved, or leaves it unclear which element a kept step\'s target became, fails with a slide_animation_* error (400) and writes nothing; a step already unresolved before the edit does not block it. Use patch-deck with the complete animations list when a content edit intentionally changes both content and reveals. Source-imported slides preserve their original images and factual copy by default. The action returns immediately after persistence; layoutFit.status=pending means the open editor will measure the new content asynchronously. Finish all slide edits before calling get-layout-overflows once; after a repair, check once more. If it returns unknown, do not call again this turn unless the editor has produced a new measurement.' +
     HYGIENE_ACTION_DESCRIPTION,
   schema: z
     .object({
@@ -168,6 +173,12 @@ export default defineAction({
         .optional()
         .describe(
           "Replacement text; pass an empty string explicitly to clear it",
+        ),
+      notes: z
+        .string()
+        .optional()
+        .describe(
+          "Presenter-only speaker notes to save on this slide; may be sent alone or with a content edit",
         ),
       fullContent: z
         .string()
@@ -192,7 +203,7 @@ export default defineAction({
         .optional()
         .default(false)
         .describe(
-          "Format the resulting HTML with Prettier before persisting it.",
+          "Format the resulting HTML with Prettier before persisting it. With edits or objectId the stored HTML is formatted first too, so find text should come from a get-deck format=true read; omit it otherwise. Not applied to fullContent.",
         ),
       preserveSource: z
         .boolean()
@@ -266,6 +277,7 @@ export default defineAction({
       contextPackId,
       contextModeOverride,
       reuseLabels,
+      notes,
     } = args;
     const hasLegacyMode =
       find !== undefined || objectId !== undefined || replace !== undefined;
@@ -273,9 +285,9 @@ export default defineAction({
       Number(Boolean(edits)) +
       Number(hasLegacyMode) +
       Number(fullContent !== undefined);
-    if (inputModeCount === 0) {
+    if (inputModeCount === 0 && notes === undefined) {
       fail(
-        "One of --edits, --find/--replace, --objectId/--replace, or --fullContent is required",
+        "One of --edits, --find/--replace, --objectId/--replace, --fullContent, or notes is required",
         {
           errorCode: "slide_edit_mode_required",
         },
@@ -413,7 +425,7 @@ export default defineAction({
         });
       }
 
-      const deck = JSON.parse(row.data);
+      const deck = withUniqueSlideIds(deckId, JSON.parse(row.data));
       const existingContext = storedCreativeContext(deck.creativeContext);
       if (
         existingContext &&
@@ -446,8 +458,17 @@ export default defineAction({
           currentContentHash !== firstAttemptContentHash)
       ) {
         fail(
-          "Slide content changed since it was read. Call get-deck with this slideId again and rebase the patch.",
-          { errorCode: "slide_content_stale", statusCode: 409 },
+          "Slide content changed since it was read. Call get-deck with this slideId for the exact current HTML, rebase the patch on it, and retry with details.currentContentHash as baseContentHash. details.currentContent is only a preview: it is omitted when large and may have credential-like text redacted, so never write from it.",
+          {
+            errorCode: "slide_content_stale",
+            statusCode: 409,
+            details: {
+              deckId,
+              slideId,
+              currentContent: String(slide.content ?? ""),
+              currentContentHash,
+            },
+          },
         );
       }
       firstAttemptContentHash ??= currentContentHash;
@@ -523,20 +544,30 @@ export default defineAction({
         }
       }
 
-      if (applied) {
+      const contentApplied = applied;
+      if (contentApplied) {
         slide.layoutFitRevision = createLayoutFitRevision();
         if (isAgentCaller) delete slide.layoutWarningDismissed;
       }
 
+      if (!notFound && notes !== undefined && notes !== slide.notes) {
+        slide.notes = notes;
+        applied = true;
+      }
+
       // A content edit keeps the reveals. One it newly strands fails the edit and
       // is never dropped silently; a reveal already unresolved does not block it.
+      let repointedReveals: RepointedReveal[] = [];
       if (applied && Array.isArray(slide.animations)) {
-        assertSlideAnimationsResolve({
+        const saved = assertSlideAnimationsResolve({
           slideId,
           content: String(slide.content ?? ""),
           animations: slide.animations,
           baseline: { content: previousContent, animations: slide.animations },
+          followContent: true,
         });
+        slide.animations = saved.animations;
+        repointedReveals = saved.repointed;
       }
 
       if (applied) {
@@ -555,7 +586,7 @@ export default defineAction({
             }
           | undefined;
 
-        if (shouldResolveCreativeContext) {
+        if (contentApplied && shouldResolveCreativeContext) {
           const effectivePackId =
             contextPackId ?? existingContext?.contextPackId;
           const requestedLabels: CreativeContextReuseLabel[] =
@@ -650,7 +681,7 @@ export default defineAction({
           );
           const updateResult = await tx
             .update(schema.decks)
-            .set({ data: JSON.stringify(deck), updatedAt: now })
+            .set({ ...deckDataColumns(deck), updatedAt: now })
             .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
           assertDeckWriteApplied(updateResult, deckId, "slide edit");
           if (creativeContext) {
@@ -682,6 +713,7 @@ export default defineAction({
           layoutFitRevision: slide.layoutFitRevision,
           slideCount: deck.slides.length as number,
           generationAttemptId: generationAttemptIdOf(deck.generationContext),
+          repointedReveals,
           ...(creativeContext
             ? {
                 contextMode: creativeContext.contextMode,
@@ -703,6 +735,7 @@ export default defineAction({
         layoutFitRevision: slide.layoutFitRevision,
         slideCount: deck.slides.length as number,
         generationAttemptId: generationAttemptIdOf(deck.generationContext),
+        repointedReveals,
       };
     };
     const rmw = await withDeckLock(deckId, () => retryDeckWrite(applyEdit));
@@ -777,6 +810,9 @@ export default defineAction({
           }
         : {}),
       contentHash: rmw.contentHash,
+      ...(rmw.repointedReveals.length
+        ? { repointedReveals: rmw.repointedReveals }
+        : {}),
       layoutFit: {
         status: "pending" as const,
         slideId,

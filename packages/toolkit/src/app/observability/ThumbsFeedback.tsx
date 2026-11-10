@@ -1,20 +1,36 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import { cn } from "@agent-native/toolkit/utils";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { IconThumbUp, IconThumbDown } from "@tabler/icons-react";
-import { useState, useCallback, useEffect, useId, useRef } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  type ReactNode,
+} from "react";
 
 import { submitFeedbackForm } from "../feedback/index.js";
 
 export interface ThumbsFeedbackProps {
   threadId: string;
-  runId: string;
-  messageSeq: number;
+  runId?: string;
+  messageSeq?: number;
   className?: string;
+  renderNegativeTrigger?: (
+    toggle: () => void,
+    open: boolean,
+    contentId: string,
+  ) => ReactNode;
 }
 
 type Selection = "up" | "down" | null;
@@ -24,7 +40,7 @@ const CONFIRMATION_DURATION_MS = 1400;
 type TextFeedbackDelivery = {
   value: string;
   observabilityDelivered: boolean;
-  sharedFormDelivered: boolean;
+  sharedFormStatus: "pending" | "submitted" | "unconfigured";
   idempotencyKey: string;
 };
 
@@ -43,6 +59,7 @@ export function ThumbsFeedback({
   runId,
   messageSeq,
   className,
+  renderNegativeTrigger,
 }: ThumbsFeedbackProps) {
   const t = useT();
   const { session } = useSession();
@@ -51,7 +68,11 @@ export function ThumbsFeedback({
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [textFeedback, setTextFeedback] = useState("");
   const [textSubmitting, setTextSubmitting] = useState(false);
+  const [textSubmitFailed, setTextSubmitFailed] = useState(false);
   const feedbackInputId = useId();
+  const feedbackContentId = useId();
+  const triggerAnchorRef = useRef<HTMLSpanElement>(null);
+  const restoreTriggerFocusRef = useRef(false);
   const feedbackInputRef = useRef<HTMLTextAreaElement>(null);
   const feedbackOpenedAtRef = useRef(0);
   const textSubmissionInFlightRef = useRef(false);
@@ -107,10 +128,12 @@ export function ThumbsFeedback({
           },
         );
         if (!response.ok) {
-          throw new Error(`Feedback submission failed (${response.status})`);
+          throw writeFailureFromResponse(response);
         }
         return true;
-      } catch {
+      } catch (error) {
+        // A text submission shows its own inline failure; a vote has none.
+        if (feedbackType !== "text") reportWriteFailure(error);
         // coercion-ok: callers receive false and restore the retryable UI state.
         return false;
       }
@@ -157,12 +180,13 @@ export function ThumbsFeedback({
         : {
             value,
             observabilityDelivered: false,
-            sharedFormDelivered: false,
+            sharedFormStatus: "pending" as const,
             idempotencyKey: createFeedbackIdempotencyKey(),
           };
     textFeedbackDeliveryRef.current = delivery;
     textSubmissionInFlightRef.current = true;
     setTextSubmitting(true);
+    setTextSubmitFailed(false);
 
     const deliveries: Promise<void>[] = [];
     if (!delivery.observabilityDelivered) {
@@ -174,7 +198,7 @@ export function ThumbsFeedback({
         ),
       );
     }
-    if (!delivery.sharedFormDelivered) {
+    if (delivery.sharedFormStatus === "pending") {
       deliveries.push(
         submitFeedbackForm({
           value,
@@ -184,8 +208,8 @@ export function ThumbsFeedback({
           activeRunId: runId,
           submitterEmail: session?.email,
         })
-          .then(() => {
-            delivery.sharedFormDelivered = true;
+          .then((result) => {
+            delivery.sharedFormStatus = result;
           })
           .catch((reason) => {
             console.error(
@@ -198,11 +222,16 @@ export function ThumbsFeedback({
 
     void Promise.all(deliveries)
       .then(() => {
-        if (!delivery.observabilityDelivered || !delivery.sharedFormDelivered) {
+        if (
+          !delivery.observabilityDelivered ||
+          delivery.sharedFormStatus === "pending"
+        ) {
+          setTextSubmitFailed(true);
           return;
         }
         textFeedbackDeliveryRef.current = null;
         setTextFeedback("");
+        restoreTriggerFocusRef.current = true;
         setPopoverOpen(false);
       })
       .finally(() => {
@@ -216,53 +245,71 @@ export function ThumbsFeedback({
       <span role="status" aria-live="polite" className="sr-only">
         {confirmed ? t("agentChat.feedback.submitted") : ""}
       </span>
-      <button
-        type="button"
-        aria-label={t("agentChat.feedback.thumbsUp")}
-        title={t("agentChat.feedback.thumbsUp")}
-        aria-pressed={selection === "up"}
-        onClick={handleThumbsUp}
-        className={cn(
-          "flex h-6 w-6 items-center justify-center rounded transition-transform duration-200",
-          selection === "up"
-            ? "text-foreground"
-            : "text-muted-foreground/70 hover:text-muted-foreground hover:bg-accent/50",
-          confirmed === "up" && "scale-110",
-        )}
-      >
-        <IconThumbUp
-          size={16}
-          stroke={selection === "up" ? 2.5 : 1.5}
-          fill={selection === "up" ? "currentColor" : "none"}
-        />
-      </button>
+      {!renderNegativeTrigger && (
+        <button
+          type="button"
+          aria-label={t("agentChat.feedback.thumbsUp")}
+          title={t("agentChat.feedback.thumbsUp")}
+          aria-pressed={selection === "up"}
+          onClick={handleThumbsUp}
+          className={cn(
+            "flex h-6 w-6 items-center justify-center rounded transition-transform duration-200",
+            selection === "up"
+              ? "text-foreground"
+              : "text-muted-foreground/70 hover:text-muted-foreground hover:bg-accent/50",
+            confirmed === "up" && "scale-110",
+          )}
+        >
+          <IconThumbUp
+            size={16}
+            stroke={selection === "up" ? 2.5 : 1.5}
+            fill={selection === "up" ? "currentColor" : "none"}
+          />
+        </button>
+      )}
 
       <PopoverPrimitive.Root open={popoverOpen} onOpenChange={setPopoverOpen}>
-        <PopoverPrimitive.Trigger asChild>
-          <button
-            type="button"
-            aria-label={t("agentChat.feedback.thumbsDown")}
-            title={t("agentChat.feedback.thumbsDown")}
-            aria-pressed={selection === "down"}
-            onClick={handleThumbsDown}
-            className={cn(
-              "flex h-6 w-6 items-center justify-center rounded transition-transform duration-200",
-              selection === "down"
-                ? "text-foreground"
-                : "text-muted-foreground/70 hover:text-muted-foreground hover:bg-accent/50",
-              confirmed === "down" && "scale-110",
-            )}
-          >
-            <IconThumbDown
-              size={16}
-              stroke={selection === "down" ? 2.5 : 1.5}
-              fill={selection === "down" ? "currentColor" : "none"}
-            />
-          </button>
-        </PopoverPrimitive.Trigger>
+        {renderNegativeTrigger ? (
+          <PopoverPrimitive.Anchor asChild>
+            <span ref={triggerAnchorRef}>
+              {renderNegativeTrigger(
+                () => {
+                  if (!popoverOpen) feedbackOpenedAtRef.current = Date.now();
+                  setPopoverOpen((open) => !open);
+                },
+                popoverOpen,
+                feedbackContentId,
+              )}
+            </span>
+          </PopoverPrimitive.Anchor>
+        ) : (
+          <PopoverPrimitive.Trigger asChild>
+            <button
+              type="button"
+              aria-label={t("agentChat.feedback.thumbsDown")}
+              title={t("agentChat.feedback.thumbsDown")}
+              aria-pressed={selection === "down"}
+              onClick={handleThumbsDown}
+              className={cn(
+                "flex h-6 w-6 items-center justify-center rounded transition-transform duration-200",
+                selection === "down"
+                  ? "text-foreground"
+                  : "text-muted-foreground/70 hover:text-muted-foreground hover:bg-accent/50",
+                confirmed === "down" && "scale-110",
+              )}
+            >
+              <IconThumbDown
+                size={16}
+                stroke={selection === "down" ? 2.5 : 1.5}
+                fill={selection === "down" ? "currentColor" : "none"}
+              />
+            </button>
+          </PopoverPrimitive.Trigger>
+        )}
 
         <PopoverPrimitive.Portal>
           <PopoverPrimitive.Content
+            id={feedbackContentId}
             side="bottom"
             align="start"
             sideOffset={4}
@@ -270,6 +317,27 @@ export function ThumbsFeedback({
             onOpenAutoFocus={(event) => {
               event.preventDefault();
               feedbackInputRef.current?.focus();
+            }}
+            onEscapeKeyDown={() => {
+              restoreTriggerFocusRef.current = true;
+            }}
+            onInteractOutside={(event) => {
+              if (
+                renderNegativeTrigger &&
+                event.target instanceof Node &&
+                triggerAnchorRef.current?.contains(event.target)
+              )
+                event.preventDefault();
+            }}
+            onCloseAutoFocus={(event) => {
+              if (!renderNegativeTrigger) return;
+              event.preventDefault();
+              if (restoreTriggerFocusRef.current) {
+                triggerAnchorRef.current
+                  ?.querySelector<HTMLButtonElement>("button")
+                  ?.focus();
+              }
+              restoreTriggerFocusRef.current = false;
             }}
             className="z-[300] w-[min(320px,calc(100vw-24px))] overflow-hidden rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg outline-none origin-[var(--radix-popover-content-transform-origin)]"
           >
@@ -307,6 +375,11 @@ export function ThumbsFeedback({
                 maxLength={2000}
                 className="min-h-20 resize-none px-2.5 py-2 text-xs"
               />
+              {textSubmitFailed ? (
+                <p role="alert" className="text-xs text-destructive">
+                  {t("agentChat.composer.submitFailed")}
+                </p>
+              ) : null}
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] text-muted-foreground/75">
                   {t("agentChat.feedback.keyboardHint").replace(

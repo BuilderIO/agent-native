@@ -4,6 +4,7 @@ import {
   useSetReviewThreadUnread,
   useSetReviewThreadsUnread,
 } from "@agent-native/core/client/review";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type {
   ReviewComment,
   ReviewThreadPreference,
@@ -14,7 +15,6 @@ import {
 } from "@agent-native/toolkit/app/review";
 import { IconFilter, IconPlus, IconSearch } from "@tabler/icons-react";
 import { useCallback, useId, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -186,7 +186,10 @@ export function ReviewCommentsPanel({
           threadId,
           unread: false,
         },
-        { onError: () => toast.error(t("common.genericError")) },
+        {
+          onError: (error) =>
+            reportWriteFailure(error, { label: t("common.genericError") }),
+        },
       );
     },
     [canSetThreadPreferences, designId, setUnread, setUnreadBulk, t],
@@ -206,7 +209,10 @@ export function ReviewCommentsPanel({
         threadIds: [...unreadThreadIds],
         unread: false,
       },
-      { onError: () => toast.error(t("common.genericError")) },
+      {
+        onError: (error) =>
+          reportWriteFailure(error, { label: t("common.genericError") }),
+      },
     );
   }, [
     canSetThreadPreferences,

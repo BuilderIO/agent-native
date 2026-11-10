@@ -18,6 +18,11 @@ import { queueBuilderMediaCompression } from "../server/lib/builder-media-compre
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
+  beginMediaProduction,
+  finishMediaProduction,
+  withRecordingMediaProduction,
+} from "../server/lib/recording-media-lifecycle.js";
+import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
   nanoid,
@@ -354,6 +359,7 @@ export default defineAction({
       await releaseHostedClipRecording({
         recordingId: id,
         ownerEmail,
+        reason: "create_failed",
       });
     };
     const updateExistingRecording = async (values: Record<string, unknown>) => {
@@ -630,6 +636,10 @@ export default defineAction({
     // Set before the provider is called: once true, an object or session may
     // exist, so the reservation is no longer certain to be unused.
     let uploadAttempted = false;
+    const mediaActivity = await beginMediaProduction({
+      recordingId: id,
+      ownerEmail,
+    });
     try {
       if (reusableHostedUrl) {
         hostedVerifiedBytes = await verifyHostedClipMedia({
@@ -667,9 +677,13 @@ export default defineAction({
           recordAsset: false,
         };
         uploadAttempted = true;
-        upload = storage.provider
-          ? await storage.provider.upload(uploadInput)
-          : await uploadFile(uploadInput);
+        upload = await withRecordingMediaProduction(
+          { recordingId: id, ownerEmail, recordAsset: false },
+          () =>
+            storage.provider
+              ? storage.provider.upload(uploadInput)
+              : uploadFile(uploadInput),
+        );
 
         if (upload === null) {
           return await saveWaitingForStorage(media.sizeBytes);
@@ -818,6 +832,8 @@ export default defineAction({
           ),
         );
       throw error;
+    } finally {
+      await finishMediaProduction(mediaActivity, null);
     }
 
     await dispatchPostFinalizeJob({

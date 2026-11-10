@@ -949,6 +949,7 @@ const editor = {
       video: "Video [de-DE]",
     },
     fromSource: "Von {{name}}",
+    hiddenInThisView: "In dieser Ansicht ausgeblendet",
     hiddenProperties: "Versteckte Eigenschaften",
     imageUploaded_zero: "Bilder hochgeladen",
     imageUploaded_one: "Bild hochgeladen",
@@ -1130,6 +1131,29 @@ const editor = {
     hideInSearch: "In der Suche verstecken",
     hideInSearchDescription:
       "Vor Organisation und Suche verbergen. Personen mit dem Link können ihn weiterhin ansehen.",
+    sharePeopleTab: "Personen",
+    shareAgentsTab: "Agenten",
+    agentLevelHeading: "Agenten auf dieser Seite",
+    agentLevelMenuLabel: "Was Agenten auf dieser Seite tun können",
+    agentLevelDefault: "(Standard)",
+    agentLevelCommentDescription:
+      "Können lesen, kommentieren und Änderungen vorschlagen. Nur Personen können sie annehmen.",
+    agentLevelEditDescription:
+      "Können lesen, kommentieren, vorschlagen, Text, Titel und Tabs bearbeiten und die Seite in den Papierkorb verschieben.",
+    agentLevelCommentConfirm:
+      "Agenten können auf dieser Seite jetzt kommentieren und Änderungen vorschlagen, sie aber nicht bearbeiten.",
+    agentLevelEditConfirm: "Agenten können diese Seite wieder bearbeiten.",
+    agentLevelLimit:
+      "Ein Agent bekommt nie mehr Rechte als die Person, für die er arbeitet.",
+    agentLevelManagersOnly:
+      "Nur Personen, die diese Seite verwalten, können das ändern.",
+    agentLevelUpdateFailed:
+      "Die Rechte der Agenten konnten hier nicht geändert werden.",
+    agentLevelNote: "Agenten können kommentieren",
+    agentLevelNoteHint:
+      "Agenten können auf dieser Seite kommentieren. Ändere das unter Teilen.",
+    sendPageToAgent: "Diese Seite an einen Agenten senden",
+    connectAgentOverMcp: "Agenten über MCP verbinden",
     importingFromNotion: "Aus Notion importieren...",
     lastSynced: "Zuletzt synchronisiert",
     linkedToNotion: "Mit Notion verknüpft",
@@ -1208,7 +1232,7 @@ const rawLiterals = {
     previewDraftSavedToHistory:
       "Deine Änderungen wurden im Versionsverlauf gespeichert",
     previewDraftSavedSeparately:
-      "Deine Änderungen wurden als separate Seite gespeichert",
+      "Deine Änderungen wurden als private Seite in deinem Bereich gespeichert",
     previewDraftOpenSavedPage: "Seite öffnen",
     previewDraftMoreOptions: "Weitere Optionen",
     previewDraftViewFullVersions: "Vollständige Versionen anzeigen",
@@ -1290,6 +1314,23 @@ const rawLiterals = {
     restoreDatabase: "Wiederherstellen",
     restoreDatabaseNamed: "{{title}} wiederherstellen",
     trash: "Papierkorb",
+  },
+  publicDocument: {
+    chat: "Chat",
+    freeAndOpenSource: "Kostenlos und Open Source auf GitHub",
+    pagePath: "Seitenpfad",
+    privateDescription:
+      "Bitte den Eigentümer, es mit deinem Konto oder Arbeitsbereich zu teilen, bevor du diesen Link öffnest.",
+    privateTitle: "Dieses Dokument ist privat",
+    signIn: "Anmelden",
+    signUp: "Registrieren",
+    signUpFree: "Kostenlos registrieren",
+    subPages: "Unterseiten",
+    tryContentFree: "Content kostenlos testen",
+    updated: "Aktualisiert am {{date}}",
+    writtenIn: "Geschrieben in Agent-Native Content.",
+    writtenInDescription:
+      "Schreibe und veröffentliche eigene Seiten, mit einem KI-Agenten, der direkt in deinen Dokumenten arbeitet.",
   },
 };
 
@@ -1817,6 +1858,28 @@ const overrides = {
     discardEditDescription: "Ihr Kommentar bleibt unverändert.",
     discard: "Verwerfen",
     keepEditing: "Weiter bearbeiten",
+    deleteComment: "Kommentar löschen",
+    deleteThread: "Thread löschen",
+    deleteCommentQuestion: "Kommentar löschen?",
+    deleteCommentDescription:
+      "Er wird für alle gelöscht. Das lässt sich nicht rückgängig machen.",
+    deleteThreadQuestion: "Thread löschen?",
+    deleteThreadDescription:
+      "Der Thread und seine Antworten werden für alle gelöscht. Das lässt sich nicht rückgängig machen.",
+    deleteThreadAiChangeDescription:
+      "Der Thread und seine Antworten werden für alle gelöscht. Das lässt sich nicht rückgängig machen. Die Änderung der KI an der Seite bleibt, aber über den Thread kannst du sie dann nicht mehr rückgängig machen.",
+    delete: "Löschen",
+    deleting: "Wird gelöscht…",
+    deleteRefusedReplied:
+      "Jemand anderes hat geantwortet, daher kann nur ein Bearbeiter diesen Thread löschen.",
+    deleteRefusedNotion:
+      "Dieser Kommentar ist mit Notion synchronisiert. Lösche ihn in Notion.",
+    deleteRefusedAiWorking:
+      "Die KI arbeitet an diesem Thread. Stoppe sie, bevor du den Thread löschst.",
+    deleteRefusedAiSuggestion:
+      "Der Vorschlag der KI in diesem Thread wartet auf Prüfung. Nimm ihn an oder lehne ihn ab, bevor du den Thread löschst.",
+    deleteRefusedBusy:
+      "Dieser Thread wird gerade geändert. Versuche gleich noch einmal, ihn zu löschen.",
     submit: "Kommentieren",
     askAi: "KI fragen",
     aiBadge: "KI",
@@ -1827,8 +1890,10 @@ const overrides = {
     mentionPeopleLoadFailed: "Personen konnten nicht geladen werden.",
     mentionAgents: "Agenten",
     identityPerson: "Person",
-    identityModel: "Modell",
     identityEffort: "Denkaufwand",
+    acceptAllAndResolve: "Alle annehmen und erledigen",
+    acceptAndResolve: "Annehmen und erledigen",
+    suggestionLoadFailed: "Dieser Vorschlag konnte nicht geladen werden",
     identityRan: "Ausgeführt",
     identityNotRecorded: "Nicht erfasst",
     identityOpenRun: "Lauf öffnen",
@@ -1862,7 +1927,6 @@ const overrides = {
       "Wende die Änderungen für diesen Kommentar an und erledige ihn.",
     aiWorking: "KI arbeitet…",
     aiReplied: "KI hat geantwortet",
-    aiSuggestionReady: "Vorschlag prüfen",
     aiChangesApplied: "Änderungen angewendet",
     aiAppliedAndResolved: "Angewendet und erledigt",
     aiChangeUndone: "Änderung rückgängig gemacht",

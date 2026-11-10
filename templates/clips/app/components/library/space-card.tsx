@@ -1,11 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
-import {
-  IconUsersGroup,
-  IconVideo,
-  IconTrash,
-  IconEdit,
-} from "@tabler/icons-react";
+import { IconUsersGroup, IconVideo } from "@tabler/icons-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
@@ -129,10 +124,7 @@ export function SpaceCard({
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem asChild>
-            <Link to={`/spaces/${space.id}`}>
-              <IconUsersGroup className="h-4 w-4 me-2" />
-              {t("clipsFinalRaw.view")}
-            </Link>
+            <Link to={`/spaces/${space.id}`}>{t("clipsFinalRaw.view")}</Link>
           </ContextMenuItem>
           {canManageOrg && (
             <>
@@ -145,7 +137,6 @@ export function SpaceCard({
                   }, 0);
                 }}
               >
-                <IconEdit className="h-4 w-4 me-2" />
                 {t("spaceDialog.renameSpace")}
               </ContextMenuItem>
               <ContextMenuItem
@@ -154,7 +145,6 @@ export function SpaceCard({
                 }}
                 className="text-destructive focus:text-destructive"
               >
-                <IconTrash className="h-4 w-4 me-2" />
                 {t("spaceDialog.deleteSpace")}
               </ContextMenuItem>
             </>

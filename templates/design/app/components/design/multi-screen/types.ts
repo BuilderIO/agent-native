@@ -36,6 +36,7 @@ export interface ScreenFile {
   id: string;
   filename: string;
   content: string;
+  sourceState?: "unloaded" | "loading" | "deferred" | "ready" | "error";
   source?: string;
   sourceType?: string;
   lod?: string;
@@ -175,6 +176,12 @@ export interface ScreenContentRenderOptions {
 
 export interface MultiScreenCanvasProps {
   screens: ScreenFile[];
+  /** Pinned sources are held; preview sources load after them, nearest first. */
+  onSourceDemandChange?: (demand: {
+    pinned: readonly string[];
+    preview: readonly string[];
+  }) => void;
+  onSourceRetry?: (screenId: string) => void;
   zoom: number;
   activeId?: string | null;
   selectedScreenIds?: string[];
@@ -386,6 +393,13 @@ export interface MultiScreenCanvasProps {
   }) => void;
   boardFileId?: string;
   canvasBackground?: string | null;
+  /**
+   * While a run is generating into this design, its id: a screen streaming in
+   * from `generate-design` is drawn where it will land, beside the others.
+   */
+  generatingDesignId?: string | null;
+  /** The design on this canvas; a settling preview never outlives it. */
+  activeDesignId?: string | undefined;
   boardFileContent?: string;
   boardCodeLayerSource?: CodeLayerSource;
   boardFrameGeometry?: FrameGeometry;
@@ -444,6 +458,7 @@ export interface MultiScreenCanvasProps {
   onBoardElementHover?: (info: ElementInfo | null) => void;
   onBoardElementClear?: () => void;
   onBoardElementDblClickText?: (info: ElementInfo) => void;
+  onBoardFrameLabelRename?: (info: ElementInfo, name: string) => void;
   onBoardIframeHotkey?: (event: IframeHotkeyPayload) => void;
   onBoardFigmaClipboardPaste?: (
     event: IframeFigmaClipboardPastePayload,
@@ -595,6 +610,7 @@ export type MultiScreenCanvasBoardProps = Pick<
   | "onBoardElementHover"
   | "onBoardElementClear"
   | "onBoardElementDblClickText"
+  | "onBoardFrameLabelRename"
   | "onBoardIframeHotkey"
   | "onBoardFigmaClipboardPaste"
   | "onBoardImagePaste"

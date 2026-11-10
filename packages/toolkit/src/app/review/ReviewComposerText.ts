@@ -80,12 +80,29 @@ function matchMentionAt(
   index: number,
   mentions: readonly ReviewMention[],
 ): ReviewMention | undefined {
-  const previous = [...line.slice(0, index)].pop();
+  const previous = codePointBefore(line, index);
   if (previous && NAME_CHAR.test(previous)) return undefined;
   return mentions.find((mention) => {
     const token = `@${mention.label}`;
     if (!line.startsWith(token, index)) return false;
-    const next = [...line.slice(index + token.length)][0];
+    const next = codePointAt(line, index + token.length);
     return !(ENDS_IN_NAME_CHAR.test(token) && next && NAME_CHAR.test(next));
   });
+}
+
+// Read one code point beside `index` without copying the rest of the line, so
+// a long line with many `@` signs parses in linear time.
+function codePointBefore(text: string, index: number): string | undefined {
+  if (index <= 0) return undefined;
+  const last = text.charCodeAt(index - 1);
+  if (last >= 0xdc00 && last <= 0xdfff && index >= 2) {
+    const lead = text.charCodeAt(index - 2);
+    if (lead >= 0xd800 && lead <= 0xdbff) return text.slice(index - 2, index);
+  }
+  return text[index - 1];
+}
+
+function codePointAt(text: string, index: number): string | undefined {
+  const codePoint = text.codePointAt(index);
+  return codePoint === undefined ? undefined : String.fromCodePoint(codePoint);
 }

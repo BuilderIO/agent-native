@@ -8,6 +8,7 @@ function stringifyValue(value: unknown): string {
   return value == null ? "" : (JSON.stringify(value) ?? "");
 }
 
+import { withoutWriteObservation } from "../action-frame.js";
 import {
   getDbExec,
   isProductionServerlessFunctionRuntime,
@@ -29,6 +30,54 @@ import { dbClientGeneration } from "./runtime-facts.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+const PROBE_DIAGNOSTIC_CODES = new Set([
+  "08000",
+  "08001",
+  "08003",
+  "08004",
+  "08006",
+  "08007",
+  "08P01",
+  "28000",
+  "28P01",
+  "42501",
+  "53300",
+  "57P03",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "CONNECT_TIMEOUT",
+  "DB_CONNECT_COOLDOWN",
+  "ETIMEDOUT",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+]);
+
+function probeDiagnosticCode(error: unknown): string | undefined {
+  const pending: unknown[] = [error];
+  const seen = new Set<object>();
+  const property = (value: object, key: "code" | "cause" | "sourceError") => {
+    try {
+      return (value as Record<string, unknown>)[key];
+      // coercion-ok: unreadable error properties mean an unknown diagnostic, not a successful probe.
+    } catch {
+      return undefined;
+    }
+  };
+  while (pending.length > 0 && seen.size < 8) {
+    const current = pending.shift();
+    if (typeof current !== "object" || current === null || seen.has(current))
+      continue;
+    seen.add(current);
+    const code = property(current, "code");
+    if (typeof code === "string" && PROBE_DIAGNOSTIC_CODES.has(code))
+      return code;
+    pending.push(property(current, "cause"), property(current, "sourceError"));
+  }
+  return undefined;
+}
+
 function schemaEnsureDisabled(): boolean {
   if (isMigrationExecutingRuntime() || isMigrationAuthorizedRuntime())
     return false;
@@ -42,18 +91,22 @@ function schemaEnsureDisabled(): boolean {
   return schemaEnsureSkipRequested();
 }
 
+// The ensure* helpers run their DDL through here. It is idempotent setup the
+// first action to need it happens to run, so it never counts as that action's
+// write.
 async function withLegacyServerlessSchemaDdl<T>(
   run: () => Promise<T>,
 ): Promise<T> {
+  const exempt = () => withoutWriteObservation(run);
   if (
     !isMigrationExecutingRuntime() &&
     !appMigratesAtRelease() &&
     (isHostedFunctionInvocationRuntime() ||
       isProductionServerlessFunctionRuntime())
   ) {
-    return withMigrationExecutionRuntime(run);
+    return withMigrationExecutionRuntime(exempt);
   }
-  return run();
+  return exempt();
 }
 
 type SchemaSnapshot = {
@@ -116,22 +169,22 @@ async function loadSchemaSnapshot(
       if (name) indexes.add(name);
     }
     return { tables, columns, indexes };
-  } catch (err) {
-    warnIntrospectionUnavailableOnce(err);
+  } catch {
+    warnOnce(
+      "introspection-unavailable",
+      "[db] batched schema introspection unavailable; falling back to one probe " +
+        "per table/column/index (slower cold starts, same behaviour)",
+    );
     return null;
   }
 }
 
-let _warnedIntrospectionUnavailable = false;
+const warnedOnce = new Set<string>();
 
-function warnIntrospectionUnavailableOnce(err: unknown): void {
-  if (_warnedIntrospectionUnavailable) return;
-  _warnedIntrospectionUnavailable = true;
-  console.warn(
-    "[db] batched schema introspection unavailable; falling back to one probe " +
-      "per table/column/index (slower cold starts, same behaviour): " +
-      ((err as Error)?.message ?? err),
-  );
+function warnOnce(key: string, message: string): void {
+  if (warnedOnce.has(key)) return;
+  warnedOnce.add(key);
+  console.warn(message);
 }
 
 function schemaSnapshot(client: DbExec, injected: boolean) {
@@ -191,7 +244,12 @@ export async function pgTableExists(
       args: [table],
     });
     return rows.length > 0;
-  } catch {
+  } catch (err) {
+    const code = probeDiagnosticCode(err) ?? "unknown";
+    warnOnce(
+      `probe-unreadable:${table}:${code}`,
+      `[db] schema probe unreadable for table "${table}" (code: ${code})`,
+    );
     // coercion-ok: undefined is a typed unreadable state; callers throw rather
     // than issuing DDL against an unverified schema.
     // A failed probe is not evidence that the table is absent. Let the caller

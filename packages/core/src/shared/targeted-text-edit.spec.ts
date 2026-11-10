@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyTargetedReplace,
   findTargetedMatches,
+  type TargetedCandidate,
 } from "./targeted-text-edit.js";
 
 describe("findTargetedMatches", () => {
@@ -48,6 +49,102 @@ describe("findTargetedMatches", () => {
       text: "a\nb",
       similarity: 1,
     });
+  });
+
+  it("reports Prettier-style spacing around punctuation as a whitespace-only candidate with the stored bytes", () => {
+    const content = '<div style="padding:32px 64px;"><p>Hi</p></div>';
+    const result = findTargetedMatches(content, "padding: 32px 64px;");
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    const candidates = (result as { candidates: TargetedCandidate[] })
+      .candidates;
+    expect(candidates[0]).toMatchObject({
+      text: "padding:32px 64px;",
+      similarity: 1,
+      whitespaceOnly: true,
+    });
+  });
+
+  it("reports a multi-line quote that differs only in formatting as a whitespace-only candidate", () => {
+    const content = '<div class="s"><h1>Q3</h1><p>Up 12%</p></div>';
+    const quote = '<div class="s">\n  <h1>Q3</h1>\n  <p>Up 12%</p>\n</div>';
+    const result = findTargetedMatches(content, quote);
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    const candidates = (result as { candidates: TargetedCandidate[] })
+      .candidates;
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates[0]).toMatchObject({
+      text: content,
+      whitespaceOnly: true,
+    });
+  });
+
+  it("scores token-overlap windows when the quote has more lines than the content", () => {
+    const content = '<div class="s"><h1>Q3</h1><p>Up 12%</p></div>';
+    const quote = '<div class="s">\n  <h1>Q4</h1>\n  <p>Up 15%</p>\n</div>';
+    const result = findTargetedMatches(content, quote);
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    const candidates = (result as { candidates: TargetedCandidate[] })
+      .candidates;
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates[0]).toMatchObject({ text: content });
+    expect(candidates[0]?.whitespaceOnly).toBeUndefined();
+  });
+
+  it("still finds a flexible hit when the quote has stray leading or trailing whitespace", () => {
+    const content = "color:red; font-size:12px;";
+    const result = findTargetedMatches(content, " font-size: 12px ");
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    const candidates = (result as { candidates: TargetedCandidate[] })
+      .candidates;
+    expect(candidates[0]).toMatchObject({
+      text: "font-size:12px",
+      whitespaceOnly: true,
+    });
+  });
+
+  it("does not mark a whitespace-only candidate that was cut at the snippet limit", () => {
+    const items = Array.from(
+      { length: 12 },
+      (_, i) => `<li style="margin:0;padding:4px;">Item number ${i}</li>`,
+    ).join("");
+    const content = `<ul style="list-style:none;">${items}</ul>`;
+    const quote = content.replace(/></g, ">\n  <").replace(/:/g, ": ");
+    const result = findTargetedMatches(content, quote);
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    const candidates = (result as { candidates: TargetedCandidate[] })
+      .candidates;
+    expect(candidates[0]).toMatchObject({ similarity: 1 });
+    expect(candidates[0]?.text.endsWith("…")).toBe(true);
+    expect(candidates[0]).toMatchObject({ whitespaceOnly: false });
+  });
+
+  it("lists both near-identical blocks when only spacing between tags differs", () => {
+    const content = "<p><b>A</b><i>x</i></p><p><b>A</b> <i>x</i></p>";
+    const result = findTargetedMatches(content, "</b>  <i>x");
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    const texts = (
+      result as { candidates: TargetedCandidate[] }
+    ).candidates.map((c) => c.text);
+    expect(texts).toEqual(["</b><i>x", "</b> <i>x"]);
+  });
+
+  it("never applies a punctuation-spacing match", () => {
+    const result = applyTargetedReplace(
+      '<div style="padding:32px 64px;">',
+      "padding: 32px 64px;",
+      "padding: 20px 64px;",
+    );
+    expect(result.ok).toBe(false);
+    expect("content" in result).toBe(false);
+  });
+
+  it("does not flag a loose token-overlap candidate as whitespace-only", () => {
+    const result = findTargetedMatches("<h1>Q3 Revenue</h1>", "Q3 Revenues");
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    const candidates = (result as { candidates: TargetedCandidate[] })
+      .candidates;
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates[0]?.whitespaceOnly).toBeUndefined();
   });
 
   it("returns not_found with closest-match candidates when nothing matches", () => {

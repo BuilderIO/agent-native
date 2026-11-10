@@ -334,6 +334,7 @@ export default {
   common: {
     loading: "جارٍ التحميل...",
     genericError: "حدث خطأ ما",
+    linkedSourceSizeLimit: "يتجاوز تعديل المكوّن المرتبط حد حجم المصدر.",
   },
   editPanel: {
     colorInputLabel: "لون",
@@ -430,6 +431,7 @@ export default {
       font: "الخط",
       baseSize: "حجم القاعدة",
       size: "مقاس",
+      fontSizes: "مقياس الخطوط",
       weight: "وزن",
       color: "لون",
       align: "محاذاة",
@@ -878,6 +880,9 @@ export default {
       bottom: "ب",
       left: "ل",
     },
+    fontPicker: {
+      catalogUnavailable: "تعذّر تحميل مكتبة الخطوط الكاملة.",
+    },
     fontFamilies: {
       inherit: "يرث",
       sansSerif: "بلا شريف",
@@ -1028,6 +1033,8 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "تعذر تحميل هذه الشاشة.",
+    selectionPublishFailed: "قد لا يرى الوكيل تحديدك الأخير. حدِّده مرة أخرى.",
     liveCollaboration: {
       title: "التعاون المباشر",
       description:
@@ -1612,30 +1619,17 @@ export default {
       editColor: "تعديل لون {{name}}",
     },
     import: {
-      title: "استيراد",
       description: "استورد HTML حافظة Figma أو HTML مستقلا كشاشات Design.",
-      figmaUrlTitle: "رابط إطار Figma",
-      figmaUrlDescription: "استورد إطارا أو ملفا من رابط Figma.",
       figmaUrlLabel: "رابط إطار أو ملف Figma",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "جار التحقق من اتصال Figma…",
-      figmaConnected: "Figma متصل",
-      figmaConnectedWithSuffix: "Figma متصل · ••••{{suffix}}",
       figmaTokenLabel: "رمز وصول Figma",
       figmaTokenDocs: "الحصول على رمز",
       figmaTokenPlaceholder: "الصق رمز وصول Figma الشخصي",
-      figmaTokenDescription:
-        "يحفظ بأمان لاستيراد Figma ودردشة الوكيل. لا يضاف الرمز إلى الدردشة أبدا.",
-      importFigmaUrl: "استيراد من Figma",
-      saveKeyAndImport: "حفظ المفتاح والاستيراد",
       figmaUrlSuccess: "تم الاستيراد من Figma.",
       figmaImageFallbackWarning:
         "بدائل الصور: {{count}}. يتم الحفاظ على المظهر، لكن هذه الطبقات ليست قابلة للتحرير بالكامل.",
       figmaApproximationWarning:
         "طبقات تقريبية: {{count}}. لا يمكن لـ HTML/CSS تمثيل جميع خصائص Figma بدقة.",
-      figmaPasteTitle: "لصق من Figma",
-      figmaPasteDescription:
-        "انسخ إطارا أو طبقة في Figma، ثم الصقها في لوحة Design. يستورد Design HTML المرئي من الحافظة.",
       figmaPasteTarget: "الصق في اللوحة",
       figmaPasteApiKeyHint:
         "قم بربط رمز الوصول الخاص بك في Figma للحصول على استيراد دقيق للعقد.",
@@ -1644,11 +1638,10 @@ export default {
       figmaPasteMatchGuidance:
         "تعذّرت المطابقة مع عُقد Figma محددة. الصق رابط الإطار بدلاً من ذلك للحصول على استيراد دقيق.",
       figmaPasteUnreadable:
-        "لا تحتوي هذه الحافظة على طبقات Figma منسوخة. حدّد إطارًا في Figma وانسخه بالضغط على Cmd+C ثم الصقه مرة أخرى، أو استورد رابط Figma من لوحة الاستيراد.",
+        "لا تحتوي هذه الحافظة على طبقات Figma منسوخة. حدّد إطارًا في Figma وانسخه بالضغط على Cmd+C ثم الصقه مرة أخرى، أو الصق رابط الإطار في المحادثة.",
       figmaPasteRestLabel: "تم الاستيراد عبر واجهة Figma البرمجية",
       figmaPasteHtmlLabel: "تم الاستيراد من معاينة الحافظة",
-      figmaPasteLocalKiwiLabel:
-        "تم الاستيراد بدون رمز — الأشكال الهندسية والنص فقط",
+      figmaPasteLocalKiwiLabel: "تم الاستيراد من حافظة Figma",
       figmaPasteImagesNeedToken:
         "{{count}} صورة{{plural}} تحتاج إلى الوصول إلى Figma للتحميل.",
       figmaPasteImagesDontShowAgain: "عدم الإظهار مرة أخرى",
@@ -1679,72 +1672,27 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: "رفع .fig",
       figUploadDescription:
         "ميزة تجريبية: تنسيق .fig في Figma مملوك وقد يتغير. تتحول الطبقات المدعومة إلى شاشات قابلة للتحرير، وقد تختلف بعض الميزات. الحد الأقصى {{max}} ميغابايت.",
-      chooseFigFile: "اختر ملف .fig",
       figUploadUploading: "جار الرفع {{progress}}%",
       figUploadProcessing: "جار التحويل…",
-      figImportWarningTitle: "استيراد .fig كبير",
-      figImportWarningDescription:
-        "يحتوي هذا الملف على {{frames}} إطارًا و{{nodes}} طبقة. قد يؤدي استيراد كل شيء إلى إبطاء المحرر. اختر الصفحات التي تحتاجها.",
-      figImportFrameCount: "تم تحديد {{selected}} من أصل {{total}} إطارًا",
-      figImportSelectAll: "تحديد الكل",
-      figImportClearAll: "مسح الكل",
-      figImportCancel: "إلغاء",
-      figImportSelected: "استيراد {{count}} المحددة",
-      figImportAll: "استيراد الكل",
       figImportAnalyzing: "جار التحليل…",
       figImportSaving: "جار حفظ {{saved}} من أصل {{total}} إطارًا",
-      figImportFrameLimit: "اختر صفحات لا يتجاوز مجموع إطاراتها {{max}} إطار.",
       figImportFramesSkippedWarning:
         "تم تخطي {{count}} إطارًا لأنها معقدة جدًا للاستيراد: {{names}}",
-      figUploadLimits:
-        "حتى {{size}} غيغابايت · {{frames}} إطار لكل عملية استيراد",
-      figUploadDescriptionShort:
-        "استيراد محلي — بلا حصة من واجهة Figma. يتم تضمين الصور المضمّنة المدعومة.",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "أوقف Design هذا الاستيراد مؤقتًا",
-      quotaCooldownBody:
-        "يقوم Design بتنظيم طلبات Figma الخاصة به بعد الوصول إلى حد الحصة. تُعاد التهيئة تلقائيًا.",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "استيراد HTML",
       htmlDescription:
         "الصق أو ارفع HTML مستقلا. يحفظه Design كشاشة جديدة دون حقنه في واجهة المحرر.",
-      htmlPlaceholder: "<main>الصق HTML مستقلا هنا...</main>",
-      importHtml: "استيراد HTML",
-      chooseHtmlFile: "اختر ملف HTML",
       allSupportedFiles: "جميع الملفات المدعومة",
-      githubTitle: "GitHub",
       githubDescription: "قريبا: استيراد الشاشات والمكونات مباشرة من مستودع.",
-      localTitle: "تطبيق محلي",
       localDescription: "وصّل أي تطبيق محلي قيد التشغيل باستخدام /visual-edit.",
-      visualEditGuidance:
-        "ثبّت مهارة /visual-edit، وشغّل أي تطبيق محلي، ثم نفّذ أمر الجسر من مستودع ذلك التطبيق ليتمكن الوكيل من إضافة شاشات مدعومة بروابط URL.",
-      comingSoon: "قريبا",
       warningsToast: "اكتمل الاستيراد مع تحذيرات",
       figmaSuccess: "تم استيراد لصق Figma",
       htmlSuccess: "تم استيراد HTML",
       uploadSuccess: "تم استيراد الملف",
-      lastImport: "آخر استيراد",
       errors: {
         figmaTokenMustBeToken: "الصق رمز وصول Figma، وليس رابط ملف Figma.",
-        figmaUrlRequired: "الصق رابط إطار أو ملف Figma.",
-        invalidFigmaUrl: "أدخل رابط figma.com صالحا.",
         figmaImportFailed: "تعذر الاستيراد من Figma",
         notHtml: "الصق أو اختر HTML صالحا للاستيراد.",
         importFailed: "فشل الاستيراد",
@@ -1752,9 +1700,11 @@ export default {
         uploadFailed: "فشل رفع الملف",
         invalidFigFile: "اختر ملفا ينتهي بـ .fig.",
         unsupportedFileType: "اختر ملف ‎.fig‎ أو ‎.html‎ أو ‎.htm‎.",
-        importBusy: "هناك استيراد آخر قيد التنفيذ. أنهِه أو ألغِه أولاً.",
+        importBusy: "هناك استيراد آخر قيد التنفيذ. حاول مرة أخرى عند انتهائه.",
         figFileTooLarge:
-          "ملف ‎.fig‎ كبير جدًا — الحد الأقصى للرفع {{max}} ميغابايت. في Figma، انسخ الإطار المطلوب فقط إلى ملف جديد وصدّر ذلك الملف بصيغة ‎.fig‎، أو استخدم اللصق من Figma.",
+          "هذا الملف كبير جدًا لاستيراده هنا. الصق رابط صفحة Figma أو الإطار بدلاً من ذلك.",
+        figFileUnreadable:
+          "تعذّرت قراءة هذا الملف كملف ‎.fig. احفظ نسخة محلية جديدة من Figma واستوردها.",
       },
     },
     generationMayHaveStopped:
@@ -1815,6 +1765,7 @@ export default {
       duplicate: "تكرار",
       versionHistory: "سجل الإصدارات",
       import: "استيراد…",
+      connectLocalApp: "ربط تطبيق محلي",
       delete: "حذف",
       deleteError: "تعذّر حذف هذا التصميم",
     },
@@ -2644,9 +2595,9 @@ export default {
   },
   homeContext: {
     websiteReference: "إضافة موقع ويب",
+    websiteReferenceMenu: "إضافة موقع ويب…",
     websiteUrlLabel: "عنوان URL لموقع الويب",
     websiteUrl: "الصق عنوان URL لموقع ويب",
-    figmaUrlLabel: "رابط Figma",
     invalidFigmaUrl: "أدخل عنوان URL صالحًا لإطار أو ملف على figma.com.",
     tooMany: "اختر ما يصل إلى 20 مرجعًا.",
     invalidWebsiteUrl: "أدخل عنوان URL صالحًا ببروتوكول HTTP أو HTTPS.",
@@ -2654,7 +2605,6 @@ export default {
     noSystems:
       "ليس لديك نظام تصميم بعد. أنشئ نظامًا من موقع ويب أو ملفات أو Figma.",
     searchSystems: "البحث في أنظمة التصميم…",
-    searchFrames: "البحث في إطارات Figma…",
     searchDesigns: "البحث في التصاميم…",
     searchPresentations: "البحث في العروض التقديمية…",
     searchDesign: "البحث في التصميم…",
@@ -2662,16 +2612,34 @@ export default {
     notReady:
       "الطلب غير جاهز للإرسال. تحقق من السياق المحدد والاتصال ثم أعد المحاولة.",
     search: "البحث في السياق…",
-    figmaUrl: "ألصق رابط Figma",
-    browse: "تصفح الإطارات",
     loadFailed: "تعذّر تحميل هذا المرجع.",
     retry: "إعادة المحاولة",
     empty: "لا توجد مراجع مطابقة.",
     none: "بلا",
-    design: "التصميم",
+    design: "مراجع التصميم",
     slides: "الشرائح",
     referenceDesign: "استخدام تصميم كمرجع",
-    figmaReference: "إضافة Figma",
+    connectFigma: "ربط Figma",
+    figmaReference: "تصميم Figma…",
+    figmaDialogTitle: "إضافة تصميم Figma",
+    figmaDropTitle: "أفلت ملف .fig",
+    figmaChooseFile: "اختيار ملف",
+    figmaPasteHint: "يمكنك أيضًا لصق إطار منسوخ مباشرةً في الطلب.",
+    figmaAddToPrompt: "إضافة إلى الطلب",
+    figmaLinkNeedsConnection:
+      "تتطلب الروابط حساب Figma متصلًا. أفلت ملف .fig أو الصق إطارًا منسوخًا بدلًا من ذلك.",
+    figmaReferenceMore: "{{name}} و{{count}} أخرى",
+    figmaReferenceEmpty:
+      "لم تصل أي إطارات. انسخ إطارًا في Figma وحاول مرة أخرى.",
+    figmaSelection: "تحديد من Figma",
+    figmaFileTooLarge:
+      "هذا الملف كبير جدًا لقراءته هنا. الصق رابطًا إلى صفحته أو إطاره بدلًا من ذلك.",
+    figmaSearch: "ابحث في الصفحات والإطارات",
+    figmaSelectedCount: "تم تحديد {{count}}",
+    figmaShowFrames: "إظهار الإطارات في {{name}}",
+    figmaLinkNotFrame: "استخدم رابطًا إلى صفحة أو إطار في Figma.",
+    figmaPageFrameCap:
+      "تُضاف أول {{limit}} إطارات فقط. حدّد الإطارات لتختار ما يُضاف.",
     referenceDeck: "استخدام عرض تقديمي كمرجع",
     quickSaas: "إنشاء صفحة هبوط لخدمة SaaS",
     quickDashboard: "إنشاء لوحة معلومات",
@@ -2681,12 +2649,162 @@ export default {
   },
   home: {
     suggestedPrompts: "الاقتراحات المقترحة",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "صمّم لوحة تحليلات للمنتج تضم بطاقات مؤشرات ومخطط تحويل وجدول نشاط بأسلوب واثق يستند إلى البيانات.",
+        roadmapWorkspace:
+          "أنشئ مساحة لخارطة الطريق تضم خطاً زمنياً ربعياً وأولويات وملاحظات العملاء بأسلوب هادئ وتعاوني.",
+        onboardingFlow:
+          "صمّم بدء استخدام لتطبيق ميزانية يضم خطوات تقدم واختيار أهداف وإعداد الحساب بأسلوب مطمئن.",
+        featureComparison:
+          "أنشئ صفحة مقارنة SaaS تضم بطاقات خطط ومصفوفة ميزات وأسئلة شائعة بأسلوب مباشر يركز على التحويل.",
+        feedbackPortal:
+          "صمّم بوابة ملاحظات للعملاء تضم لوحة طلبات وتصويتاً وفلاتر للحالة بأسلوب مجتمعي منفتح.",
+        releaseNotes:
+          "أنشئ مركزاً للإصدارات يضم خطاً زمنياً وميزات بارزة وملاحظات ترحيل بأسلوب تحريري موجز.",
+        projectWorkspace:
+          "صمّم مساحة عمل للمنتج تضم أعمدة كانبان ومسؤولين ومحطات إنجاز بأسلوب يركز على الإنتاجية.",
+        launchWaitlist:
+          "أنشئ صفحة انتظار للإطلاق تضم عنواناً بارزاً وإثباتات ونموذج تسجيل بأسلوب متفائل.",
+      },
+      design: {
+        portfolioHome:
+          "صمّم محفظة لمصمم تضم مقدمة موجزة وشبكة دراسات حالة ونبذة واتصالاً بأسلوب تحريري مصقول.",
+        designSystem:
+          "أنشئ مرجعاً لنظام التصميم يضم رموز الألوان والخطوط ومعرض مكونات وملاحظات استخدام بأسلوب توثيقي دقيق.",
+        bankingApp:
+          "صمّم الشاشة الرئيسية لتطبيق بنك على الهاتف تضم الرصيد والمعاملات وأهداف الادخار بأسلوب هادئ وموثوق.",
+        travelBooking:
+          "أنشئ شاشة بحث عن السفر تضم فلاتر الوجهة وبطاقات الرحلة وخريطة بأسلوب خفيف ومليء بالمغامرة.",
+        coffeeShop:
+          "صمّم متجراً لمقهى يضم خلطات مميزة وقصص المنشأ واشتراكاً بأسلوب دافئ وحسي.",
+        musicFestival:
+          "أنشئ صفحة لمهرجان موسيقي تضم قائمة الفنانين والجدول وخريطة الموقع بأسلوب ملصق حيوي.",
+        accessibilityAudit:
+          "صمّم لوحة تدقيق لإمكانية الوصول تضم ملخص نتيجة وقائمة مشكلات وفلاتر بأسلوب واضح عالي التباين.",
+        artBook:
+          "أنشئ صفحة تحريرية لكتاب فني تضم أعمالاً غامرة واقتباساً بارزاً وتنقلاً بين الفصول بأسلوب معرض هادئ.",
+      },
+      developer: {
+        apiDocs:
+          "صمّم بوابة توثيق API تضم تنقلاً جانبياً وأمثلة شيفرة ومنشئ طلبات بأسلوب تقني دقيق.",
+        deploymentDashboard:
+          "أنشئ لوحة نشر تضم بطاقات البيئات وسجلات مباشرة وعناصر للتراجع بأسلوب تشغيلي هادئ.",
+        componentPlayground:
+          "صمّم مساحة لتجربة المكونات تضم عناصر تحكم للخصائص وحالات مختلفة ولوحة شيفرة بأسلوب واضح للمطورين.",
+        databaseConsole:
+          "أنشئ وحدة تحكم لقاعدة بيانات تضم محرر استعلامات وشجرة مخطط وجدول نتائج بأسلوب تقني مقتصد.",
+        issueTriage:
+          "صمّم لوحة فرز للمشكلات تضم فلاتر وشارات أولوية وقائمة مسؤولين بأسلوب واضح ومركّز.",
+        authSettings:
+          "أنشئ إعدادات مصادقة تضم بطاقات مزودين ورابط رجوع وقائمة أذونات بأسلوب آمن ومطمئن.",
+        workflowBuilder:
+          "صمّم منشئ تدفق CI يضم عقد خطوات وسجل تشغيل واختيار فرع بأسلوب تقني دقيق.",
+        developerPortfolio:
+          "أنشئ محفظة لمطور تضم بطاقات مشاريع وأدوات وخطاً زمنياً بأسلوب داكن ومركّز.",
+      },
+      marketing: {
+        campaignLanding:
+          "صمّم صفحة حملة تضم عنواناً قوياً ومزايا وإثباتات عملاء ودعوة للتسجيل بأسلوب حيوي.",
+        emailBuilder:
+          "أنشئ محرراً لحملة بريد تضم معاينة الموضوع وكتلاً للمحتوى وملخص الجمهور بأسلوب واضح وودود.",
+        socialCalendar:
+          "صمّم تقويماً للمحتوى الاجتماعي يضم تبويبات القنوات ومنشورات مجدولة ومؤشرات أداء بأسلوب تحريري مشرق.",
+        brandCampaign:
+          "أنشئ صفحة لحملة علامة تجارية تضم عنواناً وتوجيهاً فنياً ومعرض أصول بأسلوب واثق ومتناسق.",
+        webinarRegistration:
+          "صمّم صفحة تسجيل لندوة تضم بطاقات المتحدثين وجدولاً ونموذج تسجيل بأسلوب موثوق ومرحّب.",
+        seoBrief:
+          "أنشئ موجز SEO يضم مجموعات كلمات مفتاحية ومخطط محتوى وملاحظات منافسين بأسلوب بحثي مركّز.",
+        launchMetrics:
+          "صمّم لوحة مؤشرات إطلاق تضم بطاقات قنوات ومخطط تحويل وجدول حملات بأسلوب تحليلي.",
+        newsletterSignup:
+          "أنشئ صفحة اشتراك في نشرة تضم معاينة تحريرية واختيارات موضوع وحقل بريد بأسلوب دافئ وموجز.",
+      },
+      sales: {
+        leadWorkspace:
+          "صمّم مساحة عمل لعميل محتمل تضم تفاصيل الاتصال وخطاً زمنياً للنشاط وحقول تأهيل بأسلوب مهني وحاسم.",
+        accountBrief:
+          "أنشئ موجز بحث لحساب يضم ملخص شركة وأصحاب مصلحة وإشارات حديثة بأسلوب تنفيذي واضح.",
+        productDemo:
+          "صمّم صفحة عرض للمنتج تضم تبويبات الاستخدام ولقطات شاشة وإثباتات عملاء بأسلوب مقنع وواثق.",
+        proposalBuilder:
+          "أنشئ منشئ عروض يضم أقسام النطاق وبطاقات الأسعار وجدولاً زمنياً بأسلوب استشاري مصقول.",
+        pipelineDashboard:
+          "صمّم لوحة مسار مبيعات تضم مراحل وقيم صفقات ومخطط توقعات بأسلوب أعمال موجز.",
+        meetingBooking:
+          "أنشئ صفحة حجز اجتماع تضم أوقاتاً متاحة ومعاينة جدول ونموذجاً بأسلوب مهني مرحّب.",
+        customerStory:
+          "صمّم صفحة قصة عميل تضم التحدي والنتائج واقتباساً ومؤشرات بأسلوب تحريري قائم على الأدلة.",
+        accountHandoff:
+          "أنشئ مساحة تسليم حساب تضم أهداف العميل وجهات الاتصال والمهام المفتوحة بأسلوب هادئ وتعاوني.",
+      },
+      ops: {
+        inventoryDashboard:
+          "صمّم لوحة مخزون تضم مستويات السلع وتنبيهات إعادة الطلب وفلاتر الفئات بأسلوب تشغيلي عملي.",
+        staffScheduler:
+          "أنشئ جدول موظفين يضم شبكة المناوبات والتوفر وطلبات الإجازة بتصميم سهل القراءة.",
+        vendorPortal:
+          "صمّم بوابة تهيئة مورد تضم قائمة تحقق وحالات رفع المستندات وجهات الاتصال بأسلوب واضح ومطمئن.",
+        incidentResponse:
+          "أنشئ شاشة استجابة لحادث تضم شريط خطورة وخطاً زمنياً ولوحة مسؤول بأسلوب هادئ ومركّز.",
+        expenseApprovals:
+          "صمّم قائمة موافقات مصروفات تضم معاينات الإيصالات وتنبيهات السياسات والإجماليات بأسلوب محايد وفعال.",
+        warehouseReceiving:
+          "أنشئ شاشة استلام مستودع تضم تفاصيل الشحنة وحالة المسح وقائمة الأصناف بأسلوب شديد الوضوح.",
+        automationControl:
+          "صمّم لوحة تحكم للتدفقات تضم بطاقات أتمتة وسجل تشغيل وتنبيهات فشل بأسلوب تشغيلي واثق.",
+        helpdeskQueue:
+          "أنشئ قائمة دعم داخلية تضم بطاقات طلبات وفلاتر حالة وعناصر تعيين بأسلوب واضح ومساعد.",
+      },
+      individual: {
+        personalPortfolio:
+          "صمّم محفظة شخصية تضم نبذة قصيرة وأعمالاً مختارة ومهارات وروابط اتصال بأسلوب تحريري دافئ.",
+        mealPlanner:
+          "أنشئ شاشة تخطيط وجبات تضم وصفات أسبوعية وقائمة مشتريات وفلاتر غذائية بأسلوب عملي وودود.",
+        homeBudget:
+          "صمّم لوحة ميزانية منزلية تضم ملخصاً شهرياً ومخطط فئات وقائمة فواتير بأسلوب هادئ ومساند.",
+        tripPlanner:
+          "أنشئ مخطط رحلة يضم خطاً زمنياً وخريطة وبطاقات حجز بأسلوب خفيف ومليء بالمغامرة.",
+        readingJournal:
+          "صمّم دفتر قراءة يضم أغلفة كتب وملاحظات تقدم وتقييمات نجوم بأسلوب أدبي هادئ.",
+        invoiceTracker:
+          "أنشئ متتبع فواتير مستقل يضم قائمة عملاء وحالة الدفع والاستحقاق بأسلوب مهني منظم.",
+        habitTracker:
+          "صمّم تطبيق عادات يضم تسجيلات يومية وسلاسل إنجاز ومخطط تقدم بأسلوب لطيف ومحفّز.",
+        neighborhoodEvents:
+          "أنشئ صفحة فعاليات الحي تضم بطاقات أحداث وفلاتر محلية وعناصر تأكيد حضور بأسلوب مجتمعي مرحّب.",
+      },
+      general: {
+        saasHomepage:
+          "أنشئ صفحة رئيسية لـSaaS تضم عنواناً وأقسام ميزات وإثباتات عملاء بأسلوب واضح ومرحّب.",
+        analyticsDashboard:
+          "صمّم لوحة تحليلات تضم بطاقات مؤشرات ومخطط اتجاهات وجدول نشاط بأسلوب هادئ يستند إلى البيانات.",
+        habitApp:
+          "أنشئ شاشة منزلية لتطبيق عادات جوال تضم أهدافاً يومية وحلقات تقدم وتذكيرات بأسلوب مشجع وودود.",
+        onlineStore:
+          "صمّم واجهة متجر إلكتروني تضم منتجات مميزة وبطاقات فئات ومراجعات عملاء بأسلوب دافئ ومصقول.",
+        creativePortfolio:
+          "أنشئ محفظة إبداعية تضم مقدمة موجزة وشبكة مشاريع ونبذة بأسلوب تحريري معبّر.",
+        bookingPage:
+          "صمّم صفحة حجز تضم تقويم التوفر وبطاقات خدمات ومراجعات بأسلوب واضح وموثوق.",
+        adminDashboard:
+          "أنشئ لوحة إدارة تضم تنقلاً جانبياً وبطاقات ملخص ونشاطاً حديثاً بأسلوب عملي ومقتصد.",
+        communityEvent:
+          "صمّم صفحة فعالية مجتمعية تضم جدولاً وموقعاً ومتحدثين بأسلوب احتفالي مرحّب.",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "الخطوات التالية",
+      refineWithPrompt: "حسّن باستخدام مطالبة",
+      export: "تصدير",
+      shareLink: "مشاركة الرابط",
+      dismiss: "إغلاق",
+    },
     import: "استيراد",
-    importOptions: "خيارات الاستيراد",
-    figmaLink: "رابط Figma",
     importFromFigma: "الاستيراد من Figma",
     figmaFile: "ملف Figma (.fig)",
-    figmaFileMaxSize: "حتى {{max}} غيغابايت",
     openImport: "فتح الاستيراد",
     importSelectedFile: "استيراد الملف المحدد",
     starterSaasPrompt:
@@ -2758,6 +2876,89 @@ export default {
     paginationPrevious: "السابق",
     paginationNext: "التالي",
     paginationPage: "الصفحة {{page}} من {{totalPages}}",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "لوحة تحليلات للمنتج",
+        roadmapWorkspace: "مساحة لخارطة الطريق",
+        onboardingFlow: "بدء استخدام لتطبيق ميزانية",
+        featureComparison: "صفحة مقارنة SaaS",
+        feedbackPortal: "بوابة ملاحظات للعملاء",
+        releaseNotes: "مركز الإصدارات",
+        projectWorkspace: "مساحة عمل للمنتج",
+        launchWaitlist: "صفحة انتظار للإطلاق",
+      },
+      design: {
+        portfolioHome: "محفظة لمصمم",
+        designSystem: "مرجع نظام التصميم",
+        bankingApp: "الشاشة الرئيسية لتطبيق بنك",
+        travelBooking: "شاشة بحث عن السفر",
+        coffeeShop: "واجهة مقهى",
+        musicFestival: "صفحة لمهرجان موسيقي",
+        accessibilityAudit: "لوحة تدقيق لإمكانية الوصول",
+        artBook: "صفحة تحريرية لكتاب فني",
+      },
+      developer: {
+        apiDocs: "بوابة توثيق API",
+        deploymentDashboard: "لوحة نشر",
+        componentPlayground: "مساحة لتجربة المكونات",
+        databaseConsole: "وحدة تحكم لقاعدة بيانات",
+        issueTriage: "لوحة فرز للمشكلات",
+        authSettings: "إعدادات مصادقة",
+        workflowBuilder: "منشئ تدفقات CI",
+        developerPortfolio: "محفظة لمطور",
+      },
+      marketing: {
+        campaignLanding: "صفحة حملة",
+        emailBuilder: "محرراً لحملة بريد",
+        socialCalendar: "تقويم المحتوى الاجتماعي",
+        brandCampaign: "صفحة لحملة علامة تجارية",
+        webinarRegistration: "صفحة تسجيل لندوة",
+        seoBrief: "موجز SEO",
+        launchMetrics: "لوحة مؤشرات إطلاق",
+        newsletterSignup: "اشتراك النشرة البريدية",
+      },
+      sales: {
+        leadWorkspace: "مساحة عمل لعميل محتمل",
+        accountBrief: "موجز بحث الحساب",
+        productDemo: "صفحة عرض للمنتج",
+        proposalBuilder: "منشئ عروض",
+        pipelineDashboard: "لوحة مسار مبيعات",
+        meetingBooking: "صفحة حجز اجتماع",
+        customerStory: "صفحة قصة عميل",
+        accountHandoff: "مساحة تسليم حساب",
+      },
+      ops: {
+        inventoryDashboard: "لوحة مخزون",
+        staffScheduler: "جدول الموظفين",
+        vendorPortal: "بوابة تهيئة مورد",
+        incidentResponse: "شاشة استجابة لحادث",
+        expenseApprovals: "قائمة موافقات مصروفات",
+        warehouseReceiving: "شاشة استلام مستودع",
+        automationControl: "لوحة تحكم للتدفقات",
+        helpdeskQueue: "قائمة دعم داخلية",
+      },
+      individual: {
+        personalPortfolio: "محفظة شخصية",
+        mealPlanner: "شاشة تخطيط وجبات",
+        homeBudget: "لوحة ميزانية منزلية",
+        tripPlanner: "مخطط رحلة",
+        readingJournal: "دفتر قراءة",
+        invoiceTracker: "متتبع فواتير مستقل",
+        habitTracker: "تطبيق عادات",
+        neighborhoodEvents: "صفحة فعاليات الحي",
+      },
+      general: {
+        saasHomepage: "صفحة رئيسية لـSaaS",
+        analyticsDashboard: "لوحة تحليلات",
+        habitApp: "شاشة منزلية لتطبيق عادات",
+        onlineStore: "واجهة متجر إلكتروني",
+        creativePortfolio: "محفظة إبداعية",
+        bookingPage: "صفحة حجز",
+        adminDashboard: "لوحة إدارة",
+        communityEvent: "صفحة فعالية مجتمعية",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "تحرير مرئي",
@@ -3124,6 +3325,7 @@ export default {
     updateFailed: "تعذر تحديث التعليق",
     commentsInCluster: "التعليقات في المجموعة: {{count}}",
     moreActions: "مزيد من الإجراءات",
+    moreActionsFor: "مزيد من الإجراءات لـ {{author}}",
     copyLink: "نسخ الرابط",
     linkCopied: "تم نسخ الرابط",
     copyLinkFailed: "تعذر نسخ الرابط",
@@ -3143,6 +3345,7 @@ export default {
     addEmoji: "إضافة رمز تعبيري",
     mention: "الإشارة إلى شخص",
     noMentions: "لم يتم العثور على أشخاص",
+    mentionsFailed: "تعذّر تحميل الأشخاص",
     reopen: "إعادة الفتح",
     reopening: "جارٍ إعادة الفتح…",
     undo: "تراجع",
@@ -3208,7 +3411,6 @@ export default {
     },
     filtersActive: "تم تطبيق التصفية",
     suggestChanges: "اقتراح تعديلات",
-    replyInThread: "الرد في المحادثة",
     applyChangesAndResolve: "تطبيق التعديلات وحل المحادثة",
     agent: {
       sectionLabel: "الوكلاء",

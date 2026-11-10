@@ -374,7 +374,8 @@ async function handleMcpRequestInternal(
   const requestMeta = deriveRequestMeta(event);
   const hasLocalOwnerHint = Boolean(ownerEmailHeader?.trim());
   const directoryProfile =
-    routePath === MCP_DIRECTORY_ROUTE_PREFIX
+    routePath === MCP_DIRECTORY_ROUTE_PREFIX &&
+    config.directoryProfile?.directoryRoute !== false
       ? config.directoryProfile
       : undefined;
   if (routePath === MCP_DIRECTORY_ROUTE_PREFIX && !directoryProfile) {
@@ -553,7 +554,11 @@ export function mountMCP(
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]
       : [joinMcpRoute(routePrefix, "/mcp")];
-  if (config.directoryProfile) routePaths.unshift(MCP_DIRECTORY_ROUTE_PREFIX);
+  if (
+    config.directoryProfile &&
+    config.directoryProfile.directoryRoute !== false
+  )
+    routePaths.unshift(MCP_DIRECTORY_ROUTE_PREFIX);
   if (config.appApprovalPage && routePrefix !== "/_agent-native") {
     throw new Error(
       `appApprovalPage needs MCP mounted under /_agent-native, where the app's review page reads approvals, not under ${routePrefix}.`,

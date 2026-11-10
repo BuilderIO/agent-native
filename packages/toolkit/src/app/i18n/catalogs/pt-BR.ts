@@ -1,6 +1,7 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "auth.logOutFailed": "Não foi possível sair",
   "block.renderUnavailable": "Este bloco está temporariamente indisponível.",
   "block.loading": "Carregando bloco.",
   "composer.contextUrlLabel": "Endereço URL",
@@ -127,6 +128,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Vendas",
   "onboarding.roleOps": "Operações",
+  "onboarding.roleCreator": "Criador de conteúdo",
+  "onboarding.roleStudent": "Estudante",
+  "onboarding.roleEducator": "Educador",
   "onboarding.roleIndividual": "Individual",
   "onboarding.roleOther": "Outro",
   "onboarding.roleOtherInputLabel": "Descreva sua função",
@@ -996,6 +1000,7 @@ const messages: ToolkitAgentChatTranslation = {
     "O Builder.io inclui créditos gratuitos, ou você pode usar sua própria chave de API.",
   "setup.builderOrOwnKeys":
     "Use o Builder.io (créditos gratuitos) ou adicione as chaves do seu próprio provedor.",
+  "setup.reconnectBuilder": "Reconectar Builder.io",
   "setup.connectAi": "Conectar IA",
   "setup.connectBuilder": "Usar Builder.io",
   "setup.connectionsDescription":
@@ -1198,7 +1203,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.menu.scheduleTask": "Agendar tarefa",
   "composer.menu.scheduleTaskDescription":
     "Executar algo conforme uma programação",
-  "composer.menu.uploadFile": "Carregar arquivo",
+  "composer.menu.uploadFile": "Arquivos e imagens",
+  "composer.menu.searchWorkspace": "Pesquisar no espaço de trabalho…",
+  "composer.menu.references": "Referências",
+  "composer.menu.referenceFile": "Referenciar um arquivo",
+  "composer.menu.attachToMessage": "Adicionar contexto",
+  "composer.menu.commands": "Comandos",
   "composer.menu.uploadFileDescription":
     "Imagens, PDFs, texto/código, JSON, CSV",
   "composer.messageAgent": "Enviar mensagem ao agente...",
@@ -1597,8 +1607,38 @@ const messages: ToolkitAgentChatTranslation = {
     "Qualquer pessoa na sua organização pode visualizar",
   "share.owner": "Proprietário",
   "share.peopleWithAccess": "Pessoas com acesso",
-  "share.people": "Pessoas",
-  "share.agents": "Agentes",
+  "share.canView": "Pode ver",
+  "share.canComment": "Pode comentar",
+  "share.canEdit": "Pode editar",
+  "share.canManageAccess": "Pode gerenciar o acesso",
+  "share.onlyPeopleInvited": "Somente pessoas convidadas",
+  "share.anyoneInOrganization": "Qualquer pessoa da sua organização",
+  "share.anyoneAtOrganization": "Qualquer pessoa da {{organization}}",
+  "share.anyoneWithLink": "Qualquer pessoa com o link",
+  "share.invite": "Convidar",
+  "share.addPeopleOrAgents": "Adicionar pessoas ou agentes",
+  "share.you": "você",
+  "share.agentBadge": "Agente",
+  "share.removeAccess": "Remover acesso",
+  "share.loadAgentsFailed": "Não foi possível carregar os agentes.",
+  "share.namesUnavailable":
+    "Não foi possível carregar os nomes, por isso os e-mails são exibidos.",
+  "share.copyLink": "Copiar link",
+  "share.copyLinkFailed": "Não foi possível copiar o link.",
+  "share.sendTo": "Enviar para",
+  "share.openInClaude": "Abrir no Claude",
+  "share.openInClaudeCode": "Abrir no Claude Code",
+  "share.openInCodex": "Abrir no Codex",
+  "share.copyAgentPrompt": "Copiar prompt do agente",
+  "share.copyAgentLink": "Copiar link para agentes",
+  "share.copyAgentLinkFailed": "Não foi possível copiar o link para agentes.",
+  "share.copiedAgentLink": "Link para agentes copiado",
+  "share.retryAgentLinkItem": "Tentar link para agentes novamente",
+  "share.mcpServerSettings": "Configurações do servidor MCP",
+  "share.copiedAgentPrompt": "Prompt do agente copiado",
+  "share.copyAgentPromptFailed": "Não foi possível copiar o prompt do agente.",
+  "share.agentReadPrompt":
+    'Leia este item ({{label}}): {{url}}\n\nUse uma conexão MCP disponível para {{mcpUrl}} e chame {{actions}} com {{idParam}} "{{id}}". Use as permissões atuais da minha conta.\n\nSe essa conexão não existir ou estiver desconectada, peça que eu a conecte e entre na conta: {{connectUrl}}. Depois que eu confirmar, tente a leitura de novo. Se a leitura for negada, me avise.',
   "share.private": "Privado",
   "share.privateDescription": "Somente pessoas com acesso podem visualizar",
   "share.public": "Público",
@@ -2558,6 +2598,9 @@ const messages: ToolkitAgentChatTranslation = {
     "O agente usa o token de acesso que você adicionar, então vê o que esse token pode ver.",
   "settingsShell.integrationDetail.accessToken": "Token de acesso",
   "settingsShell.integrationDetail.addAccessToken": "Adicionar token de acesso",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Não foi possível verificar um token de acesso salvo.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Tentar de novo",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Um admin precisa configurar isso",
   "settingsShell.integrationDetail.callout.adminNeededBody":
@@ -3555,6 +3598,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "Remover app do workspace",
   "chatFirst.showMore": "Mostrar mais",
   "chatFirst.showLess": "Mostrar menos",
+  "chatFirst.showMoreCount": "Mostrar mais {{count}}",
   "chatFirst.appOrderUnavailable":
     "Não foi possível salvar a ordem dos apps neste dispositivo.",
   "chatFirst.openSideSurfaces": "Abrir painéis laterais",

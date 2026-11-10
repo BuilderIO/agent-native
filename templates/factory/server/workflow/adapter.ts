@@ -202,6 +202,28 @@ export interface SaveWorkflowGraphInput {
   source: WorkflowVersionSource;
   summary: string;
   createdBy: string;
+  /** Whose draft the save replaces: deleted in the same write as the version. */
+  discardDraftOf?: string | undefined;
+}
+
+/**
+ * What a member's editor was holding for a workflow. The graph is kept as
+ * written and has not been validated: it may have loose ends or bad paths.
+ */
+export interface WorkflowDraftRecord {
+  workflowId: string;
+  ownerEmail: string;
+  /** The saved version the edits started from; it may no longer be current. */
+  baseVersion: number;
+  graphJson: string;
+  updatedAt: string;
+}
+
+export interface SaveWorkflowDraftInput {
+  workflowId: string;
+  ownerEmail: string;
+  baseVersion: number;
+  graphJson: string;
 }
 
 export interface RunCounts {
@@ -447,6 +469,37 @@ export interface WorkflowStore {
     input: SaveWorkflowGraphInput,
   ): Promise<WorkflowRecord>;
   /**
+   * Keeps the member's one draft for the workflow, replacing the last. The text
+   * must be a JSON object with `nodes` and `edges` arrays and fit the graph
+   * size cap, otherwise `invalid_record`; nothing else about it is checked.
+   * `not_found` for a workflow that is not in this scope.
+   */
+  saveWorkflowDraft(
+    scope: WorkflowScope,
+    input: SaveWorkflowDraftInput,
+  ): Promise<WorkflowDraftRecord>;
+  /**
+   * Another member's draft is never returned. `null` when this member has
+   * none; `corrupt_record` when the stored text is no longer a graph object.
+   */
+  getWorkflowDraft(
+    scope: WorkflowScope,
+    workflowId: string,
+    ownerEmail: string,
+  ): Promise<WorkflowDraftRecord | null>;
+  /** Whether the member has a draft, without reading it: a corrupt one counts. */
+  hasWorkflowDraft(
+    scope: WorkflowScope,
+    workflowId: string,
+    ownerEmail: string,
+  ): Promise<boolean>;
+  /** False when there was none. */
+  discardWorkflowDraft(
+    scope: WorkflowScope,
+    workflowId: string,
+    ownerEmail: string,
+  ): Promise<boolean>;
+  /**
    * Changes the display name only: the version, the graph, whether it is
    * enabled and its dry-run record stay as they were.
    */
@@ -475,7 +528,8 @@ export interface WorkflowStore {
   ): Promise<void>;
   /**
    * Hard delete: the workflow and everything under it, including its runs,
-   * parked items, and cursors. False when there was nothing to delete.
+   * parked items, cursors, and every member's draft. False when there was
+   * nothing to delete.
    */
   deleteWorkflow(scope: WorkflowScope, workflowId: string): Promise<boolean>;
 
@@ -669,6 +723,17 @@ export interface OperationExecutor {
 
 type SourceNodeSettings = WorkflowNodeOfKind<"source">["settings"];
 
+/**
+ * Where an inbox-poll source starts. A source with no start keeps no position
+ * and reads as it always did: a workflow that was already running when
+ * positions were added.
+ */
+export type InboxStart =
+  /** No position is stored yet: the first read starts from now and takes no item that was already there. */
+  | { readonly kind: "prime" }
+  /** The position the last live read saved, exactly as the host returned it. */
+  | { readonly kind: "from"; readonly position: string };
+
 /** The two sources that read Factory's own inbox instead of calling a provider. */
 export interface InboxRequest {
   readonly settings: Extract<
@@ -677,6 +742,8 @@ export interface InboxRequest {
   >;
   readonly mode: RunMode;
   readonly signal: AbortSignal;
+  /** An inbox-poll source only. */
+  readonly start?: InboxStart;
 }
 
 export type InboxResult =
@@ -684,6 +751,25 @@ export type InboxResult =
       ok: true;
       items: readonly NormalizedItem[];
       totalAvailable?: number;
+      /**
+       * An inbox-poll source only: where the source stands after this read,
+       * opaque to the engine. A live run saves it; any other run leaves what
+       * is stored alone.
+       */
+      position?: string;
+      /** The read took the newest position and no item: a live source's first read. */
+      primed?: boolean;
+      /**
+       * An inbox-poll source only: how many of the app's own posts the read
+       * left out (its notices and replies are its output, not new reports).
+       * They still move the position. Absent when the poll does not look.
+       */
+      skippedOwn?: number;
+      /**
+       * The items are a read-only sample: nothing was stored and no position
+       * moved, so a later live run neither sees them as rows nor skips them.
+       */
+      sample?: boolean;
     }
   | {
       ok: false;
@@ -866,6 +952,8 @@ export type AiTurnResult =
       ok: false;
       code: AiFailureCode;
       reason: string;
+      /** For `credentials`: the provider of the model credential that failed, as the connections list names it. */
+      provider?: string;
       usage: AiUsage;
       threadId?: string;
     } & AiTurnSaveFailures);

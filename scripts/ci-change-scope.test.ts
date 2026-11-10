@@ -4437,6 +4437,22 @@ test("resolves the root script tests a guard-scoped change must run", () => {
   );
 });
 
+test("selects chat health regression for its script or test changes", () => {
+  for (const path of [
+    "scripts/chat-health.mjs",
+    "scripts/chat-health.test.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, path.endsWith(".mjs"), path);
+    assert.equal(scope.checks.guards, true, path);
+    assert.deepEqual(scope.scriptTests, ["scripts/chat-health.test.ts"], path);
+  }
+  assert.deepEqual(
+    classifyChangedPaths(["scripts/new-tool.ts"]).scriptTests,
+    [],
+  );
+});
+
 test("still runs changed root script tests when the change set is full", () => {
   const scope = classifyChangedPaths([
     ".github/workflows/ci.yml",
@@ -4446,6 +4462,7 @@ test("still runs changed root script tests when the change set is full", () => {
   assert.equal(scope.full, true);
   assert.equal(scope.checks.guards, true);
   assert.deepEqual(scope.scriptTests, [
+    "scripts/feedback-fix-proof.test.ts",
     "scripts/guard-no-unbounded-table-reads.test.ts",
     "scripts/package-release-workflow.test.ts",
   ]);
@@ -4465,6 +4482,21 @@ test("selects the release workflow test when the publish workflow changes", () =
   assert.deepEqual(scope.scriptTests, [
     "scripts/package-release-workflow.test.ts",
   ]);
+});
+
+test("selects the feedback proof workflow test when its workflow changes", () => {
+  const scope = classifyChangedPaths([
+    ".github/workflows/feedback-fix-proof.yml",
+  ]);
+
+  assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
+});
+
+test("selects the feedback proof contract test when CI changes", () => {
+  const scope = classifyChangedPaths([".github/workflows/ci.yml"]);
+
+  assert.equal(scope.full, true);
+  assert.deepEqual(scope.scriptTests, ["scripts/feedback-fix-proof.test.ts"]);
 });
 
 test("runs the change-scope test when the selector or its test changes", () => {
@@ -4660,6 +4692,9 @@ test("mutation-tests Core source only, never specs, declarations, templates, or 
     "packages/core/src/types.d.ts",
     "packages/core/src/templates/chat/actions/x.ts",
     "packages/core/src/cli/create.ts",
+    "packages/core/src/testing.ts",
+    "packages/core/src/client/agentkit-chat/transport.ts",
+    "packages/core/src/client/uploads/index.ts",
     "templates/chat/actions/x.ts",
   ]) {
     assert.equal(
@@ -4699,15 +4734,19 @@ test(
         "scripts/ci-change-scope.test.ts",
         "scripts/ci-change-scope-renames.test.ts",
         "scripts/ci-change-scope.ts",
+        "scripts/guard-blocker-safe-module-names.ts",
         "scripts/lib/mutation-scope.ts",
         "verification/execution-lease/manifest.json",
         "scripts/ci-build-workspaces.test.ts",
         "scripts/ci-build-workspaces.ts",
+        "scripts/chat-health.test.ts",
+        "scripts/lib/pnpm-command.ts",
         "scripts/design-e2e-regression-pin-identities.test.ts",
         "scripts/design-e2e-regression-pins.test.ts",
         "scripts/guard-no-unbounded-table-reads.test.ts",
         "scripts/deploy-alerts-workflow.test.ts",
         "scripts/package-release-workflow.test.ts",
+        "scripts/feedback-fix-proof.test.ts",
         "scripts/qa-deploy-paths-lib.ts",
         "scripts/design-e2e-regression-pins.ts",
         "scripts/design-e2e-spec-selection.ts",

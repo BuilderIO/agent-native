@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { findWorkspaceRoot } from "../scripts/workspace-root.js";
+import type { McpWorkspaceConnectionAuth } from "./workspace-connection-servers.js";
 
 export interface McpStdioServerConfig {
   type?: "stdio";
@@ -13,16 +14,27 @@ export interface McpStdioServerConfig {
   description?: string;
 }
 
+export interface McpOAuthAccessRefresh {
+  identity: string;
+  refresh: () => Promise<string | null>;
+}
+
 export interface McpHttpServerConfig {
   type: "http";
   url: string;
   headers?: Record<string, string>;
+  oauthAccessRefresh?: McpOAuthAccessRefresh;
   /** Internal failure marker for a server whose saved settings could not be materialized. */
   configurationError?: Error;
   firstParty?: boolean;
   firstPartyAppId?: string;
   firstPartyOrgId?: string;
   description?: string;
+  /**
+   * Authenticate each request with this owner's workspace connection instead
+   * of stored headers. Holds identifiers only; the token is never stored here.
+   */
+  workspaceConnection?: McpWorkspaceConnectionAuth;
 }
 
 export type McpServerConfig = McpStdioServerConfig | McpHttpServerConfig;

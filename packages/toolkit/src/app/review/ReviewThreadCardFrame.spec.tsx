@@ -93,4 +93,41 @@ describe("ReviewThreadCardFrame", () => {
     expect(classes).not.toContain("outline-2");
     expect(classes).not.toContain("focus:outline-2");
   });
+
+  describe("tooltips", () => {
+    afterEach(() => vi.useRealTimers());
+
+    const hover = async (label: string) => {
+      vi.useFakeTimers();
+      await act(async () => {
+        container.querySelector(`button[aria-label="${label}"]`)?.dispatchEvent(
+          new PointerEvent("pointermove", {
+            bubbles: true,
+            pointerType: "mouse",
+          }),
+        );
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      return document.querySelector("[data-agent-native-tooltip]");
+    };
+
+    it("names Resolve on hover", async () => {
+      render(<ReviewThreadCardFrame onResolve={vi.fn()} onClose={vi.fn()} />);
+      expect((await hover("Resolve"))?.textContent).toContain("Resolve");
+    });
+
+    it("names Reopen on a resolved thread", async () => {
+      render(
+        <ReviewThreadCardFrame resolved onReopen={vi.fn()} onClose={vi.fn()} />,
+      );
+      expect((await hover("Reopen"))?.textContent).toContain("Reopen");
+    });
+
+    it("names Close on hover, in the host's words", async () => {
+      render(
+        <ReviewThreadCardFrame closeLabel="Schließen" onClose={vi.fn()} />,
+      );
+      expect((await hover("Schließen"))?.textContent).toContain("Schließen");
+    });
+  });
 });

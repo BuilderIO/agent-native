@@ -24,6 +24,7 @@ type GitApi = typeof git;
 export type BuilderGitBundleErrorCode =
   | "invalid_request"
   | "integrity_failed"
+  | "target_missing"
   | "unavailable";
 
 export class BuilderGitBundleError extends Error {
@@ -168,6 +169,7 @@ async function findTargetTree(
     const matching = current.tree.tree.filter(
       (entry) => entry.path === segment,
     );
+    if (matching.length === 0) fail("target_missing");
     if (matching.length !== 1) fail("integrity_failed");
     const entry = matching.at(0);
     if (

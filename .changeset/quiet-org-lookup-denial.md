@@ -2,6 +2,8 @@
 "@agent-native/core": patch
 ---
 
+`getSession` and `getOrgContext` can now reject when session or organization membership lookup fails, instead of resolving to no session or Personal scope. Code that calls them, including template and app server code, should let the error reach the HTTP layer (retryable outages become 503 with `Retry-After`) rather than catching it as a missing session or Personal workspace.
+
 Reject unavailable organization scope instead of treating failed membership reads as Personal access during credential resolution, MCP identity setup, or background task creation. Generic credential reads also reject non-transient membership failures before returning a stored Personal credential whose organization priority could not be checked. Preserve the narrow first-boot missing-membership-table exception for action dispatch.
 
 Keep revoked or mismatched delegated organization access a definitive authorization refusal, including MCP authentication and credential lookup wrappers. Resolve generic credentials' organization scope before provider policy checks and report failed policy or role reads as credential-store unavailability with the original cause.
@@ -26,7 +28,7 @@ Do not provision a default workspace when its creation-claim, invitation, or mat
 
 Keep recipient lookup diagnostics out of persisted automation history and returned error messages. Preserve the original server-side cause, failure code, retry classification, and failed-run record, including simultaneous history-write failures.
 
-Return organization roles only after membership verification; unreadable membership or default-workspace preparation rejects with its classified cause instead of returning cached authority or Personal scope. Pending invitations, matching domains, and a lost creation claim remain normal no-organization outcomes. Redact declared server-error messages unless an explicit safe error type supplies public text, while retaining HTTP status, safe error codes, retry headers, and private server-side causes.
+Return organization roles only after membership verification; unreadable membership or default-workspace preparation rejects with its classified cause instead of returning cached authority or Personal scope. Pending invitations and matching domains remain normal no-organization outcomes. A lost creation claim waits for the winning request's workspace and then rejects as retryable, and a failed closed-organization bootstrap rejects instead of returning Personal scope. Redact declared server-error messages unless an explicit safe error type supplies public text, while retaining HTTP status, safe error codes, retry headers, and private server-side causes.
 
 Preserve session and organization lookup failures through MCP OAuth and workspace-provider OAuth start and callback paths instead of reporting missing authentication, invalid OAuth state, or denied organization access. Keep the MCP callback flow cookie until organization resolution succeeds so a temporary lookup failure does not discard the in-progress authorization flow.
 

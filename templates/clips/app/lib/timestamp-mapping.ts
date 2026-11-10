@@ -1,3 +1,5 @@
+import { saveRevisionOf } from "@agent-native/core/save-conflict";
+
 export type CutRange = { startMs: number; endMs: number };
 
 export interface TrimRange {
@@ -111,6 +113,14 @@ function withTrimId(trim: TrimRange, index: number): IdentifiedTrim {
         ? trim.id
         : makeTrimId(trim, index),
   };
+}
+
+/**
+ * The revision of a recording's trim list. Only a change to the trims moves it,
+ * so saving an overlay doesn't stale someone editing trims.
+ */
+export function trimsRevisionOf(editsJson: string | null | undefined): string {
+  return saveRevisionOf(parseEdits(editsJson).trims);
 }
 
 export function identifyTrims(trims: TrimRange[]): IdentifiedTrim[] {

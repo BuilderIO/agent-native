@@ -297,10 +297,13 @@
     color: var(--agentkit-text-muted);
   }
 
+  /* Keyed on attributes, not :first-of-type: a :first-of-type above the subject
+     makes WebKit restyle the whole page whenever an element is inserted at the
+     top of <body>, which every Radix menu and popover does as it opens. */
   .agentkit-composer-stack
     [data-agent-message-queue="true"]
     li
-    > div:first-of-type {
+    > [data-agent-message-queue-body="true"] {
     min-inline-size: 0;
     flex: 1;
   }
@@ -308,8 +311,8 @@
   .agentkit-composer-stack
     [data-agent-message-queue="true"]
     li
-    > div:first-of-type
-    > div:first-child {
+    > [data-agent-message-queue-body="true"]
+    > [data-agent-message-queue-text="true"] {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -478,7 +481,10 @@
       auto;
   }
 
+  /* Centered while it fits; content taller than the panel (an app list under
+     the composer) scrolls instead of being clipped. */
   .agentkit-chat[data-empty="true"][data-empty-composer-placement="center"] {
+    overflow-y: auto;
     grid-template-rows:
       minmax(var(--agentkit-chat-header-reserve, 0px), 1fr) auto 1rem auto
       minmax(0, 1fr);
@@ -1251,49 +1257,6 @@
     grid-row: 2;
   }
 
-  /* A live finish: the row's old place above the reply closes while the row
-   fades in on the footer line. At rest the placeholder takes no space, so a
-   host that drops the animation never keeps a gap. 180ms matches
-   AGENT_WORK_HANDOFF_MS. */
-  .agentkit-work-handoff {
-    block-size: 0;
-    margin-block: 0;
-    overflow: hidden;
-    opacity: 0;
-    pointer-events: none;
-    animation: agentkit-work-handoff-leave 180ms ease-out both;
-  }
-
-  .agentkit-message-work-host
-    .agentkit-activities[data-handoff="enter"]
-    .agentkit-activities-row {
-    animation: agentkit-work-handoff-enter 180ms ease-out both;
-  }
-
-  @keyframes agentkit-work-handoff-leave {
-    from {
-      block-size: var(--agentkit-work-handoff-size);
-      margin-block: var(--agentkit-run-segment-gap, 0.75rem);
-      opacity: 1;
-    }
-  }
-
-  @keyframes agentkit-work-handoff-enter {
-    from {
-      opacity: 0;
-      translate: 0 -0.25rem;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .agentkit-work-handoff,
-    .agentkit-message-work-host
-      .agentkit-activities[data-handoff="enter"]
-      .agentkit-activities-row {
-      animation: none;
-    }
-  }
-
   /* The last icon's glyph, not its 24px hit area, ends on the text edge. */
   .agentkit-message-actions[data-role="assistant"] .agentkit-message-toolbar {
     grid-column: 2;
@@ -1459,22 +1422,36 @@
     pointer-events: auto;
   }
 
-  .agentkit-message .agentkit-message-actions[data-streaming="true"],
-  .agentkit-message:hover .agentkit-message-actions[data-streaming="true"],
+  .agentkit-message
+    .agentkit-message-actions[data-streaming="true"]:not(
+      :has(.agentkit-activities)
+    ),
+  .agentkit-message:hover
+    .agentkit-message-actions[data-streaming="true"]:not(
+      :has(.agentkit-activities)
+    ),
   .agentkit-message:focus-within
-    .agentkit-message-actions[data-streaming="true"] {
+    .agentkit-message-actions[data-streaming="true"]:not(
+      :has(.agentkit-activities)
+    ) {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
   }
 
-  /* A footer carrying finished work always shows and takes its space; only an
-   older reply's controls wait for hover or focus. */
+  /* A footer carrying its reply's work always shows and takes its space, live
+   or finished; only an older reply's controls wait for hover or focus. */
   .agentkit-message-actions[data-role="assistant"]:has(.agentkit-activities) {
     position: static;
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
+  }
+
+  .agentkit-message-actions[data-role="assistant"][data-streaming="true"]
+    .agentkit-message-toolbar {
+    visibility: hidden;
+    pointer-events: none;
   }
 
   .agentkit-message-actions[data-role="assistant"]:has(
