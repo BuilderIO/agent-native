@@ -481,6 +481,40 @@ describe("content database list reads", () => {
       "Plan for Row page-text 1.",
       null,
     ]);
+
+    // A GET caller sends the flag as a query string, and a read that loads
+    // page text returns a capped page of rows.
+    const { CONTENT_DATABASE_PAGE_TEXT_READ_LIMIT } =
+      await import("./_database-utils.js");
+    const query = await getContentDatabaseAction.schema["~standard"].validate({
+      databaseId: fixture.databaseId,
+      limit: "100",
+      includePageText: "true",
+    });
+    if (query.issues) throw new Error("The query string didn't parse.");
+    const queried = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabaseAction.run(query.value, {
+        caller: "http",
+        userEmail: OWNER,
+      }),
+    );
+    if (!("items" in queried)) throw new Error("Fixture read failed.");
+    expect(queried.pagination).toMatchObject({
+      limit: CONTENT_DATABASE_PAGE_TEXT_READ_LIMIT,
+      returnedItems: 3,
+    });
+    expect(
+      queried.items.map(
+        (item) =>
+          item.properties.find(
+            (property) => property.definition.id === fixture.primaryBlocksId,
+          )?.value,
+      ),
+    ).toEqual([
+      "Plan for Row page-text 0.",
+      "Plan for Row page-text 1.",
+      "Plan for Row page-text 2.",
+    ]);
   });
 
   it("adds excerpts to the rows a filtered, paged read returns", async () => {

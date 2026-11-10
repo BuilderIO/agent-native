@@ -135,8 +135,8 @@ rename, or hide a tab while any row's page has agents set to Can comment.
 
 `get-content-database` carries every tab's text except the primary Content
 field's: that one is each row's page body, and it reads `null` unless the call
-passes `includePageText: true` (keep `limit` small, since pages can be long).
-`null` there means the page wasn't read, not that it's empty. For one row,
+passes `includePageText: true`. Pages can be long, so such a read returns at
+most 25 rows; page through the rest with `offset`. `null` there means the page wasn't read, not that it's empty. For one row,
 `get-document` returns the body.
 
 Each tab shows the field's name and word count, tabs reorder by dragging, and a

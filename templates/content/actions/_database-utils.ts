@@ -113,6 +113,8 @@ import {
 export { getDocumentContextPath };
 
 export const CONTENT_DATABASE_MAX_READ_LIMIT = 5_000;
+/** Most rows one read loads page text for, since each page's text can be long. */
+export const CONTENT_DATABASE_PAGE_TEXT_READ_LIMIT = 25;
 
 const QUERY_PROJECTION_UNSUPPORTED_PROPERTY_TYPES =
   new Set<DocumentPropertyType>(["rollup"]);
@@ -195,17 +197,19 @@ export const contentDatabaseTableQuerySchema = z
   .optional();
 
 /** A read's opt-in to compact rows; see `compactContentDatabaseRowsFor`. */
-export const contentDatabaseCompactRowsSchema = z
-  .preprocess(
-    // GET actions receive it as a query string. Other strings stay strings,
-    // so a typo fails validation instead of reading as false.
-    (value) => (value === "true" ? true : value === "false" ? false : value),
-    z.boolean(),
-  )
-  .optional()
-  .describe(
-    "Name each row's property values by propertyId instead of repeating the definition (name, type, options) in every row; the definitions are in the top-level properties. Much smaller for collections whose select properties have many options.",
-  );
+export const contentDatabaseQueryBooleanSchema = z.preprocess(
+  // GET actions receive it as a query string. Other strings stay strings,
+  // so a typo fails validation instead of reading as false.
+  (value) => (value === "true" ? true : value === "false" ? false : value),
+  z.boolean(),
+);
+
+export const contentDatabaseCompactRowsSchema =
+  contentDatabaseQueryBooleanSchema
+    .optional()
+    .describe(
+      "Name each row's property values by propertyId instead of repeating the definition (name, type, options) in every row; the definitions are in the top-level properties. Much smaller for collections whose select properties have many options.",
+    );
 
 function contentDatabaseTableQueryMode(
   query: ContentDatabaseTableQuery | undefined,
