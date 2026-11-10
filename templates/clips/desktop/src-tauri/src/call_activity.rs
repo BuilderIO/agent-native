@@ -45,18 +45,46 @@ pub(crate) fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
 
 #[cfg(target_os = "macos")]
 pub(crate) fn call_app_uses_microphone(bundle_ids: &[String]) -> Option<bool> {
-    call_matching_process_microphone(bundle_ids, None)
+    call_matching_process_microphone(bundle_ids, None, false)
+}
+
+/// Like [`call_app_uses_microphone`], but only reports a call while the app
+/// both captures and plays audio. Apps that also record voice or video
+/// messages (Slack) capture without playing; a live call does both.
+#[cfg(target_os = "macos")]
+pub(crate) fn call_app_uses_duplex_audio(bundle_ids: &[String]) -> Option<bool> {
+    call_matching_process_microphone(bundle_ids, None, true)
 }
 
 #[cfg(target_os = "macos")]
 pub(crate) fn call_process_uses_microphone(pid: i32, bundle_id: &str) -> Option<bool> {
-    call_matching_process_microphone(&[bundle_id.to_string()], Some(pid))
+    call_matching_process_microphone(&[bundle_id.to_string()], Some(pid), false)
+}
+
+/// Combines per-process audio states for apps that must capture and play at
+/// once. Input and output may run in different helper processes, so each
+/// side is judged across all matching processes.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn duplex_audio_state(
+    any_input: bool,
+    any_output: bool,
+    input_unreadable: bool,
+    output_unreadable: bool,
+) -> Option<bool> {
+    if any_input && any_output {
+        return Some(true);
+    }
+    if (!any_input && input_unreadable) || (!any_output && output_unreadable) {
+        return None;
+    }
+    Some(false)
 }
 
 #[cfg(target_os = "macos")]
 fn call_matching_process_microphone(
     bundle_ids: &[String],
     expected_pid: Option<i32>,
+    require_output: bool,
 ) -> Option<bool> {
     use core_foundation::base::TCFType;
     use core_foundation::string::CFString;
@@ -64,8 +92,8 @@ fn call_matching_process_microphone(
         kAudioHardwareNoError, kAudioHardwarePropertyProcessObjectList,
         kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
         kAudioProcessPropertyBundleID, kAudioProcessPropertyIsRunningInput,
-        kAudioProcessPropertyPID, AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize,
-        AudioObjectID, AudioObjectPropertyAddress,
+        kAudioProcessPropertyIsRunningOutput, kAudioProcessPropertyPID, AudioObjectGetPropertyData,
+        AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
     };
     use std::ffi::c_void;
     use std::mem::size_of;
@@ -115,6 +143,9 @@ fn call_matching_process_microphone(
     let mut unreadable_target_bundle = false;
     let mut unreadable_input = false;
     let mut matched_bundle = false;
+    let mut any_input = false;
+    let mut any_output = false;
+    let mut unreadable_output = false;
 
     for process in processes {
         if let Some(expected_pid) = expected_pid {
@@ -199,11 +230,41 @@ fn call_matching_process_microphone(
         };
         if input_status != kAudioHardwareNoError {
             unreadable_input = true;
-            continue;
+        } else if input_running != 0 {
+            if !require_output {
+                return Some(true);
+            }
+            any_input = true;
         }
-        if input_running != 0 {
-            return Some(true);
+
+        if require_output {
+            let mut output_address = AudioObjectPropertyAddress {
+                mSelector: kAudioProcessPropertyIsRunningOutput,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain,
+            };
+            let mut output_running: u32 = 0;
+            let mut output_size = size_of::<u32>() as u32;
+            let output_status = unsafe {
+                AudioObjectGetPropertyData(
+                    process,
+                    NonNull::from(&mut output_address),
+                    0,
+                    std::ptr::null(),
+                    NonNull::from(&mut output_size),
+                    NonNull::new((&mut output_running as *mut u32).cast::<c_void>())?,
+                )
+            };
+            if output_status != kAudioHardwareNoError {
+                unreadable_output = true;
+            } else if output_running != 0 {
+                any_output = true;
+            }
         }
+    }
+
+    if require_output {
+        return duplex_audio_state(any_input, any_output, unreadable_input, unreadable_output);
     }
 
     if expected_pid.is_some()
@@ -221,7 +282,45 @@ fn call_matching_process_microphone(
 
 #[cfg(test)]
 mod tests {
-    use super::{bundle_id_matches, supported_browser_bundle_id, BROWSER_CALL_APP_BUNDLE_IDS};
+    use super::{
+        bundle_id_matches, duplex_audio_state, supported_browser_bundle_id,
+        BROWSER_CALL_APP_BUNDLE_IDS,
+    };
+
+    #[test]
+    fn slack_helpers_match_the_slack_bundle() {
+        assert!(bundle_id_matches(
+            "com.tinyspeck.slackmacgap.helper",
+            "com.tinyspeck.slackmacgap"
+        ));
+        assert!(bundle_id_matches(
+            "com.tinyspeck.slackmacgap",
+            "com.tinyspeck.slackmacgap"
+        ));
+        assert!(!bundle_id_matches(
+            "com.tinyspeck.slackmacgapx",
+            "com.tinyspeck.slackmacgap"
+        ));
+    }
+
+    #[test]
+    fn duplex_audio_needs_capture_and_playback() {
+        assert_eq!(duplex_audio_state(true, true, false, false), Some(true));
+        assert_eq!(
+            duplex_audio_state(true, false, false, false),
+            Some(false),
+            "recording a voice message captures without playing"
+        );
+        assert_eq!(duplex_audio_state(false, true, false, false), Some(false));
+        assert_eq!(duplex_audio_state(false, false, false, false), Some(false));
+        assert_eq!(duplex_audio_state(true, false, false, true), None);
+        assert_eq!(duplex_audio_state(false, true, true, false), None);
+        assert_eq!(
+            duplex_audio_state(true, true, true, true),
+            Some(true),
+            "a readable live pair wins over another unreadable helper"
+        );
+    }
 
     #[test]
     fn matches_native_helpers_but_only_exact_browser_processes() {
