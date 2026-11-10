@@ -45,7 +45,7 @@ function asSeenBy(stored: FeatureFlagStoredRule, canManage: boolean) {
 
 export default defineAction({
   description:
-    "List this app's registered feature flags for an operator. Each flag reports the global rule, the active organization's own rule, which of the two is in effect for that organization, and whether the caller can change each one; a rule that could not be read is reported as unreadable, never as off, and evaluates off. A rule the caller can't change is reported as withheld, with its mode, percentage, and how many emails and organizations it targets, but not which. Organization owners/admins and this app's feature flag admin list only.",
+    "List this app's registered feature flags with each flag's global rule, the active organization's own rule, which one applies, and whether the caller can change each. Unreadable rules are reported as unreadable; rules the caller can't change are withheld.",
   schema: z.object({}),
   http: { method: "GET" },
   toolCallable: false,

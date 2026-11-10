@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const chain = () => {
   const value: Record<string, unknown> = {};
-  for (const method of ["min", "max", "email", "int", "optional"]) {
+  for (const method of ["min", "max", "email", "int", "optional", "describe"]) {
     value[method] = () => value;
   }
   return value;

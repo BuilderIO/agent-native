@@ -20,7 +20,12 @@ const rulesSchema = z.object({
   percentage: z.number().int().min(0).max(100).optional(),
 });
 
-const scopeSchema = z.enum(["org", "global"]).optional();
+const scopeSchema = z
+  .enum(["org", "global"])
+  .optional()
+  .describe(
+    "`org` writes the active organization's own rule, which overrides the global rule there (owners/admins); `global` writes the rule for every organization (feature flag admin list). Defaults to `org`, or `global` without an organization.",
+  );
 
 const schema = z.discriminatedUnion("operation", [
   z.object({
@@ -43,7 +48,7 @@ const schema = z.discriminatedUnion("operation", [
 
 export default defineAction({
   description:
-    "Atomically manage one registered feature flag: enable it for the current user, turn it off, or replace its full rules. `scope: \"org\"` writes the active organization's own rule (organization owner/admin only); `scope: \"global\"` writes the rule for every organization (this app's feature flag admin list only). An organization's own rule replaces the global rule for that organization. Omitting scope writes the active organization's rule, or the global rule for a caller with no organization; the result names the rule written. Enabling for the current user adds to the rule that exists: it fails on a rule that could not be read, and on an organization that follows the global rule, rather than creating that organization's own rule; turning off or replacing the rules writes the whole rule either way.",
+    "Change one registered feature flag: enable it for the current user, turn it off, or replace its rules. Returns which rule was written.",
   schema,
   agentInputSchema: z.object({
     operation: z.enum(["enable-for-current-user", "off", "replace-rules"]),
