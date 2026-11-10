@@ -827,6 +827,56 @@ describe("reliable Content database row mutations", () => {
     await expect(asCollaborator(() => createRow.run(input))).rejects.toThrow();
   });
 
+  it("replays an update retry after row access drops to viewer", async () => {
+    const ids = await fixture();
+    await shareDocument(ids.databaseDocumentId);
+    const discovered = await contract(ids.databaseId);
+    const created = await asOwner(() =>
+      createRow.run({
+        ...envelope(discovered, "viewer-retry-create"),
+        title: "Before",
+      }),
+    );
+    const input = {
+      ...envelope(discovered, "viewer-retry-update"),
+      itemId: created.receipt.row.itemId,
+      documentId: created.receipt.row.documentId,
+      expectedRowRevision: created.receipt.row.rowRevision,
+      title: "After",
+    };
+    const updated = await asCollaborator(() => updateRow.run(input));
+
+    await getDb()
+      .update(schema.documentShares)
+      .set({ role: "viewer" })
+      .where(
+        and(
+          eq(schema.documentShares.resourceId, created.receipt.row.documentId),
+          eq(schema.documentShares.principalType, "user"),
+          eq(schema.documentShares.principalId, COLLABORATOR),
+        ),
+      );
+
+    await expect(
+      asCollaborator(() => updateRow.run(input)),
+    ).resolves.toMatchObject({
+      receipt: {
+        receiptId: updated.receipt.receiptId,
+        idempotency: { result: "replayed" },
+      },
+    });
+    await expect(
+      asCollaborator(() =>
+        updateRow.run({
+          ...input,
+          ...envelope(discovered, "viewer-new-update"),
+          expectedRowRevision: updated.receipt.row.rowRevision,
+          title: "Must not land",
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+
   it("rechecks exact-update row authorization after waiting for the mutation lock", async () => {
     const ids = await fixture();
     await shareDocument(ids.databaseDocumentId);

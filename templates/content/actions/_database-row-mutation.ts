@@ -1655,7 +1655,6 @@ export async function updateDatabaseRow(
   ctx?: ActionRunContext,
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
-  await assertAccess("document", input.documentId, "editor");
   const inputDigest = databaseMutationPayloadDigest("update", input);
   const replayDigests = [
     inputDigest,
@@ -1671,6 +1670,7 @@ export async function updateDatabaseRow(
     replayDigests,
   );
   if (replay) return replay;
+  await assertAccess("document", input.documentId, "editor");
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
