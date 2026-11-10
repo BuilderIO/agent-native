@@ -13,7 +13,10 @@ import {
   parseMcpToolName,
   MCP_TOOL_PREFIX,
 } from "./manager.js";
-import { InvalidMcpHeaderConfigurationError } from "./remote-store.js";
+import {
+  InvalidMcpHeaderConfigurationError,
+  isFirstPartyRemoteEndpointTrusted,
+} from "./remote-store.js";
 
 type FakeTool = {
   name: string;
@@ -322,6 +325,105 @@ describe("McpClientManager", () => {
     })) as Response;
     expect(sameOrigin.status).toBe(204);
     await mgr.stop();
+  });
+
+  it("guards headerless HTTP MCP requests on their configured origin", async () => {
+    const origin = "https://mcp.example.test";
+    const mgr = new McpClientManager({
+      servers: { plain: { type: "http", url: `${origin}/mcp` } },
+    });
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeHttp;
+    expect(transport.fetchImpl).toBeDefined();
+    expect(
+      (await transport.fetchImpl!(`${origin}/mcp`)) as Response,
+    ).toHaveProperty("status", 204);
+    await expect(
+      transport.fetchImpl!("https://other.example.test/mcp"),
+    ).rejects.toThrow("MCP destination changed origin");
+    await mgr.stop();
+  });
+
+  it.each(["localhost", "127.0.0.1"])(
+    "keeps a directly configured %s MCP dev server reachable",
+    async (host) => {
+      const origin = `http://${host}:3000`;
+      const mgr = new McpClientManager({
+        servers: { local: { type: "http", url: `${origin}/mcp` } },
+      });
+      await mgr.start();
+      const transport = fakeClients[0]!.getTransport() as FakeHttp;
+      expect(
+        (await transport.fetchImpl!(`${origin}/mcp`)) as Response,
+      ).toHaveProperty("status", 204);
+      await mgr.stop();
+    },
+  );
+
+  it("permits a verified org-directory MCP origin on an internal address", async () => {
+    process.env.A2A_SECRET = "test-a2a-secret";
+    orgContextMocks.getOrgDomain.mockResolvedValue("acme.com");
+    orgContextMocks.getOrgA2ASecret.mockResolvedValue("org-a2a-secret");
+    const origin = "https://10.0.0.8";
+    vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+      if (String(input).includes("/_agent-native/org/apps")) {
+        return new Response(
+          JSON.stringify({
+            apps: [{ id: "assets", url: origin, a2aUrl: origin }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(null, { status: 204 });
+    });
+    expect(
+      await isFirstPartyRemoteEndpointTrusted(
+        "org-internal",
+        "assets",
+        `${origin}/mcp`,
+      ),
+    ).toEqual({ ok: true });
+    const mgr = new McpClientManager({
+      servers: {
+        "org_org-internal_assets": {
+          type: "http",
+          url: `${origin}/mcp`,
+          firstParty: true,
+          firstPartyOrgId: "org-internal",
+        },
+      },
+    });
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeHttp;
+    expect(
+      (await transport.fetchImpl!(`${origin}/mcp`)) as Response,
+    ).toHaveProperty("status", 204);
+    await mgr.stop();
+
+    const unlisted = new McpClientManager({
+      servers: {
+        "org_org-internal_unlisted": {
+          type: "http",
+          url: `${origin}/mcp`,
+          firstParty: true,
+          firstPartyOrgId: "org-internal",
+        },
+      },
+    });
+    await unlisted.start();
+    const unlistedTransport = fakeClients.at(-1)!.getTransport() as FakeHttp;
+    await expect(unlistedTransport.fetchImpl!(`${origin}/mcp`)).rejects.toThrow(
+      "SSRF blocked",
+    );
+    await unlisted.stop();
+
+    await runWithRequestContext(
+      { userEmail: "other@example.test", orgId: "org-other" },
+      () =>
+        expect(transport.fetchImpl!(`${origin}/mcp`)).rejects.toThrow(
+          "SSRF blocked",
+        ),
+    );
   });
 
   it("refreshes a saved OAuth request on its configured origin", async () => {
@@ -783,7 +885,7 @@ describe("McpClientManager", () => {
 
   it("reconnects once and replays concurrent calls after an HTTP session expires", async () => {
     let calls = 0;
-    serverFixtures["http https://example.com/mcp"] = {
+    serverFixtures["http https://93.184.216.34/mcp"] = {
       tools: [{ name: "ping" }],
       callImpl: () => {
         calls += 1;
@@ -794,7 +896,7 @@ describe("McpClientManager", () => {
       },
     };
     const mgr = new McpClientManager({
-      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+      servers: { remote: { type: "http", url: "https://93.184.216.34/mcp" } },
     });
     await mgr.start();
     const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;
@@ -820,7 +922,7 @@ describe("McpClientManager", () => {
     const secondCallStarted = new Promise<void>((resolve) => {
       secondStarted = resolve;
     });
-    serverFixtures["http https://example.com/mcp"] = {
+    serverFixtures["http https://93.184.216.34/mcp"] = {
       tools: [{ name: "ping" }],
       callImpl: async () => {
         calls += 1;
@@ -841,7 +943,7 @@ describe("McpClientManager", () => {
       },
     };
     const mgr = new McpClientManager({
-      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+      servers: { remote: { type: "http", url: "https://93.184.216.34/mcp" } },
     });
     await mgr.start();
     const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;

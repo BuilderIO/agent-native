@@ -317,14 +317,19 @@ export function verifyIsolatedE2eMember(
 ): Promise<void> {
   const runRoot = process.env.E2E_RUN_ROOT;
   const pgliteDir = process.env.E2E_RUN_PGLITE_DIR;
-  if (
-    !runRoot ||
-    !pgliteDir ||
-    path.resolve(pgliteDir) !== path.join(path.resolve(runRoot), "pglite") ||
-    process.env.E2E_DATABASE_URL !== `pglite:${pgliteDir}`
-  ) {
+  const isolatedPglite =
+    !!runRoot &&
+    !!pgliteDir &&
+    path.resolve(pgliteDir) === path.join(path.resolve(runRoot), "pglite") &&
+    process.env.E2E_DATABASE_URL === `pglite:${pgliteDir}`;
+  const dedicatedCiPostgres =
+    process.env.CI === "true" &&
+    process.env.GITHUB_ACTIONS === "true" &&
+    process.env.E2E_DATABASE_URL ===
+      "postgres://postgres@127.0.0.1:5432/design_e2e"; // e2e-harness-ignore: assert the dedicated CI database address before changing fixture data.
+  if (!isolatedPglite && !dedicatedCiPostgres) {
     throw new Error(
-      "Member verification requires Playwright's isolated local PGlite fixture.",
+      "Member verification requires Playwright's isolated PGlite or dedicated CI Postgres fixture.",
     );
   }
   return evaluateInDesignServer(config, { kind: "verify-e2e-member", email });

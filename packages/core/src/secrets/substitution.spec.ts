@@ -555,6 +555,20 @@ describe("getKeyAllowlist", () => {
     ).resolves.toEqual(["https://api.openai.com"]);
   });
 
+  it.each([
+    ["JEV_API_KEY", "https://api.typesafe.ai"],
+    ["OPENROUTER_API_KEY", "https://openrouter.ai"],
+    ["GROQ_API_KEY", "https://api.groq.com"],
+    ["COHERE_API_KEY", "https://api.cohere.com"],
+    ["BRAVE_SEARCH_API_KEY", "https://api.search.brave.com"],
+  ])("uses the approved request origin for %s", async (key, origin) => {
+    const allowlist = await getKeyAllowlist(key, "user", "alice@example.test");
+    expect(validateUrlAllowlist(`${origin}/v1/query`, allowlist)).toBe(true);
+    expect(
+      validateUrlAllowlist("https://other.example.test/v1/query", allowlist),
+    ).toBe(false);
+  });
+
   it("does not inherit a policy from an object prototype property", async () => {
     await expect(
       getKeyAllowlist("constructor", "user", "alice@example.test"),

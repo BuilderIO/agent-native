@@ -30,6 +30,7 @@ export async function fetchMcpOriginBound(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
   origin: string,
+  allowVerifiedPrivateOrigin = false,
 ): Promise<Response> {
   const request = new Request(input, init);
   const requestOptions: RequestInit & { duplex?: "half" } = {
@@ -43,7 +44,7 @@ export async function fetchMcpOriginBound(
   return ssrfSafeFetch(request.url, requestOptions, {
     ...(parsedOrigin.hostname === "localhost"
       ? { allowedLocalhostOrigin: origin }
-      : parsedOrigin.hostname === "127.0.0.1"
+      : parsedOrigin.hostname === "127.0.0.1" || allowVerifiedPrivateOrigin
         ? { allowedPrivateOrigins: [origin] }
         : {}),
     assertUrlAllowed: (candidate) => {
@@ -524,23 +525,24 @@ export class McpClientManager {
         if (Object.keys(baselineHeaders).length > 0) {
           requestInit.headers = baselineHeaders;
         }
-        if (typeof fetch === "function") {
-          transportOptions.fetch = async (input: unknown, init?: unknown) =>
-            fetchMcpOriginBound(
-              input as Parameters<typeof fetch>[0],
-              await buildFirstPartyRequestInit(
-                staticHeaders,
-                init,
-                this.firstPartyTrust(entry),
-              ),
-              new URL(cfg.url).origin,
-            );
+        transportOptions.fetch = async (input: unknown, init?: unknown) => {
+          const trust = this.firstPartyTrust(entry);
+          const requestOrgId = (
+            await import("../server/request-context.js")
+          ).getRequestOrgId();
+          return fetchMcpOriginBound(
+            input as Parameters<typeof fetch>[0],
+            await buildFirstPartyRequestInit(staticHeaders, init, trust),
+            new URL(cfg.url).origin,
+            trust !== null &&
+              (!requestOrgId || requestOrgId === trust.orgId) &&
+              (await isFirstPartyTrustCached(trust)),
+          );
+        };
+      } else {
+        if (Object.keys(staticHeaders).length > 0) {
+          requestInit.headers = staticHeaders;
         }
-      } else if (
-        cfg.secretRequestOrigin ||
-        Object.keys(staticHeaders).length > 0
-      ) {
-        requestInit.headers = staticHeaders;
         transportOptions.fetch = async (
           input: RequestInfo | URL,
           init?: RequestInit,
