@@ -1,5 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { and, desc, eq, isNotNull, lt } from "drizzle-orm";
+import { and, desc, eq, isNotNull, lt, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -58,6 +58,21 @@ const cliBoolean = z.preprocess((value) => {
 }, z.boolean());
 
 const MAX_IDS_INPUT_CHARS = 8_000;
+const CURSOR_SEPARATOR = "|";
+
+/** `nextBefore` is `<createdAt>|<id>`, so clips with the same time are not skipped. */
+export function encodeSweepCursor(createdAt: string, id: string): string {
+  return `${createdAt}${CURSOR_SEPARATOR}${id}`;
+}
+
+export function decodeSweepCursor(value: string): {
+  createdAt: string;
+  id: string | null;
+} {
+  const at = value.lastIndexOf(CURSOR_SEPARATOR);
+  if (at < 0) return { createdAt: value, id: null };
+  return { createdAt: value.slice(0, at), id: value.slice(at + 1) || null };
+}
 
 function parseIds(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -108,10 +123,10 @@ export default defineAction({
       ),
     before: z
       .string()
-      .datetime()
+      .max(300)
       .optional()
       .describe(
-        "With `all`, only clips created before this time. Pass the previous call's `nextBefore` to continue a sweep.",
+        "With `all`, continue after this point. Pass the previous call's `nextBefore` unchanged.",
       ),
     force: cliBoolean
       .optional()
@@ -141,6 +156,7 @@ export default defineAction({
     const targetIds = [...explicitIds];
     let nextBefore: string | undefined;
     if (args.all) {
+      const cursor = args.before ? decodeSweepCursor(args.before) : null;
       const limit = Math.min(
         args.limit ?? DEFAULT_ALL_LIMIT,
         MAX_TARGETS_PER_CALL - targetIds.length,
@@ -159,19 +175,37 @@ export default defineAction({
                   eq(schema.recordings.status, "ready"),
                   eq(schema.recordings.hasAudio, true),
                   isNotNull(schema.recordings.videoUrl),
-                  ...(args.before
-                    ? [lt(schema.recordings.createdAt, args.before)]
+                  ...(cursor
+                    ? [
+                        cursor.id
+                          ? or(
+                              lt(schema.recordings.createdAt, cursor.createdAt),
+                              and(
+                                eq(
+                                  schema.recordings.createdAt,
+                                  cursor.createdAt,
+                                ),
+                                lt(schema.recordings.id, cursor.id),
+                              ),
+                            )
+                          : lt(schema.recordings.createdAt, cursor.createdAt),
+                      ]
                     : []),
                 ),
               )
-              .orderBy(desc(schema.recordings.createdAt))
+              .orderBy(
+                desc(schema.recordings.createdAt),
+                desc(schema.recordings.id),
+              )
               .limit(limit)
           : [];
       for (const row of rows) {
         if (!targetIds.includes(row.id)) targetIds.push(row.id);
       }
       const last = rows.length === limit ? rows[rows.length - 1] : undefined;
-      nextBefore = last?.createdAt;
+      nextBefore = last
+        ? encodeSweepCursor(last.createdAt, last.id)
+        : undefined;
     }
 
     if (targetIds.length === 0) {
