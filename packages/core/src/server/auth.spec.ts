@@ -9298,6 +9298,195 @@ describe("server/auth", () => {
       expect(cookies).not.toMatch(/(?:^|\n)an_session=/);
     });
 
+    it("shows a stranger's magic link the invite-only page instead of JSON", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({
+          execute: vi.fn(async () => ({ rows: [] })),
+        }),
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (err: unknown) => String(err),
+      }));
+      // Better Auth refuses the new user inside verify and answers in JSON.
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: async () =>
+            new Response(
+              JSON.stringify({ code: "INVITE_ONLY", message: "INVITE_ONLY" }),
+              { status: 403, headers: { "content-type": "application/json" } },
+            ),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const verify = (fullPath: string) => {
+        const request = new Request(`http://localhost${fullPath}`, {
+          method: "GET",
+        });
+        return baHandler({
+          req: request,
+          url: new URL(`http://localhost${fullPath}`),
+          res: { headers: new Headers(), status: 200 },
+          node: {
+            req: { headers: {}, url: fullPath, method: "GET" },
+            res: {
+              setHeader: vi.fn(),
+              getHeader: vi.fn(),
+              appendHeader: vi.fn(),
+            },
+          },
+          headers: request.headers,
+          context: {
+            _mountedPathname: fullPath,
+            _mountPrefix: "/_agent-native/auth/ba",
+          },
+          path: fullPath,
+        });
+      };
+
+      const page = await verify(
+        "/_agent-native/auth/ba/magic-link/verify?token=stranger-token&callbackURL=%2F",
+      );
+      expect(page.status).toBe(403);
+      expect(page.headers.get("content-type")).toContain("text/html");
+      const html = await page.text();
+      expect(html).toContain(
+        "This workspace is invite-only. Ask an administrator for an invitation.",
+      );
+      expect(html).toContain('href="/sign-in"');
+      expect(html).not.toContain("INVITE_ONLY");
+
+      // Without a callbackURL the verify is an API call, so it keeps JSON.
+      const api = await verify(
+        "/_agent-native/auth/ba/magic-link/verify?token=stranger-token",
+      );
+      expect(api.status).toBe(403);
+      await expect(api.json()).resolves.toMatchObject({ code: "INVITE_ONLY" });
+    });
+
+    it("tells the desktop app when a stranger's magic link is invite-only", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+      const getSession = vi.fn(async () => null);
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(
+            async () =>
+              new Response(
+                JSON.stringify({ code: "INVITE_ONLY", message: "INVITE_ONLY" }),
+                {
+                  status: 403,
+                  headers: { "content-type": "application/json" },
+                },
+              ),
+          ),
+          api: {
+            getSession,
+            signInEmail: vi.fn(),
+            signInMagicLink: vi.fn(async () => ({ status: true })),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => ({ api: { getSession } })),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getRefusedLocalDatabaseSource: () => null,
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("../org/context.js", () => ({
+        resolveOrgIdForEmailViaEvent: vi.fn(async () => null),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const handlerFor = (path: string) =>
+        app.use.mock.calls.find((call: any[]) => call[0] === path)?.[1];
+      const magicLinkHandler = handlerFor("/_agent-native/auth/magic-link");
+      const landingHandler = handlerFor(
+        "/_agent-native/auth/magic-link/desktop-landing",
+      );
+      const callbackHandler = handlerFor(
+        "/_agent-native/auth/magic-link/desktop-callback",
+      );
+      const exchangeHandler = handlerFor(
+        "/_agent-native/auth/desktop-exchange",
+      );
+
+      const flow = await magicLinkHandler(
+        createJsonPostEvent("/_agent-native/auth/magic-link", {
+          email: "stranger@example.com",
+          callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+        }),
+      );
+      expect(flow).toMatchObject({ ok: true, flowId: expect.any(String) });
+
+      const landing = await landingHandler(
+        createFormPostEvent("/_agent-native/auth/magic-link/desktop-landing", {
+          token: "stranger-token",
+          callbackURL:
+            `/_agent-native/auth/magic-link/desktop-callback?flow_id=${flow.flowId}` +
+            `&verifier=${flow.verifier}`,
+        }),
+      );
+      expect(landing).toBeInstanceOf(Response);
+      expect((landing as Response).status).toBe(302);
+      const callback = new URL(
+        (landing as Response).headers.get("location")!,
+        "http://localhost",
+      );
+      expect(callback.pathname).toBe(
+        "/_agent-native/auth/magic-link/desktop-callback",
+      );
+      expect(callback.searchParams.get("error")).toBe("INVITE_ONLY");
+
+      const callbackPage = await callbackHandler(
+        createMockEvent({
+          path: callback.pathname,
+          query: Object.fromEntries(callback.searchParams),
+        }),
+      );
+      expect((callbackPage as Response).status).toBe(403);
+      await expect((callbackPage as Response).text()).resolves.toContain(
+        "This workspace is invite-only.",
+      );
+
+      await expect(
+        exchangeHandler(
+          createMockEvent({
+            path: "/_agent-native/auth/desktop-exchange",
+            query: { flow_id: flow.flowId },
+            headers: { "x-agent-native-desktop-verifier": flow.verifier },
+          }),
+        ),
+      ).resolves.toMatchObject({
+        error:
+          "This workspace is invite-only. Ask an administrator for an invitation.",
+        code: "INVITE_ONLY",
+      });
+    });
+
     it("reports (never silently swallows) a failure repairing the verified-email row", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
