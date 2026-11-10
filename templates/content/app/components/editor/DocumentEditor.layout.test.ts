@@ -34,6 +34,7 @@ import {
   utilityPanelRegionShouldReceiveFocus,
   dismissDocumentCommentFocus,
   documentEditorLoadState,
+  collabDocHasText,
   documentTitleWidthChanged,
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
@@ -62,6 +63,7 @@ import {
   suggestionDecisionPreviewContent,
   suggestionToDecideAfterSave,
   sameSuggestionAnchorIds,
+  previewDraftSuggestions,
   singleSuggestionDecisionLockAfterMismatch,
   suggestionAmendmentTargetIsResolved,
   suggestionAmendmentResolutionConflicts,
@@ -569,6 +571,16 @@ describe("document editor layout", () => {
     expect(sameSuggestionAnchorIds(["two", "one"], ["one", "two"])).toBe(true);
     expect(sameSuggestionAnchorIds(["one"], ["two"])).toBe(false);
     expect(sameSuggestionAnchorIds(null, [])).toBe(false);
+  });
+
+  it("keeps one list for a draft it can't map, so the highlights don't redraw every render", () => {
+    const unmapped = () =>
+      previewDraftSuggestions({
+        status: "unsupported-formatting",
+        content: "Draft",
+      });
+    expect(unmapped()).toEqual([]);
+    expect(unmapped()).toBe(unmapped());
   });
 
   it("does not feed suggestion anchor decoration transactions back into the parent", () => {
@@ -1290,10 +1302,13 @@ describe("document editor layout", () => {
     );
     expect(source).not.toContain('result.suggestion.status === "stale"');
     expect(source).toMatch(
-      /isSuggestionStaleActionError\(error\)[\s\S]*?setUnplaceableSuggestionRevisions[\s\S]*?setCommentsBrowseOpen\(true\)[\s\S]*?toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
+      /const showUnplaceableEdit =[\s\S]*?setUnplaceableSuggestionRevisions[\s\S]*?setCommentsBrowseOpen\(true\)/,
     );
     expect(source).toMatch(
-      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?void decideSingleSuggestion\(suggestion, decision\)/,
+      /isSuggestionStaleActionError\(error\);\s+if \(unplaceable\) showUnplaceableEdit\(\[decided\]\);\s+toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
+    );
+    expect(source).toMatch(
+      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?showUnplaceableEdit\(currentMembers\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?void decideSingleSuggestion\(suggestion, decision\)/,
     );
   });
   it("dismisses mobile comment focus without closing Info", () => {
@@ -1727,6 +1742,77 @@ describe("document editor layout", () => {
         error: null,
       }),
     ).toEqual({ view: "skeleton", admittedDocumentId: null });
+  });
+
+  it("draws a visited collab page from its cached read while this open's read runs", () => {
+    const visited = {
+      documentId: "document-a",
+      admittedDocumentId: null,
+      hasDocument: true,
+      isDocumentCreationPending: false,
+      isFetchedAfterMount: false,
+      isFetching: true,
+      isError: false,
+      hasLoadFailure: false,
+      isManualRetrying: false,
+      error: null,
+    };
+    expect(
+      documentEditorLoadState({ ...visited, canOpenFromCache: true }),
+    ).toEqual({ view: "editor", admittedDocumentId: "document-a" });
+    // A page whose body is not a collab doc waits for the read.
+    expect(documentEditorLoadState(visited)).toEqual({
+      view: "skeleton",
+      admittedDocumentId: null,
+    });
+  });
+
+  it("gives a page drawn from its cached read up when this open's read fails", () => {
+    const drawn = {
+      documentId: "document-a",
+      admittedDocumentId: "document-a",
+      hasDocument: true,
+      canOpenFromCache: true,
+      isDocumentCreationPending: false,
+      isFetchedAfterMount: false,
+      isFetching: false,
+      isManualRetrying: false,
+    };
+    // Deleted, trashed, or no longer shared since the cached read.
+    expect(
+      documentEditorLoadState({
+        ...drawn,
+        isError: true,
+        hasLoadFailure: true,
+        error: { status: 404 },
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
+    expect(
+      documentEditorLoadState({
+        ...drawn,
+        isError: true,
+        hasLoadFailure: true,
+        error: { status: 500 },
+      }),
+    ).toEqual({ view: "error", admittedDocumentId: "document-a" });
+  });
+
+  it("reads text from a collab doc before any editor projects it", () => {
+    const doc = new Y.Doc();
+    const fragment = doc.getXmlFragment("default");
+    expect(collabDocHasText(null)).toBe(false);
+    expect(collabDocHasText(doc)).toBe(false);
+    const empty = new Y.XmlElement("paragraph");
+    const image = new Y.XmlElement("image");
+    image.setAttribute("src", "https://example.test/a.png");
+    fragment.insert(0, [empty, image]);
+    // Markup and attributes are not text, so such a doc waits for a fresh read.
+    expect(collabDocHasText(doc)).toBe(false);
+    const paragraph = new Y.XmlElement("paragraph");
+    paragraph.insert(0, [new Y.XmlText("Saved words")]);
+    fragment.insert(2, [paragraph]);
+    expect(collabDocHasText(doc)).toBe(true);
+    doc.destroy();
   });
 
   it("shows a successful create response while its first read is pending", () => {
@@ -3173,10 +3259,10 @@ describe("document editor layout", () => {
     );
 
     expect(documentEditorSource).toContain(
-      "canEdit &&\n                    !canEditWithoutCollaboration &&\n                    !collabSynced",
+      "canEdit &&\n                    !canEditWithoutCollaboration &&\n                    !collabReady",
     );
     expect(documentEditorSource).toContain(
-      "(isLocalFileDocument ||\n      mcpDirectoryWidgetReadOnly ||\n      collabSynced ||\n      canEditWithoutCollaboration)",
+      "(isLocalFileDocument ||\n      mcpDirectoryWidgetReadOnly ||\n      collabReady ||\n      canEditWithoutCollaboration)",
     );
     expect(documentEditorSource).toContain(
       "!canEdit ||\n      !hydrationContext?.sourceId",
@@ -3620,7 +3706,7 @@ describe("document editor layout", () => {
       source.match(
         /setUtilityPanel\("comments"\);\s+setCommentsBrowseOpen\(true\)/g,
       ),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
     expect(source).not.toMatch(
       /setIsSuggesting\(false\);[\s\S]{0,240}setUtilityPanel\("comments"\)/,
     );
