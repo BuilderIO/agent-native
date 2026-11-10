@@ -1379,6 +1379,7 @@ const enUS = {
     commandSearchHeading: "Search",
     searchScope: "Scope",
     searchAllWorkspaces: "All workspaces",
+    searchThisPage: "This page",
     searchFields: "Search fields",
     searchAllText: "All text",
     searchTitleOnly: "Title only",

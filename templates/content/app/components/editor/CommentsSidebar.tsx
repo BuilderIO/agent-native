@@ -24,6 +24,7 @@ import {
   useLayoutEffect,
   useMemo,
   useCallback,
+  type Ref,
   type RefObject,
   type ReactNode,
 } from "react";
@@ -728,7 +729,9 @@ export function preserveCommentComposerEscape(event: KeyboardEvent) {
     target.closest("[data-comment-composer], [data-discussion-toolbar]")
   ) {
     event.preventDefault();
+    return true;
   }
+  return false;
 }
 
 type CommentHistoryFilters = {
@@ -890,7 +893,9 @@ export function useCommentReplyDrafts(
     [documentId, accountKey],
   );
   const [openReplies, setOpenReplies] = useState<
-    Record<string, { threadId: string | null; suggestionId: string | null }>
+    Partial<
+      Record<string, { threadId: string | null; suggestionId: string | null }>
+    >
   >({});
   const focus = useRef<{
     documentId: string;
@@ -1194,6 +1199,7 @@ interface CommentsSidebarOptions {
   /** Whether comment highlights show on the page; the panel can switch them. */
   highlightsVisible?: boolean;
   onHighlightsVisibleChange?: (visible: boolean) => void;
+  pageComposerRef?: Ref<TiptapComposerHandle>;
 }
 
 type CommentsSidebarProps = CommentsSidebarOptions &
@@ -1275,6 +1281,7 @@ export function CommentsSidebar({
   renderThreadActions,
   highlightsVisible = true,
   onHighlightsVisibleChange,
+  pageComposerRef,
 }: CommentsSidebarProps) {
   const surface: CommentSurface =
     surfaceProp ?? (presentation === "history" ? "panel" : "rail");
@@ -1296,7 +1303,6 @@ export function CommentsSidebar({
   const queryClient = useQueryClient();
   const pendingDraft = useCommentDraft("pending");
   const pageDraft = useCommentDraft("page");
-  const pageComposerRef = useRef<TiptapComposerHandle>(null);
   const draftStore = useCommentDraftContext();
   const [pendingHandoff, setPendingHandoff] = useState<{
     id: symbol;

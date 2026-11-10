@@ -1638,6 +1638,7 @@ const overrides = {
     commandSearchHeading: "بحث",
     searchScope: "النطاق",
     searchAllWorkspaces: "جميع مساحات العمل",
+    searchThisPage: "هذه الصفحة",
     searchFields: "حقول البحث",
     searchAllText: "كل النص",
     searchTitleOnly: "العنوان فقط",

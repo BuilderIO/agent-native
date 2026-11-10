@@ -98,6 +98,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -148,6 +149,7 @@ import {
   useContentDatabases,
 } from "@/hooks/use-content-database";
 import {
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useContentDatabaseRowSearch,
@@ -213,6 +215,8 @@ interface DocumentPropertiesProps {
    * don't arrive later and push the page down.
    */
   schemaRowsExpected?: boolean;
+  /** The page reports a failed read itself, so saying so here would repeat it. */
+  leaveReadFailureToPage?: boolean;
   popoversPortalled?: boolean;
   popoverContainer?: HTMLElement | null;
 }
@@ -1008,18 +1012,22 @@ export function DocumentProperties({
   rowViewPending = false,
   canEdit,
   schemaRowsExpected = false,
+  leaveReadFailureToPage = false,
   popoversPortalled = true,
   popoverContainer,
 }: DocumentPropertiesProps) {
   const t = useT();
-  const { data, isLoading, isError, dataUpdatedAt } = useDocumentProperties(
-    documentId,
-    databaseId,
-  );
+  const propertiesQuery = useDocumentProperties(documentId, databaseId);
+  const { data, isLoading, isError, dataUpdatedAt } = propertiesQuery;
   const loaded = documentPropertiesResponseMatchesScope(
     documentId,
     databaseId,
     data,
+  );
+  const readFailed = documentPropertiesReadFailed(
+    documentId,
+    databaseId,
+    propertiesQuery,
   );
   const canEditValues =
     canEdit &&
@@ -1079,7 +1087,14 @@ export function DocumentProperties({
 
   return (
     <div className="mt-5 border-y border-transparent py-1">
-      {isLoading || !loaded || rowViewPending ? (
+      {readFailed && !leaveReadFailureToPage ? (
+        <QueryErrorState
+          compact
+          onRetry={() => void propertiesQuery.refetch()}
+        />
+      ) : readFailed && !loaded ? null : isLoading ||
+        !loaded ||
+        rowViewPending ? (
         <div className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-3.5" />
           {t("editor.properties.loadingProperties")}
@@ -1088,7 +1103,10 @@ export function DocumentProperties({
         <div className="grid gap-0.5">{visibleProperties.map(propertyRow)}</div>
       ) : null}
 
-      {loaded && !rowViewPending && collapsedCount > 0 ? (
+      {loaded &&
+      !rowViewPending &&
+      (!readFailed || leaveReadFailureToPage) &&
+      collapsedCount > 0 ? (
         <CollapsedProperties
           key={documentId}
           label={
