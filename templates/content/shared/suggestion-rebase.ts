@@ -38,6 +38,11 @@ function canonicalFormOf(source: string): CanonicalForm {
   return lastCanonicalForm;
 }
 
+/** `source` as the editor saves it, cached for `placeInCanonicalForm`. */
+export function canonicalMarkdownOf(source: string) {
+  return canonicalFormOf(source).canonical;
+}
+
 // Context that repeats on the saved page, such as two table rows that read the
 // same around the target, can survive only at the other copy after someone
 // edits the first, so finding it once on the current page proves nothing.

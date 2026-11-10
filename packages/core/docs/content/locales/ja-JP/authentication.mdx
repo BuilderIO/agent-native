@@ -485,6 +485,20 @@ User-Agent の Canary マーカーは利用可否のヒントにすぎず、リ�
 正規のホスト型アプリは、アプリごとの ID ハブ環境設定なしでパッケージ版 Desktop SSO Canary のリクエストを認識します。通常のブラウザは通常のアプリ別サインインを使います。セルフホスト型アプリで `AGENT_NATIVE_IDENTITY_HUB_URL` が必要なのは、残る明示的な Desktop 経路またはサーバー側フェデレーション経路だけです。安定版 Desktop は、後続リリースが別途承認されるまでブローカーを初期化しません。
 Canary は匿名ユーザーのアプリサインイン画面への遷移を横取りしません。ユーザーは、アクティブな登録済みアプリについて Desktop の設定からワークスペースサインインを明示的に選択する必要があり、通常のアプリサインインが既定の経路のままです。
 
+## 認証ページのカスタマイズ
+
+Chat テンプレートは `server/plugins/auth.ts` で `marketing: false` を設定します。marketing オブジェクトを指定するとパネルが有効になり、モバイルではフォームの下に表示されます。`AuthMarketingProps` は描画されるページのプロパティを表します。プラグインは以下の `marketing` フィールドを受け取ります。`authHeadHtml` はアプリが作成した信頼できる HTML を組み込みスタイルの後に追加します。ユーザー入力を渡さないでください。
+
+```ts filename="server/plugins/auth.ts"
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
+
+export default createToolkitAuthPlugin({
+  rootAuth: true,
+  marketing: { appName: "My app", tagline: "Make work easier" },
+  authHeadHtml: "<style>.auth-root { font-family: sans-serif; }</style>",
+});
+```
+
 ## 管理デプロイと招待
 
 管理デプロイでは `AUTH_SIGNUP=invited`、`ORG_CREATION=closed`、`AUTO_CREATE_DEFAULT_ORG=0` を設定します。[管理デプロイガイド](/docs/administered-deployments)でブートストラップ管理者、招待、許可ドメインを確認してください。メンバー招待とドメインによる参加は別のルールです。

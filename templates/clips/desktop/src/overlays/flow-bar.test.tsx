@@ -156,4 +156,35 @@ describe("FlowBar", () => {
       host.querySelector(".flow-bar-error-heading strong")?.textContent,
     ).toBe("Stop the meeting recording before dictating");
   });
+
+  it("says when a dictation ran on Apple Speech and why", async () => {
+    const onStateChange = mocks.listeners.get("voice:state-change");
+    await act(async () => {
+      onStateChange?.({
+        payload: {
+          state: "complete",
+          runId: 126,
+          insertion: "inserted",
+          historySaved: true,
+          engineFallback: "busy",
+        },
+      });
+      await Promise.resolve();
+    });
+
+    const notes = [...host.querySelectorAll(".flow-bar-result-copy span")].map(
+      (note) => note.textContent,
+    );
+    expect(notes).toContain("dictateRoute.flowAppleSpeechParakeetBusy");
+
+    await act(async () => {
+      onStateChange?.({
+        payload: { state: "complete", runId: 127, insertion: "inserted" },
+      });
+      await Promise.resolve();
+    });
+    expect(
+      host.querySelector(".flow-bar-result-copy")?.textContent,
+    ).not.toContain("AppleSpeech");
+  });
 });
