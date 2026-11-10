@@ -125,6 +125,7 @@ export default function PresenterView({
     [buildSteps],
   );
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const [channelMissing, setChannelMissing] = useState(false);
   const controllerConnectedRef = useRef(false);
   const indexRef = useRef(index);
   indexRef.current = index;
@@ -133,6 +134,7 @@ export default function PresenterView({
     const channel = openPresentChannel(deckId);
     channelRef.current = channel;
     controllerConnectedRef.current = false;
+    setChannelMissing(!channel);
     if (!channel) return;
     channel.onmessage = (event: MessageEvent<PresentMessage>) => {
       if (event.data?.type === "state") {
@@ -451,6 +453,15 @@ export default function PresenterView({
           </button>
         </div>
       </header>
+      {channelMissing && (
+        <p
+          role="alert"
+          // guard:allow-raw-color — matches the presenter's dedicated dark surface used throughout this file, not app chrome
+          className="border-b border-white/10 px-5 py-2 text-sm text-white/70"
+        >
+          {t("editorToolbar.presenterViewUnsupported")}
+        </p>
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
         <div className="flex gap-4">

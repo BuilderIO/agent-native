@@ -2,6 +2,7 @@ import { emailToName } from "@agent-native/core/client/collab";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   closestCenter,
   DndContext,
@@ -61,7 +62,6 @@ import {
   IconClockFilled,
   IconDatabase,
   IconEdit,
-  IconEyeOff,
   IconFileText,
   IconGripVertical,
   IconHash,
@@ -98,6 +98,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -109,6 +110,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Collapsible,
   CollapsibleContent,
@@ -117,6 +119,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -147,6 +150,7 @@ import {
   useContentDatabases,
 } from "@/hooks/use-content-database";
 import {
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useContentDatabaseRowSearch,
@@ -212,6 +216,8 @@ interface DocumentPropertiesProps {
    * don't arrive later and push the page down.
    */
   schemaRowsExpected?: boolean;
+  /** The page reports a failed read itself, so saying so here would repeat it. */
+  leaveReadFailureToPage?: boolean;
   popoversPortalled?: boolean;
   popoverContainer?: HTMLElement | null;
 }
@@ -969,6 +975,12 @@ export function formatPropertyDateTimeInputValue(
   return dateKey ? `${dateKey}T09:00` : "";
 }
 
+function dateInputDay(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return undefined;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
 export function dateInputValueForOffset(baseDate: Date, offsetDays: number) {
   const date = new Date(baseDate);
   date.setDate(date.getDate() + offsetDays);
@@ -1007,18 +1019,22 @@ export function DocumentProperties({
   rowViewPending = false,
   canEdit,
   schemaRowsExpected = false,
+  leaveReadFailureToPage = false,
   popoversPortalled = true,
   popoverContainer,
 }: DocumentPropertiesProps) {
   const t = useT();
-  const { data, isLoading, isError, dataUpdatedAt } = useDocumentProperties(
-    documentId,
-    databaseId,
-  );
+  const propertiesQuery = useDocumentProperties(documentId, databaseId);
+  const { data, isLoading, isError, dataUpdatedAt } = propertiesQuery;
   const loaded = documentPropertiesResponseMatchesScope(
     documentId,
     databaseId,
     data,
+  );
+  const readFailed = documentPropertiesReadFailed(
+    documentId,
+    databaseId,
+    propertiesQuery,
   );
   const canEditValues =
     canEdit &&
@@ -1040,11 +1056,28 @@ export function DocumentProperties({
     (property) => property.definition.type !== "blocks",
   );
   const layout = databaseRowPropertyLayout(properties, rowView);
-  const visibleProperties = layout.listed.filter(isPropertyVisible);
-  const hiddenInViewProperties = layout.hiddenInView.filter(isPropertyVisible);
-  const hiddenProperties = properties.filter(
-    (property) => !isPropertyVisible(property),
+  const emptyWhenOpened = useEmptyWhenOpened(
+    `${documentId}\n${databaseId}`,
+    properties,
   );
+  const isListable = (property: DocumentProperty) =>
+    property.definition.visibility !== "always_hide" &&
+    !emptyWhenOpened.has(property.definition.id);
+  const visibleProperties = layout.listed.filter(isListable);
+  const hiddenInViewProperties = layout.hiddenInView.filter(isListable);
+  const orderedProperties = [...layout.listed, ...layout.hiddenInView];
+  const emptyProperties = canManageSchema
+    ? orderedProperties.filter((property) =>
+        emptyWhenOpened.has(property.definition.id),
+      )
+    : [];
+  const alwaysHiddenProperties = canManageSchema
+    ? orderedProperties.filter(
+        (property) => property.definition.visibility === "always_hide",
+      )
+    : [];
+  const moreProperties = [...hiddenInViewProperties, ...emptyProperties];
+  const collapsedCount = moreProperties.length + alwaysHiddenProperties.length;
   const propertyRow = (property: DocumentProperty) => (
     <PropertyRow
       key={property.definition.id}
@@ -1061,7 +1094,14 @@ export function DocumentProperties({
 
   return (
     <div className="mt-5 border-y border-transparent py-1">
-      {isLoading || !loaded || rowViewPending ? (
+      {readFailed && !leaveReadFailureToPage ? (
+        <QueryErrorState
+          compact
+          onRetry={() => void propertiesQuery.refetch()}
+        />
+      ) : readFailed && !loaded ? null : isLoading ||
+        !loaded ||
+        rowViewPending ? (
         <div className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-3.5" />
           {t("editor.properties.loadingProperties")}
@@ -1070,29 +1110,42 @@ export function DocumentProperties({
         <div className="grid gap-0.5">{visibleProperties.map(propertyRow)}</div>
       ) : null}
 
-      {loaded && !rowViewPending && hiddenInViewProperties.length > 0 ? (
-        <HiddenInViewProperties
-          properties={hiddenInViewProperties}
+      {loaded &&
+      !rowViewPending &&
+      (!readFailed || leaveReadFailureToPage) &&
+      collapsedCount > 0 ? (
+        <CollapsedProperties
+          key={documentId}
+          label={
+            collapsedCount === 1
+              ? t("editor.properties.morePropertiesOne")
+              : t("editor.properties.moreProperties", {
+                  count: collapsedCount,
+                })
+          }
+          properties={moreProperties}
+          opensForProperties={[...moreProperties, ...alwaysHiddenProperties]}
           renderRow={propertyRow}
-          t={t}
-        />
+        >
+          {alwaysHiddenProperties.length > 0 ? (
+            <CollapsedProperties
+              withoutLine={moreProperties.length === 0}
+              label={t("editor.properties.alwaysHiddenCount", {
+                count: alwaysHiddenProperties.length,
+              })}
+              properties={alwaysHiddenProperties}
+              opensForProperties={alwaysHiddenProperties}
+              renderRow={propertyRow}
+            />
+          ) : null}
+        </CollapsedProperties>
       ) : null}
 
       {showSchemaRows && databaseId ? (
-        // Rows drawn on expectation hold their place, even before any
+        // Add property, drawn on expectation, holds its place even before any
         // Property answer, and can't be used until this viewer's rights are
         // confirmed.
         <div className="contents" inert={!canManageSchema || undefined}>
-          {hiddenProperties.length > 0 ? (
-            <HiddenPropertiesMenu
-              databaseDocumentId={databaseDocumentId ?? documentId}
-              documentId={documentId}
-              databaseId={databaseId}
-              properties={hiddenProperties}
-              popoverContainer={popoverContainer}
-              t={t}
-            />
-          ) : null}
           <AddProperty
             databaseDocumentId={databaseDocumentId ?? documentId}
             documentId={documentId}
@@ -1106,140 +1159,105 @@ export function DocumentProperties({
   );
 }
 
-function isPropertyVisible(property: DocumentProperty) {
-  const visibility = property.definition.visibility;
-  if (visibility === "always_hide") return false;
-  if (visibility === "hide_when_empty") {
-    return !isEmptyPropertyValue(property.value);
-  }
-  return true;
+/**
+ * Which "Hide when empty" Properties were empty when this row opened. Filling
+ * one in from the collapsed line, or clearing a listed one, leaves it where it
+ * is until the row reopens, so it doesn't jump away from the cursor. A
+ * Property that joins the list later is read when it joins; the others stay held.
+ */
+function useEmptyWhenOpened(scope: string, properties: DocumentProperty[]) {
+  const hideWhenEmpty = properties.filter(
+    (property) => property.definition.visibility === "hide_when_empty",
+  );
+  const ids = hideWhenEmpty.map((property) => property.definition.id);
+  const key = [scope, ...[...ids].sort()].join("\n");
+  const [held, setHeld] = useState({
+    key: "",
+    scope: "",
+    ids: new Set<string>(),
+    empty: new Set<string>(),
+  });
+  if (held.key === key) return held.empty;
+  const known = held.scope === scope ? held.ids : new Set<string>();
+  const empty = new Set(
+    hideWhenEmpty
+      .filter((property) =>
+        known.has(property.definition.id)
+          ? held.empty.has(property.definition.id)
+          : isEmptyPropertyValue(property.value),
+      )
+      .map((property) => property.definition.id),
+  );
+  setHeld({ key, scope, ids: new Set(ids), empty });
+  return empty;
 }
 
 /**
- * The Properties this row's view hides, a click away. Opening it changes
- * nothing about the view or the collection, and a Comment being written or
- * read on one of them opens it so the Property is there to point at.
+ * Properties tucked behind one line, a click away. Opening it changes nothing
+ * about the view or the collection, and a Comment being written or read on one
+ * of them opens it so the Property is there to point at. `withoutLine` lists
+ * the Properties straight inside a parent line; they stay open and mounted if
+ * they later need a line of their own.
  */
-function HiddenInViewProperties({
+function CollapsedProperties({
+  label,
   properties,
+  opensForProperties,
   renderRow,
-  t,
+  withoutLine = false,
+  children,
 }: {
+  label: string;
   properties: DocumentProperty[];
+  opensForProperties: DocumentProperty[];
   renderRow: (property: DocumentProperty) => ReactNode;
-  t: TFunction;
+  withoutLine?: boolean;
+  children?: ReactNode;
 }) {
   const comments = usePropertyComments();
   const [open, setOpen] = useState(false);
-  const holdsCurrentComment =
-    !!comments &&
-    properties.some(
-      (property) =>
-        comments.pendingPropertyId === property.definition.id ||
-        comments.selectedPropertyId === property.definition.id,
-    );
+  if (withoutLine && !open) setOpen(true);
+  // Keyed on which Property holds the Comment, so a different one opens a line
+  // that was closed by hand.
+  const heldHere = (id: string | null | undefined) =>
+    id && opensForProperties.some((property) => property.definition.id === id)
+      ? id
+      : null;
+  const pendingHere = heldHere(comments?.pendingPropertyId);
+  const selectedHere = heldHere(comments?.selectedPropertyId);
   useEffect(() => {
-    if (holdsCurrentComment) setOpen(true);
-  }, [holdsCurrentComment]);
+    if (pendingHere || selectedHere) setOpen(true);
+  }, [pendingHere, selectedHere]);
   const Chevron = open ? IconChevronDown : IconChevronRight;
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className="mt-1 flex h-8 items-center gap-2 rounded px-1 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-        >
-          <Chevron className="size-4" />
-          {t("editor.properties.hiddenInThisView")}
-          <span className="text-xs text-muted-foreground/70">
-            {properties.length}
-          </span>
-        </button>
-      </CollapsibleTrigger>
+      {withoutLine ? null : (
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="mt-1 flex h-8 items-center gap-2 rounded px-1 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          >
+            <Chevron className="size-4" />
+            {label}
+          </button>
+        </CollapsibleTrigger>
+      )}
       <CollapsibleContent>
-        <div className="grid gap-0.5">{properties.map(renderRow)}</div>
+        {/* Rows give up 20px of name column, once at any depth, so values in a
+            narrow panel lose less and long names still fit. */}
+        <div
+          className={cn(
+            "grid gap-0.5",
+            !withoutLine &&
+              "ml-[11px] border-l border-border pl-2 [--property-name-inset:20px]",
+          )}
+        >
+          {properties.map(renderRow)}
+          {children}
+        </div>
       </CollapsibleContent>
     </Collapsible>
-  );
-}
-
-function HiddenPropertiesMenu({
-  documentId,
-  databaseDocumentId = documentId,
-  databaseId,
-  properties,
-  popoverContainer,
-  t,
-}: {
-  documentId: string;
-  databaseDocumentId?: string;
-  databaseId: string;
-  properties: DocumentProperty[];
-  popoverContainer?: HTMLElement | null | undefined;
-  t: TFunction;
-}) {
-  const configure = useConfigureDocumentProperty(
-    documentId,
-    databaseId,
-    databaseDocumentId,
-  );
-
-  async function showProperty(property: DocumentProperty) {
-    await configure.mutateAsync({
-      id: property.definition.id,
-      documentId,
-      name: property.definition.name,
-      type: property.definition.type,
-      visibility: "always_show",
-      options: property.definition.options,
-    });
-  }
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="mt-1 flex h-8 items-center gap-2 rounded px-1 text-sm text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-        >
-          <IconEyeOff className="size-4" />
-          {t("editor.properties.hiddenProperties")}
-          <span className="text-xs text-muted-foreground/70">
-            {properties.length}
-          </span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-72"
-        container={popoverContainer}
-      >
-        {properties.map((property) => {
-          return (
-            <DropdownMenuItem
-              key={property.definition.id}
-              disabled={configure.isPending}
-              onSelect={(event) => {
-                event.preventDefault();
-                void showProperty(property);
-              }}
-            >
-              <PropertyDefinitionIcon
-                property={property}
-                className="mr-2 size-4 text-muted-foreground"
-              />
-              <span className="min-w-0 flex-1 truncate">
-                {property.definition.name}
-              </span>
-              <span className="ml-2 text-xs text-muted-foreground">
-                {t("editor.properties.show")}
-              </span>
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -1277,7 +1295,7 @@ function PropertyRow({
   return (
     <div
       className={cn(
-        "group/property relative grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm transition-colors hover:bg-muted/40",
+        "group/property relative grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[calc(160px-var(--property-name-inset,0px))_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm transition-colors hover:bg-muted/40",
         // The Comment control floats at the right edge; room is kept for
         // it only while it stays visible, so narrow panels keep their values,
         // or where it would cover the edit button beside a value's links.
@@ -1518,6 +1536,7 @@ export function PropertyManagementPopover({
   popoverContainer?: HTMLElement | null;
 }) {
   const t = useT();
+  const visibilityScopeId = useId();
   const hasColumnMenu = !!(
     sorts &&
     filters &&
@@ -1757,10 +1776,16 @@ export function PropertyManagementPopover({
   }
 
   async function deleteProperty() {
-    await remove.mutateAsync({
-      documentId,
-      propertyId: property.definition.id,
-    });
+    // The hook's own `onError` rolls back, so the shared toast needs this.
+    try {
+      await remove.mutateAsync({
+        documentId,
+        propertyId: property.definition.id,
+      });
+    } catch (error) {
+      reportWriteFailure(error);
+      return;
+    }
     setOpen(false);
   }
 
@@ -2115,22 +2140,30 @@ export function PropertyManagementPopover({
                   className="z-[310] w-56"
                   container={popoverContainer}
                 >
-                  {DOCUMENT_PROPERTY_VISIBILITIES.map((visibility) => (
-                    <DropdownMenuItem
-                      key={visibility}
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        void updateVisibility(visibility);
-                      }}
-                    >
-                      <span className="flex-1">
-                        {t(`editor.propertyVisibility.${visibility}`)}
-                      </span>
-                      {property.definition.visibility === visibility ? (
-                        <IconCheck className="size-4 text-muted-foreground" />
-                      ) : null}
-                    </DropdownMenuItem>
-                  ))}
+                  <DropdownMenuLabel
+                    id={visibilityScopeId}
+                    className="py-1.5 font-normal"
+                  >
+                    {t("editor.properties.visibilityScope")}
+                  </DropdownMenuLabel>
+                  <DropdownMenuGroup aria-labelledby={visibilityScopeId}>
+                    {DOCUMENT_PROPERTY_VISIBILITIES.map((visibility) => (
+                      <DropdownMenuItem
+                        key={visibility}
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void updateVisibility(visibility);
+                        }}
+                      >
+                        <span className="flex-1">
+                          {t(`editor.propertyVisibility.${visibility}`)}
+                        </span>
+                        {property.definition.visibility === visibility ? (
+                          <IconCheck className="size-4 text-muted-foreground" />
+                        ) : null}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
 
@@ -2611,7 +2644,7 @@ export function PropertyValuePopover({
         align="start"
         portalled={portalled}
         container={container}
-        className="w-80 p-2"
+        className="max-h-(--radix-popover-content-available-height) w-80 overflow-y-auto p-2"
       >
         <PropertyValueEditor
           property={property}
@@ -3108,8 +3141,9 @@ function RelationValueEditor({
       setQuery("");
       // Build on the latest list: other rows may have been picked meanwhile.
       add(newId);
-    } catch {
-      // coercion-ok: useActionMutation surfaces the failure; keep the typed title.
+    } catch (error) {
+      // Keep the typed title so the person can retry.
+      reportWriteFailure(error);
     }
   }
 
@@ -3614,6 +3648,10 @@ function DateValueEditor({
       ? formatPropertyDateTimeInputValue(property.value, "end")
       : formatPropertyDateEndInputValue(property.value),
   );
+  const [showEnd, setShowEnd] = useState(endValue !== "");
+  const [month, setMonth] = useState(
+    () => dateInputDay(startValue) ?? new Date(),
+  );
   const dateValueInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -3629,9 +3667,14 @@ function DateValueEditor({
     nextEndValue = endValue,
     nextIncludeTime = includeTime,
   ): DocumentPropertyDateValue | null {
+    // A lone end date is the date, and a reversed range is put in order, so
+    // Save keeps what was picked instead of dropping it.
+    const [start = "", end = null] = [nextStartValue, nextEndValue]
+      .filter(Boolean)
+      .sort();
     return normalizeDatePropertyValue({
-      start: nextStartValue,
-      end: nextEndValue || null,
+      start,
+      end,
       includeTime: nextIncludeTime,
     });
   }
@@ -3653,6 +3696,38 @@ function DateValueEditor({
     });
     onDone();
   }
+
+  // A single date without a time saves on the click, like Today and
+  // Tomorrow; a range or a timed date fills the fields for Save.
+  function pickDay(day: Date | undefined) {
+    if (!day || mutation.isPending) return;
+    const dayKey = dateInputValueForOffset(day, 0);
+    const withTime = (key: string, current: string, fallbackTime: string) =>
+      includeTime ? `${key}T${current.slice(11, 16) || fallbackTime}` : key;
+    if (!showEnd) {
+      if (!includeTime) {
+        void save({ start: dayKey, includeTime: false });
+        return;
+      }
+      setStartValue(withTime(dayKey, startValue, "09:00"));
+      return;
+    }
+    const startKey = startValue.slice(0, 10);
+    if (!startKey || endValue) {
+      setStartValue(withTime(dayKey, startValue, "09:00"));
+      setEndValue("");
+    } else if (dayKey < startKey) {
+      // A second click before the start completes the range in order
+      // rather than dropping the first day.
+      setStartValue(withTime(dayKey, startValue, "09:00"));
+      setEndValue(withTime(startKey, endValue, "17:00"));
+    } else {
+      setEndValue(withTime(dayKey, endValue, "17:00"));
+    }
+  }
+
+  const startDay = dateInputDay(startValue);
+  const endDay = showEnd ? dateInputDay(endValue) : undefined;
 
   return (
     <form
@@ -3710,39 +3785,28 @@ function DateValueEditor({
           {t("editor.properties.tomorrow")}
         </Button>
       </div>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-        {t("editor.properties.start")}
-        <Input
-          ref={dateValueInputRef}
-          aria-label={t("editor.properties.editStartDate", {
-            name: property.definition.name,
-          })}
-          autoFocus
-          name="property-start-value"
-          type={includeTime ? "datetime-local" : "date"}
-          value={startValue}
-          placeholder={t("editor.properties.selectDate")}
-          onChange={(event) => setStartValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onDone();
-            }
-          }}
-        />
-      </label>
-      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-        {t("editor.properties.end")}
-        <div className="flex gap-1">
+      <div
+        className={
+          showEnd && !includeTime ? "grid grid-cols-2 gap-2" : "grid gap-2"
+        }
+      >
+        <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted-foreground">
+          {t("editor.properties.start")}
           <Input
-            aria-label={t("editor.properties.editEndDate", {
+            ref={dateValueInputRef}
+            aria-label={t("editor.properties.editStartDate", {
               name: property.definition.name,
             })}
-            name="property-end-value"
+            autoFocus
+            name="property-start-value"
             type={includeTime ? "datetime-local" : "date"}
-            value={endValue}
-            placeholder={t("editor.properties.optional")}
-            onChange={(event) => setEndValue(event.target.value)}
+            value={startValue}
+            placeholder={t("editor.properties.selectDate")}
+            onChange={(event) => {
+              setStartValue(event.target.value);
+              const day = dateInputDay(event.target.value);
+              if (day) setMonth(day);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
                 event.preventDefault();
@@ -3750,49 +3814,96 @@ function DateValueEditor({
               }
             }}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="shrink-0"
-            onClick={() => setEndValue("")}
-            disabled={!endValue || mutation.isPending}
-          >
-            {t("editor.properties.clear")}
-          </Button>
-        </div>
-      </label>
-      <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
-        <input
-          name="property-include-time"
-          type="checkbox"
-          checked={includeTime}
-          onChange={(event) => {
-            const nextIncludeTime = event.target.checked;
-            setIncludeTime(nextIncludeTime);
-            if (nextIncludeTime) {
-              setStartValue((current) =>
-                current.includes("T")
-                  ? current
-                  : current
-                    ? `${current}T09:00`
-                    : "",
-              );
-              setEndValue((current) =>
-                current.includes("T")
-                  ? current
-                  : current
-                    ? `${current}T17:00`
-                    : "",
-              );
-            } else {
-              setStartValue((current) => current.slice(0, 10));
-              setEndValue((current) => current.slice(0, 10));
-            }
-          }}
+        </label>
+        {showEnd ? (
+          <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted-foreground">
+            {t("editor.properties.end")}
+            <Input
+              aria-label={t("editor.properties.editEndDate", {
+                name: property.definition.name,
+              })}
+              name="property-end-value"
+              type={includeTime ? "datetime-local" : "date"}
+              value={endValue}
+              placeholder={t("editor.properties.optional")}
+              onChange={(event) => {
+                setEndValue(event.target.value);
+                const day = dateInputDay(event.target.value);
+                if (day) setMonth(day);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  onDone();
+                }
+              }}
+            />
+          </label>
+        ) : null}
+      </div>
+      {showEnd ? (
+        <Calendar
+          mode="range"
+          className="mx-auto"
+          month={month}
+          onMonthChange={setMonth}
+          selected={{ from: startDay, to: endDay }}
+          onSelect={(_range, day) => pickDay(day)}
         />
-        {t("editor.properties.includeTime")}
-      </label>
+      ) : (
+        <Calendar
+          mode="single"
+          className="mx-auto"
+          month={month}
+          onMonthChange={setMonth}
+          selected={startDay}
+          onSelect={(_selected, day) => pickDay(day)}
+        />
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
+          <input
+            type="checkbox"
+            checked={showEnd}
+            onChange={(event) => {
+              setShowEnd(event.target.checked);
+              if (!event.target.checked) setEndValue("");
+            }}
+          />
+          {t("database.endDate")}
+        </label>
+        <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
+          <input
+            name="property-include-time"
+            type="checkbox"
+            checked={includeTime}
+            onChange={(event) => {
+              const nextIncludeTime = event.target.checked;
+              setIncludeTime(nextIncludeTime);
+              if (nextIncludeTime) {
+                setStartValue((current) =>
+                  current.includes("T")
+                    ? current
+                    : current
+                      ? `${current}T09:00`
+                      : "",
+                );
+                setEndValue((current) =>
+                  current.includes("T")
+                    ? current
+                    : current
+                      ? `${current}T17:00`
+                      : "",
+                );
+              } else {
+                setStartValue((current) => current.slice(0, 10));
+                setEndValue((current) => current.slice(0, 10));
+              }
+            }}
+          />
+          {t("editor.properties.includeTime")}
+        </label>
+      </div>
       <div className="flex justify-end gap-2">
         <Button
           type="button"

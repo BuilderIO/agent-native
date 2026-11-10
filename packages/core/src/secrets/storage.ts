@@ -194,7 +194,7 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
       encrypted_value = excluded.encrypted_value,
       shared_encrypted_value = excluded.shared_encrypted_value,
       description = excluded.description,
-      url_allowlist = excluded.url_allowlist,
+      url_allowlist = COALESCE(excluded.url_allowlist, app_secrets.url_allowlist),
       updated_at = excluded.updated_at`;
   const upsertArgs = [
     id,
@@ -217,6 +217,32 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   invalidateOptionalKeyCache();
   invalidateAgentEngineStatusCache();
   return String(rows[0]?.id ?? id);
+}
+
+/** Change an existing key's outbound policy without reading or replacing its value. */
+export async function updateAppSecretUrlAllowlist(
+  ref: SecretRef,
+  origins: readonly string[],
+): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `UPDATE app_secrets SET url_allowlist = ?, updated_at = ?
+      WHERE scope = ? AND scope_id = ? AND key = ?
+        AND (description IS NULL OR description NOT LIKE ?)
+      RETURNING id`,
+    args: [
+      JSON.stringify(origins),
+      Date.now(),
+      ref.scope,
+      ref.scopeId,
+      ref.key,
+      `${VAULT_SYNC_DESCRIPTION_PREFIX}%`,
+    ],
+  });
+  if (rows.length === 0) return false;
+  invalidateRequestSecret(ref);
+  invalidateOptionalKeyCache();
+  return true;
 }
 
 export interface ReadSecretResult {
@@ -690,16 +716,20 @@ export async function listAppSecretsForScope(
 }
 
 function parseAllowlist(raw: string | null): string[] | null {
-  if (!raw) return null;
+  if (raw === null) return null;
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.every((v) => typeof v === "string")) {
-      return parsed;
-    }
-    return null;
-  } catch {
-    return null;
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error("Stored secret URL policy is unreadable", { cause: error });
   }
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every((value) => typeof value === "string")
+  ) {
+    throw new Error("Stored secret URL policy is invalid");
+  }
+  return parsed;
 }
 
 export async function deleteAppSecret(ref: SecretRef): Promise<boolean> {

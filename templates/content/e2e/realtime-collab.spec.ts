@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
-import { getDocument, presentUiCapability } from "./helpers";
+import { AgentClient, getDocument, presentUiCapability } from "./helpers";
 
 const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
@@ -278,6 +278,50 @@ test.describe("real-time collaboration between two signed-in users", () => {
           () => undefined,
         );
       }
+    }
+  });
+
+  test("an agent's suggested edit over MCP reaches an open page within seconds, over polling", async ({
+    page: owner,
+    baseURL,
+  }) => {
+    test.setTimeout(180_000);
+    if (!baseURL) throw new Error("playwright baseURL is not configured");
+    // Serverless hosts answer the realtime stream with 204, leaving /poll as
+    // the only channel to the open page.
+    await owner
+      .context()
+      .route("**/_agent-native/events**", (route) =>
+        route.fulfill({ status: 204, body: "" }),
+      );
+    const created = await runAction(owner, "create-document", {
+      title: `Agent suggestion ${Date.now()}`,
+      content: "The wren sat on the cover of the book.",
+    });
+    const documentId = String(created.id);
+    const agent = await AgentClient.connect(owner);
+    try {
+      await gotoDocument(owner, documentId);
+      const { revision } = await getDocument(owner, documentId);
+      const suggested = await agent.call("suggest-document-edit", {
+        id: documentId,
+        baseRevision: revision,
+        idempotencyKey: `agent-suggestion-${documentId}`,
+        find: "the cover",
+        replace: "its cover",
+        summary: "Agent suggestion",
+      });
+      expect(suggested.isError, suggested.raw).toBe(false);
+      // The page's idle check is a minute away, so only the suggestion's own
+      // change event can bring it here sooner.
+      await expect(
+        owner.locator(".ProseMirror .suggestion-insert"),
+      ).toBeVisible({ timeout: 30_000 });
+    } finally {
+      await agent.disconnect();
+      await runAction(owner, "delete-document", { id: documentId }).catch(
+        () => undefined,
+      );
     }
   });
 
