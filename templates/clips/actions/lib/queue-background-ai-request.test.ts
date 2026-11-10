@@ -9,11 +9,8 @@ vi.mock("@agent-native/core/sharing", async (original) => ({
 }));
 
 const mocks = vi.hoisted(() => ({
-  requestEmail: undefined as string | undefined,
   modelAvailability: vi.fn(
-    async (
-      _input?: unknown,
-    ): Promise<"available" | "unavailable" | "unknown"> => "available",
+    async (): Promise<"available" | "unavailable" | "unknown"> => "available",
   ),
   compareAndSetManyAppState: vi.fn(async () => true),
   readAppState: vi.fn(async () => null as Record<string, unknown> | null),
@@ -22,10 +19,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/server", () => ({
   resolveChatModelAvailability: mocks.modelAvailability,
-}));
-
-vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestUserEmail: () => mocks.requestEmail,
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -40,7 +33,6 @@ const requestedAt = "2026-10-08T12:00:00.000Z";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.requestEmail = "owner@example.com";
   mocks.modelAvailability.mockResolvedValue("available");
   mocks.readAppState.mockResolvedValue(null);
   mocks.compareAndSetManyAppState.mockResolvedValue(true);
@@ -67,14 +59,6 @@ describe("queueBackgroundAiRequest model gate", () => {
       statusCode: 409,
     });
     expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
-  });
-
-  it("checks the recording owner when there is no request user", async () => {
-    mocks.requestEmail = undefined;
-    await queue();
-    expect(mocks.modelAvailability).toHaveBeenCalledWith({
-      ownerEmail: "recording-owner@example.com",
-    });
   });
 
   it("fails loudly with ai_model_lookup_unavailable when availability is unknown", async () => {
