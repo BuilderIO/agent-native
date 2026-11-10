@@ -54,13 +54,18 @@ const OPTION_COLORS: DocumentPropertyOptionColor[] = [
 type SourceRow = typeof schema.contentDatabaseSourceRows.$inferSelect;
 type SourceField = typeof schema.contentDatabaseSourceFields.$inferSelect;
 
-function parseMetadata(value: string | null) {
-  if (!value)
-    return {} as { builderModelFields?: BuilderCmsModelFieldSummary[] };
+type SourceMetadata = {
+  builderModelFields?: BuilderCmsModelFieldSummary[];
+  builderSpacePublicKey?: unknown;
+  connectionId?: unknown;
+};
+
+function parseMetadata(value: string | null): SourceMetadata {
+  if (!value) return {};
   try {
     const parsed = JSON.parse(value) as unknown;
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as { builderModelFields?: BuilderCmsModelFieldSummary[] })
+      ? (parsed as SourceMetadata)
       : {};
   } catch {
     return {};
@@ -141,6 +146,8 @@ type ReferenceSnapshot = {
 
 export async function readBuilderReferenceSnapshot(args: {
   sourceTable: string;
+  expectedSourceSpace: string | null;
+  expectedSourceConnectionId: string | null;
   field: BuilderCmsModelFieldSummary;
   visibleValueBySourceRowId?: ReadonlyMap<string, unknown>;
   readEntries?: typeof readBuilderCmsContentEntries;
@@ -148,6 +155,9 @@ export async function readBuilderReferenceSnapshot(args: {
   const sourceFieldKey = requiredFieldKey(args.field);
   const read = await (args.readEntries ?? readBuilderCmsContentEntries)({
     model: args.sourceTable,
+    expectedSourceSpace: args.expectedSourceSpace,
+    expectedSourceConnectionId: args.expectedSourceConnectionId,
+    requireBoundOAuth: true,
     fieldPaths: [sourceFieldKey],
     rawData: true,
     limit: 10_000,
@@ -285,8 +295,8 @@ export default defineAction({
       );
     }
 
-    const modelFields =
-      parseMetadata(source.metadataJson).builderModelFields ?? [];
+    const sourceMetadata = parseMetadata(source.metadataJson);
+    const modelFields = sourceMetadata.builderModelFields ?? [];
     const requiredModelFields = modelFields.filter(
       isRequiredEditableBuilderField,
     );
@@ -316,6 +326,14 @@ export default defineAction({
         field.sourceFieldKey,
         await readBuilderReferenceSnapshot({
           sourceTable: source.sourceTable,
+          expectedSourceSpace:
+            typeof sourceMetadata.builderSpacePublicKey === "string"
+              ? sourceMetadata.builderSpacePublicKey
+              : null,
+          expectedSourceConnectionId:
+            typeof sourceMetadata.connectionId === "string"
+              ? sourceMetadata.connectionId
+              : null,
           field: metadata,
           visibleValueBySourceRowId: new Map(
             sourceRows.map((row) => [
