@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "引用录制内容…",
+    group: "录制内容",
+    authentication: "登录以添加引用。",
+    invalid: "发送前请选择有效的引用。",
+    unavailable: "所选引用已不可用。请移除或重新选择。",
+  },
   meetingAsk: { resizeOrDismissAnswers: "调整答案区域大小或关闭" },
   meetingBrowserConfirmation:
     "Clips 检测到此浏览器正在使用麦克风，但无法判断会议在哪个标签页中进行。",
@@ -571,6 +578,7 @@ const messages = {
     them: "他们",
     me: "我",
     regeneratingNotes: "正在重新生成摘要",
+    notesAlreadyGenerating: "摘要已在生成中，完成后会显示在这里。",
     meetingRemoved: "会议已删除",
     couldNotRemoveMeeting: "无法删除会议",
     couldNotLoadMeeting: "无法加载该会议。",
@@ -651,6 +659,9 @@ const messages = {
     noMatches: "没有匹配项。",
     noTranscript: "还没有文字记录。",
     noTranscriptCaptured: "没有捕获任何文字记录。",
+    unreadableDescription:
+      "已保存的转录文本已损坏。重新生成会根据片段的音频创建新的转录文本。",
+    partialTranscript: "部分文字记录：录制被截断，部分内容可能缺失。",
     backupFailed:
       "本地未捕获任何语音，备份转录未完成。重试或检查麦克风和语音权限。",
     backupNotSetup: "本地未捕获任何语音，且未设置备份转录。",
@@ -1916,6 +1927,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "还剩 {{count}} 个免费片段",
     freeClipsLeft_other: "还剩 {{count}} 个免费片段",
+    activateBuilder: "激活 Builder.io",
     hostedClipsExhaustedTitle: "免费连接 Builder.io，继续录制",
     hostedClipsExhaustedDescription:
       "免费托管录制次数已用完。连接 Builder.io 存储，即可继续将片段保存到资料库。",
@@ -2110,6 +2122,11 @@ const messages = {
     flowOriginalTranscript: "显示原始转写文本",
     flowCleanupSkipped: "未整理文本，已保留原始文本",
     flowBacktrackSkipped: "未应用文本编辑，已保留识别结果",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet 未下载",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Parakeet 下载中",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet 加载中",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet 正忙",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet 加载失败",
     flowCancelDictation: "取消听写",
     flowCopying: "正在复制转写文本…",
     aiProcessed: "AI 已处理",

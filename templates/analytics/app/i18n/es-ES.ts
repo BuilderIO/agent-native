@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "No se pudo cargar el archivo seleccionado.",
+    reference: "Referenciar un panel…",
+    group: "Paneles",
+    authentication: "Inicia sesión para añadir una referencia.",
+    invalid: "Elige una referencia válida antes de enviar.",
+    unavailable:
+      "Una referencia seleccionada ya no está disponible. Elimínala o selecciónala de nuevo.",
+  },
   root: {
     whatsNew: "Novedades",
   },
@@ -1415,11 +1424,16 @@ export default {
     drilldownOverByteCap:
       "Estos registros leerían más de {{gib}} GiB, así que no se cargaron. Acota los filtros o el intervalo de fechas del panel y vuelve a intentarlo.",
     filterSeries: "Filter",
+    noXValue: "Sin valor",
     chartTimeRangeOverride: "Anular el rango de tiempo de este gráfico",
     chartTimeRangeInherit: "Rango del panel",
     hide: "Hide",
     show: "Show",
     saveAsView: "Guardar como vista",
+    unknownTraffic: "Desconocido {{count}}",
+    unknownTrafficUnavailable: "Recuento de desconocidos no disponible",
+    unknownTrafficTip:
+      "Eventos de los últimos {{days}} días sin host ni entorno reconocido. Cuentan como producción.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
@@ -1711,6 +1725,10 @@ export default {
     hideEmptySessions: "Ocultar sesiones vacías",
     networkErrors: "Errores de red",
     rageClicksFilter: "Clics repetidos",
+    traffic: "Tráfico",
+    allTraffic: "Todo el tráfico",
+    productionTraffic: "Producción",
+    betaTraffic: "Beta",
     visitors: "Visitantes",
     allVisitors: "Todos los visitantes",
     internalVisitors: "Internos",

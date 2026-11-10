@@ -1,6 +1,19 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "स्वीकृत मूल",
+  "settingsApiKeys.originsHint":
+    "प्रति पंक्ति एक सटीक HTTPS मूल। खाली रहने पर भेजना रुकता है। स्थानीय HTTP की अनुमति है।",
+  "settingsApiKeys.invalidOrigins": "प्रति पंक्ति एक सटीक HTTPS मूल दर्ज करें।",
+  "settingsApiKeys.editOrigins": "मूल संपादित करें",
+  "settingsApiKeys.originsSaved": "मूल सहेजे गए",
+  "settingsApiKeys.originsCount_one": "{{count}} स्वीकृत मूल",
+  "settingsApiKeys.originsCount_other": "{{count}} स्वीकृत मूल",
+  "settingsApiKeys.noApprovedOrigins": "कोई स्वीकृत मूल नहीं",
+  "extensions.cancel": "रद्द करें",
+  "extensions.context": "संदर्भ",
+  "extensions.confirmAgentMessage": "एक्सटेंशन का संदेश एजेंट को भेजें?",
+  "extensions.sendToAgent": "एजेंट को भेजें",
   "auth.logOutFailed": "साइन आउट नहीं हो सका",
   "block.renderUnavailable": "यह ब्लॉक अस्थायी रूप से उपलब्ध नहीं है।",
   "block.loading": "ब्लॉक लोड हो रहा है।",
@@ -498,7 +511,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "{{integration}} टूल का उपयोग करें",
   "composer.menu.scheduleTask": "कार्य शेड्यूल करें",
   "composer.menu.scheduleTaskDescription": "किसी कार्य को शेड्यूल के अनुसार चलाएँ",
-  "composer.menu.uploadFile": "फ़ाइल अपलोड करें",
+  "composer.menu.uploadFile": "फ़ाइलें और छवियाँ",
+  "composer.menu.searchWorkspace": "वर्कस्पेस में खोजें…",
+  "composer.menu.references": "संदर्भ",
+  "composer.menu.referenceFile": "फ़ाइल का संदर्भ दें",
+  "composer.menu.attachToMessage": "संदर्भ जोड़ें",
+  "composer.menu.commands": "कमांड",
   "composer.menu.uploadFileDescription": "इमेज, PDFs, टेक्स्ट/कोड, JSON, CSV",
   "composer.messageAgent": "एजेंट को संदेश भेजें...",
   "composer.model": "मॉडल",
@@ -1311,6 +1329,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io में मुफ़्त क्रेडिट शामिल हैं, या आप अपनी API कुंजी इस्तेमाल कर सकते हैं।",
   "setup.builderOrOwnKeys":
     "Builder.io (मुफ़्त क्रेडिट) का उपयोग करें या अपनी प्रदाता कुंजियाँ जोड़ें।",
+  "setup.reconnectBuilder": "Builder.io फिर से कनेक्ट करें",
   "setup.connectAi": "AI कनेक्ट करें",
   "setup.connectBuilder": "Builder.io इस्तेमाल करें",
   "setup.connectionsDescription":
@@ -2406,6 +2425,9 @@ const messages: ToolkitAgentChatTranslation = {
     "एजेंट आपके जोड़े गए एक्सेस टोकन का इस्तेमाल करता है, इसलिए वह वही देखता है जो वह टोकन देख सकता है।",
   "settingsShell.integrationDetail.accessToken": "एक्सेस टोकन",
   "settingsShell.integrationDetail.addAccessToken": "एक्सेस टोकन जोड़ें",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "सेव किए गए एक्सेस टोकन की जाँच नहीं हो सकी।",
+  "settingsShell.integrationDetail.tokenCheckRetry": "फिर से कोशिश करें",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "इसे किसी एडमिन को सेट अप करना होगा",
   "settingsShell.integrationDetail.callout.adminNeededBody":

@@ -1,4 +1,12 @@
 export default {
+  composerSources: {
+    uploadFailed: "تعذّر رفع الملف المحدد.",
+    reference: "الإشارة إلى لوحة بيانات…",
+    group: "لوحات البيانات",
+    authentication: "سجّل الدخول لإضافة مرجع.",
+    invalid: "اختر مرجعًا صالحًا قبل الإرسال.",
+    unavailable: "لم يعد المرجع المحدد متاحًا. أزله أو اختره مرة أخرى.",
+  },
   root: {
     whatsNew: "ما الجديد",
   },
@@ -1370,11 +1378,16 @@ export default {
     drilldownOverByteCap:
       "قد تقرأ هذه السجلات أكثر من {{gib}} غيغابايت، لذلك لم تُحمَّل. ضيّق عوامل تصفية لوحة المعلومات أو نطاقها الزمني ثم حاول مرة أخرى.",
     filterSeries: "Filter",
+    noXValue: "بلا قيمة",
     chartTimeRangeOverride: "تجاوز النطاق الزمني لهذه الرسمة البيانية",
     chartTimeRangeInherit: "نطاق لوحة المعلومات",
     hide: "Hide",
     show: "Show",
     saveAsView: "حفظ كعرض",
+    unknownTraffic: "غير معروف {{count}}",
+    unknownTrafficUnavailable: "عدد غير المعروف غير متاح",
+    unknownTrafficTip:
+      "أحداث آخر {{days}} يوم بلا مضيف وبلا بيئة معروفة. تُحتسب ضمن الإنتاج.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
@@ -1654,6 +1667,10 @@ export default {
     hideEmptySessions: "إخفاء الجلسات الفارغة",
     networkErrors: "أخطاء الشبكة",
     rageClicksFilter: "النقرات المتكررة",
+    traffic: "حركة المرور",
+    allTraffic: "كل حركة المرور",
+    productionTraffic: "الإنتاج",
+    betaTraffic: "بيتا",
     visitors: "الزوار",
     allVisitors: "كل الزوار",
     internalVisitors: "داخلي",

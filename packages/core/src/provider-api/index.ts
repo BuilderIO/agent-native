@@ -1936,14 +1936,14 @@ export function isProviderApiId(provider: string): provider is ProviderApiId {
 }
 
 export function listProviderApiIdsForTemplateUse(
-  templateUse: WorkspaceConnectionTemplateUse,
+  templateUse: string,
   overrides: readonly ProviderApiConfig[] = [],
 ): ProviderApiId[] {
   const configs = new Map(
     mergeProviderApiConfigs(overrides).map((config) => [config.id, config]),
   );
   return PROVIDER_API_IDS.filter((id) =>
-    (configs.get(id)?.templateUses ?? []).includes(templateUse),
+    (configs.get(id)?.templateUses ?? []).some((use) => use === templateUse),
   );
 }
 
@@ -1984,6 +1984,68 @@ export function listProviderApiCatalog(
   }));
 }
 
+const registeredProviderApiRuntimes = new Map<
+  string,
+  ProviderApiRuntimeOptions
+>();
+const providerApiRuntimeOptions = new WeakMap<
+  object,
+  ProviderApiRuntimeOptions
+>();
+
+export function registerProviderApiActionRuntime(runtime: object): void {
+  const options = providerApiRuntimeOptions.get(runtime);
+  if (options) registeredProviderApiRuntimes.set(options.appId, options);
+}
+
+export function getRegisteredProviderApiRuntimeOptions(
+  appId: string,
+): ProviderApiRuntimeOptions | undefined {
+  return registeredProviderApiRuntimes.get(appId);
+}
+
+export async function listRegisteredCustomProviderCapabilities(
+  appId: string,
+  context: CredentialContext,
+): Promise<{ id: string; label: string }[]> {
+  const runtime = getRegisteredProviderApiRuntimeOptions(appId);
+  if (!runtime?.getCustomProviders) return [];
+  const providers = await runtime.getCustomProviders();
+  const result: { id: string; label: string }[] = [];
+  for (const provider of providers) {
+    if (
+      !(
+        (provider.scope === "org" && provider.scopeId === context.orgId) ||
+        (provider.scope === "user" && provider.scopeId === context.userEmail)
+      )
+    )
+      continue;
+    const keys = extractCredentialKeysFromCustomAuth(provider.auth);
+    const credentials = await Promise.all(
+      keys.map((key) =>
+        (runtime.resolveCredential ?? defaultProviderApiCredentialResolver)({
+          appId,
+          provider: provider.id,
+          key,
+          ctx: context,
+          localCredentialSource: runtime.localCredentialSource ?? "app_local",
+        }),
+      ),
+    );
+    if (credentials.some((credential) => !credential)) continue;
+    for (const credential of credentials) {
+      if (credential)
+        assertCredentialCanReachEndpoint(
+          { scope: provider.scope, scopeId: provider.scopeId },
+          credential,
+          credential.key,
+        );
+    }
+    result.push({ id: provider.id, label: provider.label });
+  }
+  return result;
+}
+
 export function createProviderApiRuntime(
   options: ProviderApiRuntimeOptions,
 ): ProviderApiRuntime {
@@ -1997,7 +2059,7 @@ export function createProviderApiRuntime(
     providerIds,
     localCredentialSource: options.localCredentialSource ?? "app_local",
   };
-  return {
+  const runtime: ProviderApiRuntime = {
     providerIds,
     listCatalog: (provider) =>
       listProviderApiCatalogWithCustom(
@@ -2021,6 +2083,8 @@ export function createProviderApiRuntime(
     deleteGitHubRepositoryFile: (args) =>
       deleteGitHubRepositoryFile(args, runtimeOptions),
   };
+  providerApiRuntimeOptions.set(runtime, runtimeOptions);
+  return runtime;
 }
 
 export async function fetchProviderApiDocs(
@@ -6400,7 +6464,12 @@ async function fetchWithTimeout(
     const method = options.method ?? "GET";
     const secretValues = options.secretValues ?? [];
     try {
-      const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+      const dispatcher = await createSsrfSafeDispatcher();
+      if (!dispatcher) {
+        throw new Error(
+          "SSRF protection is unavailable because the server dispatcher is empty.",
+        );
+      }
       const fetchOptions: RequestInit & { dispatcher?: unknown } = {
         method,
         headers: options.headers,
@@ -6410,27 +6479,19 @@ async function fetchWithTimeout(
           : controller.signal,
         redirect: "manual",
       };
-      if (dispatcher) fetchOptions.dispatcher = dispatcher;
-      try {
-        return await fetchProviderResponse(optionsUrl, fetchOptions, {
-          maxBytes: options.maxBytes,
-          maxResponseBytes: options.maxResponseBytes,
-          secretValues,
-          discardRedirectBody: options.discardRedirectBody,
-        });
-      } catch (error) {
-        if (dispatcher && isDispatcherCompatibilityError(error)) {
-          const fallbackOptions = { ...fetchOptions };
-          delete fallbackOptions.dispatcher;
-          return await fetchProviderResponse(optionsUrl, fallbackOptions, {
-            maxBytes: options.maxBytes,
-            maxResponseBytes: options.maxResponseBytes,
-            secretValues,
-            discardRedirectBody: options.discardRedirectBody,
-          });
-        }
-        throw error;
-      }
+      fetchOptions.dispatcher = dispatcher;
+      return await fetchProviderResponse(optionsUrl, fetchOptions, {
+        ...(options.maxBytes !== undefined
+          ? { maxBytes: options.maxBytes }
+          : {}),
+        ...(options.maxResponseBytes !== undefined
+          ? { maxResponseBytes: options.maxResponseBytes }
+          : {}),
+        secretValues,
+        ...(options.discardRedirectBody !== undefined
+          ? { discardRedirectBody: options.discardRedirectBody }
+          : {}),
+      });
     } catch (error) {
       throw normalizeFetchError(error, {
         method,
@@ -6596,24 +6657,6 @@ async function fetchProviderResponse(
     text: parsed === undefined ? redactedText : undefined,
     json: parsed,
   };
-}
-
-function isDispatcherCompatibilityError(error: unknown): boolean {
-  const err = error as {
-    message?: unknown;
-    cause?: { code?: unknown; message?: unknown };
-  };
-  const code = typeof err?.cause?.code === "string" ? err.cause.code : "";
-  const detail = [
-    typeof err?.message === "string" ? err.message : "",
-    typeof err?.cause?.message === "string" ? err.cause.message : "",
-  ]
-    .join(" ")
-    .toLowerCase();
-  return (
-    code === "UND_ERR_INVALID_ARG" &&
-    detail.includes("invalid onrequeststart method")
-  );
 }
 
 function normalizeFetchError(

@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Reference a recording…",
+    group: "Recordings",
+    authentication: "Sign in to add a reference.",
+    invalid: "Choose a valid reference before sending.",
+    unavailable:
+      "A selected reference is no longer available. Remove it or choose it again.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
   meetingBrowserConfirmation:
     "Clips sees microphone activity in this browser, but can't tell which tab is in the meeting.",
@@ -546,6 +554,8 @@ const messages = {
     them: "Them",
     me: "Me",
     regeneratingNotes: "Regenerating summary",
+    notesAlreadyGenerating:
+      "A summary is already being generated. It'll show here when it's ready.",
     meetingRemoved: "Meeting removed",
     couldNotRemoveMeeting: "Couldn't remove meeting",
     couldNotLoadMeeting: "Couldn't load this meeting.",
@@ -628,6 +638,10 @@ const messages = {
     noMatches: "No matches.",
     noTranscript: "No transcript yet.",
     noTranscriptCaptured: "No transcript was captured.",
+    unreadableDescription:
+      "The saved transcript is damaged. Regenerating makes a new one from the clip's audio.",
+    partialTranscript:
+      "Partial transcript: this recording was cut off, so some of it may be missing.",
     backupFailed:
       "No speech was captured locally, and backup transcription did not finish. Retry or check microphone and speech permissions.",
     backupNotSetup:
@@ -1997,6 +2011,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "{{count}} free clip left",
     freeClipsLeft_other: "{{count}} free clips left",
+    activateBuilder: "Activate Builder.io",
     hostedClipsExhaustedTitle: "Connect Builder.io for free to keep recording",
     hostedClipsExhaustedDescription:
       "Your free hosted clips are used up. Connect Builder.io storage to keep saving clips to your library.",
@@ -2200,6 +2215,11 @@ const messages = {
     flowOriginalTranscript: "Show original transcript",
     flowCleanupSkipped: "Text cleanup was skipped; original text was kept",
     flowBacktrackSkipped: "Text editing was skipped; recognized text was kept",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet not downloaded",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Parakeet downloading",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet loading",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet busy",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet failed to load",
     flowCancelDictation: "Cancel dictation",
     flowCopying: "Copying transcript…",
     aiProcessed: "AI Processed",

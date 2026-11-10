@@ -6,11 +6,13 @@ import {
   buildMcpInstallLink,
   derivedMcpServerBaseName,
   matchesMcpConnectHost,
+  mcpConnectHostLabel,
   mcpConnectServerName,
   MCP_STATIC_TOKEN_FALLBACK,
   getMcpConnectGuides,
   getMcpStaticTokenFallback,
   type McpConnectEnvironment,
+  resolveMcpClientHostId,
   resolveMcpConnectGuideId,
 } from "./mcp-connect-content.js";
 
@@ -21,7 +23,7 @@ function placeholders(value: string): string[] {
 describe("MCP connection copy", () => {
   it.each([
     ["Claude", "claude"],
-    ["Claude Cowork", "codex"],
+    ["Claude Cowork", "claude"],
     ["Anthropic", "claude"],
     ["Claude Code", "claude-code"],
     ["ChatGPT", "chatgpt"],
@@ -312,5 +314,42 @@ describe("MCP install links", () => {
         /secret|person@example.com|doc_/,
       );
     }
+  });
+});
+
+describe("MCP client hosts", () => {
+  it.each([
+    [{ name: "claude-code" }, "claude-code"],
+    [
+      { userAgent: "claude-code/2.1.308 (sdk-ts, agent-sdk/0.3.276)" },
+      "claude-code",
+    ],
+    [{ userAgent: "codex-mcp-client/0.167.0" }, "codex"],
+    [{ name: "cursor-vscode" }, "cursor"],
+    [{ name: "Visual Studio Code" }, "vscode"],
+    [{ name: "mcp-proxy", userAgent: "codex-mcp-client/0.167.0" }, "codex"],
+    [
+      { name: "claude-code", userAgent: "codex-mcp-client/0.167.0" },
+      "claude-code",
+    ],
+  ])("knows %o as %s", (client, hostId) => {
+    expect(resolveMcpClientHostId(client)).toBe(hostId);
+  });
+
+  it.each([
+    [undefined],
+    [{}],
+    [{ name: "mcp-remote", userAgent: "node" }],
+    [{ name: "code" }],
+    [{ name: "cur" }],
+  ])("names no host for %o", (client) => {
+    expect(resolveMcpClientHostId(client)).toBeUndefined();
+  });
+
+  it("labels a host by its id", () => {
+    expect(mcpConnectHostLabel("claude-code")).toBe("Claude Code");
+    expect(mcpConnectHostLabel("codex")).toBe("Codex");
+    expect(mcpConnectHostLabel("unknown")).toBeUndefined();
+    expect(mcpConnectHostLabel(null)).toBeUndefined();
   });
 });

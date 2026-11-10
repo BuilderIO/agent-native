@@ -29,7 +29,9 @@ function extractMemberEmail(event: H3Event): string | undefined {
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
+import { workspacePrivateOrigins } from "../a2a/workspace-private-origins.js";
 import { warnAgent } from "../agent/action-warnings.js";
+import { isFirstPartyApp } from "../app-config/app-identity.js";
 import { getAppConfig } from "../app-config/index.js";
 import { routeAuditAttribution } from "../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../audit/org-admin.js";
@@ -40,6 +42,7 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { verifyFederatedWorkspaceIconOwner } from "../icon-assets/workspace-transport.js";
 import { offboardMember } from "../identity/offboard.js";
+import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
   getAppProductionUrl,
   resolveAppRuntimeUrl,
@@ -204,6 +207,19 @@ function requireAuthEmail(session: { email?: string } | null): string {
   return email;
 }
 
+function requireVerifiedEmail(
+  session: { email?: string; emailVerified?: boolean } | null,
+): string {
+  const email = requireAuthEmail(session);
+  if (session?.emailVerified !== true) {
+    throw createError({
+      statusCode: 403,
+      message: "Verify your email before joining an organization.",
+    });
+  }
+  return email;
+}
+
 async function getSessionForEvent(event: H3Event) {
   const { getSession } = await import("../server/auth.js");
   return getSession(event);
@@ -214,6 +230,9 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   const requestContext = getRequestContext();
   const delegatedOrgMember =
     requestContext?.a2aIdentityAssurance === "org-member";
+  const emailVerified =
+    !delegatedOrgMember &&
+    (await getSessionForEvent(event))?.emailVerified === true;
   const delegatedEmail = requestContext?.userEmail?.trim().toLowerCase();
   const delegatedOrgId = delegatedOrgMember
     ? requestContext.orgId?.trim()
@@ -289,9 +308,9 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }));
 
   let domainMatches: Array<{ orgId: string; orgName: string }> = [];
-  const domain = delegatedOrgMember
-    ? undefined
-    : ctx.email.split("@")[1]?.toLowerCase();
+  const domain = emailVerified
+    ? ctx.email.split("@")[1]?.toLowerCase()
+    : undefined;
   if (domain) {
     try {
       const dmRes = await e.execute({
@@ -360,23 +379,15 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     );
   }
 
-  const invitesRes = delegatedOrgMember
-    ? scopedDelegatedOrgId
-      ? await e.execute({
-          sql: `SELECT i.id AS id, i.org_id AS "orgId", o.name AS "orgName", i.invited_by AS "invitedBy"
-                FROM org_invitations i
-                INNER JOIN organizations o ON i.org_id = o.id
-                WHERE LOWER(i.email) = ? AND i.org_id = ? AND i.status = 'pending'`,
-          args: [ctx.email.toLowerCase(), scopedDelegatedOrgId],
-        })
-      : { rows: [] }
-    : await e.execute({
+  const invitesRes = emailVerified
+    ? await e.execute({
         sql: `SELECT i.id AS id, i.org_id AS "orgId", o.name AS "orgName", i.invited_by AS "invitedBy"
               FROM org_invitations i
               INNER JOIN organizations o ON i.org_id = o.id
               WHERE LOWER(i.email) = ? AND i.status = 'pending'`,
         args: [ctx.email.toLowerCase()],
-      });
+      })
+    : { rows: [] };
   const pendingInvitations = invitesRes.rows.map((r: any) => ({
     id: String(r.id),
     orgId: String(r.orgId ?? r.org_id),
@@ -1046,7 +1057,7 @@ export const listInvitationsHandler = defineEventHandler(
 export const acceptInvitationHandler = defineEventHandler(
   async (event: H3Event) => {
     const session = await getSessionForEvent(event);
-    const email = requireAuthEmail(session);
+    const email = requireVerifiedEmail(session);
 
     const invitationId = extractInvitationId(event);
     if (!invitationId) {
@@ -1766,7 +1777,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
 export const joinByDomainHandler = defineEventHandler(
   async (event: H3Event) => {
     const session = await getSessionForEvent(event);
-    const email = requireAuthEmail(session);
+    const email = requireVerifiedEmail(session);
 
     const body = await readBody(event);
     const orgId = body?.orgId;
@@ -2192,10 +2203,30 @@ export const syncA2ASecretHandler = defineEventHandler(
 
     // Only first-party built-ins and apps mounted on this deployment may receive
     // the organization secret. A workspace manifest can contain external URLs.
-    const [discoveredAgents, builtins, workspaceApps] = await Promise.all([
-      discoverAgents(),
+    const app = getAppConfig().app;
+    // Use one strict workspace snapshot for both sender identity and discovery.
+    // Other agent sources remain best-effort; they are not workspace recipients.
+    const workspaceApps = await loadWorkspaceAppsManifest(true);
+    const matchingMounts = app.basePath
+      ? (workspaceApps ?? []).filter(
+          (entry) =>
+            typeof entry.path === "string" &&
+            entry.path.startsWith("/") &&
+            !entry.path.startsWith("//") &&
+            normalizeAppBasePath(entry.path) ===
+              normalizeAppBasePath(app.basePath),
+        )
+      : [];
+    const selfAppId =
+      app.workspaceId ??
+      (matchingMounts.length === 1 ? matchingMounts[0]?.id : undefined) ??
+      (!workspaceApps?.length && isFirstPartyApp(app) ? app.slug : undefined);
+    const [discoveredAgents, builtins] = await Promise.all([
+      discoverAgents(selfAppId, {
+        workspaceAppsManifest: workspaceApps,
+        requireResolvableWorkspaceUrls: true,
+      }),
       Promise.resolve(getBuiltinAgentsForSeeding()),
-      loadWorkspaceAppsManifest(),
     ]);
     const registeredBuiltins = new Map(
       builtins.map((agent) => [agent.id, agent.url]),
@@ -2233,6 +2264,7 @@ export const syncA2ASecretHandler = defineEventHandler(
     };
     const agents = discoveredAgents.filter((agent) => {
       if (agent.source === "builtin") {
+        if (isFirstPartyApp(app) && agent.id === app.slug) return false;
         const trustedUrl = registeredBuiltins.get(agent.id);
         return Boolean(trustedUrl && matchesPath(agent.url, trustedUrl));
       }
@@ -2244,6 +2276,13 @@ export const syncA2ASecretHandler = defineEventHandler(
       const registeredPath = registeredWorkspacePaths.get(agent.id);
       return Boolean(registeredPath && matchesPath(agent.url, registeredPath));
     });
+    if (!selfAppId && agents.some((agent) => agent.source === "workspace")) {
+      throw createError({
+        statusCode: 503,
+        message:
+          "Cannot sync workspace A2A secrets without a workspace app ID or a unique configured app base path",
+      });
+    }
 
     const results: Array<{
       id: string;
@@ -2269,6 +2308,27 @@ export const syncA2ASecretHandler = defineEventHandler(
           );
           const protectionHeaders =
             resolveVercelDeploymentProtectionHeaders(target);
+          const recipient = new URL(agent.url);
+          const recipientOrigin = recipient.origin;
+          const loopbackHost =
+            /^https?:\/\/(?:127\.0\.0\.1|\[::1\]|localhost)(?=[:/?#]|$)/i;
+          const configuredLoopback =
+            agent.source === "workspace" &&
+            loopbackHost.test(agent.url) &&
+            workspacePrivateOrigins().some(
+              (configured) =>
+                loopbackHost.test(configured) &&
+                URL.canParse(configured) &&
+                new URL(configured).origin === recipientOrigin,
+            );
+          const allowedLocalhostOrigin =
+            configuredLoopback && recipient.hostname === "localhost"
+              ? recipientOrigin
+              : undefined;
+          const allowedPrivateOrigins =
+            configuredLoopback && !allowedLocalhostOrigin
+              ? [recipientOrigin]
+              : [];
           const res = await ssrfSafeFetch(
             target,
             {
@@ -2281,10 +2341,11 @@ export const syncA2ASecretHandler = defineEventHandler(
               body: JSON.stringify({ secret, orgDomain }),
             },
             {
-              maxRedirects: 3,
-              ...(protectionHeaders["x-vercel-protection-bypass"]
-                ? { followRedirects: false }
-                : {}),
+              maxRedirects: 0,
+              followRedirects: false,
+              requireDispatcher: true,
+              allowedPrivateOrigins,
+              ...(allowedLocalhostOrigin ? { allowedLocalhostOrigin } : {}),
             },
           );
 

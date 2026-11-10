@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/pinpoint",
-  "version": "0.1.108",
+  "version": "0.1.112",
   "description": "Visual feedback and annotation tool for agent-native web applications",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -80,7 +80,7 @@
     "vitest": "^4.1.5"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.224.0-0",
+    "@agent-native/core": ">=0.227.0-0",
     "react": ">=18.0.0"
   },
   "peerDependenciesMeta": {

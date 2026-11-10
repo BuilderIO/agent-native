@@ -13,8 +13,13 @@ import {
   documentToInstantSearchResult,
   excludeAlreadyShownDocuments,
   mergeInstantAndServerResults,
+  pagesInsidePage,
+  pageScopeEntry,
   searchHighlightParts,
+  titleEntryPassesFilters,
+  titleEntryToInstantSearchResult,
   type CommandSearchDocumentResult,
+  type DocumentTitleEntry,
   type InstantSearchFilters,
 } from "./content-command-search";
 
@@ -406,5 +411,139 @@ describe("excludeAlreadyShownDocuments", () => {
       new Set(["a", "c"]),
     );
     expect(filtered.map((d) => d.id)).toEqual(["b"]);
+  });
+});
+
+function makeTitleEntry(
+  overrides: Partial<DocumentTitleEntry> & { id: string },
+): DocumentTitleEntry {
+  return {
+    parentId: null,
+    spaceId: null,
+    title: "Untitled",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    sourceKind: null,
+    sourceUpdatedAt: null,
+    documentType: "page",
+    collectionDocumentId: null,
+    ...overrides,
+  };
+}
+
+describe("titleEntryPassesFilters", () => {
+  const entry = makeTitleEntry({
+    id: "a",
+    spaceId: "space",
+    updatedAt: "2026-06-01T00:00:00.000Z",
+  });
+
+  it("passes with no filters", () => {
+    expect(titleEntryPassesFilters(entry, {})).toBe(true);
+  });
+
+  it("applies each filter", () => {
+    expect(titleEntryPassesFilters(entry, { spaceId: "other" })).toBe(false);
+    expect(titleEntryPassesFilters(entry, { spaceId: "space" })).toBe(true);
+    expect(titleEntryPassesFilters(entry, { documentType: "database" })).toBe(
+      false,
+    );
+    expect(
+      titleEntryPassesFilters(entry, {
+        modifiedAfter: "2026-07-01T00:00:00.000Z",
+      }),
+    ).toBe(false);
+    expect(
+      titleEntryPassesFilters(entry, { insidePage: new Set(["other"]) }),
+    ).toBe(false);
+    expect(titleEntryPassesFilters(entry, { insidePage: new Set(["a"]) })).toBe(
+      true,
+    );
+  });
+});
+
+describe("titleEntryToInstantSearchResult", () => {
+  it("names the parent when the list has it, and no one else's", () => {
+    const titles = new Map([["parent", "Parent page"]]);
+
+    expect(
+      titleEntryToInstantSearchResult(
+        makeTitleEntry({ id: "a", parentId: "parent" }),
+        titles,
+      ).parentTitle,
+    ).toBe("Parent page");
+    expect(
+      titleEntryToInstantSearchResult(
+        makeTitleEntry({ id: "b", parentId: "not-listed" }),
+        titles,
+      ).parentTitle,
+    ).toBeNull();
+  });
+});
+
+describe("pageScopeEntry", () => {
+  const membership = {
+    databaseId: "database",
+    databaseDocumentId: "collection",
+    databaseTitle: "Collection",
+    position: 0,
+  };
+
+  it("places a collection's row inside the collection", () => {
+    expect(
+      pageScopeEntry({
+        id: "row",
+        parentId: null,
+        databaseMembership: membership,
+      }),
+    ).toEqual({
+      id: "row",
+      parentId: null,
+      collectionDocumentId: "collection",
+    });
+  });
+
+  it("leaves a Files row outside the Files page, as the server does", () => {
+    expect(
+      pageScopeEntry({
+        id: "file",
+        parentId: "folder",
+        databaseMembership: { ...membership, systemRole: "files" },
+      }),
+    ).toEqual({ id: "file", parentId: "folder", collectionDocumentId: null });
+  });
+});
+
+describe("pagesInsidePage", () => {
+  const pages = [
+    { id: "root", parentId: null },
+    { id: "child", parentId: "root" },
+    { id: "grandchild", parentId: "child" },
+    { id: "collection", parentId: "root" },
+    { id: "row", parentId: null, collectionDocumentId: "collection" },
+    { id: "row-child", parentId: "row" },
+    { id: "elsewhere", parentId: null },
+    { id: "loop-a", parentId: "loop-b" },
+    { id: "loop-b", parentId: "loop-a" },
+  ];
+
+  it("holds the page, its sub-pages and its collections' rows, however deep", () => {
+    expect([...pagesInsidePage(pages, "root")].sort()).toEqual(
+      ["child", "collection", "grandchild", "root", "row", "row-child"].sort(),
+    );
+  });
+
+  it("holds just the page when nothing is inside it", () => {
+    expect([...pagesInsidePage(pages, "elsewhere")]).toEqual(["elsewhere"]);
+  });
+
+  it("holds a page not in the list, so its own results still show", () => {
+    expect([...pagesInsidePage(pages, "not-listed")]).toEqual(["not-listed"]);
+  });
+
+  it("stops at a loop in the data", () => {
+    expect([...pagesInsidePage(pages, "loop-a")].sort()).toEqual([
+      "loop-a",
+      "loop-b",
+    ]);
   });
 });

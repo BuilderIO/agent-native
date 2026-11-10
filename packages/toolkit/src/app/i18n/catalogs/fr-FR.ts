@@ -1,6 +1,22 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "Origines approuvées",
+  "settingsApiKeys.originsHint":
+    "Une origine HTTPS exacte par ligne. Vide bloque le transfert. HTTP local est autorisé.",
+  "settingsApiKeys.invalidOrigins":
+    "Saisissez des origines HTTPS exactes, une par ligne.",
+  "settingsApiKeys.editOrigins": "Modifier les origines",
+  "settingsApiKeys.originsSaved": "Origines enregistrées",
+  "settingsApiKeys.originsCount_one": "{{count}} origine approuvée",
+  "settingsApiKeys.originsCount_many": "{{count}} origines approuvées",
+  "settingsApiKeys.originsCount_other": "{{count}} origines approuvées",
+  "settingsApiKeys.noApprovedOrigins": "Aucune origine approuvée",
+  "extensions.cancel": "Annuler",
+  "extensions.context": "Contexte",
+  "extensions.confirmAgentMessage":
+    "Envoyer le message de l’extension à l’agent ?",
+  "extensions.sendToAgent": "Envoyer à l’agent",
   "auth.logOutFailed": "Échec de la déconnexion",
   "block.renderUnavailable": "Ce bloc est temporairement indisponible.",
   "block.loading": "Chargement du bloc.",
@@ -1014,6 +1030,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io inclut des crédits gratuits, mais vous pouvez aussi utiliser votre propre clé API.",
   "setup.builderOrOwnKeys":
     "Utilisez Builder.io (crédits gratuits) ou ajoutez les clés de votre propre fournisseur.",
+  "setup.reconnectBuilder": "Reconnecter Builder.io",
   "setup.connectAi": "Connecter l’IA",
   "setup.connectBuilder": "Utiliser Builder.io",
   "setup.connectionsDescription":
@@ -1219,7 +1236,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.menu.scheduleTask": "Planifier une tâche",
   "composer.menu.scheduleTaskDescription":
     "Exécuter quelque chose selon un calendrier",
-  "composer.menu.uploadFile": "Télécharger le fichier",
+  "composer.menu.uploadFile": "Fichiers et images",
+  "composer.menu.searchWorkspace": "Rechercher dans l’espace de travail…",
+  "composer.menu.references": "Références",
+  "composer.menu.referenceFile": "Référencer un fichier",
+  "composer.menu.attachToMessage": "Ajouter du contexte",
+  "composer.menu.commands": "Commandes",
   "composer.menu.uploadFileDescription": "Images, PDFs, texte/code, JSON, CSV",
   "composer.messageAgent": "Écrire à l’agent...",
   "composer.model": "Modèle",
@@ -2623,6 +2645,9 @@ const messages: ToolkitAgentChatTranslation = {
     "L’agent utilise le jeton d’accès que vous ajoutez, il voit donc ce que ce jeton peut voir.",
   "settingsShell.integrationDetail.accessToken": "Jeton d’accès",
   "settingsShell.integrationDetail.addAccessToken": "Ajouter un jeton d’accès",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Impossible de vérifier le jeton d'accès enregistré.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Réessayer",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Un admin doit configurer ceci",
   "settingsShell.integrationDetail.callout.adminNeededBody":

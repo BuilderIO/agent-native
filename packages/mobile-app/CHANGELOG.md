@@ -19,6 +19,92 @@
 - Improved native capture lifecycle tracking and session-token storage so
   uploads and companion actions recover cleanly across app restarts.
 
+## 0.1.204
+
+### Patch Changes
+
+- Updated dependencies [5d1e022]
+- Updated dependencies [a715531]
+- Updated dependencies [bb19e60]
+- Updated dependencies [567bd39]
+- Updated dependencies [b523113]
+- Updated dependencies [27f53b3]
+- Updated dependencies [d0cbf8a]
+- Updated dependencies [8136f49]
+- Updated dependencies [48d9de3]
+- Updated dependencies [50b6315]
+- Updated dependencies [3b4d064]
+- Updated dependencies [6e8b91a]
+- Updated dependencies [8821122]
+- Updated dependencies [f94438c]
+- Updated dependencies [c321597]
+- Updated dependencies [17bf02d]
+- Updated dependencies [7ac4376]
+- Updated dependencies [567bd39]
+- Updated dependencies [d4f3450]
+- Updated dependencies [46ed84c]
+- Updated dependencies
+- Updated dependencies [bb19e60]
+- Updated dependencies [45809d6]
+- Updated dependencies [360f0da]
+- Updated dependencies [8bab3ba]
+- Updated dependencies [c6e09f6]
+- Updated dependencies [79e3904]
+- Updated dependencies [1cf4153]
+- Updated dependencies [df65c1e]
+- Updated dependencies [6c810aa]
+- Updated dependencies [f2d09f0]
+- Updated dependencies [3203739]
+- Updated dependencies [bb19e60]
+- Updated dependencies [36074ef]
+- Updated dependencies [a467c58]
+- Updated dependencies [bb19e60]
+- Updated dependencies [3a8ede4]
+- Updated dependencies [f79ce72]
+- Updated dependencies [567bd39]
+  - @agent-native/core@0.227.0
+  - @agent-native/agentkit@0.227.0
+
+## 0.1.203
+
+### Patch Changes
+
+- Updated dependencies [5ee10e8]
+- Updated dependencies [9aabcfb]
+- Updated dependencies
+- Updated dependencies [dfb0acb]
+- Updated dependencies [d93b5ad]
+  - @agent-native/core@0.226.0
+  - @agent-native/agentkit@0.226.0
+
+## 0.1.202
+
+### Patch Changes
+
+- Updated dependencies [1a62c08]
+- Updated dependencies [a94e957]
+- Updated dependencies
+- Updated dependencies [efb0662]
+  - @agent-native/core@0.225.1
+  - @agent-native/agentkit@0.225.1
+
+## 0.1.201
+
+### Patch Changes
+
+- Updated dependencies [891c0ae]
+- Updated dependencies [00835a7]
+- Updated dependencies [fdf139b]
+- Updated dependencies [e61063b]
+- Updated dependencies
+- Updated dependencies [aeb3d12]
+- Updated dependencies [3ae69a9]
+- Updated dependencies [2d71bbb]
+- Updated dependencies [573f431]
+- Updated dependencies [5c25ab0]
+  - @agent-native/core@0.225.0
+  - @agent-native/agentkit@0.225.0
+
 ## 0.1.200
 
 ### Patch Changes
@@ -2675,40 +2761,5 @@
 
 - Updated dependencies [5a6204c]
   - @agent-native/core@0.172.5
-
-## 0.1.105
-
-### Patch Changes
-
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-- Updated dependencies [680268e]
-  - @agent-native/core@0.172.4
-
-## 0.1.104
-
-### Patch Changes
-
-- Updated dependencies [0fedac0]
-  - @agent-native/core@0.172.3
-
-## 0.1.103
-
-### Patch Changes
-
-- Updated dependencies [f208c0e]
-  - @agent-native/core@0.172.2
-
-## 0.1.102
-
-### Patch Changes
-
-- Updated dependencies [bad078e]
-  - @agent-native/core@0.172.1
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

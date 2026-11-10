@@ -122,6 +122,12 @@ export function runEditorPaste(
   event: ClipboardEvent,
 ) {
   if (event.defaultPrevented) return;
+  // A composer that attaches pastes as context takes Figma pastes itself.
+  if (
+    event.target instanceof Element &&
+    event.target.closest("[data-claims-paste]")
+  )
+    return;
   const figmaContent = getFigmaClipboardContent(event.clipboardData);
   if (figmaContent) {
     event.preventDefault();

@@ -51,6 +51,121 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.227.0
+
+### Minor Changes
+
+- 3b4d064: The CLI now reports three anonymous project activity events: `cli_create_finished`, `cli_dev_ready` and `cli_deploy_finished`. They show how many machines that ran `create` went on to start a dev server and finish a production build, and from which templates. They follow every telemetry setting, and the telemetry docs list every property they can send.
+- f94438c: Collab docs can open from a copy saved in the browser. `useCollaborativeDoc({ localCopy: { onEditsDisplaced } })` keeps each doc's acknowledged Yjs state in IndexedDB, per account, cleared on sign-out or account change and bounded by size. A doc opened again is ready from that copy at once (`fromLocalCopy`) and takes edits, which are sent once the server's diff shows its doc covers the copy; a copy the server's doc does not cover, or that an unreadable answer cannot vouch for, is thrown away and the doc reopens from the server. Typing on the copy that the server's state leaves out (the copy was thrown away, the server deleted the block it went into, or the doc is gone) is passed to `onEditsDisplaced` as the doc stood with it, so the app can keep it; it is never written back into the doc. None of that typing is sent, then or by the next open; a doc the server refuses or no longer has sends nothing until it is retried. A boot read is used only for the session it was made under, and is dropped when a sign-out or organization switch starts. `subscribeSessionInvalidation(listener)`, from `@agent-native/core/client/hooks`, calls `listener` when a sign-out or organization switch starts, in this tab or another, before the session is read again. `GET /_agent-native/collab/:docId/state?stateVector=` now also returns the server's state vector (older clients ignore it). `prefetchCollabState(docId)`, from the new `@agent-native/core/client/collab/prefetch` entry, starts that read at page boot.
+- a467c58: Show one shared toast when a save fails instead of failing silently. `useActionMutation` now announces a failed write that nothing else handles (`errorNotification: "auto" | "shared" | "caller"`, plus an `errorLabel` title), `@agent-native/core/client/write-failure` adds `reportWriteFailure` for writes that are not mutations, and `AppProviders` mounts the toast. A typed 4xx refusal shows its own message, offline, timeout and permission failures show translated text, and a 5xx stays generic. Background saves and mutations that render their own error opt out with `errorNotification: "caller"`.
+
+### Patch Changes
+
+- 5d1e022: Let `A2AClient` callers trust extra operator-configured private origins with the `allowedPrivateOrigins` option, on top of the workspace origins the SSRF guard already allows.
+- a715531: Report slow SELECT 1 timings without attributing the delay solely to the database.
+- bb19e60: Google Analytics, Google Tag Manager and a deployment's head script no longer load on a page whose URL holds a signed link's token (an agent link, an embed link or a Clips intake link), including the sign-in page such a link redirects to and URLs that percent-encode the parameter's name. These tags send the page's URL to their vendors, and the token grants access to whoever has it.
+- 567bd39: Keep sign-in language menus visible, show marketing on mobile, and allow trusted head customization.
+- b523113: Apps load in dev in Brave with Shields on. Brave's default cookie-notice list blocked a core module because its file name contained "consent-banner", so the app never got past its loading skeleton. The module now has a neutral name.
+- 27f53b3: Allow a deployment operator to configure a short-lived Google OAuth recovery envelope encrypted to a pinned recipient, without returning plaintext credentials.
+- d0cbf8a: Default production browser JavaScript filenames to neutral content-hashed names so privacy blockers do not prevent essential app modules and connection popups from loading. Preserve immutable asset caching, explicit output naming, and server/library entry points.
+- 8136f49: Start consented Builder signup activation during verified authentication callbacks and keep already-dispatched tracking sends alive through flush.
+- 48d9de3: Place the optional Builder signup agreement alongside the existing terms and privacy footer.
+- 50b6315: Add `resolveChatModelAvailability` so apps can tell whether the current user can run any chat model before queueing agent work.
+- 6e8b91a: Support app-scoped Builder signup experiments and consented activation before first-run onboarding.
+- 8821122: Bundle the Cloudflare module Worker entry's `@agent-native/core/db/request-pool-context` import so the Worker starts under `wrangler dev`.
+- c321597: Keep inline media out of object tool-result text budgets while preserving document text, revision metadata, and native image parts.
+- 17bf02d: Identify hosted auth shells before app configuration loads, and record Builder signup enrollment and fallback outcomes for end-to-end experiment tracking.
+- 7ac4376: Routes that only accept same-origin requests (voice transcription and cleanup, speech, realtime voice, Builder.io disconnect) now accept a desktop app's `tauri://localhost` page on a hosted server, as they were meant to. WebKit marks those requests `Sec-Fetch-Site: cross-site`, and the check returned 403 on that header before it looked at the desktop origin, so desktop AI polish silently kept the raw text.
+- 567bd39: Remove outdated TipTap overrides, fix static asset header routes, and require PostgreSQL for production migration commands.
+- d4f3450: Keep an agent run alive when its execution lease lapses without being replaced. A database call or event loop that stalls for more than 15 seconds no longer ends the run without a reason and later shows it as "The agent stopped before finishing". Lease renewals also time out and retry instead of blocking every later heartbeat.
+- 46ed84c: A fresh server no longer loads React DOM's server renderer, the sign-in pages and their icon set before it can answer a request. `createToolkitAuthPlugin` loads them before the first page request instead: any GET outside the routes the server answers before the app's router (the framework routes, `/api`, `/mcp`, `/.well-known` and `/assets`), or a browser navigation. It reads each path as the auth guard does, with `getAuthGuardPath`, which core now exports from `@agent-native/core/server/auth-guard-path`. The server's agent-presence code no longer imports React. `renderSignInPage` and `renderResetPasswordPage` may now return `undefined`, which serves core's fallback markup for the auth client script to render in the browser. An app that passes the toolkit's `renderAuthPage` to core's `createAuthPlugin` or `createGoogleAuthPlugin` itself should `await loadAuthPageRenderers()` before serving a sign-in page, or it gets that fallback, cached like the full page. `createGoogleAuthPlugin` now renders its sign-in page for each request that shows it, rather than once at startup, so a renderer that loads later still reaches the page.
+- Release all public npm packages with a patch version bump.
+- bb19e60: A PR preview build no longer fails when a bundled library assigns an object with an `entry` key that reads a variable. The step that pairs the server manifest with the client build now skips objects it can't evaluate, and still fails when it finds no manifest at all.
+- 45809d6: Read a PowerPoint slide's speaker notes through the slide's notes relationship, so notes stay with their slide when only some slides have notes.
+- 360f0da: Add `@agent-native/core/private-media`, a store for images that must only load for people who can open the resource they sit in. It validates image bytes, keeps them in private blob storage, and leaves the access check to the app.
+- 8bab3ba: Queued messages wait for a busy thread to go idle and are promoted then, instead of waiting for the next recurring sweep. If the thread stays busy for 10 minutes, the message is left to the sweep and the server logs an error.
+- c6e09f6: Start consented Builder signup activation in one request and retain provisioning through page exits.
+- 79e3904: Add an admin-only diagnostic for comparing configured Google OAuth credentials without returning their values.
+- 1cf4153: Read the UI capability mint response body to the end instead of cancelling it, so the request completes normally rather than being reported as aborted, and the page still reaches network idle.
+- df65c1e: Recover automatic Builder signup activation from verified, identity-bound consent when browser cookies are missing, and retain pending hints after transient failures.
+- 6c810aa: Replies on a suggested edit save instead of failing with a server error
+
+  Every reply on a suggested edit's card failed with "Internal server error" and was
+  lost. Before saving a reply, the review store looked for a live first comment whose
+  id matched the thread id, but a suggestion's correction comment has an id of its own
+  in a `suggestion-thread-` thread, so the check never matched. The store now finds a
+  thread's first comments by thread, as deleting a thread does, and locks them in the
+  same order. Under that lock it also checks the thread is still open, so a reply can't
+  land in a thread resolved a moment earlier; a retry of a reply that already saved
+  still replays. A reply that can't save now says why: a resolved thread answers 409
+  with "Reopen it to reply", and a deleted thread or missing comment answers 404.
+
+- f2d09f0: Log a safe database diagnostic code when a schema table probe is unreadable, and stop logging raw introspection error text.
+- 3203739: Allow explicitly configured previous encryption keys to read existing ciphertext during coordinated key rotation, while new writes use the current key.
+- bb19e60: Session replay recordings now say which code they ran and what happened along the way: uploads carry the git commit the page was built from when the build's environment names one, each in-app route change is marked with its path, and a failed agent run is marked with its error code, never its message.
+- 36074ef: Fixes for hiding shared chats that fail. When the server refuses a hide, `useChatThreadList` and the toolkit's chat history now fetch the list again. Before, a chat whose access was revoked while the request was out came back and stayed listed until the next refresh. In the toolkit's chat history, a hide that fails after you switch views or close the list now replaces the "Hidden" toast with the error. Before, the toast kept saying the chat was hidden.
+- bb19e60: Embed and Clips intake link tokens are now redacted from first-party analytics and session replay URLs, as agent link tokens already were.
+- 3a8ede4: Fix local databases created by an older core missing store schema after upgrading: the agent_runs runtime migration now creates the thread projection columns its index reads, an append-only repair migration backfills projection retry order for databases that already recorded that runtime entry, and chat_threads gains a runtime migration that creates the submission inbox columns and index the skipped legacy entries added.
+- f79ce72: Centralize tool approval status transitions in a declared lifecycle while retaining atomic consumption, execution fencing, and expiry checks.
+- 567bd39: Prepare every Vercel function's Yjs runtime and run React Router reliably on Windows.
+- Updated dependencies
+  - @agent-native/agentkit@0.227.0
+  - @agent-native/recap-cli@0.5.100
+
+## 0.226.0
+
+### Minor Changes
+
+- d93b5ad: Add user-scoped experience profile actions that select presets over existing deviation flags and enforce private reference access on the server.
+
+### Patch Changes
+
+- 5ee10e8: Separate app context from scoped workspace integration contributions in the shared composer, preserve references through app handoffs, and revalidate integration access before engine dispatch. Preserve bounded app-owned source identifiers in composer draft metadata. Support transport-owned binary uploads in AgentKit and provide the native file-storage upload lifecycle across shared composers.
+- 9aabcfb: Add a pre-signup experiment for automatic Builder account activation with recorded acceptance, verified identity checks, and a new-account-only provisioning contract.
+- Release all public npm packages with a patch version bump.
+- dfb0acb: The `resources` tool `read` action now accepts `offset` and `length` and pages resources larger than 40,000 characters, with a header showing whether the read is partial and the next offset.
+- Updated dependencies [5ee10e8]
+- Updated dependencies
+  - @agent-native/agentkit@0.226.0
+  - @agent-native/recap-cli@0.5.99
+
+## 0.225.1
+
+### Patch Changes
+
+- 1a62c08: Non-image chat attachments uploaded to Builder storage no longer fail the agent run with "An attachment has inline bytes but no durable file URL". Builder's file download URL (`/o/<object>?alt=media&token=…`) now counts as a durable reference, and the client, thread storage, and background dispatch all share one rule for it.
+- a94e957: Log which recurring-job sweep steps were incomplete, and which runs failed stale-projection retry, when the sweep route returns 500.
+- Release all public npm packages with a patch version bump.
+- efb0662: Keep event persistence failures visible to later flushes, durable abort requests, and run finalization without changing a durable abort outcome.
+- Updated dependencies [1a62c08]
+- Updated dependencies
+  - @agent-native/agentkit@0.225.1
+  - @agent-native/recap-cli@0.5.98
+
+## 0.225.0
+
+### Minor Changes
+
+- aeb3d12: Let the share panel choose what general access allows. Anyone at the organization gets a role picker for Can view, Can comment, or Can edit, and Anyone with the link gets one for Can view or Can comment. `set-resource-visibility` takes an optional `role` with `visibility: "org"` or `"public"`. The organization's role is stored as the share grant to the resource's own organization, and the link's role as a share row for the new `link` principal, which only signed-in callers receive and which is never listed or shared as a person. Each is removed when the resource leaves that visibility, and raising the link role needs the same approval as making a resource public. `list-resource-shares` returns `linkRole` for a public resource. `useShareButtonController` adds `generalAccessRole`, `canSetGeneralAccessRole` and `handleGeneralAccessRole`, and while visibility is `org` its `shares` no longer lists the organization grant. `ShareGeneralAccessRow` takes `roleCopy` and `allowedRoles`.
+
+  Going from private to the organization no longer opens a confirmation for every resource type. A registration opts in with `confirmOrgVisibility: true`, which chat threads set; `useShareVisibilityTransition` takes the matching `confirmOrgVisibility` option.
+
+- 573f431: `tool-search` finds the right tool more often in large apps. It now scores each field separately (name, then search hints, then the description's first sentence, then the rest, then parameters), drops conversational words such as "can you" and "my", marks results that delete or cancel as `destructive` so the agent confirms intent before calling one, matches tense ("archived" finds "archive", "running" finds "run") and joined words ("powerpoint" finds "PowerPoint"), counts common synonyms ("copy" for duplicate, "page" for document) at half weight, and ranks an app's own actions slightly above framework tools with the same words. `defineAction` accepts `searchHints`, a short list of words users say for the action, which `tool-search` ranks just below the name and never sends to the model. An action with malformed `searchHints` now fails to load with an `ActionDefinitionError` in every loader, instead of being skipped or run as a CLI wrapper; the error names the action when the loader knows it, which an error raised while a module is evaluated may not.
+
+### Patch Changes
+
+- 891c0ae: Accept an active Better Auth session token as a bearer credential, so the Clips Chrome extension stays signed in when the browser session has no legacy session row. Reject expired Better Auth tokens presented in framework session cookies.
+- 00835a7: Actions now accept a boolean for a parameter declared as the strings `"true"` and `"false"`. Models read a flag like `compact` as a boolean and send `false`; that call used to fail validation, and it now runs as `"false"`.
+- fdf139b: Factory template feedback sweep skill: a test-only change means only test files, plus an optional `.changeset/` entry; Markdown changes no longer count as test-only.
+- e61063b: Feedback sweep skill: every run also searches for roots with no eyes reaction, so a last-seen timestamp can no longer skip reports, and that timestamp advances only to report roots.
+- Release all public npm packages with a patch version bump.
+- 3ae69a9: Keep a redacted private reply attributed to its run so later prompts in the same chat no longer fail with "Thread history cannot be verified".
+- 2d71bbb: Allow WOFF2 font files through the shared upload endpoint.
+- 5c25ab0: Allow organization A2A secret sync to configured loopback workspace gateways without following redirects or syncing to the sender. Fail sync when workspace manifests or recipient URLs are invalid instead of silently omitting apps, including URLs with query strings or fragments, while ignoring non-app folders.
+- Updated dependencies
+  - @agent-native/agentkit@0.225.0
+  - @agent-native/recap-cli@0.5.97
+
 ## 0.224.0
 
 ### Minor Changes
@@ -4489,80 +4604,5 @@
 - 680268e: Emit one `$ai_generation` per model round-trip instead of one per run, and parent each tool span under the generation that requested it. A multi-step agent run rendered in PostHog as a single generation spanning the whole run — a 15-call, 5-minute run drew one 5-minute "model call" — because the run's aggregate usage was reported as if it were one request. Each generation now carries its own prompt, answer, tools, latency, tokens and cost, and `$ai_request_count` counts that call rather than the run, so per-request pricing is right. Run totals (`llm_calls`, `tool_calls`, `successful_tools`, `failed_tools`, `time_to_first_token_ms`, `latency_source`) moved to `$ai_trace`. An engine that never brackets its calls with `model_stream` still falls back to a single aggregate generation. The trace no longer carries `$ai_input_state` / `$ai_output_state`: with every round-trip carrying its own prompt and answer, those repeated the first call's prompt and the last call's answer on a second event. A generation is also no longer marked failed when the run failed after the model answered — a tool that aborted the run, a step budget, or a cut-off now shows on the tool span and the trace, not on a model call that succeeded.
 - 680268e: Three fixes to per-round-trip generations. A tool the run's death interrupts is now associated with the call that requested it — the association is recorded when the tool starts, since an interrupted tool never reaches the completion path and used to hang under the trace root, missing from its generation's counts. A model call the provider failed is marked failed even though its stream bracket closes on the way out, so a provider error is no longer reported as a healthy call and a retry no longer leaves the failed attempt green. And a call that reported its tokens keeps them when a later call throws: usage was gated on the loop's aggregate return value, which never arrives on a throw, so every call that had succeeded lost its tokens and cost.
 - 680268e: Report `$ai_stop_reason` on each generation, and stop discarding an oversized trace payload wholesale. The engine already knew why every model call ended (`end_turn`, `tool_use`, `max_tokens`, …) and never passed it on, so a truncated answer was indistinguishable from a finished one; the `model_stream` close event now carries it. Content over the 128KB ceiling used to be replaced entirely by a placeholder — a 244KB conversation left nothing at all in the trace. An oversized message list now keeps the last user message behind a marker naming how much was dropped — what was asked is what a trace is opened for, and it stays small. `input_truncated` / `output_truncated` still mark anything cut, so a partial payload can never read as a complete one.
-
-## 0.172.3
-
-### Patch Changes
-
-- 0fedac0: Prebundle `diff-match-patch` so the collab text-to-Yjs path loads in the browser.
-
-  `diff-match-patch@1.0.5` ships one CJS file with no ESM entry. It is reached from
-  `collab/text-to-yjs.ts`, which in monorepo dev mode is a source-aliased core
-  module excluded from dep prebundling, so Vite never scanned the import and served
-  the dependency verbatim — its trailing `module.exports` lines threw in the
-  browser. It now has a default `optimizeDeps.include` entry like the other CJS
-  dependencies core reaches from client code.
-
-## 0.172.2
-
-### Patch Changes
-
-- f208c0e: Stop later tool calls in the same assistant message from running while an action
-  waits for human approval.
-
-  The approval gate told the model "the turn is paused" and set
-  `requestedActionStop`, but that flag is only read after the tool loop finishes.
-  The flag that actually suppresses the remaining calls is `turnYieldedToUser`,
-  which the approval path never set — so on `[write(needs approval),
-delete(no approval)]` in one message, the human saw an approval card for the
-  first while the second had already executed. The approval branch now yields the
-  turn like any other action that hands control to the user, and the message shown
-  for a suppressed call names the approval case as well as the ends-turn case.
-
-  A gated call is also no longer eligible for parallel batching. `flushParallelBatch`
-  dispatches a batch through `Promise.all`, so a gated call and its siblings all
-  start before the gate is reached and the suppression lands too late to stop a
-  sibling that already ran. Any action declaring `needsApproval` or `endsTurn` is
-  now serialized, which is what makes the suppression meaningful for the calls
-  after it.
-
-## 0.172.1
-
-### Patch Changes
-
-- bad078e: Expose developer resources, explicit when-to-use guidance, and complete Markdown cache headers in generated agent-web surfaces.
-
-## 0.172.0
-
-### Minor Changes
-
-- 5da9484: Add durable action-level approval preferences and recoverable harness checkpoints.
-
-### Patch Changes
-
-- bd7384b: Scope sidebar toggle events to the matching app chat surface.
-- 4fa0d0c: Harden the shell command policy and the untrusted-text prompt boundaries.
-  - `classifyCodeAgentCommandPermission` now matches its blocked and
-    approval-required rules against the quote-stripped form of the command as well
-    as the raw text. The shell removes quoting before the command word exists, so
-    `git 'checkout' main`, `gi''t checkout main`, `drizzle-kit "push"` and
-    `rm -'r'f /` previously ran as unclassified writes. A command using `$'…'`
-    escaping, which this pass cannot decode, now asks for approval instead of
-    falling through.
-  - `runCodingCommand` settles on `exit` with a short grace for `close` instead of
-    waiting on `close` alone, and spawns detached so a timeout signals the whole
-    process group. A command that backgrounds anything (`npm run dev &`) left a
-    grandchild holding the output pipe and the call never returned — past its
-    timeout too, whose `SIGTERM` went to an `sh -c` wrapper that had already
-    exited. When output is cut short this way the result says so rather than
-    reading as a clean finish.
-  - Automation trigger payloads are capped, wrapped in `<event_payload>` tags with
-    an explicit untrusted-data instruction, and no longer sit ahead of the
-    automation's own body — the same defense `condition-evaluator.ts` already
-    applied before this data reached a tool-less classifier, now applied on the
-    path that reaches an agent with the full tool surface.
-  - Prompt `<resource>` blocks escape both halves of the fence in the body, so
-    shared `AGENTS.md`/`LEARNINGS.md` content cannot forge a block header and pass
-    itself off as framework instructions.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

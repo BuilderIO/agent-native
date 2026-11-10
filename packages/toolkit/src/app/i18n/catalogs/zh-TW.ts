@@ -1,6 +1,19 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "已核准的來源",
+  "settingsApiKeys.originsHint":
+    "每行填寫一個確切的 HTTPS 來源。留空會封鎖轉送。允許本機 HTTP。",
+  "settingsApiKeys.invalidOrigins": "請每行輸入一個確切的 HTTPS 來源。",
+  "settingsApiKeys.editOrigins": "編輯來源",
+  "settingsApiKeys.originsSaved": "來源已儲存",
+  "settingsApiKeys.originsCount_one": "{{count}} 個已核准的來源",
+  "settingsApiKeys.originsCount_other": "{{count}} 個已核准的來源",
+  "settingsApiKeys.noApprovedOrigins": "沒有已核准的來源",
+  "extensions.cancel": "取消",
+  "extensions.context": "上下文",
+  "extensions.confirmAgentMessage": "要將擴充功能訊息傳送給代理嗎？",
+  "extensions.sendToAgent": "傳送給代理",
   "auth.logOutFailed": "登出失敗",
   "block.renderUnavailable": "此區塊暫時無法使用。",
   "block.loading": "正在載入區塊。",
@@ -484,7 +497,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "使用 {{integration}} 工具",
   "composer.menu.scheduleTask": "排程工作",
   "composer.menu.scheduleTaskDescription": "依排程執行工作",
-  "composer.menu.uploadFile": "上傳檔案",
+  "composer.menu.uploadFile": "檔案和圖片",
+  "composer.menu.searchWorkspace": "搜尋工作區…",
+  "composer.menu.references": "參照",
+  "composer.menu.referenceFile": "引用檔案",
+  "composer.menu.attachToMessage": "新增內容脈絡",
+  "composer.menu.commands": "命令",
   "composer.menu.uploadFileDescription": "圖片、PDF、文字/程式碼、JSON、CSV",
   "composer.messageAgent": "傳送訊息給代理...",
   "composer.model": "模型",
@@ -1249,6 +1267,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io 提供免費額度，您也可以使用自己的 API 金鑰。",
   "setup.builderOrOwnKeys":
     "使用 Builder.io（含免費額度），或加入您自己的供應商金鑰。",
+  "setup.reconnectBuilder": "重新連線 Builder.io",
   "setup.connectAi": "連線 AI",
   "setup.connectBuilder": "使用 Builder.io",
   "setup.connectionsDescription":
@@ -2274,6 +2293,9 @@ const messages: ToolkitAgentChatTranslation = {
     "代理程式會使用你新增的存取權杖，因此能看到該權杖可存取的內容。",
   "settingsShell.integrationDetail.accessToken": "存取權杖",
   "settingsShell.integrationDetail.addAccessToken": "新增存取權杖",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "無法檢查已儲存的存取權杖。",
+  "settingsShell.integrationDetail.tokenCheckRetry": "重試",
   "settingsShell.integrationDetail.callout.adminNeeded": "需要管理員進行設定",
   "settingsShell.integrationDetail.callout.adminNeededBody":
     "請 {{org}} 的擁有者或管理員新增 {{name}} 的用戶端 ID 和密鑰。之後你就能連結自己的帳戶。",

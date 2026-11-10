@@ -125,7 +125,9 @@ function stripOptionalToolPlaceholders(
     invalid: boolean;
     nullOnly: boolean;
     listsEraseNothing: boolean;
+    stripNull?: boolean;
   },
+  depth = 0,
 ): { value: unknown; changed: boolean } {
   if (!schema) return { value, changed: false };
 
@@ -135,7 +137,7 @@ function stripOptionalToolPlaceholders(
     )?.items;
     if (!itemSchema) return { value, changed: false };
     const results = value.map((item) =>
-      stripOptionalToolPlaceholders(itemSchema, item, emptyValues),
+      stripOptionalToolPlaceholders(itemSchema, item, emptyValues, depth + 1),
     );
     return results.some((result) => result.changed)
       ? { value: results.map((result) => result.value), changed: true }
@@ -173,6 +175,16 @@ function stripOptionalToolPlaceholders(
       }
       continue;
     }
+    // Top-level only: a nested null may be a deliberate clear.
+    if (
+      emptyValues.stripNull &&
+      depth === 0 &&
+      entry === null &&
+      !required.has(key)
+    ) {
+      placeholders.push(key);
+      continue;
+    }
     if (!required.has(key) && isStructurallyEmptyToolValue(entry)) {
       if (schemaRejectsToolValue(propertySchema, entry)) {
         if (emptyValues.nullOnly && entry !== null) continue;
@@ -181,10 +193,13 @@ function stripOptionalToolPlaceholders(
         continue;
       }
       // A valid `false` sets a value, and `[]` on an action that says an empty
-      // list erases nothing is padding. Elsewhere `[]` could wipe a stored
+      // list erases nothing is padding. `null` on an optional field is absent:
+      // models fill every unused field with it, so it never marks a call as
+      // clearing data. Elsewhere `[]` could wipe a stored
       // list. An empty equal to the schema's own default changes nothing.
       if (
         entry !== false &&
+        entry !== null &&
         !(
           emptyValues.listsEraseNothing &&
           Array.isArray(entry) &&
@@ -202,6 +217,7 @@ function stripOptionalToolPlaceholders(
       propertySchema,
       entry,
       emptyValues,
+      depth + 1,
     );
     if (nested.changed) {
       normalized ??= { ...record };
@@ -221,6 +237,9 @@ function stripOptionalToolPlaceholders(
 
 export class AmbiguousToolPlaceholdersError extends Error {
   readonly errorCode = "ambiguous_tool_placeholders";
+  // A refusal of the caller's input that ran nothing, so the HTTP action
+  // route answers 400 with this message rather than a captured 500.
+  readonly statusCode = 400;
 
   constructor() {
     super(
@@ -250,7 +269,15 @@ export function normalizeOptionalToolPlaceholders(
     nullOnly,
     listsEraseNothing: entry.emptyListsEraseNothing === true,
   };
-  const result = stripOptionalToolPlaceholders(schema, input, emptyValues);
+  let result = stripOptionalToolPlaceholders(schema, input, emptyValues);
+  // A padded call means its nulls are padding too, including on nullable
+  // fields where a lone null would be a deliberate clear.
+  if (emptyValues.invalid && !emptyValues.valid) {
+    result = stripOptionalToolPlaceholders(schema, input, {
+      ...emptyValues,
+      stripNull: true,
+    });
+  }
   // Only a declared read is exempt: a dynamic plan-mode effect classifies the
   // raw input, which defaults can turn into a write.
   if (

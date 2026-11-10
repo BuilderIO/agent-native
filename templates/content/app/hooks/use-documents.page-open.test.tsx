@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { Document } from "@shared/api";
+import type { ContentDatabaseItem, Document } from "@shared/api";
 import {
   QueryClient,
   QueryClientProvider,
@@ -38,6 +38,11 @@ const session = vi.hoisted(() => {
     reset(next: Answer) {
       answer = next;
       listeners.clear();
+    },
+    // The session read answers, and what waited on it hears so.
+    answer() {
+      answer = "first-read";
+      for (const listener of [...listeners]) listener();
     },
   };
 });
@@ -90,6 +95,7 @@ vi.mock("@agent-native/core/client/hooks", () => {
   };
   return {
     callAction,
+    callActionWithRetry: vi.fn(callAction),
     getBrowserTabId: () => "tab-1",
     useDbSync: vi.fn(),
     // Mirrors core: the options run around the action call.
@@ -111,6 +117,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+import { callActionWithRetry } from "@agent-native/core/client/hooks";
+
 import { lastDocumentReadFailure } from "../lib/document-read-failures";
 import {
   clearDocumentCreationConfirmed,
@@ -124,6 +132,7 @@ import { contentSyncInvalidatePredicate } from "./use-db-sync";
 import {
   documentQueryKey,
   ensurePreviewDocumentDraftRead,
+  startDatabaseItemPreviewReads,
   startPageOpenCompanionReads,
   startPageOpenDocumentReads,
   useContentNavigationContext,
@@ -414,6 +423,102 @@ describe("page open document reads", () => {
         },
       ]),
     );
+  });
+
+  it("starts a row's page and Property reads ahead of its panel, once", async () => {
+    const item = {
+      id: "item-1",
+      databaseId: "database",
+      document: { id: "row-1", title: "Plan" },
+      properties: [],
+    } as unknown as ContentDatabaseItem;
+
+    startDatabaseItemPreviewReads(queryClient, item, "database-page");
+    startDatabaseItemPreviewReads(queryClient, item, "database-page");
+
+    await vi.waitFor(() => expect(reads("list-document-properties")).toBe(1));
+    expect(server.calls).toEqual(
+      expect.arrayContaining([
+        {
+          name: "get-page-open-read",
+          params: expect.objectContaining({
+            id: "row-1",
+            databaseId: "database",
+            databaseDocumentId: "database-page",
+          }),
+        },
+        {
+          name: "list-document-properties",
+          params: { documentId: "row-1", databaseId: "database" },
+        },
+      ]),
+    );
+    expect(reads("get-page-open-read")).toBe(1);
+  });
+
+  it("reads a row's Properties ahead with the retries its panel would use", async () => {
+    const item = {
+      id: "item-1",
+      databaseId: "database",
+      document: { id: "row-1", title: "Plan" },
+      properties: [],
+    } as unknown as ContentDatabaseItem;
+
+    startDatabaseItemPreviewReads(queryClient, item, "database-page");
+
+    await vi.waitFor(() => expect(reads("list-document-properties")).toBe(1));
+    expect(callActionWithRetry).toHaveBeenCalledWith(
+      "list-document-properties",
+      { documentId: "row-1", databaseId: "database" },
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("leaves a row's comments and suggestions to the switch when reading ahead", async () => {
+    const item = {
+      id: "item-1",
+      databaseId: "database",
+      document: { id: "row-1", title: "Plan" },
+      properties: [],
+    } as unknown as ContentDatabaseItem;
+
+    startDatabaseItemPreviewReads(queryClient, item, "database-page", {
+      reviewReads: false,
+    });
+
+    await vi.waitFor(() => expect(reads("list-document-properties")).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(reads("get-page-open-read")).toBe(1);
+    expect(reads("list-comments")).toBe(0);
+    expect(reads("list-resource-suggestions")).toBe(0);
+
+    startDatabaseItemPreviewReads(queryClient, item, "database-page");
+
+    await vi.waitFor(() => expect(reads("list-comments")).toBe(1));
+    expect(reads("list-resource-suggestions")).toBe(1);
+    expect(reads("get-page-open-read")).toBe(1);
+  });
+
+  it("reads a row's Properties ahead only once the session is known", async () => {
+    session.reset("pending");
+    const item = {
+      id: "item-1",
+      databaseId: "database",
+      document: { id: "row-1", title: "Plan" },
+      properties: [],
+    } as unknown as ContentDatabaseItem;
+
+    startDatabaseItemPreviewReads(queryClient, item, "database-page", {
+      reviewReads: false,
+    });
+
+    await vi.waitFor(() => expect(reads("get-page-open-read")).toBe(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(reads("list-document-properties")).toBe(0);
+
+    session.answer();
+
+    await vi.waitFor(() => expect(reads("list-document-properties")).toBe(1));
   });
 
   it("leaves comments and suggestions to the page when the session is not known yet", async () => {

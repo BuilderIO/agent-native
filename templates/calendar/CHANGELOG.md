@@ -3,10 +3,34 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-09
+
+### Improved
+
+- More save failures now say why, such as being offline or lacking permission.
+
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+
+### Fixed
+
+- Preserve event seconds and milliseconds when using a time zone.
+
+## 2026-11-04
+
+### Improved
+
+- The agent finds the right Calendar action more often when you talk about meetings, rescheduling, or booking pages in your own words.
+
 ## 2026-11-03
 
 ### Fixed
 
+- Calendar shows available events and avoids an incorrect 'Connect Google' prompt when a connected account has a temporary sign-in problem.
+- Events the agent creates now land at the time you asked for in your Calendar timezone instead of shifting by your UTC offset.
 - Find a time now counts events from all your connected Google accounts as busy time.
 
 ## 2026-10-29

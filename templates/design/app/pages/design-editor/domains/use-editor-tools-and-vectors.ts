@@ -2,6 +2,7 @@ import {
   setAgentChatContextItem,
   removeAgentChatContextItem,
 } from "@agent-native/core/client/agent-chat";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { ReviewComment } from "@agent-native/core/review";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import {
@@ -86,7 +87,11 @@ import {
 } from "../editor-constants";
 import { buildSignInHrefForComment } from "../editor-helpers";
 import { runMirrorSelectionToAgentChat } from "../effects/mirror-selection-to-agent-chat";
-import { runPublishAgentSelectionContext } from "../effects/publish-agent-selection-context";
+import {
+  runPublishAgentSelectionContext,
+  summarizeAgentSelectionScreens,
+  type ScreenFrameTypeCache,
+} from "../effects/publish-agent-selection-context";
 import { loadDesignSystemGenerationContext } from "../generation-prompt-directives";
 import {
   captureContentUndoStackTop,
@@ -240,6 +245,7 @@ export function useEditorToolsAndVectors({
     tweaks,
     handleTweakPromptOpenChange,
     files,
+    overviewFiles,
     codeLayerSourceForScreen,
     designDataJson,
     layoutGrids,
@@ -417,9 +423,9 @@ export function useEditorToolsAndVectors({
         },
         {
           onSuccess: openChat,
-          onError: () => {
+          onError: (error) => {
             setReviewSendingThreadId(null);
-            toast.error(t("review.sendToAgentFailed"));
+            reportWriteFailure(error, { label: t("review.sendToAgentFailed") });
           },
         },
       );
@@ -1426,7 +1432,7 @@ export function useEditorToolsAndVectors({
   const handleOverviewScreenSelectionChange = useCallback(
     (ids: string[], intent?: ElementSelectionIntent) => {
       const pendingId = pendingOverviewScreenSelectionRef.current;
-      const fileIds = new Set(getOverviewScreenFileIds(files));
+      const fileIds = new Set(getOverviewScreenFileIds(overviewFiles));
       const nextIds = ids.filter((layerId) => fileIds.has(layerId));
       if (intent?.screenSelectionToggle) {
         explicitOverviewScreenSelectionRef.current =
@@ -1537,7 +1543,7 @@ export function useEditorToolsAndVectors({
     [
       boardFileId,
       clearPendingOverviewLayerSelectionTimer,
-      files,
+      overviewFiles,
       handleBreakpointBarSelect,
     ],
   );
@@ -1672,6 +1678,17 @@ export function useEditorToolsAndVectors({
     ],
   );
 
+  const selectionPublishFailedLabel = t("designEditor.selectionPublishFailed");
+  const screenFrameTypeCacheRef = useRef<ScreenFrameTypeCache>(new Map());
+  const agentSelectionScreens = useMemo(
+    () =>
+      summarizeAgentSelectionScreens(
+        files,
+        designDataJson,
+        screenFrameTypeCacheRef.current,
+      ),
+    [designDataJson, files],
+  );
   useEffect(
     () =>
       runPublishAgentSelectionContext({
@@ -1684,7 +1701,6 @@ export function useEditorToolsAndVectors({
         designDataJson,
         layoutGrids,
         designSelectionOwnerIdRef,
-        files,
         hoveredElement,
         id,
         interactDevice: {
@@ -1694,6 +1710,7 @@ export function useEditorToolsAndVectors({
         },
         interactTheme,
         isSignedIn,
+        selectionPublishFailedLabel,
         mode,
         motionAutoKeyframeEnabled,
         motionDockOpen,
@@ -1708,6 +1725,7 @@ export function useEditorToolsAndVectors({
         persistedSelectionWriteTimerRef,
         responsiveEditScope,
         reviewThreadId: openReviewThreadId,
+        screens: agentSelectionScreens,
         selectedElement,
         selectedScreenIds,
         selectedStateId,
@@ -1718,7 +1736,7 @@ export function useEditorToolsAndVectors({
       id,
       design,
       activeFile,
-      files,
+      agentSelectionScreens,
       selectedScreenIds,
       selectedElement,
       hoveredElement,
@@ -1743,6 +1761,7 @@ export function useEditorToolsAndVectors({
       selectedStateId,
       openReviewThreadId,
       isSignedIn,
+      selectionPublishFailedLabel,
       interactDeviceName,
       interactDeviceSize.width,
       interactDeviceSize.height,

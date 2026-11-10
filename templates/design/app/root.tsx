@@ -26,6 +26,7 @@ import {
   useHomeSuggestionSeedForHome,
 } from "@agent-native/toolkit/app-shell";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
+import { useStartupInteractionBlocked } from "@agent-native/toolkit/app/onboarding";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import {
   AppShellSkeleton,
@@ -451,14 +452,18 @@ function PrivateRootContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const hasSession = Boolean(session?.email);
   const isPublicVisualEdit = location.pathname === "/visual-edit";
+  const activatingBuilderSignup = useStartupInteractionBlocked();
+  useEffect(() => {
+    if (activatingBuilderSignup) setCmdkOpen(false);
+  }, [activatingBuilderSignup]);
   useDesignVariantPickTracking();
   // The home prompt composer takes focus on load, and without this the shortcut
   // is swallowed whenever a contenteditable has focus.
   useCommandMenuShortcut(
     useCallback(() => {
-      if (!hasSession || isPublicVisualEdit) return;
+      if (!hasSession || isPublicVisualEdit || activatingBuilderSignup) return;
       setCmdkOpen(true);
-    }, [hasSession, isPublicVisualEdit]),
+    }, [activatingBuilderSignup, hasSession, isPublicVisualEdit]),
     { allowContentEditable: true },
   );
 
@@ -475,7 +480,12 @@ function PrivateRootContent() {
       {hasSession && <DbSyncSetup />}
       <OpenVisualEditWebMcp />
       {hasSession && !isPublicVisualEdit && (
-        <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+        <DesignCommandMenu
+          open={cmdkOpen && !activatingBuilderSignup}
+          onOpenChange={(open) => {
+            if (!open || !activatingBuilderSignup) setCmdkOpen(open);
+          }}
+        />
       )}
       {content}
     </>
@@ -569,6 +579,7 @@ export default function Root() {
     >
       <AppToolkitProvider>
         <AppProviders
+          builderSignupExperiment="design_builder_signup_v1"
           queryClient={queryClient}
           skeletonLayout="prompt-library"
           {...(firstPaintHome ? { clientOnlyFallback: firstPaintHome } : {})}

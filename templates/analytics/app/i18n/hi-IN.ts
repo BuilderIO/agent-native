@@ -1,4 +1,12 @@
 export default {
+  composerSources: {
+    uploadFailed: "चुनी गई फ़ाइल अपलोड नहीं हो सकी।",
+    reference: "डैशबोर्ड का संदर्भ दें…",
+    group: "डैशबोर्ड",
+    authentication: "संदर्भ जोड़ने के लिए साइन इन करें।",
+    invalid: "भेजने से पहले एक मान्य संदर्भ चुनें।",
+    unavailable: "चुना गया संदर्भ अब उपलब्ध नहीं है। उसे हटाएँ या फिर से चुनें।",
+  },
   root: {
     whatsNew: "नया क्या है",
   },
@@ -1355,11 +1363,16 @@ export default {
     drilldownOverByteCap:
       "ये रिकॉर्ड {{gib}} GiB से ज़्यादा पढ़ेंगे, इसलिए लोड नहीं हुए। डैशबोर्ड के फ़िल्टर या तारीख की सीमा छोटी करें और फिर से कोशिश करें।",
     filterSeries: "Filter",
+    noXValue: "कोई मान नहीं",
     chartTimeRangeOverride: "इस चार्ट के लिए समय सीमा ओवरराइड करें",
     chartTimeRangeInherit: "डैशबोर्ड सीमा",
     hide: "Hide",
     show: "Show",
     saveAsView: "दृश्य के रूप में सहेजें",
+    unknownTraffic: "अज्ञात {{count}}",
+    unknownTrafficUnavailable: "अज्ञात की गिनती उपलब्ध नहीं",
+    unknownTrafficTip:
+      "पिछले {{days}} दिनों के ऐसे इवेंट जिनमें न होस्ट है और न कोई पहचाना गया परिवेश। इन्हें प्रोडक्शन में गिना जाता है।",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
@@ -1642,6 +1655,10 @@ export default {
     hideEmptySessions: "खाली सत्र छिपाएँ",
     networkErrors: "नेटवर्क त्रुटियाँ",
     rageClicksFilter: "बार-बार क्लिक",
+    traffic: "ट्रैफ़िक",
+    allTraffic: "सारा ट्रैफ़िक",
+    productionTraffic: "प्रोडक्शन",
+    betaTraffic: "बीटा",
     visitors: "आगंतुक",
     allVisitors: "सभी आगंतुक",
     internalVisitors: "आंतरिक",

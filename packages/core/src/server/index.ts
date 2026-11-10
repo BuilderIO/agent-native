@@ -100,6 +100,7 @@ export {
   mountAuthMiddleware,
   autoMountAuth,
   registerAuthPublicPaths,
+  recordBuilderSignupBinding,
   getSession,
   getBrowserCookieSession,
   isSessionResolutionUnavailable,
@@ -263,6 +264,10 @@ export {
   resolveEngine,
 } from "../agent/engine/index.js";
 export {
+  resolveChatModelAvailability,
+  type ChatModelAvailability,
+} from "../agent/engine/chat-model-availability.js";
+export {
   completeText,
   type CompleteTextMessage,
   type CompleteTextOptions,
@@ -394,6 +399,7 @@ export {
   createThread,
   getThread,
   listThreads,
+  searchThreads,
   updateThreadData,
   deleteThread,
   setThreadArchived,

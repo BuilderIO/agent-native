@@ -1,5 +1,30 @@
 # @agent-native/creative-context
 
+## 0.8.69
+
+### Patch Changes
+
+- dc1be54: Add `isCreativeContextOffForUser`, which reports when the lab is unavailable to the user or their saved preference is off, so callers can drop reuse labels that `validateGenerationCreativeContext` would refuse.
+- Release all public npm packages with a patch version bump.
+
+## 0.8.68
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.67
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.8.66
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.65
 
 ### Patch Changes
@@ -619,30 +644,5 @@
 ### Patch Changes
 
 - 25f588e: Redirect legacy `/agent` management URLs to the canonical settings routes and preserve app-owned settings tabs.
-
-## 0.6.2
-
-### Patch Changes
-
-- e177059: Restore the serverless Playwright fallback so production URL extraction can use packaged Chromium.
-
-## 0.6.1
-
-### Patch Changes
-
-- aa24c7e: Use the declared optional Playwright runtime through a literal import so Cloudflare deployments can apply their fail-closed browser stub.
-- 9d8ae68: Run website brand extraction in an isolated real browser through the SSRF-safe network proxy, with serverless Chromium support and an explicit static fallback.
-
-## 0.6.0
-
-### Minor Changes
-
-- abb0cf5: Add a shared browser-rendered website design-system extraction surface with computed visual tokens, component evidence, and bounded design.md summaries.
-
-## 0.5.12
-
-### Patch Changes
-
-- 2765110: Avoid database migrations and recurring sweeps during durable background cold starts.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

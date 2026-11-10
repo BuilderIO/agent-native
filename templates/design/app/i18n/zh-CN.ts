@@ -324,6 +324,7 @@ export default {
   common: {
     loading: "正在加载...",
     genericError: "出了点问题",
+    linkedSourceSizeLimit: "此关联组件编辑超出了源代码大小限制。",
   },
   editPanel: {
     colorInputLabel: "颜色",
@@ -1022,6 +1023,8 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "无法加载此屏幕。",
+    selectionPublishFailed: "智能体可能看不到你最新的选择。请重新选择。",
     liveCollaboration: {
       title: "实时协作",
       description:
@@ -1594,30 +1597,17 @@ export default {
       editColor: "编辑 {{name}} 的颜色",
     },
     import: {
-      title: "导入",
       description: "将 Figma 剪贴板 HTML 或独立 HTML 导入为 Design 屏幕。",
-      figmaUrlTitle: "Figma 画框 URL",
-      figmaUrlDescription: "从 Figma 链接导入画框或文件。",
       figmaUrlLabel: "Figma 画框或文件 URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "正在检查 Figma 连接…",
-      figmaConnected: "Figma 已连接",
-      figmaConnectedWithSuffix: "Figma 已连接 · ••••{{suffix}}",
       figmaTokenLabel: "Figma 访问令牌",
       figmaTokenDocs: "获取令牌",
       figmaTokenPlaceholder: "粘贴您的 Figma 个人访问令牌",
-      figmaTokenDescription:
-        "安全保存以用于 Figma 导入和代理聊天。令牌绝不会加入聊天。",
-      importFigmaUrl: "从 Figma 导入",
-      saveKeyAndImport: "保存密钥并导入",
       figmaUrlSuccess: "已从 Figma 导入。",
       figmaImageFallbackWarning:
         "图像回退：{{count}}。外观会保留，但这些图层无法完全编辑。",
       figmaApproximationWarning:
         "近似图层：{{count}}。HTML/CSS 无法精确表示所有 Figma 属性。",
-      figmaPasteTitle: "从 Figma 粘贴",
-      figmaPasteDescription:
-        "在 Figma 中复制画框或图层，然后粘贴到 Design 画布。Design 会导入可见的剪贴板 HTML。",
       figmaPasteTarget: "粘贴到画布",
       figmaPasteApiKeyHint: "连接您的 Figma 访问令牌以获得精确的节点导入。",
       figmaPasteAccessDenied:
@@ -1625,10 +1615,10 @@ export default {
       figmaPasteMatchGuidance:
         "无法匹配到特定的 Figma 节点。请改为粘贴画框链接以进行精确导入。",
       figmaPasteUnreadable:
-        "剪贴板中没有复制的 Figma 图层。请在 Figma 中选中画框，按 Cmd+C 复制后再粘贴，或从导入面板导入 Figma 链接。",
+        "剪贴板中没有复制的 Figma 图层。请在 Figma 中选中画框，按 Cmd+C 复制后再粘贴，或在聊天中粘贴该画框的链接。",
       figmaPasteRestLabel: "通过 Figma API 导入",
       figmaPasteHtmlLabel: "从剪贴板预览导入",
-      figmaPasteLocalKiwiLabel: "已在未登录状态下导入 — 仅包含几何与文字",
+      figmaPasteLocalKiwiLabel: "已从 Figma 剪贴板导入",
       figmaPasteImagesNeedToken:
         "{{count}} 张图片{{plural}}需要 Figma 访问权限才能加载。",
       figmaPasteImagesDontShowAgain: "不再显示",
@@ -1659,71 +1649,27 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: "上传 .fig",
       figUploadDescription:
         "实验性功能：Figma 的 .fig 格式为专有格式且可能变化。支持的图层会转换为可编辑屏幕，部分功能可能有所不同。最大 {{max}} MB。",
-      chooseFigFile: "选择 .fig 文件",
       figUploadUploading: "正在上传 {{progress}}%",
       figUploadProcessing: "正在转换…",
-      figImportWarningTitle: "大型 .fig 导入",
-      figImportWarningDescription:
-        "此文件包含 {{frames}} 个画框和 {{nodes}} 个图层。全部导入可能会让编辑器变慢。请选择需要的页面。",
-      figImportFrameCount: "已选择 {{selected}} / {{total}} 个画框",
-      figImportSelectAll: "全选",
-      figImportClearAll: "全部清除",
-      figImportCancel: "取消",
-      figImportSelected: "导入已选择的 {{count}} 个",
-      figImportAll: "全部导入",
       figImportAnalyzing: "正在分析…",
       figImportSaving: "正在保存 {{saved}} / {{total}} 个画框",
-      figImportFrameLimit: "所选页面的画框总数不能超过 {{max}} 个。",
       figImportFramesSkippedWarning:
         "已跳过 {{count}} 个过于复杂、无法导入的画框：{{names}}",
-      figUploadLimits: "最大 {{size}} GB · 每次导入最多 {{frames}} 个画框",
-      figUploadDescriptionShort:
-        "本地导入 — 不使用 Figma API 配额。会包含受支持的嵌入图片。",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "Design 已暂停此导入",
-      quotaCooldownBody:
-        "达到配额上限后，Design 正在限制自身的 Figma 请求速率。配额将自动重置。",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "导入 HTML",
       htmlDescription:
         "粘贴或上传独立 HTML。Design 会将其保存为新屏幕，不会注入到此编辑器界面。",
-      htmlPlaceholder: "<main>在此粘贴独立 HTML...</main>",
-      importHtml: "导入 HTML",
-      chooseHtmlFile: "选择 HTML 文件",
       allSupportedFiles: "所有支持的文件",
-      githubTitle: "GitHub",
       githubDescription: "即将推出：直接从仓库导入屏幕和组件。",
-      localTitle: "本地 app",
       localDescription: "使用 /visual-edit 连接任何正在运行的本地 app。",
-      visualEditGuidance:
-        "安装 /visual-edit skill，启动任意本地 app，然后在该 app repo 中运行桥接命令，让代理添加 URL 屏幕。",
-      comingSoon: "即将推出",
       warningsToast: "导入完成但有警告",
       figmaSuccess: "已导入 Figma 粘贴内容",
       htmlSuccess: "已导入 HTML",
       uploadSuccess: "已导入文件",
-      lastImport: "上次导入",
       errors: {
         figmaTokenMustBeToken: "请粘贴 Figma 访问令牌，而不是 Figma 文件链接。",
-        figmaUrlRequired: "请粘贴 Figma 画框或文件 URL。",
-        invalidFigmaUrl: "请输入有效的 figma.com 画框或文件 URL。",
         figmaImportFailed: "无法从 Figma 导入",
         notHtml: "请粘贴或选择有效的 HTML 进行导入。",
         importFailed: "导入失败",
@@ -1731,9 +1677,11 @@ export default {
         uploadFailed: "文件上传失败",
         invalidFigFile: "请选择以 .fig 结尾的文件。",
         unsupportedFileType: "请选择 .fig、.html 或 .htm 文件。",
-        importBusy: "另一个导入正在进行。请先完成或取消。",
+        importBusy: "另一个导入正在进行。请在其完成后重试。",
         figFileTooLarge:
-          "该 .fig 文件太大 — 上传上限为 {{max}} MB。请在 Figma 中将需要导入的画板复制到新文件，然后导出该文件为 .fig，或改用“从 Figma 粘贴”。",
+          "此文件太大，无法在此导入。请改为粘贴 Figma 页面或画框的链接。",
+        figFileUnreadable:
+          "无法将此文件读取为 .fig 文件。请从 Figma 保存新的本地副本并导入。",
       },
     },
     generationMayHaveStopped:
@@ -1789,6 +1737,7 @@ export default {
       duplicate: "复制",
       versionHistory: "版本历史",
       import: "导入…",
+      connectLocalApp: "连接本地应用",
       delete: "删除",
       deleteError: "无法删除此设计",
     },
@@ -2537,6 +2486,8 @@ export default {
     changesSaveWhenReconnected: "重新连接时将保存更改",
     changesDiscarded: "部分更改因文件不存在而无法保存，已被丢弃。",
     offline: "离线",
+    unsaved: "未保存",
+    saveRetrying: "无法保存你的更改，正在自动重试。",
     saving: "正在保存...",
     clearedAllAnnotations: "已清除所有批注",
     annotationsDiscardedOnViewChange:
@@ -2591,32 +2542,48 @@ export default {
   },
   homeContext: {
     websiteReference: "添加网站",
+    websiteReferenceMenu: "添加网站…",
     websiteUrlLabel: "网站 URL",
     websiteUrl: "粘贴网站 URL",
-    figmaUrlLabel: "Figma 链接",
     invalidFigmaUrl: "请输入有效的 figma.com 画框或文件 URL。",
     tooMany: "最多选择 20 个参考。",
     invalidWebsiteUrl: "请输入有效的 HTTP 或 HTTPS URL。",
     createSystem: "创建设计系统",
     noSystems: "你还没有设计系统。可以从网站、文件或 Figma 创建。",
     searchSystems: "搜索设计系统…",
-    searchFrames: "搜索 Figma 画框…",
     searchDesigns: "搜索设计…",
     searchPresentations: "搜索演示文稿…",
     searchDesign: "搜索设计…",
     useDesignSystem: "使用设计系统",
     notReady: "提示尚未准备好提交。请检查所选上下文和连接，然后重试。",
     search: "搜索上下文…",
-    figmaUrl: "粘贴 Figma 链接",
-    browse: "浏览画框",
     loadFailed: "无法加载此参考。",
     retry: "重试",
     empty: "没有匹配的参考。",
     none: "无",
-    design: "设计",
+    design: "设计参考",
     slides: "幻灯片",
     referenceDesign: "参考设计",
-    figmaReference: "添加 Figma",
+    connectFigma: "连接 Figma",
+    figmaReference: "Figma 设计…",
+    figmaDialogTitle: "添加 Figma 设计",
+    figmaDropTitle: "拖入 .fig 文件",
+    figmaChooseFile: "选择文件",
+    figmaPasteHint: "你也可以把复制的框架直接粘贴到提示中。",
+    figmaAddToPrompt: "添加到提示",
+    figmaLinkNeedsConnection:
+      "链接需要已连接的 Figma 账户。请改为拖入 .fig 文件或粘贴复制的框架。",
+    figmaReferenceMore: "{{name}} 等 {{count}} 个",
+    figmaReferenceEmpty: "没有收到任何框架。请在 Figma 中复制一个框架后重试。",
+    figmaSelection: "Figma 选区",
+    figmaFileTooLarge:
+      "此文件太大，无法在这里读取。请改为粘贴其页面或框架的链接。",
+    figmaSearch: "搜索页面和框架",
+    figmaSelectedCount: "已选择 {{count}} 项",
+    figmaShowFrames: "显示 {{name}} 中的框架",
+    figmaLinkNotFrame: "请链接到 Figma 页面或框架。",
+    figmaPageFrameCap:
+      "添加前 {{limit}} 个框架。勾选框架可自行选择要添加哪些。",
     referenceDeck: "参考演示文稿",
     quickSaas: "创建 SaaS 落地页",
     quickDashboard: "创建仪表盘",
@@ -2782,7 +2749,6 @@ export default {
     import: "导入",
     importFromFigma: "从 Figma 导入",
     figmaFile: "Figma 文件 (.fig)",
-    figmaFileMaxSize: "最大 {{max}} GB",
     openImport: "打开导入",
     importSelectedFile: "导入所选文件",
     starterSaasPrompt:

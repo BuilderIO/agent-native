@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Referenciar una grabación…",
+    group: "Grabaciones",
+    authentication: "Inicia sesión para añadir una referencia.",
+    invalid: "Elige una referencia válida antes de enviar.",
+    unavailable:
+      "Una referencia seleccionada ya no está disponible. Elimínala o selecciónala de nuevo.",
+  },
   meetingAsk: {
     resizeOrDismissAnswers: "Cambiar el tamaño o cerrar las respuestas",
   },
@@ -635,6 +643,8 @@ const messages = {
     them: "A ellos",
     me: "A mí",
     regeneratingNotes: "Regenerando resumen",
+    notesAlreadyGenerating:
+      "Ya se está generando un resumen. Aparecerá aquí cuando esté listo.",
     meetingRemoved: "Reunión eliminada",
     couldNotRemoveMeeting: "No se pudo eliminar la reunión",
     couldNotLoadMeeting: "No se pudo cargar esta reunión.",
@@ -724,6 +734,10 @@ const messages = {
     noMatches: "Sin coincidencias.",
     noTranscript: "Aún no hay transcripción.",
     noTranscriptCaptured: "No se capturó ninguna transcripción.",
+    unreadableDescription:
+      "La transcripción guardada está dañada. Al regenerarla, se crea una nueva a partir del audio del clip.",
+    partialTranscript:
+      "Transcripción parcial: la grabación se cortó, por lo que puede faltar parte.",
     backupFailed:
       "No se capturó ningún discurso localmente y la transcripción de respaldo no finalizó. Vuelva a intentarlo o verifique los permisos de micrófono y voz.",
     backupNotSetup:
@@ -2067,6 +2081,7 @@ const messages = {
     freeClipsLeft_one: "Te queda {{count}} clip gratis",
     freeClipsLeft_other: "Te quedan {{count}} clips gratis",
     freeClipsLeft_many: "Te quedan {{count}} clips gratis",
+    activateBuilder: "Activar Builder.io",
     hostedClipsExhaustedTitle: "Conecta Builder.io gratis para seguir grabando",
     hostedClipsExhaustedDescription:
       "Has usado todos tus clips alojados gratis. Conecta el almacenamiento de Builder.io para seguir guardando clips en tu biblioteca.",
@@ -2278,6 +2293,11 @@ const messages = {
     flowCleanupSkipped: "Se omitió la revisión y se conservó el texto original",
     flowBacktrackSkipped:
       "Se omitió la edición y se conservó el texto reconocido",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet no descargado",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Descargando Parakeet",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Cargando Parakeet",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet ocupado",
+    flowAppleSpeechParakeetFailed: "Apple Speech · No se pudo cargar Parakeet",
     flowCancelDictation: "Cancelar dictado",
     flowCopying: "Copiando la transcripción…",
     aiProcessed: "Procesado por IA",

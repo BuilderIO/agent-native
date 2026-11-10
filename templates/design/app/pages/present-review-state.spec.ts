@@ -48,7 +48,8 @@ vi.mock("@agent-native/core/client/ui", () => ({
   buildSignInReturnHref: () => "/sign-in",
 }));
 
-vi.mock("@agent-native/core/shared", () => ({
+vi.mock("@agent-native/core/shared", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/shared")>()),
   normalizeDocumentTitle: (title: string) => title,
 }));
 

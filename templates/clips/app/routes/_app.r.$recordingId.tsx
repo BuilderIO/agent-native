@@ -80,7 +80,6 @@ import {
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   Link,
   useParams,
@@ -91,6 +90,7 @@ import {
 import { toast } from "sonner";
 
 import { ClipsAvatar } from "@/components/clips-avatar";
+import { ClipsComposerContextProvider } from "@/components/ClipsComposerContext";
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
 import { RecordingEditorBoundary } from "@/components/editor/recording-editor-boundary";
@@ -1180,6 +1180,8 @@ export default function RecordingPage() {
   const transcriptFullText = playerDataQ.data?.transcript?.fullText ?? null;
   const transcriptStatus = playerDataQ.data?.transcript?.status;
   const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
+  const transcriptUnreadable =
+    playerDataQ.data?.transcript?.segmentsUnreadable === true;
   useEffect(() => {
     if (!recording?.id || !transcriptStatus) return;
     if (transcriptLifecycleRecordingIdRef.current !== recording.id) {
@@ -2144,8 +2146,6 @@ export default function RecordingPage() {
     }
   }, [isLoomRecording, playerDataQ, recording?.sourceWindowTitle, recordingId]);
   const firstCta = ctas[0] ?? null;
-  const handleAiError = (err: Error) =>
-    toast.error(err?.message ?? t("recordingPage.aiRequestFailed"));
   const beginAiRequest = (kind: ClipsAiRequestKind) => {
     activeAiRequestRef.current = { kind, requestedAt: null };
     primeCompletionCue();
@@ -2316,6 +2316,7 @@ export default function RecordingPage() {
     },
   });
   const setEmbedDuration = useActionMutation("set-embed-duration" as any, {
+    errorNotification: "caller",
     onSuccess: () => void playerDataQ.refetch(),
     onError: (err: Error) => {
       console.warn("[clips] Could not save the YouTube clip's duration", err);
@@ -2503,7 +2504,8 @@ export default function RecordingPage() {
     { retry: false },
   );
   const updateAiPrefs = useActionMutation("update-clips-ai-prefs" as any, {
-    onError: handleAiError,
+    errorNotification: "shared",
+    errorLabel: t("recordingPage.aiRequestFailed"),
   });
   const [includeFullVideoOverride, setIncludeFullVideoOverride] = useState<
     boolean | null
@@ -3099,6 +3101,7 @@ export default function RecordingPage() {
                   : transcriptStatus
               }
               failureReason={transcriptFailureReason}
+              unreadable={transcriptUnreadable}
               recordingTitle={recording.title}
               onRetry={
                 canTranscribe
@@ -3146,6 +3149,7 @@ export default function RecordingPage() {
           ref={agentPanelContentRef}
         >
           <AgentPanel
+            composerContextProvider={ClipsComposerContextProvider}
             emptyStateText={t("recordingPage.askAboutClip")}
             dynamicSuggestions={false}
             scope={{ type: "recording", id: recording.id }}
@@ -3698,32 +3702,26 @@ export default function RecordingPage() {
                         }}
                         className="h-full w-full rounded-none sm:rounded-2xl"
                       />
-                      {commentOpen && canComment
-                        ? (() => {
-                            const composer = (
-                              <TimestampedCommentBar
-                                recordingId={recording.id}
-                                atMs={commentAtMs}
-                                draft={commentDraft}
-                                onDraftChange={setCommentDraft}
-                                onClose={() => setCommentOpen(false)}
-                                onAdded={() => {
-                                  if (isCompactLayout) setPanel("comments");
-                                  void playerDataQ.refetch();
-                                }}
-                              />
-                            );
-                            // The Fullscreen API only paints the player's own
-                            // element, so portal the composer there instead of
-                            // exiting fullscreen when it's open.
-                            const fullscreenContainer =
-                              isPlayerFullscreen &&
-                              playerRef.current?.container;
-                            return fullscreenContainer
-                              ? createPortal(composer, fullscreenContainer)
-                              : composer;
-                          })()
-                        : null}
+                      <TimestampedCommentBar
+                        open={commentOpen && canComment}
+                        recordingId={recording.id}
+                        atMs={commentAtMs}
+                        draft={commentDraft}
+                        onDraftChange={setCommentDraft}
+                        onClose={() => setCommentOpen(false)}
+                        onAdded={() => {
+                          if (isCompactLayout) setPanel("comments");
+                          void playerDataQ.refetch();
+                        }}
+                        // The Fullscreen API only paints the player's own
+                        // element, so the composer moves there instead of
+                        // exiting fullscreen when it's open.
+                        portalContainer={
+                          isPlayerFullscreen
+                            ? playerRef.current?.container
+                            : undefined
+                        }
+                      />
                     </div>
                   )}
                 </div>

@@ -10,11 +10,25 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  isOperationApplied,
+  parseAppliedOperationRevisions,
+  withAppliedOperationRevision,
+  withLegacyOperationReceipt,
+} from "../server/lib/content-operation-receipts.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   checkpointSkippedResultField,
   snapshotDesignBeforeAgentEdit,
 } from "../server/lib/design-versions.js";
+import {
+  LegacyEmailFrameTypeNotStoredError,
+  writeWithLegacyEmailFrameTypes,
+} from "../server/lib/legacy-email-frame-type.js";
+import {
+  readDesignDataForUpdate,
+  serializeFrameTypeChange,
+} from "../server/lib/screen-frame-type-store.js";
 import {
   affectedRowCount,
   getDesignSourceMutationExec,
@@ -27,11 +41,17 @@ import {
   withSourceFileWriteLock,
   writeInlineSourceFile,
 } from "../server/source-workspace.js";
+import { parseDesignDataBlob } from "../shared/full-app.js";
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
-import { assertHubSpotEmailFrameContent } from "../shared/hubspot-email-authoring.js";
+import { assertHubSpotEmailFileType } from "../shared/hubspot-email-authoring.js";
 import { isHubSpotEmailHtml } from "../shared/hubspot-email.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
+import {
+  frameTypeFromStored,
+  resolveScreenFrameType,
+  STORED_SCREEN_FRAME_TYPES,
+} from "../shared/screen-frame-type.js";
 import {
   applySourceContentPatch,
   sourceContentHash,
@@ -49,12 +69,10 @@ function logSaveConflictDebug(
   console.warn(`[update-file:debug] ${event}`, detail);
 }
 
-function contentChangedConflict(): Error & { statusCode?: number } {
-  const conflict = new Error(
+function contentChangedConflict(): SourceWorkspaceEditConflictError {
+  return new SourceWorkspaceEditConflictError(
     "File changed since it was read. Re-read the file and retry.",
-  ) as Error & { statusCode?: number };
-  conflict.statusCode = 409;
-  return conflict;
+  );
 }
 
 function contentFromPatch(
@@ -111,6 +129,12 @@ export default defineAction({
         .enum(["html", "css", "jsx", "asset"])
         .optional()
         .describe("Updated file type"),
+      frameType: z
+        .enum(STORED_SCREEN_FRAME_TYPES)
+        .optional()
+        .describe(
+          'Set "hubspot-email" to make this HTML screen a HubSpot email frame, laid out 600px wide with no device variants, or "web" to make an email frame an ordinary screen with the design\'s breakpoints again. Omit to keep the current type.',
+        ),
       syncCollab: z
         .boolean()
         .optional()
@@ -209,6 +233,7 @@ export default defineAction({
         if (
           value.filename !== undefined ||
           value.fileType !== undefined ||
+          value.frameType !== undefined ||
           value.syncCollab === false
         ) {
           ctx.addIssue({
@@ -241,6 +266,7 @@ export default defineAction({
       contentPatch,
       filename,
       fileType,
+      frameType,
       syncCollab,
       identityOnly,
       expectedVersionHash,
@@ -255,7 +281,10 @@ export default defineAction({
         filename.includes("/") ||
         filename.includes("\\"))
     ) {
-      throw new Error("Invalid filename: path traversal not allowed");
+      fail("Invalid filename: path traversal not allowed", {
+        errorCode: "invalid_filename",
+        statusCode: 400,
+      });
     }
 
     const widgetDesignId = designWidgetWriteDesignId(context, "update-file");
@@ -300,7 +329,25 @@ export default defineAction({
       syncCollab,
     });
 
-    await assertAccess("design", file.designId, "editor");
+    const access = await assertAccess("design", file.designId, "editor");
+    // Only a non-HTML file can fail the check, so HTML saves skip parsing the
+    // design data.
+    const targetFileType = fileType ?? file.fileType;
+    if (targetFileType !== "html") {
+      assertHubSpotEmailFileType({
+        fileType: targetFileType,
+        frameType:
+          frameType === undefined
+            ? resolveScreenFrameType({
+                designData: parseDesignDataBlob(
+                  (access.resource as { data?: unknown }).data,
+                ),
+                fileId: file.id,
+                content: requestedContent ?? file.content,
+              })
+            : frameTypeFromStored(frameType),
+      });
+    }
     const checkpoint = await snapshotDesignBeforeAgentEdit(
       file.designId,
       context,
@@ -316,13 +363,15 @@ export default defineAction({
         !expectedVersionHash ||
         filename !== undefined ||
         fileType !== undefined ||
+        frameType !== undefined ||
         syncCollab === false ||
         !operationSource ||
         !Number.isSafeInteger(operationRevision) ||
         (operationRevision ?? 0) <= 0
       ) {
-        throw new Error(
+        fail(
           "Identity-only updates require a source version and operation lineage, and cannot change file metadata or disable collaboration sync.",
+          { errorCode: "identity_update_invalid", statusCode: 400 },
         );
       }
       const write = await writeInlineSourceFile({
@@ -374,17 +423,64 @@ export default defineAction({
     // read-check-write.
     let skippedStaleMirror = false;
     let skippedStaleOperation = false;
+    const receipt = { alreadyApplied: false };
     let exactOperationAlreadyPersisted = false;
     let outputChanged = false;
     let persistedVersionHash: string | undefined;
     let persistedUpdatedAt: string | undefined;
 
+    let storedLegacyEmailIds: ReadonlySet<string> = new Set();
     const runMutation = (lease?: PreparedYDocMutationLease) =>
       withDesignSourceMutationTransaction(file.designId, async (tx) => {
+        // An explicit frame type commits with the content write, so a failed
+        // write leaves neither behind. A skipped write passes null for
+        // previousContent: its request lost to a newer one, so its type must
+        // not land either. A non-HTML file rechecks the type here, under the
+        // row lock, so a concurrent switch to email cannot slip past the
+        // check made before the transaction.
+        const touchDesign = async (
+          previousContent: string | null,
+          nextContent: string,
+          persistedFileType: string | null,
+        ) => {
+          const lockedFileType = fileType ?? persistedFileType ?? file.fileType;
+          const changesType =
+            frameType !== undefined && previousContent !== null;
+          const current =
+            changesType || lockedFileType !== "html"
+              ? await readDesignDataForUpdate(tx, file.designId)
+              : undefined;
+          if (current && lockedFileType !== "html") {
+            assertHubSpotEmailFileType({
+              fileType: lockedFileType,
+              frameType:
+                frameType === undefined
+                  ? resolveScreenFrameType({
+                      designData: current,
+                      fileId: id,
+                      content: nextContent,
+                    })
+                  : frameTypeFromStored(frameType),
+            });
+          }
+          const data =
+            current && changesType
+              ? serializeFrameTypeChange(current, {
+                  fileId: id,
+                  frameType,
+                  previousContent,
+                })
+              : undefined;
+          await tx
+            .update(schema.designs)
+            .set({ updatedAt: now, ...(data === undefined ? {} : { data }) })
+            .where(eq(schema.designs.id, file.designId));
+        };
         await lockDesignFilesTable(tx);
         for (let attempt = 0; attempt < 4; attempt += 1) {
           skippedStaleMirror = false;
           skippedStaleOperation = false;
+          receipt.alreadyApplied = false;
           outputChanged = false;
           exactOperationAlreadyPersisted = false;
           persistedUpdatedAt = undefined;
@@ -398,6 +494,8 @@ export default defineAction({
                 schema.designFiles.contentOperationRevision,
               contentOperationResultHash:
                 schema.designFiles.contentOperationResultHash,
+              contentOperationRevisions:
+                schema.designFiles.contentOperationRevisions,
             })
             .from(schema.designFiles)
             .where(eq(schema.designFiles.id, id))
@@ -405,6 +503,9 @@ export default defineAction({
           if (!persistedFile) {
             throw fileNotFound(id);
           }
+          const appliedRevisions = parseAppliedOperationRevisions(
+            persistedFile.contentOperationRevisions,
+          );
 
           outputChanged =
             (filename !== undefined && filename !== persistedFile.filename) ||
@@ -443,13 +544,15 @@ export default defineAction({
             contentPatch && expectedVersionHash
               ? contentFromPatch(liveContent, expectedVersionHash, contentPatch)
               : requestedContent;
-          assertHubSpotEmailFrameContent({
-            content: content ?? liveContent,
-            fileType: fileType ?? persistedFile.fileType ?? "html",
-            previousContent: isHubSpotEmailHtml(liveContent)
-              ? liveContent
-              : persistedFile.content,
-          });
+          if (
+            frameType === undefined &&
+            writesContent &&
+            !storedLegacyEmailIds.has(id) &&
+            (isHubSpotEmailHtml(liveContent) ||
+              isHubSpotEmailHtml(persistedFile.content))
+          ) {
+            throw new LegacyEmailFrameTypeNotStoredError(id);
+          }
           if (content !== undefined) {
             assertDesignHtmlEditIntegrity({
               previousContent: liveContent,
@@ -484,6 +587,23 @@ export default defineAction({
               content !== undefined &&
               persistedContentHash === sourceContentHash(content) &&
               persistedFile.contentOperationResultHash === persistedContentHash;
+          }
+          // The session's later saves, or another writer's, replaced the file
+          // after this save landed, so the last-writer check above cannot see
+          // it. A save the file already took is skipped, never re-applied.
+          if (
+            !skippedStaleOperation &&
+            hasVersionedContentOperation &&
+            appliedRevisions !== null &&
+            requestedOperationRevision !== null &&
+            isOperationApplied(
+              appliedRevisions,
+              operationSource,
+              requestedOperationRevision,
+            )
+          ) {
+            skippedStaleOperation = true;
+            receipt.alreadyApplied = true;
           }
 
           // A versioned mirror-only save still needs a conflict when a live
@@ -549,6 +669,16 @@ export default defineAction({
               outputChanged ||
               sourceContentHash(content) !== sourceContentHash(liveContent);
             persistedVersionHash = sourceContentHash(content);
+            // This write replaces the scalar receipt of the writer before it, so
+            // that receipt is kept in the map. An unreadable map restarts empty:
+            // the receipts it held are lost, which only means older copies merge
+            // instead of being skipped.
+            const receiptsBefore = appliedRevisions ?? {};
+            const receipts = withLegacyOperationReceipt(
+              receiptsBefore,
+              persistedFile.contentOperationSource,
+              persistedFile.contentOperationRevision,
+            );
             if (
               operationSource !== undefined &&
               operationRevision !== undefined
@@ -556,10 +686,20 @@ export default defineAction({
               updates.contentOperationSource = operationSource;
               updates.contentOperationRevision = operationRevision;
               updates.contentOperationResultHash = persistedVersionHash;
+              updates.contentOperationRevisions = JSON.stringify(
+                withAppliedOperationRevision(
+                  receipts,
+                  operationSource,
+                  operationRevision,
+                ),
+              );
             } else {
               updates.contentOperationSource = null;
               updates.contentOperationRevision = null;
               updates.contentOperationResultHash = null;
+              if (receipts !== receiptsBefore) {
+                updates.contentOperationRevisions = JSON.stringify(receipts);
+              }
             }
           }
           if (filename !== undefined) updates.filename = filename;
@@ -631,8 +771,12 @@ export default defineAction({
               )
               .limit(1);
             if (collision && collision.id !== id) {
-              throw new Error(
+              fail(
                 `File "${filename}" already exists in design ${file.designId}`,
+                {
+                  errorCode: "filename_taken",
+                  statusCode: 409,
+                },
               );
             }
             updateResult = await tx
@@ -685,10 +829,11 @@ export default defineAction({
               ) {
                 skippedStaleOperation = true;
                 persistedVersionHash = confirmedHash;
-                await tx
-                  .update(schema.designs)
-                  .set({ updatedAt: now })
-                  .where(eq(schema.designs.id, file.designId));
+                await touchDesign(
+                  null,
+                  confirmed.content,
+                  persistedFile.fileType,
+                );
                 return;
               }
               throw new SourceWorkspaceEditConflictError(
@@ -712,10 +857,11 @@ export default defineAction({
             applyTextToYDoc(lease.doc, "content", content, "agent");
             await lease.persist(getDesignSourceMutationExec(tx), content);
           }
-          await tx
-            .update(schema.designs)
-            .set({ updatedAt: now })
-            .where(eq(schema.designs.id, file.designId));
+          await touchDesign(
+            skippedStaleOperation || skippedStaleMirror ? null : liveContent,
+            content !== undefined && !skipContentWrite ? content : liveContent,
+            persistedFile.fileType,
+          );
           persistedUpdatedAt = now;
           return;
         }
@@ -726,23 +872,33 @@ export default defineAction({
           operationRevision: operationRevision ?? null,
           expectedVersionHash,
         });
-        const exhausted = new Error(
+        throw new SourceWorkspaceEditConflictError(
           "File changed repeatedly while it was being saved. Re-read the file and retry.",
-        ) as Error & { statusCode?: number };
-        exhausted.statusCode = 409;
-        throw exhausted;
+        );
       });
 
     try {
-      await (writesContent
-        ? withPreparedSourceFileMutation(
-            id,
-            syncCollab
-              ? context?.requestHeaders?.get("x-request-source") || "agent"
-              : undefined,
-            runMutation,
-          )
-        : withSourceFileWriteLock(id, runMutation));
+      await writeWithLegacyEmailFrameTypes({
+        designId: file.designId,
+        markedFileIds:
+          frameType === undefined &&
+          writesContent &&
+          isHubSpotEmailHtml(file.content)
+            ? [id]
+            : [],
+        write: (stored) => {
+          storedLegacyEmailIds = stored;
+          return writesContent
+            ? withPreparedSourceFileMutation(
+                id,
+                syncCollab
+                  ? context?.requestHeaders?.get("x-request-source") || "agent"
+                  : undefined,
+                runMutation,
+              )
+            : withSourceFileWriteLock(id, runMutation);
+        },
+      });
     } catch (error) {
       if (error instanceof CollabBaseVersionConflictError) {
         throw new SourceWorkspaceEditConflictError(
@@ -771,6 +927,7 @@ export default defineAction({
         designId: file.designId,
         updated: true,
         ...(skippedStaleOperation ? { skippedStaleOperation: true } : {}),
+        ...(receipt.alreadyApplied ? { operationAlreadyApplied: true } : {}),
         versionHash: persistedVersionHash,
         _receipt: designOutputWriteReceipt(
           file.designId,

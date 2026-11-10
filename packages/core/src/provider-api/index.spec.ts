@@ -140,6 +140,9 @@ vi.mock("../db/ddl-guard.js", () => ({
 
 const {
   createProviderApiRuntime,
+  registerProviderApiActionRuntime,
+  getRegisteredProviderApiRuntimeOptions,
+  listRegisteredCustomProviderCapabilities,
   getProviderApiConfig,
   isValidProviderApiBaseUrl,
   listProviderApiIdsForTemplateUse,
@@ -270,7 +273,7 @@ describe("provider API runtime", () => {
     vi.unstubAllEnvs();
     vi.stubEnv("AGENT_NATIVE_PROVIDER_API_PERSIST_COOLDOWNS", "0");
     isBlockedExtensionUrlWithDns.mockResolvedValue(false);
-    createSsrfSafeDispatcher.mockResolvedValue(null);
+    createSsrfSafeDispatcher.mockResolvedValue({ dispatch: vi.fn() });
     resolveCredential.mockResolvedValue(null);
     resolveCredentialDetailed.mockImplementation(async (key: string) => {
       const value = await resolveCredential(key);
@@ -284,6 +287,74 @@ describe("provider API runtime", () => {
         headers: { "content-type": "application/json" },
       }),
     );
+  });
+
+  it("advertises only an exposed runtime and preserves scoped custom credential failures", async () => {
+    const appId = "workspace-registry-test";
+    const resolve = vi.fn(
+      async (): Promise<
+        import("./index.js").ProviderApiResolvedCredential | null
+      > => null,
+    );
+    const provider = {
+      id: "custom-review",
+      label: "Review service",
+      scope: "org" as const,
+      scopeId: "org-1",
+      baseUrl: "https://example.test",
+      auth: { type: "bearer" as const, credentialKey: "REVIEW_KEY" },
+      docsUrls: [],
+      allowedHostSuffixes: ["example.test"],
+      defaultHeaders: {},
+      notes: "",
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    const runtime = createProviderApiRuntime({
+      appId,
+      providerIds: ["slack"],
+      resolveCredential: resolve,
+      getCustomProviders: async () => [provider],
+    });
+    expect(getRegisteredProviderApiRuntimeOptions(appId)).toBeUndefined();
+    registerProviderApiActionRuntime(runtime);
+    createProviderApiRuntime({ appId });
+    expect(getRegisteredProviderApiRuntimeOptions(appId)?.providerIds).toEqual([
+      "slack",
+    ]);
+    expect(
+      await listRegisteredCustomProviderCapabilities(appId, credentialContext),
+    ).toEqual([]);
+    expect(resolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId,
+        provider: "custom-review",
+        ctx: credentialContext,
+      }),
+    );
+    resolve.mockResolvedValueOnce({
+      key: "REVIEW_KEY",
+      value: "fake-review-token",
+      source: "vault",
+      provider: "custom-review",
+      scope: "org",
+      scopeId: "org-1",
+    });
+    expect(
+      await listRegisteredCustomProviderCapabilities(appId, credentialContext),
+    ).toEqual([{ id: "custom-review", label: "Review service" }]);
+    resolve.mockRejectedValueOnce(new Error("Vault unreadable"));
+    await expect(
+      listRegisteredCustomProviderCapabilities(appId, credentialContext),
+    ).rejects.toThrow("Vault unreadable");
+    resolve.mockClear();
+    expect(
+      await listRegisteredCustomProviderCapabilities(appId, {
+        ...credentialContext,
+        orgId: "other-org",
+      }),
+    ).toEqual([]);
+    expect(resolve).not.toHaveBeenCalled();
   });
 
   it("enforces provider allowlists for specific catalog lookups", async () => {
@@ -4163,7 +4234,7 @@ describe("provider API runtime", () => {
     );
   });
 
-  it("retries without the SSRF dispatcher when Node rejects the dispatcher implementation", async () => {
+  it("does not retry without the SSRF dispatcher when Node rejects it", async () => {
     resolveCredential.mockResolvedValue("hubspot-token");
     createSsrfSafeDispatcher.mockResolvedValue({ dispatch: vi.fn() });
     const err = new TypeError("fetch failed") as TypeError & {
@@ -4186,19 +4257,37 @@ describe("provider API runtime", () => {
       getCredentialContext: () => credentialContext,
     });
 
-    const result = await runtime.executeRequest({
-      provider: "hubspot",
-      path: "/crm/v3/objects/deals",
-    });
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+      }),
+    ).rejects.toThrow();
 
-    expect(result).toMatchObject({
-      response: { status: 200, json: { results: [{ id: "deal-1" }] } },
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(createSsrfSafeDispatcher).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
       dispatcher: expect.anything(),
     });
-    expect(fetchMock.mock.calls[1]?.[1]).not.toHaveProperty("dispatcher");
+  });
+
+  it("rejects an empty SSRF dispatcher before sending a provider request", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    createSsrfSafeDispatcher.mockResolvedValue(undefined);
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+      }),
+    ).rejects.toThrow("SSRF protection is unavailable");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("allows templates to override the OAuth provider for built-in provider APIs", async () => {

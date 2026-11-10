@@ -122,6 +122,9 @@ const messages = {
     noAssetsYet: "No assets yet.",
     assetUploadFailed: "Some uploads failed",
     assetDeleteFailed: "Failed to delete asset",
+    assetLoadFailed: "Couldn't load assets",
+    assetSelectNoChange: "That image couldn't be applied to this slide",
+    retry: "Retry",
     assetDeleteInUse:
       "This asset is used in a deck. Remove it from the deck first",
     assetDeleteStorageRemains:
@@ -426,6 +429,7 @@ const messages = {
     deckTitle: "Deck title",
     presentPresenterViewDescription: "View speaker notes while presenting",
     presenterViewBlocked: "Allow pop-ups to open Presenter View.",
+    presenterViewUnsupported: "Presenter View isn't supported in this browser.",
     export: "Export",
     privacyPrivate: "Private",
     privacyOrg: "Shared with org",
@@ -479,6 +483,11 @@ const messages = {
   editorExport: {
     pptxFailed: "Could not generate PPTX file.",
     exportFailed: "Export failed",
+    exportFinishedWithWarnings: "Exported with warnings",
+    imagesDropped:
+      "{{count}} image(s) could not be loaded and were left out of the PowerPoint file (slides {{slides}}).",
+    pdfSidecarSkipped:
+      "This PDF was exported without its editable source. Re-importing it will rebuild slides from the page content.",
     exporting: "Exporting...",
     exportPptxError: "Something went wrong exporting as PPTX.",
     googleSlidesDownloaded: "Downloaded for Google Slides",
@@ -497,6 +506,9 @@ const messages = {
     exportPdf: "Export as PDF",
     exportPptx: "Export as PPTX",
     connectGoogle: "Connect Google",
+    disconnectGoogle: "Disconnect Google",
+    googleDisconnectFailed: "Could not disconnect Google Drive.",
+    googleSlidesStatusUnknown: "Couldn't check status",
     openInGoogleSlides: "Export to Google Slides",
     googleSlidesUnavailable: "Unavailable",
     googleSlidesOpenImporter: "Open Google Slides import",
@@ -518,6 +530,7 @@ const messages = {
   share: {
     createFailed: "Failed to create share link",
     snapshotLinks: "Snapshot links",
+    snapshotLinksLoadFailed: "Couldn't load snapshot links",
     revokeLink: "Revoke",
     revokeFailed: "Could not revoke share link",
     title: "Share Presentation",
@@ -877,9 +890,6 @@ const messages = {
     uploadAttachedFileFailed: "Could not upload the attached file.",
     newSlideSaveFailed: "Couldn't save the new slide. Please try again.",
     addSlides: "Add slides",
-    addEmptySlide: "Add empty slide",
-    noAi: "no AI",
-    duplicateCurrentSlide: "Duplicate current slide",
     promptPlaceholder: "Describe the slides you want...",
     newSlide: "New slide",
     slidesHeading: "Slides",
@@ -1310,7 +1320,25 @@ const messages = {
     },
     importDeck: "Import Deck",
     context: {
+      googleSlides: {
+        connectionFailed:
+          "Couldn’t check your Google Drive connection. Try again.",
+        attach: "Attach",
+        reading: "Reading…",
+        authentication: "Sign in to attach Google Slides.",
+        invalid: "Enter a valid Google Slides presentation URL.",
+        connect: "Connect Google Drive to read this presentation.",
+        denied:
+          "This presentation is unavailable. Check access or reconnect Google Drive.",
+        failed: "Couldn’t read this presentation. Try again.",
+        tooLarge: "This presentation is too large to read as context.",
+        truncated:
+          "Reference excerpt truncated; remaining content was not included.",
+      },
       websiteReference: "Add website",
+      connectFigma: "Connect Figma",
+      figmaDisconnected: "Connect Figma to browse designs.",
+      websiteReferenceMenu: "Add website…",
       websiteUrlLabel: "Website URL",
       websiteUrl: "Paste a website URL",
       figmaUrlLabel: "Figma link",
@@ -1324,9 +1352,9 @@ const messages = {
       searchPresentations: "Search presentations…",
       menu: {
         system: "Use a design system",
-        figma: "Add Figma",
+        figma: "Figma design",
         design: "Reference a design",
-        deck: "Reference a presentation",
+        deck: "Reference a deck…",
         searchDesign: "Search design…",
       },
       loadFailed: "Couldn't load this reference. Try again.",
@@ -1351,7 +1379,7 @@ const messages = {
         "Design couldn't read this Figma reference. Check the saved Figma access token in Design and make sure its account can open the file, then try again.",
       tooMany: "Choose up to 20 references.",
       search: "Search references",
-      designCategory: "Design",
+      designCategory: "Design references",
     },
     quickStart: {
       invalidUrl: "Enter a valid HTTP or HTTPS URL.",

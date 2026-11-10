@@ -1,5 +1,71 @@
 # @agent-native/dispatch
 
+## 0.42.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ec21102: Failed resource uploads, resource saves, and community app installs now use the shared write-failure toast, so the notice says why the save failed, such as being offline or lacking permission.
+- 36106a3: Show a saved integration access token as connected on its Settings page, refresh composer integrations when a key is saved, and register Dispatch's provider API runtime so its connected integrations appear. Composers can now claim a paste as app context (`onPasteContext`). A checkbox set to `"indeterminate"` now shows a filled dash instead of a check mark. When the saved token cannot be read, the integration page says so and offers Try again instead of showing no action.
+- a467c58: Show one shared toast when a save fails instead of failing silently. `useActionMutation` now announces a failed write that nothing else handles (`errorNotification: "auto" | "shared" | "caller"`, plus an `errorLabel` title), `@agent-native/core/client/write-failure` adds `reportWriteFailure` for writes that are not mutations, and `AppProviders` mounts the toast. A typed 4xx refusal shows its own message, offline, timeout and permission failures show translated text, and a 5xx stays generic. Background saves and mutations that render their own error opt out with `errorNotification: "caller"`.
+- 0f27dbe: Give a hosted workspace app its own session and its own route in the pane. A same-origin app now loads its own path instead of an embed session that could only read its document, and a deep app URL opens that route rather than the app home.
+- Updated dependencies [ba1a7d3]
+- Updated dependencies [48d9de3]
+- Updated dependencies [d1fa5c5]
+- Updated dependencies [6e8b91a]
+- Updated dependencies [cd176a0]
+- Updated dependencies [0f27dbe]
+- Updated dependencies [17bf02d]
+- Updated dependencies [4a3c8c7]
+- Updated dependencies [7f5db5c]
+- Updated dependencies [f94438c]
+- Updated dependencies [46ed84c]
+- Updated dependencies [3142f57]
+- Updated dependencies
+- Updated dependencies [ec21102]
+- Updated dependencies [36106a3]
+- Updated dependencies [ba1a7d3]
+- Updated dependencies [36074ef]
+- Updated dependencies [a467c58]
+- Updated dependencies [d4f3450]
+- Updated dependencies [6189d88]
+- Updated dependencies [7c7bf12]
+  - @agent-native/toolkit@0.227.0
+
+## 0.42.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5e251c0]
+- Updated dependencies [5ee10e8]
+- Updated dependencies [9aabcfb]
+- Updated dependencies
+  - @agent-native/toolkit@0.226.0
+
+## 0.42.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 930602e: Give a hosted workspace app its own session and its own route in the pane. A same-origin app now loads its own path instead of an embed session that could only read its document, and a deep app URL opens that route rather than the app home.
+- Updated dependencies
+  - @agent-native/toolkit@0.225.1
+
+## 0.42.1
+
+### Patch Changes
+
+- 484471d: Show the Workspace apps rail for organizations that have no domain yet, such as a newly created Builder.io account, instead of a "Couldn't load data" error.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [9108a0b]
+- Updated dependencies [59b8c47]
+- Updated dependencies
+- Updated dependencies [7557e39]
+- Updated dependencies [aeb3d12]
+- Updated dependencies [bce674a]
+  - @agent-native/toolkit@0.225.0
+
 ## 0.42.0
 
 ### Minor Changes
@@ -1459,29 +1525,5 @@
 ### Patch Changes
 
 - 4ebc74f: Fix Clips, Forms, and Design apps sharing the same fallback icon in the Dispatch "Your apps" list.
-
-## 0.31.8
-
-### Patch Changes
-
-- 4e1ce88: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
-
-## 0.31.7
-
-### Patch Changes
-
-- 97e8cea: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
-
-## 0.31.6
-
-### Patch Changes
-
-- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
-
-## 0.31.5
-
-### Patch Changes
-
-- d30d701: Move workspace-app sharing into each app's settings menu so cards keep their primary open action focused.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

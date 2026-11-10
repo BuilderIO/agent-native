@@ -9,7 +9,7 @@ import {
   withPreparedYDocMutation,
   type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
-import { getDbExec, type DbExec } from "@agent-native/core/db";
+import { getDbExec, withDbExec, type DbExec } from "@agent-native/core/db";
 import type {
   ResourceSuggestion,
   SuggestionAdapter,
@@ -30,7 +30,9 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "../../actions/_blocks-field-identity.js";
+import { lockExistingDatabaseMemberships } from "../../actions/_database-membership-lock.js";
 import { accessibleDocumentIds } from "../../actions/_document-access.js";
+import { assertAgentsMayEditPageText } from "../../actions/_document-agent-lock.js";
 import {
   documentContentHash,
   documentRevisionToken,
@@ -44,6 +46,7 @@ import {
 } from "../../shared/comment-reanchor.js";
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
 import { canonicalizeNfm } from "../../shared/nfm.js";
+import { PRIVATE_MEDIA_PATH_PREFIX } from "../../shared/private-media.js";
 import {
   applyMarkdownSuggestionOperation,
   applyMarkdownSuggestionWithSiblings,
@@ -68,7 +71,7 @@ import { recordDocumentBodyIntent } from "./document-body-intents.js";
 import { lockLegacyBodyWrites } from "./document-body-revision.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
 import { liveBodyWriterGate } from "./live-body-writer.js";
-import { syncPrivateCalloutReferences } from "./private-icon-references.js";
+import { syncPrivateBodyReferences } from "./private-icon-references.js";
 import {
   acceptedRangesOnSameText,
   acceptOnLiveCopy,
@@ -151,18 +154,32 @@ async function acceptOnLegacyWriter<T>(
     (ydoc) =>
       // A conversion locks the Page, then the suggestions it moves onto the
       // new body. Core's decision claims the suggestion before `apply`
-      // locks the Page, so the Page is locked first here, in the transaction
-      // the decision then runs in; the other order deadlocks.
+      // locks the Page, so the Page and its memberships are locked first
+      // here, in the transaction the decision then runs in; the other order
+      // deadlocks.
       db.transaction!(async (tx) => {
+        const heldMembershipIds = await lockSuggestionPage(
+          tx,
+          context.resourceId,
+        );
         // guard:allow-unscoped — core's decide action asserted edit access to this Page before coordinating.
-        await tx.execute({
-          sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
+        const lockedPage = await tx.execute({
+          sql: "SELECT agent_text_locked FROM documents WHERE id = ?",
           args: [context.resourceId],
         });
+        // A person's switch waits for the Page row `lockSuggestionPage` holds,
+        // so this read has the last word.
+        assertAgentsMayEditPageText(
+          {
+            agentTextLocked: Number(lockedPage.rows[0]?.agent_text_locked ?? 0),
+          },
+          context.ctx as ActionRunContext | undefined,
+        );
         return run(
           {
             ydoc,
             sync,
+            heldMembershipIds,
             deferPersistence: context.proposalDecision === true,
           } satisfies ContentDecisionCoordination,
           { transaction: tx },
@@ -173,6 +190,15 @@ async function acceptOnLegacyWriter<T>(
   return result;
 }
 
+/** The edits a Content suggestion can make, on the body or on a tab. */
+export const CONTENT_SUGGESTION_OPERATION_KINDS: readonly string[] = [
+  "insert_text",
+  "delete_text",
+  "replace_text",
+  "add_text_block",
+  "set_inline_mark",
+];
+
 function validateOperations(
   operations: SuggestionOperation[],
 ): SuggestionOperation[] {
@@ -182,15 +208,7 @@ function validateOperations(
     );
   }
   const operation = operations[0]!;
-  if (
-    ![
-      "insert_text",
-      "delete_text",
-      "replace_text",
-      "add_text_block",
-      "set_inline_mark",
-    ].includes(operation.kind)
-  ) {
+  if (!CONTENT_SUGGESTION_OPERATION_KINDS.includes(operation.kind)) {
     throw new Error(
       `Unsupported Content suggestion operation: ${operation.kind}`,
     );
@@ -258,6 +276,8 @@ type DeferredProposalCommit = LockedSuggestionTarget & {
 type ContentDecisionCoordination = {
   ydoc: PreparedYDocMutationLease;
   sync: TransactionalChange;
+  /** The Page's memberships, locked before the Page. */
+  heldMembershipIds?: ReadonlySet<string>;
   deferPersistence?: boolean;
   proposal?: DeferredProposalCommit;
 };
@@ -284,7 +304,7 @@ export function acceptedSuggestionRequestSource(
   return requestSource === "agent" ? "agent" : undefined;
 }
 
-function validateSuggestionStructure(
+export function validateSuggestionStructure(
   beforeMarkdown: string,
   afterMarkdown: string,
   refusal: string,
@@ -299,7 +319,7 @@ function validateSuggestionStructure(
   return after;
 }
 
-function drizzleTransactionForExec(transaction: DbExec) {
+export function drizzleTransactionForExec(transaction: DbExec) {
   return drizzle(
     async (sql, args, method) => {
       const result = await transaction.execute({ sql, args });
@@ -398,10 +418,32 @@ const INLINE_DATABASE_ACCEPT_MESSAGE =
   "Pages containing inline databases cannot accept suggestions yet.";
 
 /** Core turns this into a 409 `suggestion_stale` and keeps it pending. */
-function suggestionStaleError(message: string) {
+export function suggestionStaleError(message: string) {
   const error = new Error(message);
   error.name = "SuggestionStaleError";
   return error;
+}
+
+/**
+ * A page conversion can leave one piece of a review unit stale. Accepting the
+ * rest would land half of a sentence, whatever the reviewer's screen last showed.
+ */
+async function refuseHalfOfStaleUnit(
+  tx: DbExec,
+  suggestion: ResourceSuggestion,
+) {
+  const unit = suggestion.metadata?.reviewUnit;
+  if (!suggestion.proposalId || typeof unit !== "string") return;
+  const stale = (
+    await tx.execute({
+      sql: "SELECT metadata_json FROM agent_review_suggestions WHERE proposal_id = ? AND status = 'stale'",
+      args: [suggestion.proposalId],
+    })
+  ).rows;
+  const isSameUnit = (row: { metadata_json?: unknown }) =>
+    (JSON.parse(String(row.metadata_json)) as { reviewUnit?: unknown } | null)
+      ?.reviewUnit === unit;
+  if (stale.some(isSameUnit)) throw suggestionStaleError(STALE_ACCEPT_MESSAGE);
 }
 
 function failBeforeStateConflict(): never {
@@ -703,7 +745,36 @@ async function placeSuggestion(
   return nextContent;
 }
 
-async function lockSuggestionTarget(tx: DbExec, documentId: string) {
+/**
+ * Locks a Page for a legacy accept in Content's row-lock order
+ * (`_row-lock-order.ts`): its memberships, then the Page. Returns the
+ * memberships it holds, for `lockSuggestionTarget`.
+ */
+export async function lockSuggestionPage(
+  tx: DbExec,
+  documentId: string,
+): Promise<ReadonlySet<string>> {
+  const memberships = await tx.execute({
+    sql: "SELECT id FROM content_database_items WHERE document_id = ?",
+    args: [documentId],
+  });
+  const held = await lockExistingDatabaseMemberships(
+    drizzleTransactionForExec(tx),
+    memberships.rows.map((row) => String(row.id)),
+  );
+  // guard:allow-unscoped — core's decide action asserted edit access to this Page before coordinating.
+  await tx.execute({
+    sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
+    args: [documentId],
+  });
+  return held;
+}
+
+async function lockSuggestionTarget(
+  tx: DbExec,
+  documentId: string,
+  heldMembershipIds: ReadonlySet<string>,
+) {
   const eligiblePrimaryIds = await assertSuggestionBodyTarget(tx, documentId);
   const identityTx = drizzleTransactionForExec(tx);
   // guard:allow-unscoped — core's decide action asserted edit access to this Page before applying.
@@ -711,29 +782,23 @@ async function lockSuggestionTarget(tx: DbExec, documentId: string) {
     sql: "SELECT id FROM documents WHERE id = ? FOR UPDATE",
     args: [documentId],
   });
-  // Memberships have no document foreign key. Never wait for the table after
-  // locking the Page: other editors lock memberships before the Page.
-  try {
-    await tx.execute(
-      "LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT",
+  // Memberships have no document foreign key, so one added since
+  // `lockSuggestionPage` isn't held. Never wait for it after locking the
+  // Page: other editors lock memberships before the Page.
+  const memberships = await tx.execute({
+    sql: "SELECT id FROM content_database_items WHERE document_id = ?",
+    args: [documentId],
+  });
+  if (memberships.rows.some((row) => !heldMembershipIds.has(String(row.id)))) {
+    fail(
+      "The Page was added to a collection during the accept. Try accepting the suggestion again.",
+      { statusCode: 409, errorCode: "suggestion_conflict" },
     );
-  } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "55P03"
-    ) {
-      fail("The Page is busy. Try accepting the suggestion again.", {
-        statusCode: 409,
-        errorCode: "suggestion_conflict",
-      });
-    }
-    throw error;
   }
   const primaryBlocksFields = await lockPrimaryBlocksFields(
     identityTx,
     documentId,
+    { heldMembershipIds },
   );
   const currentTargets = await tx.execute({
     sql: `SELECT d.system_role, p.id FROM content_database_items i
@@ -843,22 +908,29 @@ async function commitAcceptedContent(input: {
       return updated.rowsAffected === 1;
     },
     afterWrite: async () => {
+      // Callouts can carry private icons, and the body private images; both
+      // need their references on this page.
       if (
         currentContent.includes("<callout") ||
-        nextContent.includes("<callout")
+        nextContent.includes("<callout") ||
+        nextContent.includes(PRIVATE_MEDIA_PATH_PREFIX)
       ) {
         const actorEmail = input.ctx?.userEmail;
         if (typeof actorEmail !== "string" || !actorEmail) {
           throw new Error("Authentication is required to accept a suggestion");
         }
-        await syncPrivateCalloutReferences(identityTx, {
-          documentId,
-          before: currentContent,
-          after: nextContent,
-          userEmail: actorEmail,
-          ownerEmail: String(current.owner_email),
-          orgId: current.org_id === null ? null : String(current.org_id),
-        });
+        // Core opens this transaction without `withDbExec`, which the access
+        // checks need to stay on it.
+        await withDbExec(tx, () =>
+          syncPrivateBodyReferences(identityTx, {
+            documentId,
+            before: currentContent,
+            after: nextContent,
+            userEmail: actorEmail,
+            ownerEmail: String(current.owner_email),
+            orgId: current.org_id === null ? null : String(current.org_id),
+          }),
+        );
       }
       for (const field of primaryBlocksFields) {
         await persistBlocksFieldIdentity({
@@ -1075,6 +1147,16 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return operations;
   },
   async coordinateDecision(context, run) {
+    // Accepting writes the text, so a page locked against agents needs a
+    // person to do it. Core only coordinates accepts.
+    const [lockState] = await getDb()
+      .select({ agentTextLocked: schema.documents.agentTextLocked })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, context.resourceId));
+    assertAgentsMayEditPageText(
+      lockState,
+      context.ctx as ActionRunContext | undefined,
+    );
     // A Page can change writers between reading the gate and writing; the
     // writer then refuses, and the gate is read again to choose the writer.
     for (let attempt = 1; ; attempt += 1) {
@@ -1126,6 +1208,10 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     });
   },
   async apply(context) {
+    await refuseHalfOfStaleUnit(
+      context.transaction as DbExec,
+      context.suggestion,
+    );
     if (isLiveCopyDecision(context.coordination))
       return applyOnLiveCopy(context, context.coordination);
     const operations = validateOperations(context.operations);
@@ -1162,7 +1248,11 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     }
     const target = placed ?? {
       current,
-      ...(await lockSuggestionTarget(tx, context.resourceId)),
+      ...(await lockSuggestionTarget(
+        tx,
+        context.resourceId,
+        coordination.heldMembershipIds ?? new Set(),
+      )),
     };
     const now = placed?.now ?? new Date().toISOString();
     const currentDocument =

@@ -44,7 +44,6 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import {
   type HeadersArgs,
   type LoaderFunctionArgs,
@@ -61,6 +60,7 @@ import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { ClipsAvatar } from "@/components/clips-avatar";
+import { ClipsComposerContextProvider } from "@/components/ClipsComposerContext";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { RecordingContextSection } from "@/components/lookback/recording-context-panel";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
@@ -119,6 +119,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useCommentAccessToken } from "@/hooks/use-comment-access-refresh";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useViewTracking } from "@/hooks/use-view-tracking";
@@ -811,6 +812,7 @@ export default function ShareRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const getCommentAccessToken = useCommentAccessToken(dataQ, shareQueryKey);
   const hostedFailureCode = (recording as any)?.failureCode;
   const localizedHostedFailure =
     hostedFailureCode === "global_storage_cap"
@@ -934,6 +936,8 @@ export default function ShareRoute() {
   const transcriptStatus = dataQ.data?.data?.transcript?.status;
   const transcriptFailureReason =
     dataQ.data?.data?.transcript?.failureReason ?? null;
+  const transcriptUnreadable =
+    dataQ.data?.data?.transcript?.segmentsUnreadable === true;
   const ctas = dataQ.data?.data?.ctas ?? [];
   const apiStatus = dataQ.data?.status;
   const apiAccessDeniedStatus =
@@ -1806,40 +1810,41 @@ export default function ShareRoute() {
                     }
                     className="h-full w-full rounded-none sm:rounded-xl"
                   />
-                  {commentOpen && viewerCanComment
-                    ? (() => {
-                        const composer = (
-                          <TimestampedCommentBar
-                            recordingId={recording.id}
-                            atMs={commentAtMs}
-                            draft={commentDraft}
-                            onDraftChange={setCommentDraft}
-                            onClose={() => setCommentOpen(false)}
-                            onAdded={() => {
-                              void dataQ.refetch();
-                              if (
-                                resumedAccountActionRef.current === "comment"
-                              ) {
-                                resumedAccountActionRef.current = null;
-                                trackEvent("share_account_action_completed", {
-                                  surface: "public_share",
-                                  recording_id: recording.id,
-                                  intent: "comment",
-                                });
-                              }
-                            }}
-                          />
-                        );
-                        // The Fullscreen API only paints the player's own element,
-                        // so portal the composer there instead of exiting
-                        // fullscreen when it's open.
-                        const fullscreenContainer =
-                          isPlayerFullscreen && playerRef.current?.container;
-                        return fullscreenContainer
-                          ? createPortal(composer, fullscreenContainer)
-                          : composer;
-                      })()
-                    : null}
+                  <TimestampedCommentBar
+                    open={commentOpen && viewerCanComment}
+                    commentAccessToken={
+                      recording.commentAccessToken ?? undefined
+                    }
+                    getCommentAccessToken={
+                      recording.commentAccessToken
+                        ? getCommentAccessToken
+                        : undefined
+                    }
+                    recordingId={recording.id}
+                    atMs={commentAtMs}
+                    draft={commentDraft}
+                    onDraftChange={setCommentDraft}
+                    onClose={() => setCommentOpen(false)}
+                    onAdded={() => {
+                      void dataQ.refetch();
+                      if (resumedAccountActionRef.current === "comment") {
+                        resumedAccountActionRef.current = null;
+                        trackEvent("share_account_action_completed", {
+                          surface: "public_share",
+                          recording_id: recording.id,
+                          intent: "comment",
+                        });
+                      }
+                    }}
+                    // The Fullscreen API only paints the player's own element,
+                    // so the composer moves there instead of exiting
+                    // fullscreen when it's open.
+                    portalContainer={
+                      isPlayerFullscreen
+                        ? playerRef.current?.container
+                        : undefined
+                    }
+                  />
                 </div>
               )}
             </div>
@@ -2073,6 +2078,14 @@ export default function ShareRoute() {
                     />
                   ) : (
                     <CommentsPanel
+                      getCommentAccessToken={
+                        recording.commentAccessToken
+                          ? getCommentAccessToken
+                          : undefined
+                      }
+                      commentAccessToken={
+                        recording.commentAccessToken ?? undefined
+                      }
                       recordingId={recording.id}
                       comments={comments}
                       currentMs={playbackMs}
@@ -2112,6 +2125,7 @@ export default function ShareRoute() {
               {sessionStatus === "loading" ||
               sessionStatus === "signing-out" ? null : session ? (
                 <AgentPanel
+                  composerContextProvider={ClipsComposerContextProvider}
                   emptyStateText={t("recordingPage.askAboutClip")}
                   dynamicSuggestions={false}
                   scope={
@@ -2157,6 +2171,7 @@ export default function ShareRoute() {
                 onSeek={(ms) => playerRef.current?.seek(ms)}
                 status={transcriptStatus}
                 failureReason={transcriptFailureReason}
+                unreadable={transcriptUnreadable}
                 recordingTitle={recording.title}
                 audience="viewer"
               />

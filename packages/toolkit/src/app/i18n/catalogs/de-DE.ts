@@ -1,6 +1,21 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "Genehmigte Ursprünge",
+  "settingsApiKeys.originsHint":
+    "Ein exakter HTTPS-Ursprung pro Zeile. Leer sperrt die Weitergabe. Lokales HTTP ist erlaubt.",
+  "settingsApiKeys.invalidOrigins":
+    "Exakte HTTPS-Ursprünge eingeben, einen pro Zeile.",
+  "settingsApiKeys.editOrigins": "Ursprünge bearbeiten",
+  "settingsApiKeys.originsSaved": "Ursprünge gespeichert",
+  "settingsApiKeys.originsCount_one": "{{count}} genehmigter Ursprung",
+  "settingsApiKeys.originsCount_other": "{{count}} genehmigte Ursprünge",
+  "settingsApiKeys.noApprovedOrigins": "Keine genehmigten Ursprünge",
+  "extensions.cancel": "Abbrechen",
+  "extensions.context": "Kontext",
+  "extensions.confirmAgentMessage":
+    "Nachricht der Erweiterung an den Agenten senden?",
+  "extensions.sendToAgent": "An Agenten senden",
   "auth.logOutFailed": "Abmelden fehlgeschlagen",
   "block.renderUnavailable": "Dieser Block ist vorübergehend nicht verfügbar.",
   "block.loading": "Block wird geladen.",
@@ -1015,6 +1030,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io enthält kostenlose Credits. Alternativ kannst du deinen eigenen API-Schlüssel verwenden.",
   "setup.builderOrOwnKeys":
     "Verwende Builder.io (kostenlose Credits) oder füge eigene Anbieterschlüssel hinzu.",
+  "setup.reconnectBuilder": "Builder.io erneut verbinden",
   "setup.connectAi": "KI verbinden",
   "setup.connectBuilder": "Builder.io verwenden",
   "setup.connectionsDescription":
@@ -1217,7 +1233,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.menu.scheduleTask": "Aufgabe planen",
   "composer.menu.scheduleTaskDescription":
     "Etwas nach einem Zeitplan ausführen",
-  "composer.menu.uploadFile": "Datei hochladen",
+  "composer.menu.uploadFile": "Dateien und Bilder",
+  "composer.menu.searchWorkspace": "Arbeitsbereich durchsuchen…",
+  "composer.menu.references": "Referenzen",
+  "composer.menu.referenceFile": "Datei referenzieren",
+  "composer.menu.attachToMessage": "Kontext hinzufügen",
+  "composer.menu.commands": "Befehle",
   "composer.menu.uploadFileDescription": "Bilder, PDFs, Text/Code, JSON, CSV",
   "composer.messageAgent": "Nachricht an den Agenten...",
   "composer.model": "Modell",
@@ -2579,6 +2600,9 @@ const messages: ToolkitAgentChatTranslation = {
     "Der Agent nutzt das Zugriffstoken, das du hinzufügst, und sieht daher, was dieses Token sehen kann.",
   "settingsShell.integrationDetail.accessToken": "Zugriffstoken",
   "settingsShell.integrationDetail.addAccessToken": "Zugriffstoken hinzufügen",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Gespeichertes Zugriffstoken konnte nicht geprüft werden.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Erneut versuchen",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Ein Admin muss das einrichten",
   "settingsShell.integrationDetail.callout.adminNeededBody":

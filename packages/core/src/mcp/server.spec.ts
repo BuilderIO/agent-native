@@ -518,6 +518,25 @@ function makeWebEvent(opts: MakeEventOpts): any {
   return event;
 }
 
+function makeDirectLoopbackEvent(opts: MakeEventOpts): any {
+  const event = makeWebEvent({
+    ...opts,
+    node: true,
+    ip: "127.0.0.1",
+    headers: { ...opts.headers, host: "127.0.0.1:8100" },
+  });
+  delete event._headers["x-forwarded-proto"];
+  event.req.headers.delete("x-forwarded-proto");
+  delete event.node.req.headers["x-forwarded-proto"];
+  event.node.req.socket = {
+    localAddress: "127.0.0.1",
+    localPort: 8100,
+    remoteAddress: "127.0.0.1",
+    encrypted: false,
+  };
+  return event;
+}
+
 vi.mock("h3", async (importOriginal) => ({
   ...(await importOriginal<typeof import("h3")>()),
   defineEventHandler: (fn: any) => fn,
@@ -1099,9 +1118,8 @@ async function mcpAppsFullCatalogHeaders(
   };
 }
 
-// The shared ACCESS_TOKEN carries no email, so tests that expect cards name an
-// owner who turned on the "App cards in chat apps" lab.
-const CARDS_OWNER = { "x-agent-native-owner-email": "cards-owner@example.com" };
+// Static-token fixtures use an owner pinned by the server, never a request header.
+const STATIC_OWNER = "cards-owner@example.com";
 
 describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)", () => {
   beforeEach(() => {
@@ -1115,17 +1133,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       ].join(","),
     );
     process.env.ACCESS_TOKEN = "test-access-token";
+    process.env.AGENT_NATIVE_OWNER_EMAIL = STATIC_OWNER;
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
-    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
     delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
-    appCardsLab.optedIn = new Set([
-      "oauth@example.com",
-      CARDS_OWNER["x-agent-native-owner-email"],
-    ]);
+    appCardsLab.optedIn = new Set(["oauth@example.com", STATIC_OWNER]);
     mockOAuthClients.clear();
     approvalStoreMocks.grants.clear();
     embedSessionMocks.renewalTickets.clear();
@@ -1918,12 +1933,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("returns a typed 503 for broken directory annotations while regular MCP works", async () => {
-    process.env.AGENT_NATIVE_MCP_DEV_OPEN = "1";
-    delete process.env.ACCESS_TOKEN;
-    delete process.env.ACCESS_TOKENS;
-    delete process.env.A2A_SECRET;
-    delete process.env.BETTER_AUTH_SECRET;
-
     const directoryAction = defineAction({
       description: "A production directory action.",
       parameters: {},
@@ -1947,7 +1956,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       ip: "127.0.0.1",
       body: { jsonrpc: "2.0", id: 143, method: "tools/list", params: {} },
       headers: {
-        authorization: "",
+        authorization: "Bearer test-access-token",
         host: "localhost:8100",
         "x-forwarded-proto": "https",
       },
@@ -1975,7 +1984,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       ip: "127.0.0.1",
       body: { jsonrpc: "2.0", id: 144, method: "tools/list", params: {} },
       headers: {
-        authorization: "",
+        authorization: "Bearer test-access-token",
         host: "localhost:8100",
         "x-forwarded-proto": "http",
       },
@@ -1988,8 +1997,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(logError).toHaveBeenCalledTimes(1);
     logError.mockRestore();
 
-    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
-    process.env.ACCESS_TOKEN = "test-access-token";
     const { client } = await createModernClient(directoryConfig);
     try {
       const listed = await client.listTools();
@@ -2028,15 +2035,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       directoryProfile: { connectorCatalog: ["production-only"] },
     };
     const logError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const event = makeWebEvent({
+    const event = makeDirectLoopbackEvent({
       path: "/",
-      ip: "127.0.0.1",
       body: { jsonrpc: "2.0", id: 145, method: "tools/list", params: {} },
-      headers: {
-        authorization: "",
-        host: "localhost:8100",
-        "x-forwarded-proto": "https",
-      },
+      headers: { authorization: "" },
     });
 
     const result = await handleMcpRequest(
@@ -7931,7 +7933,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      { headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" } },
+      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
     );
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
@@ -8742,7 +8744,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      { headers: CARDS_OWNER, config: compactSurfaceDefaultConfig },
+      { config: compactSurfaceDefaultConfig },
     );
 
     expect(toolsOut.error).toBeUndefined();
@@ -8771,7 +8773,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/list",
         params: {},
       },
-      { headers: CARDS_OWNER, config: compactSurfaceDefaultConfig },
+      { config: compactSurfaceDefaultConfig },
     );
 
     expect(resourcesOut.error).toBeUndefined();
@@ -8810,7 +8812,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      { headers: CARDS_OWNER, config: toolSearchConfig },
+      { config: toolSearchConfig },
     );
 
     expect(toolsOut.error).toBeUndefined();
@@ -9559,7 +9561,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         ),
       ).toEqual(["ui://mail/healthy-review/shell-v65"]);
 
-      const warnCallsBeforeRead = warn.mock.calls.length;
+      const resourceWarnings = () =>
+        warn.mock.calls.filter(([message]) =>
+          String(message).includes("metadata could not be resolved"),
+        );
+      const warnCallsBeforeRead = resourceWarnings().length;
       const read = await callWeb(
         {
           jsonrpc: "2.0",
@@ -9584,7 +9590,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           `"broken-review" because its metadata could not be resolved: Error: ${resourceFailure.message}`,
         ),
       );
-      expect(warn).toHaveBeenCalledTimes(warnCallsBeforeRead);
+      expect(resourceWarnings()).toHaveLength(warnCallsBeforeRead);
     } finally {
       warn.mockRestore();
     }
@@ -9829,7 +9835,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/call",
         params: { name: "echo-thing", arguments: { value: "hello" } },
       },
-      { headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" } },
+      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
     );
     expect(out.error).toBeUndefined();
     const content = out.result.content;
@@ -12717,6 +12723,102 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
   });
 
+  it("accepts an owner hint only on a direct loopback socket with a matching local authority", async () => {
+    process.env.ACCESS_TOKEN = "test-access-token";
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    const remote = makeWebEvent({
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-access-token",
+        "x-agent-native-owner-email": "local@example.com",
+      },
+      body: { jsonrpc: "2.0", id: 13, method: "tools/list", params: {} },
+    });
+    const remoteResult = await handleMcpRequest(remote, config as any);
+    expect(remote._status).toBe(401);
+    expect(remoteResult).toMatchObject({ error: "Unauthorized" });
+
+    const makeLocal = (headers: Record<string, string>) => {
+      const event = makeWebEvent({
+        method: "POST",
+        node: true,
+        ip: "127.0.0.1",
+        headers: {
+          authorization: "Bearer test-access-token",
+          host: "127.0.0.1:8100",
+          "x-agent-native-owner-email": "local@example.com",
+          ...headers,
+        },
+        body: { jsonrpc: "2.0", id: 14, method: "tools/list", params: {} },
+      });
+      event.node.req.socket = {
+        localAddress: "127.0.0.1",
+        localPort: 8100,
+        remoteAddress: "127.0.0.1",
+        encrypted: false,
+      };
+      delete event._headers["x-forwarded-proto"];
+      event.req.headers.delete("x-forwarded-proto");
+      return event;
+    };
+    const direct = makeLocal({});
+    const { isDirectLoopbackRequest } = await import("../server/loopback.js");
+    expect(isDirectLoopbackRequest(direct)).toBe(true);
+    const admitted = await handleMcpRequest(direct, config as any);
+    expect(admitted).toBeInstanceOf(Response);
+    expect((admitted as Response).status).toBe(200);
+
+    const sameOrigin = makeLocal({ origin: "http://127.0.0.1:8100" });
+    const admittedOrigin = await handleMcpRequest(sameOrigin, config as any);
+    expect(admittedOrigin).toBeInstanceOf(Response);
+    expect((admittedOrigin as Response).status).toBe(200);
+
+    const forwarded = makeLocal({ "x-forwarded-host": "127.0.0.1:8100" });
+    const refused = await handleMcpRequest(forwarded, config as any);
+    expect(forwarded._status).toBe(401);
+    expect(refused).toMatchObject({ error: "Unauthorized" });
+
+    const wrongPort = makeLocal({ host: "127.0.0.1:8101" });
+    const refusedPort = await handleMcpRequest(wrongPort, config as any);
+    expect(wrongPort._status).toBe(401);
+    expect(refusedPort).toMatchObject({ error: "Unauthorized" });
+
+    const crossOrigin = makeLocal({ origin: "https://remote.example.test" });
+    const refusedOrigin = await handleMcpRequest(crossOrigin, config as any);
+    expect(crossOrigin._status).toBe(401);
+    expect(refusedOrigin).toMatchObject({ error: "Unauthorized" });
+  });
+
+  it("keeps a remote static-token caller scoped to the server-pinned owner", async () => {
+    const whoami = defineAction({
+      description: "Read the authenticated caller.",
+      schema: z.object({}),
+      readOnly: true,
+      mcpTool: true,
+      run: async (_args, context) => ({ ownerEmail: context.userEmail }),
+    });
+    const scopedConfig = {
+      ...config,
+      actions: { whoami },
+      productionActions: { whoami },
+    };
+    const result = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 15,
+        method: "tools/call",
+        params: { name: "whoami", arguments: {} },
+      },
+      {
+        config: scopedConfig,
+        headers: { "x-agent-native-owner-email": "attacker@example.com" },
+      },
+    );
+    expect(result.result.structuredContent).toMatchObject({
+      ownerEmail: STATIC_OWNER,
+    });
+  });
+
   it("does not treat a server owner env var as a local owner hint", async () => {
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;
@@ -12815,9 +12917,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
   it("returns modern tools/call results as one JSON response", async () => {
     const { client, wireContentTypes, wireResponses } =
-      await createModernClient(config, {
-        requestHeaders: CARDS_OWNER,
-      });
+      await createModernClient(config);
     try {
       const result = await client.callTool({
         name: "echo-thing",
@@ -13626,12 +13726,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 describe("handleMcpRequest — Node request objects use the v2 web handler", () => {
   beforeEach(() => {
     process.env.ACCESS_TOKEN = "test-access-token";
+    process.env.AGENT_NATIVE_OWNER_EMAIL = STATIC_OWNER;
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
     delete process.env.BETTER_AUTH_SECRET;
     vi.clearAllMocks();
     vi.restoreAllMocks();
@@ -13703,6 +13805,7 @@ describe("handleMcpRequest — $mcp_initialize analytics", () => {
 
   beforeEach(async () => {
     process.env.ACCESS_TOKEN = "test-access-token";
+    process.env.AGENT_NATIVE_OWNER_EMAIL = STATIC_OWNER;
     events.length = 0;
     const { registerTrackingProvider } =
       await import("../tracking/registry.js");
@@ -13716,6 +13819,7 @@ describe("handleMcpRequest — $mcp_initialize analytics", () => {
 
   afterEach(async () => {
     delete process.env.ACCESS_TOKEN;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
     const { unregisterTrackingProvider } =
       await import("../tracking/registry.js");
     unregisterTrackingProvider("spec-collector");

@@ -160,9 +160,10 @@ export function TrashRow({
   const title = item.title || t("sidebar.untitled");
   const location =
     item.parentTitle || item.spaceName || t("trash.unknownLocation");
+  // A person with no profile name shows as their email, as in the sidebar.
   const actorCell = (id?: string | null, name?: string | null) => (
     <span className="flex h-full items-center truncate px-3 text-sm text-muted-foreground">
-      {name || t(id ? "trash.knownActor" : "trash.unresolvedActor")}
+      {name || id || t("trash.unresolvedActor")}
     </span>
   );
   return (
@@ -176,8 +177,9 @@ export function TrashRow({
     >
       <DatabaseTableGrid
         className={cn(
-          "grid min-h-12 min-w-max border-b hover:bg-muted/35 group-focus/trash-row:bg-muted/35 group-focus-within/trash-row:bg-muted/35",
-          selected && "bg-muted/55",
+          "grid min-h-12 min-w-max border-b hover:bg-[color-mix(in_srgb,hsl(var(--muted))_35%,hsl(var(--background)))] group-focus/trash-row:bg-[color-mix(in_srgb,hsl(var(--muted))_35%,hsl(var(--background)))] group-focus-within/trash-row:bg-[color-mix(in_srgb,hsl(var(--muted))_35%,hsl(var(--background)))]",
+          selected &&
+            "bg-[color-mix(in_srgb,hsl(var(--muted))_55%,hsl(var(--background)))]",
         )}
         propertyIds={[...TRASH_TABLE_PROPERTY_IDS]}
         widths={widths}

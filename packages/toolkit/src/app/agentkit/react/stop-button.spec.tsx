@@ -75,7 +75,7 @@ describe("useAgentKitStopButton", () => {
     );
   });
 
-  it("steps down to secondary only while Send sits beside it", async () => {
+  it("steps down to secondary only while End voice chat sits beside it", async () => {
     mocks.activeRunIds = ["run-1"];
     container = document.createElement("div");
     document.body.appendChild(container);

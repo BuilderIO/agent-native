@@ -1,6 +1,7 @@
 import { useComposer, useComposerRuntime } from "@assistant-ui/react";
 import {
   IconCheck,
+  IconSearch,
   IconChevronDown,
   IconBulb,
   IconClock,
@@ -14,6 +15,7 @@ import {
 } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/core";
 import Placeholder from "@tiptap/extension-placeholder";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -112,7 +114,11 @@ import type {
   ComposerMode,
   AgentComposerLayoutVariant,
 } from "./types.js";
-import { useMentionSearch } from "./use-mention-search.js";
+import {
+  useMentionSearch,
+  loadWorkspaceMentionItems,
+  MentionSearchError,
+} from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
 import {
   RealtimeVoiceModeBoundary,
@@ -809,6 +815,24 @@ function composerDocumentHasContent(doc: ComposerDocument): boolean {
   return hasContent;
 }
 
+function composerReferenceSignature(
+  doc: Pick<ProseMirrorNode, "descendants">,
+): string {
+  const references: unknown[] = [];
+  doc.descendants((node) => {
+    if (
+      node.type.name === "mentionReference" ||
+      node.type.name === "fileReference" ||
+      node.type.name === "skillReference"
+    ) {
+      references.push([node.type.name, node.attrs]);
+      return false;
+    }
+    return true;
+  });
+  return JSON.stringify(references);
+}
+
 function persistComposerDraft(
   draftKey: string | null,
   editor: ComposerDraftEditor,
@@ -1254,9 +1278,11 @@ export interface TiptapComposerProps {
   /** Extra button to render alongside the primary action. */
   extraActionButton?: React.ReactNode;
   /**
-   * Stop control rendered beside send while a run is active, whatever the
-   * draft holds. Pass it only while there is something to stop; Escape in the
-   * editor clicks it when it is enabled.
+   * Stop control for an active run. It takes the primary slot while the
+   * composer is empty and gives it to Send once a draft exists; it stays
+   * mounted, so Escape in the editor still clicks it when it is enabled.
+   * During voice chat it sits beside End voice chat, which does not stop the
+   * run. Pass it only while there is something to stop.
    */
   stopButton?: React.ReactNode;
   /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
@@ -1369,6 +1395,11 @@ export interface TiptapComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
+  /**
+   * Claims a paste as app context before the composer handles it. Return true
+   * when the paste was taken, so nothing is inserted or attached.
+   */
+  onPasteContext?: (clipboard: DataTransfer) => boolean;
   /** Shared + menu entries; matching IDs replace built-in full-mode actions. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /**
@@ -3009,6 +3040,7 @@ function TiptapComposerSurface({
   contextItems: providedContextItems,
   onRemoveContextItem,
   onRetryContextItem,
+  onPasteContext,
   contextMenuItems,
   plusMenuMode = "full",
   terminalModeControl,
@@ -3186,6 +3218,8 @@ function TiptapComposerSurface({
   const composingRef = useRef(false);
   const voiceCapturingRef = useRef(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const onPasteContextRef = useRef(onPasteContext);
+  onPasteContextRef.current = onPasteContext;
   const onAttachmentErrorRef = useRef(onAttachmentError);
   // Many standalone prompts pass no handler; a rejected file must still say so.
   onAttachmentErrorRef.current = onAttachmentError ?? setAttachmentError;
@@ -3210,7 +3244,7 @@ function TiptapComposerSurface({
     settledQuery: settledMentionQuery,
   } = useMentionSearch(
     popover?.type === "@" ? popover.query : "",
-    includeDefaultMentionSearch && (contextMenuOpen || popover?.type === "@"),
+    includeDefaultMentionSearch && popover?.type === "@",
   );
   const mentionQuery = popover?.type === "@" ? popover.query : "";
   const filteredMentionItems = useMemo(
@@ -3698,6 +3732,7 @@ function TiptapComposerSurface({
   const placeholderRef = useRef(resolvedPlaceholder);
   placeholderRef.current = resolvedPlaceholder;
   const applyingInitialContentRef = useRef(false);
+  const editorReferenceSignatureRef = useRef("[]");
   const initialTextSyncCompleteRef = useRef(false);
 
   const editor = useEditor({
@@ -3715,9 +3750,22 @@ function TiptapComposerSurface({
       ) {
         onTextChangeRef.current?.(ed.getText({ blockSeparator: "\n" }).trim());
       }
-      setReferenceRevision((revision) => revision + 1);
-
       scheduleComposerDraftPersist(ed);
+    },
+    onTransaction: ({ editor: ed, transaction, appendedTransactions }) => {
+      if (
+        !transaction.docChanged &&
+        !appendedTransactions.some((appended) => appended.docChanged)
+      ) {
+        return;
+      }
+      // An unconditional bump can loop through React node views and the
+      // ProseMirror DOM observer, even when references have not changed.
+      const referenceSignature = composerReferenceSignature(ed.state.doc);
+      if (referenceSignature !== editorReferenceSignatureRef.current) {
+        editorReferenceSignatureRef.current = referenceSignature;
+        setReferenceRevision((revision) => revision + 1);
+      }
     },
     onSelectionUpdate: ({ editor: ed }) => {
       const { from, to, anchor, head } = ed.state.selection;
@@ -3744,6 +3792,8 @@ function TiptapComposerSurface({
         role: "textbox",
         "data-agent-composer-variant": layoutVariant,
         "data-agent-composer-slot": "editor-input",
+        // Page-level paste listeners defer to a composer that claims pastes.
+        ...(onPasteContext ? { "data-claims-paste": "true" } : {}),
         class:
           "agent-composer-prosemirror flex-1 resize-none bg-transparent text-[length:var(--agentkit-composer-font-size,0.875rem)] text-foreground outline-none leading-[var(--agentkit-composer-line-height,1.625rem)] min-h-[var(--agentkit-composer-editor-min-height,3.25rem)] max-h-[var(--agentkit-composer-editor-max-height,10rem)] overflow-y-auto [&>p.is-editor-empty:first-child]:before:pointer-events-none [&>p.is-editor-empty:first-child]:before:float-start [&>p.is-editor-empty:first-child]:before:h-0 [&>p.is-editor-empty:first-child]:before:text-muted-foreground [&>p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]",
       },
@@ -3782,6 +3832,13 @@ function TiptapComposerSurface({
             return true;
           }
           return false;
+        }
+        if (
+          event.clipboardData &&
+          onPasteContextRef.current?.(event.clipboardData)
+        ) {
+          event.preventDefault();
+          return true;
         }
         if (!attachmentsEnabled) {
           if (event.clipboardData?.files.length) {
@@ -4767,6 +4824,8 @@ function TiptapComposerSurface({
         (e.metaKey || e.ctrlKey) &&
         !e.altKey;
       if (isToggleCombo) {
+        // A page that has already used the key keeps it.
+        if (e.defaultPrevented) return;
         e.preventDefault();
         if (voiceChatActiveRef.current) return;
         if (voice.state === "recording" || voice.state === "starting") {
@@ -6422,51 +6481,140 @@ function TiptapComposerSurface({
   const launchersDisabled = disabled || contextControlsDisabled;
 
   const contextLauncherItems = useMemo(() => {
-    const sections = new Map<string, ComposerContextMenuItem[]>();
-    for (const item of filteredMentionItems) {
-      const section = item.section || "Other";
-      const entries = sections.get(section) ?? [];
-      entries.push({
-        id: `mention:${item.id}`,
-        label: item.label,
-        description: item.description,
-        onSelect: () => insertReference(composerReferenceFromMentionItem(item)),
-      });
-      sections.set(section, entries);
-    }
-    const sectionKeys: Record<string, string> = {
-      Agents: "agents",
-      "Connected Agents": "connectedAgents",
-      Files: "files",
-      Other: "other",
+    const excludedTypes = new Set<string>();
+    const visit = (entries: readonly ComposerContextMenuItem[]) => {
+      for (const entry of entries) {
+        if (entry.referenceType) excludedTypes.add(entry.referenceType);
+        if (entry.referencePicker)
+          excludedTypes.add(entry.referencePicker.referenceType);
+        if (entry.children) visit(entry.children);
+      }
     };
+    visit(contextMenuItems ?? []);
+    const pickerFor = (filter?: { referenceType: string; source: string }) => {
+      const available = new Map<string, MentionItem>();
+      return {
+        identityScope: "workspace" as const,
+        presentation: { type: "dialog" as const, mode: "action" as const },
+        searchPlaceholder: t("agentChat.composer.menu.searchWorkspace", {
+          defaultValue: "Search workspace…",
+        }),
+        load: async ({
+          search,
+          signal,
+        }: {
+          search: string;
+          signal: AbortSignal;
+        }) => {
+          const remote =
+            filter || includeDefaultMentionSearch
+              ? await loadWorkspaceMentionItems(
+                  search,
+                  adapters.resolvePath,
+                  signal,
+                  filter?.source,
+                ).catch((cause: unknown) => {
+                  if (signal.aborted) throw cause;
+                  if (cause instanceof MentionSearchError) throw cause;
+                  throw new Error(
+                    t("agentChat.composer.contextLoadFailed", {
+                      defaultValue: "Could not load context.",
+                    }),
+                    { cause },
+                  );
+                })
+              : [];
+          const entries = [
+            ...mentionItemsForQuery(hostMentionItems, search),
+            ...remote,
+          ].filter((item) =>
+            filter
+              ? item.refType === filter.referenceType &&
+                (!filter.source || item.source === filter.source)
+              : !excludedTypes.has(item.refType),
+          );
+          if (signal.aborted)
+            throw new DOMException("The operation was aborted.", "AbortError");
+          available.clear();
+          for (const item of entries) available.set(item.id, item);
+          return {
+            items: Array.from(available.values()).map((item) => ({
+              id: item.id,
+              title: item.label,
+              ...(item.description === undefined
+                ? {}
+                : { description: item.description }),
+              ...(item.section === undefined
+                ? {}
+                : {
+                    group:
+                      item.section === "Files"
+                        ? "agentChat.mentions.sections.files"
+                        : item.section === "Agents"
+                          ? "agentChat.mentions.sections.agents"
+                          : item.section === "Connected Agents"
+                            ? "agentChat.mentions.sections.connectedAgents"
+                            : item.section,
+                  }),
+              icon: (
+                <MentionItemMedia
+                  {...(item.icon === undefined ? {} : { icon: item.icon })}
+                  {...(item.media === undefined ? {} : { media: item.media })}
+                  size="sm"
+                />
+              ),
+            })),
+          };
+        },
+        onSelect: (item: { id: string }) => {
+          const reference = available.get(item.id);
+          if (!reference)
+            throw new Error(
+              t("agentChat.composer.contextLoadFailed", {
+                defaultValue: "Could not load context.",
+              }),
+            );
+          insertReference(composerReferenceFromMentionItem(reference));
+        },
+      };
+    };
+    const resolveEntries = (
+      entries: readonly ComposerContextMenuItem[],
+    ): ComposerContextMenuItem[] =>
+      entries.map((entry) => {
+        if (entry.referencePicker) {
+          const { referencePicker, ...rest } = entry;
+          return { ...rest, picker: pickerFor(referencePicker) };
+        }
+        return entry.children
+          ? { ...entry, children: resolveEntries(entry.children) }
+          : entry;
+      });
     return [
-      ...(contextMenuItems ?? []),
-      ...Array.from(sections)
-        .sort(([left], [right]) => {
-          const order = (section: string) =>
-            section === "Agents"
-              ? 0
-              : section === "Connected Agents"
-                ? 1
-                : section === "Files"
-                  ? 3
-                  : section === "Other"
-                    ? 4
-                    : 2;
-          return order(left) - order(right) || left.localeCompare(right);
-        })
-        .map(([section, children]) => ({
-          id: `mentions:${section}`,
-          label: sectionKeys[section]
-            ? t(`agentChat.mentions.sections.${sectionKeys[section]}`, {
-                defaultValue: section,
-              })
-            : section,
-          children,
-        })),
+      ...resolveEntries(contextMenuItems ?? []),
+      ...(includeDefaultMentionSearch || hostMentionItems.length
+        ? [
+            {
+              id: "composer-workspace-search",
+              section: "context" as const,
+              order: 90,
+              label: t("agentChat.composer.menu.searchWorkspace", {
+                defaultValue: "Search workspace…",
+              }),
+              icon: <IconSearch />,
+              picker: pickerFor(),
+            },
+          ]
+        : []),
     ];
-  }, [contextMenuItems, filteredMentionItems, insertReference, t]);
+  }, [
+    contextMenuItems,
+    hostMentionItems,
+    includeDefaultMentionSearch,
+    adapters.resolvePath,
+    insertReference,
+    t,
+  ]);
 
   const sendButton = (
     <ComposerSendButton
@@ -6753,15 +6901,7 @@ function TiptapComposerSurface({
             attachmentsEnabled={attachmentsEnabled}
             open={contextMenuOpen}
             onOpenChange={setContextMenuOpen}
-            loading={mentionsLoading}
-            error={
-              mentionsError
-                ? t("agentChat.composer.contextLoadFailed", {
-                    defaultValue: "Could not load context.",
-                  })
-                : undefined
-            }
-            onRetry={retryMentions}
+            onSelectIntegration={insertReference}
             onRestoreFocus={
               launchersDisabled
                 ? undefined
@@ -6845,20 +6985,17 @@ function TiptapComposerSurface({
               />
             )}
             {stopButton ? (
-              // Stop takes Send's place while the composer is empty, and Send
-              // joins it once a draft exists so a draft never hides Stop. The
-              // slot grows from zero width, gap included, so the controls to
-              // its left slide rather than jump.
+              // Stop and Send are one control: Stop while the composer is
+              // empty, Send once a draft exists. The hidden Stop stays mounted
+              // so Escape can still stop the run mid-draft. Voice chat keeps it
+              // visible: End voice chat does not stop the run.
               <div
                 ref={stopSlotRef}
                 data-agent-composer-slot="stop-slot"
-                className={`grid shrink-0 grid-cols-[1fr] justify-items-end transition-[grid-template-columns,margin-inline-start,margin-inline-end] duration-150 ease-out starting:-ms-[var(--agentkit-composer-toolbar-control-gap,0.25rem)] starting:me-0 starting:grid-cols-[0fr] motion-reduce:transition-none ${
-                  hasDraft ? "me-1" : ""
-                }`}
+                hidden={hasDraft && voiceChat === null}
+                className="flex shrink-0"
               >
-                <div className="flex min-w-0 transition-[opacity,scale] duration-150 ease-out starting:scale-75 starting:opacity-0 motion-reduce:transition-none">
-                  {stopButton}
-                </div>
+                {stopButton}
               </div>
             ) : null}
             {stopButton && !hasDraft && !voiceChat ? null : sendButton}
@@ -6876,8 +7013,15 @@ function TiptapComposerSurface({
         commands={filteredCommands}
         hint={hint}
         isLoading={popover?.type === "@" ? mentionsLoading : skillsLoading}
-        error={mentionItemsError}
-        onRetry={onRetryMentionItems}
+        error={
+          mentionItemsError ??
+          (mentionsError
+            ? t("agentChat.composer.contextLoadFailed", {
+                defaultValue: "Could not load context.",
+              })
+            : undefined)
+        }
+        onRetry={onRetryMentionItems ?? retryMentions}
         query={popover?.query ?? ""}
         onSelectMention={handleSelectMention}
         onSelectSkill={handleSelectSkill}

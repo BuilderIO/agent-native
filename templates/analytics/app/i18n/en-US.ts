@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "Could not upload the selected file.",
+    reference: "Reference a dashboard…",
+    group: "Dashboards",
+    authentication: "Sign in to add a reference.",
+    invalid: "Choose a valid reference before sending.",
+    unavailable:
+      "A selected reference is no longer available. Remove it or choose it again.",
+  },
   creativeContext: {
     title: "Library",
     description:
@@ -974,11 +983,16 @@ export default {
     drilldownOverByteCap:
       "These records would read more than {{gib}} GiB, so they didn't load. Narrow the dashboard's filters or date range and try again.",
     filterSeries: "Filter",
+    noXValue: "No value",
     chartTimeRangeOverride: "Override time range for this chart",
     chartTimeRangeInherit: "Dashboard range",
     hide: "Hide",
     show: "Show",
     saveAsView: "Save as View",
+    unknownTraffic: "Unknown {{count}}",
+    unknownTrafficUnavailable: "Unknown count unavailable",
+    unknownTrafficTip:
+      "Events from the last {{days}} days with no host and no recognized environment. They count as production.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
@@ -1754,6 +1768,10 @@ export default {
     hideEmptySessions: "Hide empty sessions",
     networkErrors: "Network errors",
     rageClicksFilter: "Rage clicks",
+    traffic: "Traffic",
+    allTraffic: "All traffic",
+    productionTraffic: "Production",
+    betaTraffic: "Beta",
     visitors: "Visitors",
     allVisitors: "All visitors",
     internalVisitors: "Internal",

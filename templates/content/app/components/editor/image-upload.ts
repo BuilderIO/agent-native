@@ -1,10 +1,14 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  agentNativePath,
+  appApiPath,
+} from "@agent-native/core/client/api-path";
 
 interface UploadResponse {
   url?: unknown;
   error?: unknown;
   message?: unknown;
   statusMessage?: unknown;
+  data?: unknown;
 }
 
 function normalizeImageFile(file: File): File | null {
@@ -45,6 +49,14 @@ export class ImagePersistenceError extends Error {
   constructor() {
     super("Image could not be saved.");
     this.name = "ImagePersistenceError";
+  }
+}
+
+/** The page has no private storage connected to keep an image in. */
+export class ImageStorageUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImageStorageUnavailableError";
   }
 }
 
@@ -146,6 +158,35 @@ export function createImagePickerId(): string {
       ? crypto.randomUUID()
       : Math.random().toString(36).slice(2);
   return `image-picker-${random}`;
+}
+
+/**
+ * The file in the Assets picker's answer to a request for a chosen image, or
+ * null from a picker that sends none.
+ */
+export function pickedAssetImageFile(answer: unknown): File | null {
+  if (!answer || typeof answer !== "object") return null;
+  const { blob, filename, mimeType } = answer as {
+    blob?: unknown;
+    filename?: unknown;
+    mimeType?: unknown;
+  };
+  if (!(blob instanceof Blob)) return null;
+  const name = typeof filename === "string" ? filename.trim() : "";
+  return new File([blob], name || "image", {
+    type: typeof mimeType === "string" && mimeType ? mimeType : blob.type,
+  });
+}
+
+/** The server's own answer for a page with no private storage connected. */
+function isStorageUnavailable(body: UploadResponse): boolean {
+  const data = body.data;
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { errorCode?: unknown }).errorCode ===
+      "PRIVATE_MEDIA_STORAGE_UNAVAILABLE"
+  );
 }
 
 function mediaUploadLabel(kind: MediaUploadKind) {
@@ -260,10 +301,41 @@ async function uploadMediaFile(
   return body.url;
 }
 
-export async function uploadImageFile(file: File): Promise<string> {
+/**
+ * Uploads an image. With a target page, the image is stored privately and
+ * only that page's readers can load it; without one it goes to the
+ * workspace's file storage at a public URL.
+ */
+export async function uploadImageFile(
+  file: File,
+  target?: { documentId: string } | null,
+): Promise<string> {
   const normalized = normalizeImageFile(file);
   if (!normalized) throw new Error("Only image files can be uploaded.");
-  return uploadMediaFile(normalized, "image");
+  if (!target) return uploadMediaFile(normalized, "image");
+
+  const form = new FormData();
+  form.append("file", normalized, normalized.name || "image");
+  form.append("documentId", target.documentId);
+  const response = await fetch(appApiPath("/api/private-media"), {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+  // coercion-ok: a body that isn't JSON still fails below, on the status or the missing URL.
+  const body = (await response.json().catch(() => ({}))) as UploadResponse;
+  if (response.status === 503 && isStorageUnavailable(body)) {
+    throw new ImageStorageUnavailableError(
+      uploadResponseMessage(response, body, "image"),
+    );
+  }
+  if (!response.ok) {
+    throw new Error(uploadResponseMessage(response, body, "image"));
+  }
+  if (typeof body.url !== "string" || !body.url) {
+    throw new Error("Image upload returned no URL.");
+  }
+  return body.url;
 }
 
 export async function uploadVideoFile(file: File): Promise<string> {
