@@ -596,6 +596,45 @@ describe("regenerate-title fallback refinement", () => {
       provider: "local",
     });
   });
+  it("keeps the local title for an automatic full-video request when no chat model is available", async () => {
+    mockChatModelAvailability.mockResolvedValue("unavailable");
+    const { readIncludeFullVideoInAi } =
+      await import("./lib/clips-ai-prefs.js");
+    vi.mocked(readIncludeFullVideoInAi).mockResolvedValueOnce(true);
+    mockSelectRows.queue = [
+      [
+        {
+          id: "rec_1",
+          title: "Untitled recording",
+          titleSource: "default",
+          description: "",
+        },
+      ],
+      [
+        {
+          status: "ready",
+          fullText:
+            "The CPQ tool cannot show the SLA fee as a separate line item today.",
+          segmentsJson: "[]",
+          ownerEmail: "owner@example.com",
+        },
+      ],
+      [{ title: "Untitled recording", titleSource: "default" }],
+    ];
+
+    const result = await regenerateTitle.run({
+      recordingId: "rec_1",
+      automatic: true,
+    });
+
+    expect(mockUpdateSet).toHaveBeenCalled();
+    expect(mockCompareAndSetManyAppState).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      updated: true,
+      queued: false,
+      provider: "local",
+    });
+  });
   it("fails a manual request loudly when no chat model is available", async () => {
     mockChatModelAvailability.mockResolvedValue("unavailable");
     mockSelectRows.queue = [

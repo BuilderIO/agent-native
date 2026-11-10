@@ -241,9 +241,13 @@ export default defineAction({
       transcript?.fullText?.trim() ||
       transcriptTextFromSegments(transcript?.segmentsJson);
 
+    // Without a model the AI attempt fails every time, and the full-video
+    // request has nothing to run it: both give way to the local title.
+    const modelUnavailable =
+      (await resolveChatModelAvailability()) === "unavailable";
     const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
-    if (includeFullVideoInAi) {
+    if (includeFullVideoInAi && !modelUnavailable) {
       if (await earlierAudioRemovedSinceRead()) {
         return {
           updated: false,
@@ -334,10 +338,6 @@ export default defineAction({
       purpose: "title",
     });
 
-    // Skipped before the title attempt: without a model it fails every time,
-    // and the client bridge re-asks for each candidate whenever it mounts.
-    const modelUnavailable =
-      (await resolveChatModelAvailability()) === "unavailable";
     const noModel = new Error("No chat model is available");
 
     try {
