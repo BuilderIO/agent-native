@@ -201,6 +201,8 @@ sendToAgentChat({
 });
 ```
 
+`sendToAgentChat()` 返回标签页 ID，而非送达回执。需要确认本地提交时，使用 `sendToAgentChatAndConfirm({ message, chatTarget: "local" })`，并处理 `delivered: false` 和 `reason`。它等待提交确认并在超时后取消。不支持仅草稿或代码目标请求。
+
 ### AgentChatMessage {#agentchatmessage}
 
 | 选项           | 类型       | 描述                                                                        |
