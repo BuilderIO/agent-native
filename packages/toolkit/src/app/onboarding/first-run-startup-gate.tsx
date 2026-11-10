@@ -8,6 +8,7 @@ import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run
 import { Button } from "@agent-native/toolkit/ui/button";
 import React, { Suspense, lazy, useEffect, useState } from "react";
 
+import { clearFirstRunFirstPaint } from "./first-run-first-paint.js";
 import {
   FirstRunOnboardingGateContext,
   StartupInteractionContext,
@@ -140,6 +141,10 @@ export function FirstRunOnboardingStartupGate({
       );
     };
   }, [retryNumber, shouldResolve, preloading]);
+
+  useEffect(() => {
+    if (decision === "ineligible") clearFirstRunFirstPaint();
+  }, [decision]);
 
   // A deferral that starts once onboarding is on screen must not unmount it:
   // that drops the user's answers and shows the app between two dialogs.

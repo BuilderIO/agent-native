@@ -46,6 +46,7 @@ let nextOnboardingMountId = 0;
 import { SessionPreloadContext } from "@agent-native/core/client/use-session";
 import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run-onboarding";
 
+import { FIRST_RUN_PENDING_ATTRIBUTE } from "./first-run-first-paint.js";
 import {
   FirstRunOnboardingStartupGate,
   useFirstRunOnboardingGateOwnsSurface,
@@ -103,6 +104,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     container.remove();
     vi.unstubAllGlobals();
     document.cookie = `${FIRST_RUN_ONBOARDING_COOKIE}=; Max-Age=0; path=/`;
+    document.documentElement.removeAttribute(FIRST_RUN_PENDING_ATTRIBUTE);
   });
 
   it("covers the app while Builder setup defers an eligible first run, without mounting the onboarding surface", async () => {
@@ -138,6 +140,31 @@ describe("FirstRunOnboardingStartupGate", () => {
     expect(
       container.querySelector('[data-testid="first-run-onboarding"]'),
     ).toBeNull();
+  });
+
+  it("lifts the first-paint stand-in once first run is ruled out", async () => {
+    const status = deferred<boolean>();
+    mocks.fetchStatus.mockReturnValue(status.promise);
+    document.documentElement.setAttribute(FIRST_RUN_PENDING_ATTRIBUTE, "");
+
+    act(() => {
+      root.render(
+        <FirstRunOnboardingStartupGate>
+          <div data-testid="app-content">app</div>
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+    expect(
+      document.documentElement.hasAttribute(FIRST_RUN_PENDING_ATTRIBUTE),
+    ).toBe(true);
+
+    await act(async () => {
+      status.resolve(false);
+      await status.promise;
+    });
+    expect(
+      document.documentElement.hasAttribute(FIRST_RUN_PENDING_ATTRIBUTE),
+    ).toBe(false);
   });
 
   it("keeps an ineligible user's app usable while Builder setup defers onboarding", async () => {
