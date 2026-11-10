@@ -653,7 +653,10 @@ export async function resolveFederatedOrganizationForA2A(
   });
   const row: { federation_removal_pending_at?: unknown } | undefined =
     member.rows.length > 0 ? member.rows[0] : undefined;
-  if (row && !row.federation_removal_pending_at) {
+  // A removal whose revoke has not reached the hub leaves the hub still listing
+  // the member; asking it here would re-add them and undo the removal.
+  if (row?.federation_removal_pending_at) return null;
+  if (row) {
     const validation = await validateFederatedOrganizationMembership(event, {
       orgId,
       email,

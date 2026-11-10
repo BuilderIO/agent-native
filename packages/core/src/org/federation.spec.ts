@@ -956,7 +956,7 @@ describe("cross-app organization federation", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("reactivates a pending-removal member when the hub confirms membership", async () => {
+    it("refuses a pending-removal member without asking the hub, even if the hub still lists them", async () => {
       stubLocalRows({
         org: localOrg,
         member: {
@@ -968,30 +968,8 @@ describe("cross-app organization federation", () => {
 
       await expect(
         resolveFederatedOrganizationForA2A(event, claim),
-      ).resolves.toEqual({ orgId: "local-org-1", orgDomain: null });
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      // raw-sql-ok: asserts on the arguments of a mocked execute call; no SQL is composed or run
-      expect(executeMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sql: expect.stringContaining("federation_removal_pending_at = NULL"),
-          args: ["member", "local-org-1", memberEmail],
-        }),
-      );
-    });
-
-    it("keeps a pending-removal member pending when the hub does not list it", async () => {
-      stubLocalRows({
-        org: localOrg,
-        member: {
-          federation_removal_pending_at: 1_700_000_000_000,
-          role: "member",
-        },
-      });
-      stubHubResponse(absentBody);
-
-      await expect(
-        resolveFederatedOrganizationForA2A(event, claim),
       ).resolves.toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
       expect(executeMock).not.toHaveBeenCalledWith(localWriteMatcher);
     });
 
