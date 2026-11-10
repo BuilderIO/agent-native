@@ -2338,8 +2338,12 @@ function heldImageUploadIds(doc: ProseMirrorNode): Set<string> {
  */
 function touchedImageUploadIds(transaction: Transaction): Set<string> {
   const ids = new Set<string>();
+  // The doc before each step. Typed as possibly missing so the index read is
+  // checked; Content's lib predates `.at()`.
+  const docs: readonly (ProseMirrorNode | undefined)[] = transaction.docs;
   transaction.steps.forEach((step, index) => {
-    const doc = transaction.docs[index];
+    const doc = docs[index];
+    if (!doc) return;
     step.getMap().forEach((oldStart, oldEnd) => {
       if (oldEnd <= oldStart) return;
       doc.nodesBetween(oldStart, oldEnd, (node) => {
