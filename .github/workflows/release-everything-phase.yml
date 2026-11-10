@@ -515,6 +515,12 @@ jobs:
                 : [];
             }
 
+            // A failed read is not a result. GitHub can answer 404 for a run it
+            // has just returned from a dispatch, and a brief API error would
+            // otherwise end a wait that can last hours. This many failed reads
+            // in a row, about 5 minutes, still end it.
+            const maxFailedRunReads = 20;
+
             async function waitForRun(
               run,
               label,
@@ -528,8 +534,33 @@ jobs:
               let lastStatus = "";
               let lastLoggedAt = 0;
               let rerunFromAttempt = 0;
+              let readOnce = false;
+              let failedReads = 0;
               while (Date.now() < deadline) {
-                const current = await getRun(run.id);
+                let current;
+                try {
+                  current = await getRun(run.id);
+                } catch (error) {
+                  const status = error?.status ?? error?.response?.status;
+                  // Once the run has been read, a 404 means it is gone.
+                  const retryable = status === 404 ? !readOnce : isTransientDispatchFailure(error);
+                  if (!retryable) throw error;
+                  failedReads += 1;
+                  const message = error instanceof Error ? error.message : String(error);
+                  if (failedReads >= maxFailedRunReads) {
+                    throw new Error(
+                      `${label} could not be read ${failedReads} times in a row: ${run.url}: ${message}`,
+                      { cause: error },
+                    );
+                  }
+                  core.warning(`${label}: could not read ${run.url} (${message}); retrying.`);
+                  const remaining = deadline - Date.now();
+                  if (remaining <= 0) break;
+                  await sleep(Math.min(pollIntervalMs, remaining));
+                  continue;
+                }
+                readOnce = true;
+                failedReads = 0;
                 const now = Date.now();
                 if (
                   current.status !== lastStatus ||
