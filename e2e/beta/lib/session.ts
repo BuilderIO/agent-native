@@ -104,14 +104,16 @@ export function authedLaneReady(): boolean {
 }
 
 export function expectedEmail(appId?: string): string {
-  const overrides = parseJsonEnv<Record<string, unknown>>("BETA_E2E_EMAILS");
+  const overrides = parseJsonEnv<unknown>("BETA_E2E_EMAILS");
   if (
     overrides !== undefined &&
     (!overrides || typeof overrides !== "object" || Array.isArray(overrides))
   ) {
     throw new Error("BETA_E2E_EMAILS must be an app-to-QA-email object.");
   }
-  const override = appId ? overrides?.[appId] : undefined;
+  const override = appId
+    ? (overrides as Record<string, unknown> | undefined)?.[appId]
+    : undefined;
   if (override !== undefined && typeof override !== "string") {
     throw new Error(
       "BETA_E2E_EMAILS entries must be dedicated QA email strings.",
