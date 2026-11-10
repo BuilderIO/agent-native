@@ -509,7 +509,7 @@ describe("release everything workflow", () => {
     }
   });
 
-  it("cleans a reserved desktop tag only after a confirmed dispatch rejection", async () => {
+  it("leaves a reserved tag in place when a dispatch fails", async () => {
     const source = String((coordinator.with as Workflow).script);
     const helperStart = source.indexOf("async function dispatchAndWait(");
     const helperEnd = source.indexOf(
@@ -521,19 +521,15 @@ describe("release everything workflow", () => {
     const AsyncFunction = Object.getPrototypeOf(
       async function () {},
     ).constructor;
+    // Only dispatch and waitForRun are in scope, so a cleanup call on any
+    // path throws instead of passing.
     const createDispatchAndWait = new AsyncFunction(
       "dispatch",
       "waitForRun",
-      "cleanupReservedTags",
       `${source.slice(helperStart, helperEnd)}\nreturn dispatchAndWait;`,
     ) as (
-      dispatch: (
-        workflow: string,
-        ref: string,
-        inputs: Workflow,
-      ) => Promise<{ id: number; url: string }>,
+      dispatch: (workflow: string) => Promise<{ id: number; url: string }>,
       waitForRun: () => Promise<void>,
-      cleanupReservedTags: (tags: string[]) => Promise<void>,
     ) => Promise<
       (
         workflow: string,
@@ -541,11 +537,10 @@ describe("release everything workflow", () => {
         inputs: Workflow,
         label: string,
         timeoutMs: number,
-        reservedTag?: string,
       ) => Promise<{ run: { id: number; url: string }; error: unknown }>
     >;
 
-    const cleanedTags: string[] = [];
+    const runFailure = new Error("Desktop release ended failure");
     const dispatchAndWait = await createDispatchAndWait(
       async (workflow) => {
         if (workflow === "rejected.yml") {
@@ -553,39 +548,40 @@ describe("release everything workflow", () => {
             dispatchOutcome: "rejected",
           });
         }
-        throw new Error("Could not confirm workflow dispatch");
+        if (workflow === "ambiguous.yml") {
+          throw new Error("Could not confirm workflow dispatch");
+        }
+        return { id: 3, url: "run-3" };
       },
-      async () => {},
-      async (tags) => {
-        cleanedTags.push(...tags);
+      async () => {
+        throw runFailure;
       },
     );
 
     await assert.rejects(
-      dispatchAndWait(
-        "rejected.yml",
-        "main",
-        {},
-        "Desktop release",
-        60_000,
-        "v1.2.4",
-      ),
+      dispatchAndWait("rejected.yml", "v1.2.4", {}, "Desktop release", 60_000),
       /HTTP 404: workflow unavailable/,
     );
-    assert.deepEqual(cleanedTags, ["v1.2.4"]);
-
     await assert.rejects(
       dispatchAndWait(
         "ambiguous.yml",
-        "main",
+        "clips-v2.3.4",
         {},
         "Clips release",
         60_000,
-        "clips-v2.3.4",
       ),
       /Could not confirm workflow dispatch/,
     );
-    assert.deepEqual(cleanedTags, ["v1.2.4"]);
+    assert.deepEqual(
+      await dispatchAndWait(
+        "desktop-release.yml",
+        "v1.2.4",
+        {},
+        "Desktop release",
+        60_000,
+      ),
+      { run: { id: 3, url: "run-3" }, error: runFailure },
+    );
   });
 
   it("starts docs push reconciliation before sibling releases settle", async () => {
@@ -856,17 +852,25 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     );
     assert.match(source, /github\.rest\.git\.createRef/);
     assert.match(source, /refs\/tags\/\$\{tagPrefix\}\$\{version\}/);
-    assert.match(source, /if \(error\.status === 422\)/);
-    assert.match(source, /const tagSha = await getRemoteTagSha\(tag\)/);
-    assert.match(source, /const reservedTags = new Map\(\)/);
-    assert.match(
-      source,
-      /async function cleanupReservedTags\(tags = \[\.\.\.reservedTags\.keys\(\)\]\)/,
-    );
+    assert.match(source, /if \(error\.status !== 422\) throw error/);
+    assert.match(source, /async function removeSupersededReservations\(\)/);
     assert.match(source, /github\.rest\.repos\.deleteRelease/);
     assert.match(source, /github\.rest\.git\.deleteRef/);
-    assert.match(source, /await cleanupReservedTags\(\)/);
-    assert.match(source, /Downstream workflows own these reserved tags/);
+    // Each run clears superseded reservations before it makes its own.
+    const sweepAt = source.indexOf("await removeSupersededReservations()");
+    assert(
+      sweepAt >= 0 &&
+        sweepAt <
+          source.indexOf("const desktopVersion = await reserveStableVersion("),
+    );
+    assert.match(
+      source,
+      /\["Superseded stable reservations", reservationCleanup\]/,
+    );
+    assert.match(
+      source,
+      /Could not remove superseded stable reservations: \$\{message\}`\);\s*reservationCleanup = `could not finish: \$\{message\}`/,
+    );
     assert.match(source, /async function getFirstParentSha\(ref\)/);
     assert.match(
       source,
@@ -922,268 +926,316 @@ return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
     assert.match(source, /Promise\.allSettled/);
   });
 
-  it("reconciles ambiguous stable tag reservations before cleanup", async () => {
+  it("reserves a stable tag, retrying only when another run took the version", async () => {
     const source = String((coordinator.with as Workflow).script);
-    const functionSource = (signature: string, nextSignature: string) => {
-      const start = source.indexOf(signature);
-      const end = source.indexOf(`\n\n${nextSignature}`, start);
-      assert(start >= 0 && end > start);
-      return source.slice(start, end);
-    };
-    const helpersSource = [
-      functionSource(
-        "async function getRemoteTagSha(tag)",
-        "// GET releases/tags/{tag} answers 404",
-      ),
-      functionSource(
-        "async function listReleasesByTag(tag)",
-        "function parseStableVersion(value, label)",
-      ),
-      functionSource(
-        "async function reserveStableVersion(tagPrefix, baseVersion, sourceSha)",
-        "async function cleanupReservedTags(tags = [...reservedTags.keys()])",
-      ),
-      functionSource(
-        "async function cleanupReservedTags(tags = [...reservedTags.keys()])",
-        "async function getFirstParentSha(ref)",
-      ),
-    ].join("\n\n");
+    const start = source.indexOf(
+      "async function reserveStableVersion(tagPrefix, baseVersion, sourceSha)",
+    );
+    const end = source.indexOf(
+      "\n\n// A run that stops between reserving",
+      start,
+    );
+    assert(start >= 0 && end > start);
     const AsyncFunction = Object.getPrototypeOf(
       async function () {},
     ).constructor;
-    type TagObject = { type: string; sha: string };
-    type Helpers = {
-      reserveStableVersion: (
-        tagPrefix: string,
-        baseVersion: string,
-        sourceSha: string,
-      ) => Promise<string>;
-      cleanupReservedTags: () => Promise<void>;
-    };
-    type HarnessOptions = {
-      createRef: (
-        request: { ref: string; sha: string },
-        remoteTags: Map<string, TagObject>,
-      ) => Promise<void>;
-      versions?: string[];
-      getRefError?: Error & { status?: number };
-      releases?: { id: number; tag_name: string; draft: boolean }[];
-    };
-
-    const createHelpers = new AsyncFunction(
+    const createReserve = new AsyncFunction(
       "github",
       "owner",
       "repo",
       "core",
-      "reservedTags",
       "nextStableVersion",
-      `${helpersSource}\nreturn { reserveStableVersion, cleanupReservedTags };`,
+      `${source.slice(start, end)}\nreturn reserveStableVersion;`,
     ) as (
-      github: unknown,
-      owner: string,
-      repo: string,
-      core: {
-        warning: (message: string) => void;
-        info: (message: string) => void;
-      },
-      reservedTags: Map<string, string>,
-      nextStableVersion: () => Promise<string>,
-    ) => Promise<Helpers>;
+      ...args: unknown[]
+    ) => Promise<
+      (
+        tagPrefix: string,
+        baseVersion: string,
+        sourceSha: string,
+      ) => Promise<string>
+    >;
 
-    const makeHarness = async ({
-      createRef,
-      versions = ["1.2.4"],
-      getRefError,
-      releases = [],
-    }: HarnessOptions) => {
-      const remoteTags = new Map<string, TagObject>();
-      const reservedTags = new Map<string, string>();
-      const deletedRefs: string[] = [];
-      const deletedReleases: number[] = [];
+    const reserveWith = async (
+      createRef: (ref: string) => Promise<void>,
+      versions = ["1.2.4", "1.2.5"],
+    ) => {
+      const refs: string[] = [];
       const warnings: string[] = [];
       let versionIndex = 0;
-      const notFound = () =>
-        Object.assign(new Error("Not found"), { status: 404 });
-      const github = {
-        paginate: async (
-          method: () => Promise<{ data: unknown[] }>,
-          options: Workflow,
-        ) => {
-          assert.equal(options.per_page, 100);
-          return (await method()).data;
-        },
-        rest: {
-          git: {
-            createRef: async (request: { ref: string; sha: string }) =>
-              createRef(request, remoteTags),
-            getRef: async ({ ref }: { ref: string }) => {
-              if (getRefError) throw getRefError;
-              const object = remoteTags.get(ref);
-              if (!object) throw notFound();
-              return { data: { object } };
-            },
-            getTag: async ({ tag_sha }: { tag_sha: string }) => ({
-              data: { object: { sha: tag_sha } },
-            }),
-            deleteRef: async ({ ref }: { ref: string }) => {
-              deletedRefs.push(ref);
-              if (!remoteTags.delete(ref)) throw notFound();
-            },
-          },
-          repos: {
-            listReleases: async () => ({ data: releases }),
-            deleteRelease: async ({ release_id }: { release_id: number }) => {
-              deletedReleases.push(release_id);
+      const reserve = await createReserve(
+        {
+          rest: {
+            git: {
+              createRef: async ({ ref, sha }: { ref: string; sha: string }) => {
+                refs.push(`${ref}@${sha}`);
+                await createRef(ref);
+              },
             },
           },
         },
-      };
-      const helpers = await createHelpers(
-        github,
         "BuilderIO",
         "agent-native",
-        {
-          warning: (message) => warnings.push(message),
-          info: () => {},
-        },
-        reservedTags,
+        { warning: (message: string) => warnings.push(message) },
         async () => versions[versionIndex++],
       );
-      return {
-        ...helpers,
-        deletedRefs,
-        deletedReleases,
-        remoteTags,
-        reservedTags,
-        warnings,
-      };
+      return { reserve, refs, warnings };
     };
-    const sourceSha = "release-source-sha";
-    const acceptedThenFailed = Object.assign(
-      new Error("GitHub returned HTTP 502 after accepting createRef"),
-      { status: 502 },
-    );
-    const acceptedHarness = await makeHarness({
-      createRef: async ({ ref, sha }, remoteTags) => {
-        remoteTags.set(ref.replace(/^refs\//, ""), { type: "commit", sha });
-        throw acceptedThenFailed;
-      },
-    });
-    await assert.rejects(
-      acceptedHarness.reserveStableVersion("v", "1.2.3", sourceSha),
-      (error) => error === acceptedThenFailed,
-    );
-    assert.deepEqual(
-      [...acceptedHarness.reservedTags],
-      [["v1.2.4", sourceSha]],
-    );
-    await acceptedHarness.cleanupReservedTags();
-    assert.deepEqual(acceptedHarness.deletedRefs, ["tags/v1.2.4"]);
-    assert.equal(acceptedHarness.remoteTags.has("tags/v1.2.4"), false);
-
-    for (const remoteSha of [null, "another-source-sha"]) {
-      const failed = Object.assign(new Error("GitHub returned HTTP 502"), {
-        status: 502,
-      });
-      const harness = await makeHarness({
-        createRef: async ({ ref }, remoteTags) => {
-          if (remoteSha) {
-            remoteTags.set(ref.replace(/^refs\//, ""), {
-              type: "commit",
-              sha: remoteSha,
-            });
-          }
-          throw failed;
-        },
-      });
-      await assert.rejects(
-        harness.reserveStableVersion("v", "1.2.3", sourceSha),
-        (error) => error === failed,
-      );
-      assert.equal(harness.reservedTags.size, 0);
-      await harness.cleanupReservedTags();
-      assert.deepEqual(harness.deletedRefs, []);
-    }
-
-    const readbackFailure = Object.assign(
-      new Error("GitHub tag lookup failed"),
-      { status: 503 },
-    );
-    const originalFailure = Object.assign(
-      new Error("GitHub createRef timed out"),
-      { status: 502 },
-    );
-    const unreadableHarness = await makeHarness({
-      createRef: async () => {
-        throw originalFailure;
-      },
-      getRefError: readbackFailure,
-    });
-    await assert.rejects(
-      unreadableHarness.reserveStableVersion("v", "1.2.3", sourceSha),
-      (error) => error === originalFailure,
-    );
-    assert.equal(unreadableHarness.reservedTags.size, 0);
-    assert.match(unreadableHarness.warnings[0], /GitHub tag lookup failed/);
 
     const collision = Object.assign(new Error("Reference already exists"), {
       status: 422,
     });
-    const collisionHarness = await makeHarness({
-      versions: ["1.2.4", "1.2.5"],
-      createRef: async ({ ref, sha }, remoteTags) => {
-        if (ref.endsWith("v1.2.4")) {
-          remoteTags.set(ref.replace(/^refs\//, ""), {
-            type: "commit",
-            sha: "another-source-sha",
-          });
-          throw collision;
-        }
-        remoteTags.set(ref.replace(/^refs\//, ""), { type: "commit", sha });
+    const retried = await reserveWith(async (ref) => {
+      if (ref.endsWith("v1.2.4")) throw collision;
+    });
+    assert.equal(await retried.reserve("v", "1.2.3", "source-sha"), "1.2.5");
+    assert.deepEqual(retried.refs, [
+      "refs/tags/v1.2.4@source-sha",
+      "refs/tags/v1.2.5@source-sha",
+    ]);
+    assert.match(
+      retried.warnings[0],
+      /Stable tag v1\.2\.4 was reserved concurrently/,
+    );
+
+    // GitHub may have created the tag before failing; a later run removes
+    // it once it is superseded.
+    const failed = Object.assign(new Error("GitHub returned HTTP 502"), {
+      status: 502,
+    });
+    const unconfirmed = await reserveWith(async () => {
+      throw failed;
+    });
+    await assert.rejects(
+      unconfirmed.reserve("v", "1.2.3", "source-sha"),
+      (error) => error === failed,
+    );
+    assert.deepEqual(unconfirmed.refs, ["refs/tags/v1.2.4@source-sha"]);
+  });
+
+  it("removes only stable reservations a newer published release superseded", async () => {
+    const source = String((coordinator.with as Workflow).script);
+    const slice = (from: string, to: string) => {
+      const start = source.indexOf(from);
+      const end = source.indexOf(to, start);
+      assert(start >= 0 && end > start);
+      return source.slice(start, end);
+    };
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const createSweep = new AsyncFunction(
+      "github",
+      "owner",
+      "repo",
+      "core",
+      `${slice(
+        "function parseStableVersion(value, label)",
+        "async function nextStableVersion(tagPrefix, baseVersion)",
+      )}
+${slice(
+  "async function removeSupersededReservations()",
+  "\n\nasync function getFirstParentSha(ref)",
+)}
+return removeSupersededReservations;`,
+    ) as (
+      ...args: unknown[]
+    ) => Promise<() => Promise<{ removed: string[]; waiting: string[] }>>;
+
+    type Release = {
+      id: number;
+      tag_name: string;
+      draft: boolean;
+      prerelease: boolean;
+    };
+    const release = (
+      id: number,
+      tag_name: string,
+      state: "published" | "draft" | "prerelease",
+    ): Release => ({
+      id,
+      tag_name,
+      draft: state === "draft",
+      prerelease: state === "prerelease",
+    });
+    const sweep = async ({
+      releases,
+      tags,
+      runs = {},
+      deleteReleaseError,
+    }: {
+      releases: Release[];
+      tags: string[];
+      runs?: Record<string, { event: string; status: string }[]>;
+      deleteReleaseError?: Error;
+    }) => {
+      const remainingTags = new Set(tags);
+      const deletedReleases: number[] = [];
+      const deletedRefs: string[] = [];
+      const listedPrefixes: string[] = [];
+      const notFound = () =>
+        Object.assign(new Error("Not found"), { status: 404 });
+      const remove = await createSweep(
+        {
+          paginate: async (
+            method: (options: Workflow) => Promise<{ data: unknown[] }>,
+            options: Workflow,
+          ) => {
+            assert.equal(options.per_page, 100);
+            return (await method(options)).data;
+          },
+          rest: {
+            repos: {
+              listReleases: async () => ({ data: releases }),
+              deleteRelease: async ({ release_id }: { release_id: number }) => {
+                if (deleteReleaseError) throw deleteReleaseError;
+                deletedReleases.push(release_id);
+              },
+            },
+            git: {
+              listMatchingRefs: async ({ ref }: { ref: string }) => {
+                listedPrefixes.push(ref);
+                const prefix = ref.replace(/^tags\//, "");
+                return {
+                  data: [...remainingTags]
+                    .filter((tag) => tag.startsWith(prefix))
+                    .map((tag) => ({ ref: `refs/tags/${tag}` })),
+                };
+              },
+              deleteRef: async ({ ref }: { ref: string }) => {
+                deletedRefs.push(ref);
+                if (!remainingTags.delete(ref.replace(/^tags\//, ""))) {
+                  throw notFound();
+                }
+              },
+            },
+            actions: {
+              listWorkflowRuns: async ({
+                workflow_id,
+                per_page,
+              }: {
+                workflow_id: string;
+                per_page: number;
+              }) => {
+                assert.equal(per_page, 100);
+                return { data: { workflow_runs: runs[workflow_id] ?? [] } };
+              },
+            },
+          },
+        },
+        "BuilderIO",
+        "agent-native",
+        { info: () => {} },
+      );
+      return {
+        result: remove(),
+        deletedReleases,
+        deletedRefs,
+        listedPrefixes,
+        remainingTags,
+      };
+    };
+
+    const releases = [
+      release(1, "v1.2.5", "published"),
+      release(2, "v1.2.3", "published"),
+      // A superseded build, uploaded twice.
+      release(3, "v1.2.4", "draft"),
+      release(4, "v1.2.4", "draft"),
+      // Newer than any published release, so possibly still in flight.
+      release(5, "v1.2.6", "draft"),
+      // Numerically newer than v1.2.5.
+      release(6, "v1.2.40", "draft"),
+      release(7, "v1.2.2", "prerelease"),
+      release(8, "v1.2.0-nightly.3", "prerelease"),
+      release(9, "clips-v3.4.5", "published"),
+      // Its tag is already gone.
+      release(10, "clips-v3.4.4", "draft"),
+    ];
+    const tags = [
+      "v0.2.9",
+      "v0.7.83",
+      "v1.1.9",
+      "v1.2.0-nightly.3",
+      "v1.2.1",
+      "v1.2.2",
+      "v1.2.3",
+      "v1.2.4",
+      "v1.2.5",
+      "v1.2.6",
+      "v2.0.0",
+      "clips-v3.4.3",
+      "clips-v3.4.5",
+    ];
+    const kept = [
+      "v0.2.9",
+      "v0.7.83",
+      "v1.1.9",
+      "v1.2.0-nightly.3",
+      "v1.2.2",
+      "v1.2.3",
+      "v1.2.5",
+      "v1.2.6",
+      "v2.0.0",
+      "clips-v3.4.5",
+    ];
+    // A Nightly push run never builds a stable tag, so it does not hold the
+    // pass back.
+    const nightlyOnly = {
+      "desktop-release.yml": [
+        { event: "push", status: "in_progress" },
+        { event: "workflow_dispatch", status: "completed" },
+      ],
+    };
+
+    const swept = await sweep({ releases, tags, runs: nightlyOnly });
+    assert.deepEqual(await swept.result, {
+      removed: ["v1.2.1", "v1.2.4", "clips-v3.4.3", "clips-v3.4.4"],
+      waiting: [],
+    });
+    assert.deepEqual(swept.deletedReleases, [3, 4, 10]);
+    assert.deepEqual(swept.deletedRefs, [
+      "tags/v1.2.1",
+      "tags/v1.2.4",
+      "tags/clips-v3.4.3",
+      "tags/clips-v3.4.4",
+    ]);
+    assert.deepEqual([...swept.remainingTags], kept);
+    assert.deepEqual(swept.listedPrefixes, ["tags/v", "tags/clips-v"]);
+
+    const clipsRunning = await sweep({
+      releases,
+      tags,
+      runs: {
+        ...nightlyOnly,
+        "clips-desktop-release.yml": [
+          { event: "workflow_dispatch", status: "queued" },
+        ],
       },
     });
-    assert.equal(
-      await collisionHarness.reserveStableVersion("v", "1.2.3", sourceSha),
-      "1.2.5",
-    );
-    assert.deepEqual(
-      [...collisionHarness.reservedTags],
-      [["v1.2.5", sourceSha]],
-    );
-    await collisionHarness.cleanupReservedTags();
-    assert.deepEqual(collisionHarness.deletedRefs, ["tags/v1.2.5"]);
-    assert.equal(collisionHarness.remoteTags.has("tags/v1.2.4"), true);
+    assert.deepEqual(await clipsRunning.result, {
+      removed: ["v1.2.1", "v1.2.4"],
+      waiting: ["clips-v3.4.3", "clips-v3.4.4"],
+    });
+    assert.deepEqual(clipsRunning.deletedReleases, [3, 4]);
+    assert.equal(clipsRunning.remainingTags.has("clips-v3.4.3"), true);
 
-    // A staged build leaves a draft, sometimes two from an older run, that
-    // only a listing finds.
-    const reserveAndClean = async (
-      releases: { id: number; tag_name: string; draft: boolean }[],
-    ) => {
-      const harness = await makeHarness({
-        releases,
-        createRef: async ({ ref, sha }, remoteTags) => {
-          remoteTags.set(ref.replace(/^refs\//, ""), { type: "commit", sha });
-        },
-      });
-      await harness.reserveStableVersion("v", "1.2.3", sourceSha);
-      await harness.cleanupReservedTags();
-      return harness;
-    };
-    const drafts = await reserveAndClean([
-      { id: 7, tag_name: "v1.2.4", draft: true },
-      { id: 8, tag_name: "v1.2.40", draft: true },
-      { id: 9, tag_name: "v1.2.4", draft: true },
-    ]);
-    assert.deepEqual(drafts.deletedReleases, [7, 9]);
-    assert.deepEqual(drafts.deletedRefs, ["tags/v1.2.4"]);
+    // With nothing published there is nothing to be superseded by.
+    const unpublished = await sweep({
+      releases: [release(3, "v1.2.4", "draft")],
+      tags: ["v1.2.4"],
+    });
+    assert.deepEqual(await unpublished.result, { removed: [], waiting: [] });
+    assert.deepEqual(unpublished.listedPrefixes, []);
 
-    const published = await reserveAndClean([
-      { id: 7, tag_name: "v1.2.4", draft: true },
-      { id: 9, tag_name: "v1.2.4", draft: false },
-    ]);
-    assert.deepEqual(published.deletedReleases, []);
-    assert.deepEqual(published.deletedRefs, []);
-    assert.equal(published.remoteTags.has("tags/v1.2.4"), true);
+    const deleteFailure = Object.assign(new Error("HTTP 500"), { status: 500 });
+    const failing = await sweep({
+      releases,
+      tags,
+      deleteReleaseError: deleteFailure,
+    });
+    await assert.rejects(failing.result, (error) => error === deleteFailure);
+    assert.equal(failing.remainingTags.has("v1.2.4"), true);
   });
 
   it("uses the docs publisher for www instead of the app-site fleet", () => {
@@ -1972,7 +2024,6 @@ return { publicationError, publicationStatusUnknownError, publicationUnavailable
       "productionSites",
       "dispatchAndWait",
       "dispatchDocsAndReconcile",
-      "cleanupReservedTags",
       "desktopStage",
       "clipsStage",
       `${source.slice(publishStart, publishEnd)}
@@ -1998,8 +2049,7 @@ return downstream;`,
     }) => {
       const dispatches: { workflow: string; ref: string; mode?: unknown }[] =
         [];
-      const cleaned: string[] = [];
-      await releaseDownstream(
+      const downstream = (await releaseDownstream(
         publication.publicationUnavailable,
         mergeSha,
         publication.siteWorkflowRef,
@@ -2009,13 +2059,10 @@ return downstream;`,
           return { run: { id: dispatches.length }, error: null };
         },
         async () => ({ run: { id: 4 }, error: null }),
-        async (tags: string[]) => {
-          cleaned.push(...tags);
-        },
         stagedBuild("desktop-release.yml", "v1.2.3"),
         stagedBuild("clips-desktop-release.yml", "clips-v1.2.3"),
-      );
-      return { dispatches, cleaned };
+      )) as PromiseSettledResult<Workflow>[];
+      return { dispatches, downstream };
     };
 
     const published = await releaseWith(result);
@@ -2032,7 +2079,7 @@ return downstream;`,
         mode: "publish",
       },
     ]);
-    assert.deepEqual(published.cleaned, []);
+    assert.equal(published.downstream[0].status, "fulfilled");
 
     const unverified = await releaseWith(unknownResult);
     assert.deepEqual(unverified.dispatches, [
@@ -2042,7 +2089,12 @@ return downstream;`,
         mode: undefined,
       },
     ]);
-    assert.deepEqual(unverified.cleaned, ["v1.2.3", "clips-v1.2.3"]);
+    assert.deepEqual(
+      unverified.downstream
+        .slice(0, 2)
+        .map((result) => result.status === "fulfilled" && result.value.skipped),
+      [true, true],
+    );
   });
 
   it("stages desktop builds at merge and publishes them only after npm is verified", async () => {
@@ -2065,16 +2117,8 @@ return downstream;`,
       "readJsonAt",
       "stableVersion",
       "reserveStableVersion",
-      "cleanupReservedTags",
       "dispatchAndWait",
       "core",
-      "getRun",
-      "github",
-      "owner",
-      "repo",
-      "phaseDeadline",
-      "sleep",
-      "pollIntervalMs",
       `${source.slice(stagingStart, stagingEnd)}
 return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBuild };`,
     ) as (...args: unknown[]) => Promise<{
@@ -2091,26 +2135,15 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
       inputs: Workflow;
       label: string;
       timeoutMs: number;
-      reservedTag?: string;
     };
     const releaseSha = "b".repeat(40);
     const stage = async (
       publicationUnavailable: Error | null,
       stageResult: (dispatch: Dispatch) => Promise<Workflow>,
-      {
-        runStatuses = ["completed"],
-        cancel = async () => {},
-      }: {
-        runStatuses?: string[];
-        cancel?: () => Promise<void>;
-      } = {},
     ) => {
       const dispatches: Dispatch[] = [];
       const reservations: string[] = [];
-      const cleaned: string[] = [];
-      const cancelled: number[] = [];
       const warnings: string[] = [];
-      const waits: number[] = [];
       const staging = await startStaging(
         publicationUnavailable,
         releaseSha,
@@ -2122,25 +2155,14 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
           reservations.push(`${prefix}${version}@${sha}`);
           return version;
         },
-        async (tags: string[]) => {
-          cleaned.push(...tags);
-        },
         (
           workflow: string,
           ref: string,
           inputs: Workflow,
           label: string,
           timeoutMs: number,
-          reservedTag?: string,
         ) => {
-          const dispatch = {
-            workflow,
-            ref,
-            inputs,
-            label,
-            timeoutMs,
-            reservedTag,
-          };
+          const dispatch = { workflow, ref, inputs, label, timeoutMs };
           dispatches.push(dispatch);
           return inputs.mode === "stage"
             ? stageResult(dispatch)
@@ -2153,38 +2175,8 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
           info: () => {},
           warning: (message: string) => warnings.push(message),
         },
-        async (runId: number) => ({
-          id: runId,
-          status: runStatuses.length > 1 ? runStatuses.shift() : runStatuses[0],
-        }),
-        {
-          rest: {
-            actions: {
-              cancelWorkflowRun: async ({ run_id }: { run_id: number }) => {
-                cancelled.push(run_id);
-                await cancel();
-              },
-            },
-          },
-        },
-        "owner",
-        "repo",
-        (timeoutMs: number) => {
-          waits.push(timeoutMs);
-          return Date.now() + 40;
-        },
-        (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
-        10,
       );
-      return {
-        ...staging,
-        dispatches,
-        reservations,
-        cleaned,
-        cancelled,
-        warnings,
-        waits,
-      };
+      return { ...staging, dispatches, reservations, warnings };
     };
     const stagedRun = async (dispatch: Dispatch) => ({
       run: { id: 1, url: `staged-${dispatch.ref}` },
@@ -2209,7 +2201,6 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
         },
         label: "Agent-Native desktop stable release build",
         timeoutMs: 120 * 60_000,
-        reservedTag: "v1.2.3",
       },
       {
         workflow: "clips-desktop-release.yml",
@@ -2222,7 +2213,6 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
         },
         label: "Clips desktop stable release build",
         timeoutMs: 120 * 60_000,
-        reservedTag: "clips-v2.3.4",
       },
     ]);
     assert.deepEqual(await verified.publishStagedBuild(verified.desktopStage), {
@@ -2230,7 +2220,6 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
       run: { id: 3, url: "published-v1.2.3" },
       error: null,
     });
-    // A rejected publish dispatch must leave the built draft and its tag.
     assert.deepEqual(verified.dispatches[2], {
       workflow: "desktop-release.yml",
       ref: "v1.2.3",
@@ -2242,9 +2231,7 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
       },
       label: "Agent-Native desktop stable release",
       timeoutMs: 30 * 60_000,
-      reservedTag: undefined,
     });
-    assert.deepEqual(verified.cleaned, []);
 
     const unavailable = await stage(
       new Error("npm publication status is unknown"),
@@ -2259,7 +2246,6 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
         skipped: true,
       },
     );
-    assert.deepEqual(unavailable.cleaned, ["clips-v2.3.4"]);
     assert.equal(unavailable.dispatches.length, 2);
 
     const buildFailure = new Error("Clips build ended failure");
@@ -2276,84 +2262,30 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
       },
     );
     assert.equal(failedBuild.dispatches.length, 2);
-    assert.deepEqual(failedBuild.cleaned, []);
 
-    // With npm unpublished, a failed build is discarded like a finished one,
-    // and one still running is cancelled before its draft is deleted.
-    const discardFailedBuild = async (
-      runStatuses: string[],
-      cancel?: () => Promise<void>,
-      kept: Workflow = {},
-    ) => {
-      const discarded = await stage(
-        new Error("npm publication failed"),
-        async (dispatch) => ({
-          run: { id: 7, url: `staged-${dispatch.ref}` },
-          error: new Error(`${dispatch.ref} build ended failure`),
-        }),
-        { runStatuses, cancel },
-      );
-      assert.deepEqual(
-        await discarded.publishStagedBuild(discarded.desktopStage),
-        {
-          stageRun: { id: 7, url: "staged-v1.2.3" },
-          run: null,
-          error: null,
-          skipped: true,
-          ...kept,
-        },
-      );
-      assert.equal(discarded.dispatches.length, 2);
-      assert.match(
-        discarded.warnings[0],
-        /Agent-Native desktop stable release build failed and is discarded with npm unpublished: v1\.2\.3 build ended failure/,
-      );
-      return discarded;
-    };
-    const finishedFailure = await discardFailedBuild(["completed"]);
-    assert.deepEqual(finishedFailure.cleaned, ["v1.2.3"]);
-    assert.deepEqual(finishedFailure.cancelled, []);
-
-    const runningFailure = await discardFailedBuild([
-      "in_progress",
-      "in_progress",
-      "completed",
-    ]);
-    assert.deepEqual(runningFailure.cancelled, [7]);
-    assert.deepEqual(runningFailure.waits, [5 * 60_000]);
-    assert.deepEqual(runningFailure.cleaned, ["v1.2.3"]);
-
-    const finishedBeforeCancel = await discardFailedBuild(
-      ["in_progress", "completed"],
-      async () => {
-        throw Object.assign(new Error("Cannot cancel a completed run"), {
-          status: 409,
-        });
+    // With npm unpublished, a failed build is skipped like a finished one.
+    const failedUnpublished = await stage(
+      new Error("npm publication failed"),
+      async (dispatch) => ({
+        run: { id: 7, url: `staged-${dispatch.ref}` },
+        error: new Error(`${dispatch.ref} build ended failure`),
+      }),
+    );
+    assert.deepEqual(
+      await failedUnpublished.publishStagedBuild(
+        failedUnpublished.desktopStage,
+      ),
+      {
+        stageRun: { id: 7, url: "staged-v1.2.3" },
+        run: null,
+        error: null,
+        skipped: true,
       },
     );
-    assert.deepEqual(finishedBeforeCancel.cleaned, ["v1.2.3"]);
-
-    const stillRunning = await discardFailedBuild(["in_progress"], undefined, {
-      keptTag: "v1.2.3",
-    });
-    assert.deepEqual(stillRunning.cancelled, [7]);
-    assert.deepEqual(stillRunning.cleaned, []);
+    assert.equal(failedUnpublished.dispatches.length, 2);
     assert.match(
-      stillRunning.warnings[1],
-      /build was cancelled but has not finished, so v1\.2\.3 and its draft were kept: staged-v1\.2\.3/,
-    );
-
-    const uncancellable = await discardFailedBuild(
-      ["in_progress"],
-      async () => {
-        throw Object.assign(new Error("HTTP 500"), { status: 500 });
-      },
-      { keptTag: "v1.2.3" },
-    );
-    assert.deepEqual(uncancellable.cleaned, []);
-    assert.match(
-      uncancellable.warnings[1],
-      /Could not stop Agent-Native desktop stable release build, so v1\.2\.3 and its draft were kept: HTTP 500/,
+      failedUnpublished.warnings[0],
+      /Agent-Native desktop stable release build failed, and npm did not publish, so it is not released: v1\.2\.3 build ended failure/,
     );
 
     const unhandled: unknown[] = [];
@@ -2372,85 +2304,6 @@ return { desktopVersion, clipsVersion, desktopStage, clipsStage, publishStagedBu
       await assert.rejects(rejected.clipsStage, /HTTP 404/);
     } finally {
       process.off("unhandledRejection", recordUnhandled);
-    }
-  });
-
-  it("reports a desktop tag kept after an unstoppable build as a failure with its cleanup", async () => {
-    const source = String((coordinator.with as Workflow).script);
-    const start = source.indexOf("const targetLabels = [");
-    const end = source.indexOf(
-      "if (downstreamNotificationFailureUrl || downstreamNotificationRecoveryError)",
-      start,
-    );
-    assert.ok(start >= 0 && end > start);
-    const AsyncFunction = Object.getPrototypeOf(
-      async function () {},
-    ).constructor;
-    const mapResults = new AsyncFunction(
-      "downstream",
-      "reconciledDocsRun",
-      "failures",
-      "publicationError",
-      "owner",
-      "repo",
-      `${source.slice(start, end)}
-return { childResults, outcomes };`,
-    ) as (...args: unknown[]) => Promise<{
-      childResults: Workflow[];
-      outcomes: string[];
-    }>;
-
-    const released = (url: string) => ({
-      status: "fulfilled",
-      value: { run: { id: 9, url }, error: null },
-    });
-    const downstream = [
-      {
-        status: "fulfilled",
-        value: {
-          stageRun: { id: 7, url: "staged-v1.2.3" },
-          run: null,
-          error: null,
-          skipped: true,
-          keptTag: "v1.2.3",
-        },
-      },
-      {
-        status: "fulfilled",
-        value: {
-          stageRun: { id: 8, url: "staged-clips-v2.3.4" },
-          run: null,
-          error: null,
-          skipped: true,
-        },
-      },
-      released("sites"),
-      released("docs"),
-    ];
-    for (const [publicationError, reason] of [
-      [new Error("npm failed"), "stable npm publication failed"],
-      [null, "stable npm publication status unknown"],
-    ] as const) {
-      const failures: string[] = [];
-      const { childResults, outcomes } = await mapResults(
-        downstream,
-        null,
-        failures,
-        publicationError,
-        "BuilderIO",
-        "agent-native",
-      );
-      assert.deepEqual(failures, [
-        "Agent-Native desktop stable release build had not stopped, so v1.2.3 and its draft were kept. Once staged-v1.2.3 ends, delete them by hand: gh release delete v1.2.3 --cleanup-tag --yes -R BuilderIO/agent-native",
-      ]);
-      assert.deepEqual(outcomes, [
-        `skipped: ${reason}; v1.2.3 and its draft need deleting`,
-        `skipped: ${reason}`,
-        "released",
-        "released",
-      ]);
-      assert.equal(childResults[0].keptTag, "v1.2.3");
-      assert.equal(childResults[1].keptTag, null);
     }
   });
 
@@ -2751,7 +2604,7 @@ return { childResults, outcomes };`,
     );
     assert.match(
       source,
-      /if \(publicationUnavailable\) \{[\s\S]*?if \(stage\.error && !\(await stopStageRun\(stage\)\)\) \{[\s\S]*?keptTag: stage\.tag[\s\S]*?\}\s*await cleanupReservedTags\(\[stage\.tag\]\);[\s\S]*?\}\s*if \(stage\.error\) \{/,
+      /if \(publicationUnavailable\) \{[\s\S]*?return \{ stageRun: stage\.run, run: null, error: null, skipped: true \};\s*\}\s*if \(stage\.error\) \{/,
     );
     assert.match(
       source,
