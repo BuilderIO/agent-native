@@ -218,12 +218,17 @@ export function useBuilderStorageActivation({
     [accountExists, canProvision, start],
   );
   const signIn = useCallback(() => start(false), [start]);
+  const recheck = useCallback(() => {
+    if (storageCheckFailed) waitForStorage();
+    else builder.retry();
+  }, [builder.retry, storageCheckFailed, waitForStorage]);
 
   const state: BuilderStorageActivationState = connected
     ? "connected"
     : finishing
       ? "finishing"
-      : storageCheckFailed
+      : storageCheckFailed ||
+          (!builder.statusResolved && builder.statusUnavailable)
         ? "check-failed"
         : builder.connecting
           ? "creating"
@@ -243,8 +248,8 @@ export function useBuilderStorageActivation({
     createsAccount: canProvision && !accountExists,
     activate,
     signIn,
-    /** After "check-failed": read storage again without starting setup over. */
-    recheck: waitForStorage,
+    /** After "check-failed": read status again without starting setup over. */
+    recheck,
     cancel: builder.cancel,
   };
 }

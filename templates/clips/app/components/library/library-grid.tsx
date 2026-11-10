@@ -406,6 +406,8 @@ export function LibraryGrid({
     setStorageGateIssue,
   );
   const dropGate = useFreeClipsGate("upload");
+  const uploadsRef = useRef(uploads);
+  uploadsRef.current = uploads;
   const activeUploadIds = useMemo(
     () =>
       new Set(
@@ -645,13 +647,20 @@ export function LibraryGrid({
       toast.error(t("recordRoute.uploadFailed"));
       return;
     }
-    const uploadWithinFreeClips = () => {
+    const uploadWithinFreeClips = async () => {
       // Each upload uses a free clip, so a batch bigger than what's left
-      // would queue files the server is about to refuse.
-      const status = storageStatus.data;
+      // would queue files the server is about to refuse. A fresh read counts
+      // the clips earlier uploads reserved; queued files that haven't
+      // created their recording yet aren't in it.
+      let status = storageStatus.data;
+      if (status?.mode === "hosted") {
+        const fresh = await storageStatus.refetch();
+        if (fresh.data) status = fresh.data;
+      }
+      const queued = uploadsRef.current.filter((u) => !u.recordingId).length;
       const allowed =
         status?.mode === "hosted"
-          ? files.slice(0, Math.max(0, status.hostedRemaining))
+          ? files.slice(0, Math.max(0, status.hostedRemaining - queued))
           : files;
       if (allowed.length < files.length) {
         toast(
@@ -663,8 +672,9 @@ export function LibraryGrid({
       }
       if (allowed.length > 0) uploadFiles(allowed);
     };
-    if (dropGate.guard(uploadWithinFreeClips)) return;
-    uploadWithinFreeClips();
+    const proceed = () => void uploadWithinFreeClips();
+    if (dropGate.guard(proceed)) return;
+    proceed();
   };
 
   const retryStorageStatus = async () => {

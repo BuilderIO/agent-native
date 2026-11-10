@@ -87,7 +87,7 @@ function LastClipPrompt({
   });
   const offer = {
     surface: "record_last_clip_prompt" as const,
-    milestone: "last_clip_intent",
+    milestone: "last_clip_intent" as const,
     remaining: 1,
     limit,
   };
