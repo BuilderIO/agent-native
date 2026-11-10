@@ -3750,6 +3750,14 @@ function magicLinkResponseError(
   }
 }
 
+function requestAuthCopy(event: H3Event) {
+  return resolveNativeAuthCopy(
+    resolveLocaleFromRequest({
+      acceptLanguage: getHeader(event, "accept-language") ?? null,
+    }).locale,
+  );
+}
+
 /**
  * Better Auth creates a magic-link user inside verify, so on an invite-only
  * workspace a stranger's link is refused there, and Better Auth answers that
@@ -3807,11 +3815,7 @@ async function inviteOnlyMagicLinkResponse(
     });
   }
 
-  const copy = resolveNativeAuthCopy(
-    resolveLocaleFromRequest({
-      acceptLanguage: getHeader(event, "accept-language"),
-    }).locale,
-  );
+  const copy = requestAuthCopy(event);
   return oauthErrorPage(copy.signupInviteOnly, 403, {
     backHref: `${getAppBasePath()}${SIGN_IN_ENTRY_PATH}`,
     backLabel: copy.signIn,
@@ -6409,11 +6413,7 @@ async function mountBetterAuthRoutes(
           .slice(0, 64);
         const inviteOnly = code === AUTH_SIGNUP_INVITE_ONLY_CODE;
         const message = inviteOnly
-          ? resolveNativeAuthCopy(
-              resolveLocaleFromRequest({
-                acceptLanguage: getHeader(event, "accept-language"),
-              }).locale,
-            ).signupInviteOnly
+          ? requestAuthCopy(event).signupInviteOnly
           : AUTH_MAGIC_LINK_FALLBACK;
         setDesktopExchangeError(flowId, {
           message,
