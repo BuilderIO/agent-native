@@ -76,8 +76,9 @@ export function isValidSweepCursor(value: string): boolean {
   const createdAt = at < 0 ? value : value.slice(0, at);
   const id = at < 0 ? null : value.slice(at + 1);
   if (id !== null && id.trim() === "") return false;
+  // Offsets are limited to real ones (-23:59..+23:59); `Z` or none is the norm.
   const match =
-    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?$/.exec(
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-](?:[01]\d|2[0-3]):?[0-5]\d)?$/.exec(
       createdAt,
     );
   if (!match) return false;
@@ -92,7 +93,9 @@ export function isValidSweepCursor(value: string): boolean {
   ) {
     return false;
   }
-  const day = new Date(Date.UTC(y, mo - 1, d));
+  // setUTCFullYear, not Date.UTC: Date.UTC maps years 0-99 to 1900-1999.
+  const day = new Date(0);
+  day.setUTCFullYear(y, mo - 1, d);
   return (
     day.getUTCFullYear() === y &&
     day.getUTCMonth() === mo - 1 &&
