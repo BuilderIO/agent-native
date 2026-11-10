@@ -843,7 +843,7 @@ describe("comment AI controls", () => {
 
   it("keeps fresh Ask AI blocked while a transport-unknown original completes late", async () => {
     vi.useFakeTimers();
-    let controller: CommentAiController;
+    let controller: CommentAiController | undefined;
     function Probe() {
       controller = useCommentAiRequests("document-1", { enabled: true });
       return null;
@@ -901,7 +901,7 @@ describe("comment AI controls", () => {
 
     expect(controller!.requests[0]).toMatchObject({ status: "needs-review" });
     // What the run writes is read from the server's status, not the shown one.
-    expect(controller!.serverRequests[0]).toMatchObject({ status: "queued" });
+    expect(controller?.serverRequests[0]).toMatchObject({ status: "queued" });
     await act(async () => {
       await controller!.start({
         threadId: "thread-1",
