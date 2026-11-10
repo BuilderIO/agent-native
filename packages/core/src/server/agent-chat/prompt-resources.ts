@@ -15,6 +15,7 @@ import {
 import {
   applySkillChoices,
   readSkillChoices,
+  requiredSkillPaths,
 } from "../../resources/skill-choices.js";
 import {
   ensurePersonalDefaults,
@@ -790,14 +791,6 @@ async function loadResourceSkillPromptEntries(
   try {
     // Without an orgId, each read falls back to the request's organization.
     const inOrg = orgId === undefined ? {} : { orgId };
-    const layers =
-      owner === SHARED_OWNER
-        ? {
-            personal: [],
-            organization: await resourceList(SHARED_OWNER, "skills/"),
-            workspace: await resourceList(WORKSPACE_OWNER, "skills/", inOrg),
-          }
-        : await resourceListAccessibleLayers(owner, "skills/", inOrg);
     // Each person's switches and the organization's marks decide which
     // skills the agent sees; Required ones come first so they win. Without
     // them the prompt would leave out a Required skill or include one the
@@ -807,6 +800,22 @@ async function loadResourceSkillPromptEntries(
       orgId: orgId === undefined ? (getRequestOrgId() ?? null) : orgId,
     }).catch((error) => {
       throw new SkillChoicesReadError(error);
+    });
+    const listLayers = async () =>
+      owner === SHARED_OWNER
+        ? {
+            personal: [],
+            organization: await resourceList(SHARED_OWNER, "skills/"),
+            workspace: await resourceList(WORKSPACE_OWNER, "skills/", inOrg),
+          }
+        : await resourceListAccessibleLayers(owner, "skills/", inOrg);
+    const layers = await listLayers().catch((error) => {
+      // An unlisted catalog would leave out skills marked Required, which
+      // are meant to be always on; without marks it stays empty, as before.
+      if (requiredSkillPaths(choices).length > 0) {
+        throw new RequiredSkillReadError(error);
+      }
+      throw error;
     });
     const { required, rest } = applySkillChoices(layers, choices);
     const sorted = [

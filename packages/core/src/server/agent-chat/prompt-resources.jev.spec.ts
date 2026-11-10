@@ -2170,6 +2170,25 @@ description: Meeting notes.
     expect(prompt).not.toContain("The organization's voice.");
   });
 
+  it("fails the prompt when skills can't be listed while some are Required", async () => {
+    mocks.resourceListAccessible.mockRejectedValue(new Error("list failed"));
+    mocks.readSkillChoices.mockResolvedValue({
+      switches: {},
+      marks: { "organization:skills/brand-voice/SKILL.md": "required" },
+    });
+
+    // Required skills are meant to be always on.
+    await expect(
+      loadResourcesForPrompt("user@example.test", false, undefined, "org-1"),
+    ).rejects.toThrow("list failed");
+
+    // Without marks the prompt runs without skills, as it did before.
+    mocks.readSkillChoices.mockResolvedValue({ switches: {}, marks: {} });
+    await expect(
+      loadResourcesForPrompt("user@example.test", false, undefined, "org-1"),
+    ).resolves.not.toContain("<resource-skills>");
+  });
+
   it("fails the prompt when a Required skill can't be read, but not an optional one", async () => {
     const resources = [
       {
