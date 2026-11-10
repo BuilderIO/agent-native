@@ -5,6 +5,7 @@ import {
 import { isSameRecord } from "@agent-native/core/save-conflict/server";
 
 import { ALIAS_PREFIX, expandAliasTokens } from "../../shared/alias-tokens.js";
+import { DRAFT_MAILBOX_BUSY_ERROR_CODE } from "../../shared/draft-mailbox.js";
 import type { ComposeState } from "../../shared/types.js";
 import { readAliases } from "./aliases.js";
 import { deleteGmailDraft, saveGmailDraft } from "./gmail-drafts.js";
@@ -310,7 +311,7 @@ export async function syncDraftToMailbox(args: {
     }
     return {
       status: "pending",
-      errorCode: "draft_mailbox_busy",
+      errorCode: DRAFT_MAILBOX_BUSY_ERROR_CODE,
       message:
         "The draft kept changing while its mailbox copy was saved; the next save brings that copy up to date.",
       ...leftover(),

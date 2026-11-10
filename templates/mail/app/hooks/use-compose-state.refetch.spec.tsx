@@ -226,6 +226,55 @@ describe("useComposeState", () => {
     expect(local()?.subject).toBe("Mine");
   });
 
+  it("doesn't report a sync that newer saves of the draft overtook", async () => {
+    const { id, sent, answer, result } = await mounted();
+    mocks.callAction.mockResolvedValue({
+      status: "pending",
+      errorCode: "draft_mailbox_busy",
+      message: "The draft kept changing while its mailbox copy was saved.",
+    });
+
+    act(() => result.current.update(id, { subject: "Mine" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await act(async () => {
+      answer(0, asJson({ value: sent[0], revision: "rev_saved" }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    await waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith("sync-draft-mailbox", {
+        id,
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(failures).toHaveLength(0);
+  });
+
+  it("still reports a mailbox copy the mailbox wouldn't take", async () => {
+    const { id, sent, answer, result } = await mounted();
+    mocks.callAction.mockResolvedValue({
+      status: "pending",
+      errorCode: "gmail_quota_cooldown",
+      message: "Email service is briefly busy",
+      retryAfterMs: 5_000,
+    });
+
+    act(() => result.current.update(id, { subject: "Mine" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await act(async () => {
+      answer(0, asJson({ value: sent[0], revision: "rev_saved" }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    await waitFor(() => expect(failures).toHaveLength(1));
+  });
+
   it("saves the text on screen to the mailbox when the store refuses the draft", async () => {
     const { id, sent, posted, answer, result } = await mounted();
 

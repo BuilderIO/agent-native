@@ -11,6 +11,7 @@ import {
   type SavedRecord,
   type SaveOverlap,
 } from "@agent-native/core/save-conflict";
+import { DRAFT_MAILBOX_BUSY_ERROR_CODE } from "@shared/draft-mailbox";
 import { appendSignatureToBody } from "@shared/signature";
 import type { ComposeState, UserSettings } from "@shared/types";
 import {
@@ -544,6 +545,21 @@ export async function syncDraftToMailboxBestEffort(
 }
 
 /**
+ * Whether a save's mailbox copy only fell behind newer saves of the draft,
+ * which each sync the copy after them. Typing again while a sync runs does
+ * this, so it isn't a failed save to tell the person about.
+ */
+export function mailboxCopyOvertaken(result: DraftSaveResult): boolean {
+  return (
+    result.status === "failed" &&
+    typeof result.error === "object" &&
+    result.error !== null &&
+    "errorCode" in result.error &&
+    result.error.errorCode === DRAFT_MAILBOX_BUSY_ERROR_CODE
+  );
+}
+
+/**
  * Keeps a draft's mailbox copy current. When Mail's store refused the draft's
  * last write or never answered it, nothing says it holds anything current to
  * copy and the text on screen may be the only copy there is, so that text goes
@@ -583,6 +599,7 @@ export function useComposeState() {
 
   const reportDraftSaveResult = useCallback(
     (draft: ComposeState, result: DraftSaveResult) => {
+      if (mailboxCopyOvertaken(result)) return;
       if (result.status !== "saved") {
         if (draftSaveFailuresRef.current.has(draft.id)) return;
         draftSaveFailuresRef.current.add(draft.id);
