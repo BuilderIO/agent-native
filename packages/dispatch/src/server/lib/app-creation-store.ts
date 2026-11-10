@@ -21,6 +21,7 @@ import {
   getOrgA2ASecret,
   getOrgDomain,
   isWorkspaceAppAccessAllowed,
+  workspaceAccessFailureDiagnostic,
   workspaceApps,
 } from "@agent-native/core/org";
 import {
@@ -171,6 +172,16 @@ function requireWorkspaceAppOrgId(): string {
   const orgId = currentOrgId();
   if (!orgId) throw new WorkspaceAppOrgRequiredError();
   return orgId;
+}
+
+function workspaceAppAccessUnavailableError(): ActionContractError {
+  return new ActionContractError(
+    "Workspace app access is temporarily unavailable.",
+    {
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    },
+  );
 }
 
 class WorkspaceAppsGatewayAuthorizationError extends ActionContractError {
@@ -1662,8 +1673,6 @@ async function ensureWorkspaceAppRecords(
   // Read-only calls (persist: false) are allowed without an org; any call that
   // may write must have one before it touches the database.
   const orgId = shouldPersist ? requireWorkspaceAppOrgId() : null;
-  const metadata = await readWorkspaceAppMetadataSettings();
-  const db = getDbExec();
   const records = new Map<
     string,
     {
@@ -1676,6 +1685,8 @@ async function ensureWorkspaceAppRecords(
   const unresolvedIds: string[] = [];
 
   try {
+    const metadata = await readWorkspaceAppMetadataSettings();
+    const db = getDbExec();
     const existingRecords = new Map<
       string,
       {
@@ -1823,8 +1834,11 @@ async function ensureWorkspaceAppRecords(
       );
     }
   } catch (error) {
-    console.warn("[dispatch] workspace app access records unavailable", error);
-    return apps;
+    console.error(
+      "[dispatch] workspace app access record lookup failed",
+      workspaceAccessFailureDiagnostic(error),
+    );
+    throw workspaceAppAccessUnavailableError();
   }
 
   return apps.map((app) => {
@@ -1877,10 +1891,22 @@ async function filterWorkspaceAppsByAccess(
       continue;
     }
     if (app.isDispatch) {
-      const dispatchAccess = await isWorkspaceAppAccessAllowed("dispatch", {
-        email: userEmail,
-        orgId,
-      });
+      let dispatchAccess: boolean | "unavailable";
+      try {
+        dispatchAccess = await isWorkspaceAppAccessAllowed("dispatch", {
+          email: userEmail,
+          ...(orgId ? { orgId } : {}),
+        });
+      } catch (error) {
+        console.error(
+          "[dispatch] workspace app Dispatch access check failed",
+          workspaceAccessFailureDiagnostic(error),
+        );
+        throw workspaceAppAccessUnavailableError();
+      }
+      if (dispatchAccess === "unavailable") {
+        throw workspaceAppAccessUnavailableError();
+      }
       if (dispatchAccess === true) {
         visibleIds.add(app.id);
       }
@@ -1899,7 +1925,11 @@ async function filterWorkspaceAppsByAccess(
       );
       for (const id of access.keys()) visibleIds.add(id);
     } catch (error) {
-      console.warn("[dispatch] workspace app access lookup failed", error);
+      console.error(
+        "[dispatch] workspace app batch access lookup failed",
+        workspaceAccessFailureDiagnostic(error),
+      );
+      throw workspaceAppAccessUnavailableError();
     }
   }
 
@@ -2430,7 +2460,13 @@ async function applyArchivedAndPending(
   const [withPending, archivedIds, metadataSettings] = await Promise.all([
     appendPendingWorkspaceApps(apps),
     listArchivedAppIds(),
-    readWorkspaceAppMetadataSettings(),
+    readWorkspaceAppMetadataSettings().catch((error: unknown) => {
+      console.error(
+        "[dispatch] workspace app metadata lookup failed",
+        workspaceAccessFailureDiagnostic(error),
+      );
+      throw workspaceAppAccessUnavailableError();
+    }),
   ]);
   const archivedSet = new Set(archivedIds);
   const annotated = withPending.map((app) => {

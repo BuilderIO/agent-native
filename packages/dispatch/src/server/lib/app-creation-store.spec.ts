@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
@@ -10,6 +11,11 @@ import {
 } from "@agent-native/core/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../../../../core/src/app-config/index.js";
+import { __resetProcessMemberOrgCacheForTests } from "../../../../core/src/org/request-org-cache.js";
+import { mountActionRoutes } from "../../../../core/src/server/action-routes.js";
+import claimWorkspaceAppOrganization from "../../actions/claim-workspace-app-organization.js";
+import listWorkspaceAppsAction from "../../actions/list-workspace-apps.js";
 import {
   archiveWorkspaceApp,
   generateWorkspaceAppDescription,
@@ -26,6 +32,11 @@ import {
   orgAppsDirectoryAccessCache,
   orgAppsDirectoryCache,
 } from "./org-apps-directory-cache.js";
+
+const coreRequire = createRequire(
+  new URL("../../../../core/package.json", import.meta.url),
+);
+const { createApp } = await import(coreRequire.resolve("h3/node"));
 
 const originalFetch = globalThis.fetch;
 const settingsKey = "dispatch-app-creation-settings:user:dev@example.test";
@@ -176,6 +187,26 @@ vi.mock("@agent-native/core/secrets", async (importOriginal) => {
   };
 });
 
+vi.mock(
+  "../../../../core/src/server/framework-request-handler.js",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../../../../core/src/server/framework-request-handler.js")
+      >();
+    return {
+      ...actual,
+      getH3App: (nitroApp: { app: unknown }) => nitroApp.app,
+    };
+  },
+);
+
+vi.mock("../../../../core/src/db/client.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../../../core/src/db/client.js")>();
+  return { ...actual, getDbExec: () => mocks.getDbExec() };
+});
+
 vi.mock("@agent-native/core/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@agent-native/core/db")>();
   return {
@@ -196,8 +227,14 @@ vi.mock("@agent-native/core/org", async (importOriginal) => {
     await importOriginal<typeof import("@agent-native/core/org")>();
   return {
     ...actual,
+    workspaceAccessFailureDiagnostic: (
+      await import("../../../../core/src/org/workspace-app-access-outcome.js")
+    ).workspaceAccessFailureDiagnostic,
     getOrgA2ASecret: (...args: any[]) => mocks.getOrgA2ASecret(...args),
     getOrgDomain: (...args: any[]) => mocks.getOrgDomain(...args),
+    claimWorkspaceAppForOrganization: (
+      await import("../../../../core/src/org/workspace-app-access.js")
+    ).claimWorkspaceAppForOrganization,
     isWorkspaceAppAccessAllowed: (...args: any[]) =>
       mocks.isWorkspaceAppAccessAllowed(...args),
   };
@@ -431,6 +468,260 @@ describe("listWorkspaceApps", () => {
       ...overrides,
     };
   }
+
+  describe("registry authorization failures", () => {
+    async function exerciseRegistryAccess(mode: "throw" | "deny") {
+      stubNoPendingContext();
+      stubManifest([
+        { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+        { id: "analytics", name: "Analytics", path: "/analytics" },
+        { id: "board", name: "Board", path: "/board" },
+      ]);
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv(
+        "AGENT_NATIVE_ORG_DIRECTORY_URL",
+        "https://dispatch.example.test",
+      );
+      vi.stubEnv("AGENT_NATIVE_APP_ID", "analytics");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "analytics");
+      resetAppConfigForTests();
+      __resetProcessMemberOrgCacheForTests();
+      mocks.state.orgRole = "member";
+      mocks.state.workspaceApps = ["analytics", "board"].map((id) => ({
+        id,
+        owner_email: "owner@example.test",
+        org_id: "org-123",
+        visibility: "private",
+        org_enabled: mode === "deny" && id === "analytics" ? 0 : 1,
+      }));
+      mocks.getDbExec.mockImplementation(() => ({
+        execute: vi.fn(async (statement: unknown) => {
+          const query = statement as { sql?: string; args?: unknown[] };
+          if (typeof query.sql !== "string")
+            return { rows: [], rowsAffected: 0 };
+          mocks.executedSql.push(query.sql);
+          if (query.sql.includes("SELECT allowed_domain"))
+            return {
+              rows: [{ allowed_domain: "example.test" }],
+              rowsAffected: 0,
+            };
+          if (query.sql.includes("SELECT a2a_secret"))
+            return { rows: [], rowsAffected: 0 };
+          if (query.sql.includes("SELECT org_enabled"))
+            return { rows: [], rowsAffected: 0 };
+          if (query.sql.includes("SELECT id, owner_email, org_id, visibility"))
+            return {
+              rows: mocks.state.workspaceApps.filter((app) =>
+                query.args?.includes(app.id),
+              ),
+              rowsAffected: 0,
+            };
+          if (query.sql.includes("FROM org_members m"))
+            return { rows: [{ role: "member" }], rowsAffected: 0 };
+          return { rows: [], rowsAffected: 0 };
+        }),
+      }));
+      if (mode === "throw")
+        mocks.resolveAccess.mockRejectedValue(
+          Object.assign(new Error("secret provider payload"), {
+            code: "42P01",
+          }),
+        );
+      else
+        mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: {} });
+      const registryCalls: string[] = [];
+      const registryResults: { status: number; body: unknown }[] = [];
+      const registry = createApp();
+      mountActionRoutes(
+        { app: registry },
+        {
+          "list-workspace-apps": listWorkspaceAppsAction,
+          "claim-workspace-app-organization": claimWorkspaceAppOrganization,
+        },
+        {
+          actionRouteAuth: {
+            resolveCaller: async (event) => {
+              const token = event.req.headers
+                .get("authorization")
+                ?.replace(/^Bearer /, "");
+              if (!token) throw new Error("Missing bearer token");
+              verifyJwtWithSecret(token, "test-a2a-secret");
+              return {
+                owner: "dev@example.test",
+                anonymous: false,
+                orgId: "org-123",
+              };
+            },
+          },
+        },
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input));
+          registryCalls.push(url.pathname);
+          const response = await registry.fetch(new Request(url, init));
+          registryResults.push({
+            status: response.status,
+            body: await response.clone().json(),
+          });
+          return response;
+        }),
+      );
+      const run = vi.fn(async () => ({ ok: true }));
+      const request = (appId = "analytics") => {
+        const app = createApp();
+        mountActionRoutes(
+          { app },
+          {
+            "list-resource-shares": {
+              http: { method: "GET" },
+              readOnly: false,
+              requiresAuth: true,
+              run,
+            },
+          },
+          {
+            appId,
+            mcpDirectoryWidgetAppId: appId,
+            mcpDirectoryWidgetResourceUri: `ui://${appId}/shell`,
+            mcpDirectoryWidgetReadActionArguments: {
+              "list-resource-shares": ["resourceType", "resourceId"],
+            },
+            mcpDirectoryWidgetReadOnlyActions: ["list-resource-shares"],
+            getOwnerContextFromEvent: async () => ({
+              owner: "dev@example.test",
+              anonymous: false,
+            }),
+            resolveOrgId: async () => "org-123",
+          },
+        );
+        return app.fetch(
+          new Request(
+            `http://${appId}.example.test/_agent-native/actions/list-resource-shares?resourceType=board&resourceId=board-1`,
+            { headers: { "x-agent-native-frontend": "1" } },
+          ),
+        );
+      };
+      return { request, registryCalls, registryResults, run };
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+      __resetProcessMemberOrgCacheForTests();
+      resetAppConfigForTests();
+      vi.restoreAllMocks();
+    });
+
+    it("reports a batch authorization failure as unavailable rather than denied", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { request, registryCalls, registryResults, run } =
+        await exerciseRegistryAccess("throw");
+      for (const appId of ["analytics", "board"]) {
+        const response = await request(appId);
+        expect(response.status).toBe(503);
+        expect(await response.json()).toMatchObject({
+          code: "registry-http-error",
+          upstreamStatus: 503,
+        });
+      }
+      expect(registryResults).toEqual([
+        {
+          status: 503,
+          body: {
+            error: "Workspace app access is temporarily unavailable.",
+            errorCode: "workspace_app_access_unavailable",
+          },
+        },
+        {
+          status: 503,
+          body: {
+            error: "Workspace app access is temporarily unavailable.",
+            errorCode: "workspace_app_access_unavailable",
+          },
+        },
+      ]);
+      expect(run).not.toHaveBeenCalled();
+      expect(errorLog).toHaveBeenCalledWith(
+        "[dispatch] workspace app batch access lookup failed",
+        { kind: "Error", databaseCode: "42P01" },
+      );
+      expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+        "secret provider payload",
+      );
+      mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: {} });
+      expect((await request()).status).toBe(200);
+      expect((await request("board")).status).toBe(200);
+      expect(registryCalls).toEqual(
+        Array(3).fill("/_agent-native/actions/list-workspace-apps"),
+      );
+      expect(run).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(["membership", "claim"])(
+      "reports claim %s failures as unavailable",
+      async (step) => {
+        const errorLog = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        const execute = vi.fn();
+        if (step === "claim")
+          execute.mockResolvedValueOnce({ rows: [{ role: "admin" }] });
+        execute.mockRejectedValue(new Error("sensitive database detail"));
+        mocks.getDbExec.mockImplementation(() => ({ execute }));
+
+        await expect(
+          runWithRequestContext(
+            { userEmail: "dev@example.test", orgId: "org-123" },
+            () =>
+              claimWorkspaceAppOrganization.run(
+                { appId: "analytics" },
+                undefined,
+              ),
+          ),
+        ).rejects.toMatchObject({
+          statusCode: 503,
+          errorCode: "workspace_app_access_unavailable",
+          message: "Workspace app access is temporarily unavailable.",
+        });
+        expect(errorLog).toHaveBeenCalledWith(
+          "[workspace-app-access] claim failed",
+          { stage: step, kind: "Error" },
+        );
+        expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+          "sensitive database detail",
+        );
+      },
+    );
+
+    it("reports a genuinely disabled app as denied", async () => {
+      const { request, registryCalls, registryResults, run } =
+        await exerciseRegistryAccess("deny");
+      const response = await request();
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        error: "You do not have access to this workspace app.",
+      });
+      expect(registryCalls).toEqual([
+        "/_agent-native/actions/list-workspace-apps",
+        "/_agent-native/actions/claim-workspace-app-organization",
+      ]);
+      expect(
+        (registryResults[0]?.body as Array<{ id: string }>).map(
+          (app) => app.id,
+        ),
+      ).toEqual(["dispatch", "board"]);
+      expect(registryResults[1]).toEqual({
+        status: 200,
+        body: { allowed: false },
+      });
+      expect(
+        mocks.executedSql.some((sql) => sql.includes("FROM org_members m")),
+      ).toBe(true);
+      expect(run).not.toHaveBeenCalled();
+    });
+  });
 
   it("prefers the live workspace gateway manifest when available", async () => {
     const fetchMock = vi.fn(async () => {
@@ -1956,12 +2247,16 @@ describe("listWorkspaceApps", () => {
       new Error('relation "workspace_app_shares" does not exist'),
     );
 
-    const apps = await runWithRequestContext(
-      { userEmail: "dev@example.test", orgId: "org-123" },
-      () => listWorkspaceApps({ includeAgentCards: false }),
-    );
-
-    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+      message: "Workspace app access is temporarily unavailable.",
+    });
   });
 
   it("does not expose Dispatch after federated membership is revoked", async () => {
@@ -1980,16 +2275,117 @@ describe("listWorkspaceApps", () => {
     });
   });
 
-  it("does not expose Dispatch when its access check is unavailable", async () => {
+  it("reports an unavailable Dispatch access check without returning a list", async () => {
     stubManifest();
     mocks.isWorkspaceAppAccessAllowed.mockResolvedValueOnce("unavailable");
 
-    const apps = await runWithRequestContext(
-      { userEmail: "member@example.test", orgId: "org-123" },
-      () => listWorkspaceApps({ includeAgentCards: false }),
-    );
+    await expect(
+      runWithRequestContext(
+        { userEmail: "member@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    });
+  });
 
-    expect(apps).toEqual([]);
+  it("logs a safe diagnostic when the Dispatch access check throws", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    stubManifest();
+    mocks.isWorkspaceAppAccessAllowed.mockRejectedValueOnce(
+      new TypeError("private identity"),
+    );
+    await expect(
+      runWithRequestContext(
+        { userEmail: "member@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    });
+    expect(errorLog).toHaveBeenCalledWith(
+      "[dispatch] workspace app Dispatch access check failed",
+      { kind: "TypeError" },
+    );
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+      "private identity",
+    );
+    errorLog.mockRestore();
+  });
+
+  it.each([
+    [1, "[dispatch] workspace app metadata lookup failed"],
+    [2, "[dispatch] workspace app access record lookup failed"],
+  ])(
+    "reports metadata read %i failures as unavailable",
+    async (failedRead, logMessage) => {
+      const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+      stubManifest([
+        { id: "private-app", name: "Private app", path: "/private-app" },
+      ]);
+      const getSetting = mocks.getSetting.getMockImplementation();
+      let metadataReads = 0;
+      mocks.getSetting.mockImplementation(async (key) => {
+        if (
+          key.includes("workspace-app-metadata") &&
+          ++metadataReads === failedRead
+        ) {
+          throw new Error("sensitive settings detail");
+        }
+        return getSetting?.(key);
+      });
+      try {
+        await expect(
+          runWithRequestContext(
+            { userEmail: "member@example.test", orgId: "org-123" },
+            () => listWorkspaceApps({ includeAgentCards: false }),
+          ),
+        ).rejects.toMatchObject({
+          statusCode: 503,
+          errorCode: "workspace_app_access_unavailable",
+        });
+        expect(errorLog).toHaveBeenCalledWith(logMessage, { kind: "Error" });
+        expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+          "sensitive settings detail",
+        );
+      } finally {
+        if (getSetting) mocks.getSetting.mockImplementation(getSetting);
+        errorLog.mockRestore();
+      }
+    },
+  );
+
+  it("does not return registry apps when access records cannot be read", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    stubManifest([
+      { id: "private-app", name: "Private app", path: "/private-app" },
+    ]);
+    mocks.getDbExec.mockImplementation(() => ({
+      execute: vi
+        .fn()
+        .mockRejectedValue(new Error("sensitive database detail")),
+    }));
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "member@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+      message: "Workspace app access is temporarily unavailable.",
+    });
+    expect(errorLog).toHaveBeenCalledWith(
+      "[dispatch] workspace app access record lookup failed",
+      { kind: "Error" },
+    );
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+      "sensitive database detail",
+    );
+    errorLog.mockRestore();
   });
 
   it("does not expose the workspace app registry without an authenticated user", async () => {
@@ -2675,12 +3071,15 @@ describe("listWorkspaceApps", () => {
     mocks.getDbExec.mockReturnValue({ execute });
     mocks.resolveAccess.mockResolvedValue(null);
 
-    const apps = await runWithRequestContext(
-      { userEmail: "viewer@example.test", orgId: "org-123" },
-      () => listWorkspaceApps({ includeAgentCards: false }),
-    );
-
-    expect(apps).toEqual([]);
+    await expect(
+      runWithRequestContext(
+        { userEmail: "viewer@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    });
   });
 
   it("hides expired pending Builder app rows", async () => {
@@ -2812,7 +3211,10 @@ describe("listWorkspaceApps", () => {
         { userEmail: "dev@example.test", orgId: "org-123" },
         () => updateWorkspaceAppMetadata({ appId: "todo", name: "Updated" }),
       ),
-    ).rejects.toThrow("metadata settings unavailable");
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "workspace_app_access_unavailable",
+    });
 
     expect(metadataReads).toBe(2);
     expect(mocks.putSetting).not.toHaveBeenCalled();
