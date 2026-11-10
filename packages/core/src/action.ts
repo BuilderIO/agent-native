@@ -243,10 +243,16 @@ export interface ActionRunContext {
   approvedToolCallKey?: string;
   /**
    * The client behind a `caller: "mcp"` call. `name` and `version` are its
-   * self-reported `clientInfo`. `oauthClientId` is the OAuth client its
-   * credential was issued to.
+   * self-reported `clientInfo`, and `userAgent` its self-reported HTTP
+   * User-Agent. `oauthClientId` is the OAuth client its credential was issued
+   * to.
    */
-  mcpClient?: { name?: string; version?: string; oauthClientId?: string };
+  mcpClient?: {
+    name?: string;
+    version?: string;
+    userAgent?: string;
+    oauthClientId?: string;
+  };
 }
 
 export type ActionAuthorize<TArgs> = (

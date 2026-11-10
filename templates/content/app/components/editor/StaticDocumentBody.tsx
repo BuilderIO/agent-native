@@ -25,6 +25,7 @@ import {
   toggleTitleNode,
 } from "./extensions/NotionExtensions";
 import { isEmptyCell } from "./extensions/TablePresentation";
+import { imageDisplaySrc } from "./private-media-src";
 import {
   noteStoredBodyImageFailed,
   storedBodyOnScreen,
@@ -245,7 +246,7 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
     const src: string = node.attrs.src;
     const alt: string = node.attrs.alt || "";
     const image = h(document, "img", {
-      src,
+      src: imageDisplaySrc(src),
       alt,
       class: "media-block__content",
       draggable: "false",
@@ -656,7 +657,10 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
 };
 
 /** Node views whose DOM lays out as their `renderHTML` does. */
-export const NODE_VIEWS_LAID_OUT_BY_RENDER_HTML = new Set(["taskItem"]);
+export const NODE_VIEWS_LAID_OUT_BY_RENDER_HTML = new Set([
+  "taskItem",
+  "notionColumn",
+]);
 
 /**
  * Draws a stored body into `target` as the DOM the editor draws for it. Nodes

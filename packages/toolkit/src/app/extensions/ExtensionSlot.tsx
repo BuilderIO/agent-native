@@ -3,6 +3,10 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useAfterPaint } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -192,7 +196,7 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
     );
     setOpen(false);
     try {
-      await fetch(
+      const res = await fetch(
         agentNativePath(
           `/_agent-native/slots/${encodeURIComponent(slotId)}/install`,
         ),
@@ -202,6 +206,11 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
           body: JSON.stringify({ extensionId }),
         },
       );
+      if (!res.ok) {
+        reportWriteFailure(writeFailureFromResponse(res));
+      }
+    } catch (error) {
+      reportWriteFailure(error);
     } finally {
       void queryClient.invalidateQueries({
         queryKey: ["slot-installs", slotId],

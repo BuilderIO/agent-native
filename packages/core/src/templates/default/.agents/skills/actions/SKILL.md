@@ -176,6 +176,8 @@ const people = await callAction("search-people", { query }, { method: "GET" }); 
 
 Don't add manual generics like `useActionQuery<Meal[]>(...)` — types come from `.generated/action-types.d.ts`. Mutations auto-invalidate all `["action"]` query keys, so GET queries refetch. A revisit paints the persisted result for the signed-in user and org before that refetch; see `references/action-fields.md` for `persistInBrowser: false`.
 
+A failed `useActionMutation` write shows one shared toast (`WriteFailureToaster`, mounted by `AppProviders`) when nothing else reports it. `mutate` toasts unless an `onError` (hook-level or per call) handles the failure; `mutateAsync` toasts only when its rejection ends up unhandled. `errorNotification` picks the mode: `"auto"` (default), `"shared"` (toast even beside an `onError` that only rolls back or logs), or `"caller"` (never: background saves, deliberate swallows, call sites that render the error themselves). `errorLabel` is an already-translated title. A `fail()` with a 4xx status shows its message as the toast text, a 5xx shows only the title because the server masks its text, and a 401 stays silent. For a write that is not a `useActionMutation` (a raw `fetch` upload, a swallowed `catch`), call `reportWriteFailure(error, { label })` from `@agent-native/core/client/write-failure`.
+
 When a query result varies by viewer or another client context that is not part of the action arguments, pass that stable context through `queryKeyScope`. It partitions only the local query cache; it is not sent to the action and never replaces server-side authorization.
 
 ## How to Run (Agent)

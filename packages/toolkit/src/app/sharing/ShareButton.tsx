@@ -75,6 +75,10 @@ import type {
 import { toast } from "sonner";
 
 import { AccessRequestsSection } from "./AccessRequestsSection.js";
+import {
+  agentLinkExpiresAt,
+  isAgentLinkExpiring,
+} from "./agent-link-expiry.js";
 import { ShareVisibilityConfirmDialog } from "./ShareVisibilityConfirmDialog.js";
 
 export interface ShareButtonProps {
@@ -118,12 +122,16 @@ export interface ShareButtonProps {
   agentShareLabel?: string;
   /** Destinations in the Send to menu beside Copy link. */
   sendTo?: ShareSendTo;
+  /** Leaves the Send to menu out, for an app that offers it in a tab of its own. */
+  hideSendTo?: boolean;
   /** Immediate human-link copy action beside the Share trigger. */
   quickCopy?: {
     label: string;
     copiedLabel: string;
     onCopy: () => Promise<boolean | void> | boolean | void;
     size?: "default" | "sm";
+    /** `plain` draws Share as text, set apart from Copy link. */
+    appearance?: "joined" | "plain";
     className?: string;
   };
   /** Tooltip for the Copy link button: which link it copies. */
@@ -407,10 +415,11 @@ export function ShareButton(props: ShareButtonProps) {
     controller.handleShareTabChange,
   ]);
   const triggerLabel = t("agentChat.share.share", { defaultValue: "Share" });
+  const plainQuickCopy = props.quickCopy?.appearance === "plain";
   const trigger = (
     <ShareTrigger
       label={
-        props.quickCopy ? (
+        props.quickCopy && !plainQuickCopy ? (
           <span className="flex items-center gap-2">
             <IconUserPlus aria-hidden="true" />
             <span>{props.triggerContent ?? triggerLabel}</span>
@@ -422,8 +431,10 @@ export function ShareButton(props: ShareButtonProps) {
       className={props.triggerClassName}
       aria-label={triggerLabel}
       title={triggerLabel}
-      intent={props.quickCopy ? "primary" : undefined}
-      emphasis={props.quickCopy ? "solid" : undefined}
+      intent={props.quickCopy && !plainQuickCopy ? "primary" : undefined}
+      emphasis={
+        plainQuickCopy ? "ghost" : props.quickCopy ? "solid" : undefined
+      }
     />
   );
   if (isSmallScreen) {
@@ -436,6 +447,7 @@ export function ShareButton(props: ShareButtonProps) {
             copiedLabel={props.quickCopy.copiedLabel}
             onCopy={props.quickCopy.onCopy}
             size={props.quickCopy.size}
+            appearance={props.quickCopy.appearance}
             className={props.quickCopy.className}
           />
         ) : (
@@ -476,6 +488,7 @@ export function ShareButton(props: ShareButtonProps) {
             copiedLabel={props.quickCopy.copiedLabel}
             onCopy={props.quickCopy.onCopy}
             size={props.quickCopy.size}
+            appearance={props.quickCopy.appearance}
             className={props.quickCopy.className}
           />
         </PopoverAnchor>
@@ -745,11 +758,12 @@ function ShareFooter(
       </span>
     ) : null;
   const hasSendTo =
-    Boolean(sendTo?.openInAgent) ||
-    Boolean(sendTo?.items?.length) ||
-    Boolean(sendTo?.copyAgentPrompt) ||
-    Boolean(sendTo?.openMcpSettings) ||
-    props.agentReadable;
+    !props.hideSendTo &&
+    (Boolean(sendTo?.openInAgent) ||
+      Boolean(sendTo?.items?.length) ||
+      Boolean(sendTo?.copyAgentPrompt) ||
+      Boolean(sendTo?.openMcpSettings) ||
+      props.agentReadable);
   if (!copyLink && !hasSendTo) return null;
   return (
     <div className="flex items-center justify-between gap-2">
@@ -911,15 +925,8 @@ type AgentLinkState =
   | { status: "ready"; url: string; expiresAt: number | null }
   | { status: "error" };
 
-// Re-mint a little before expiry so a copied link still opens for the agent.
-const AGENT_LINK_EXPIRY_MARGIN_MS = 60_000;
-
 function isAgentLinkStale(state: AgentLinkState): boolean {
-  return (
-    state.status === "ready" &&
-    state.expiresAt !== null &&
-    state.expiresAt - AGENT_LINK_EXPIRY_MARGIN_MS <= Date.now()
-  );
+  return state.status === "ready" && isAgentLinkExpiring(state.expiresAt);
 }
 
 /**
@@ -953,15 +960,12 @@ function ShareSendToMenu({
       { resourceType, resourceId },
       {
         onSuccess: (result) => {
-          const expiresAt = result.expiresAt
-            ? Date.parse(result.expiresAt)
-            : Number.NaN;
           setAgentLink(
             result.contextUrl
               ? {
                   status: "ready",
                   url: result.contextUrl,
-                  expiresAt: Number.isFinite(expiresAt) ? expiresAt : null,
+                  expiresAt: agentLinkExpiresAt(result.expiresAt),
                 }
               : { status: "error" },
           );

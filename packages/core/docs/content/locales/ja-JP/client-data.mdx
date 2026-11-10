@@ -307,6 +307,57 @@ await callAction(
 
 すべての `useActionQuery()`、`useActionMutation()`、`callAction()` のリクエストは 60 秒のタイムアウトで制限されており、タイムアウトは黙って再試行されるのではなくエラーとして表面化します。`useActionQuery()` は、React Query の abort シグナルを使用して、上書きされたリクエストも自動的にキャンセルします。
 
+### 失敗した書き込み {#write-failures}
+
+ユーザーが開始した保存が失敗すると、アプリは何も表示しない代わりに共通のトーストを表示します。`useActionMutation()` はこれを自動的に行います。失敗した `mutate()` は、フックのオプションまたは `mutate()` の呼び出しで `onError` が処理しない限りトーストを表示します。失敗した `mutateAsync()` は、上位に `try/catch` がない `await` のように拒否が未処理のままの場合にのみトーストを表示します。元のエラーの代わりに新しい `Error` をスローする `catch` は報告されません。
+
+`errorNotification` オプションで、この既定の動作を変更できます。
+
+| 値                 | 動作                                                                                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `"auto"`（既定値） | ほかに失敗を処理するものがない場合にのみトーストを表示します。                                                                |
+| `"shared"`         | 独自の `onError` があっても、すべての失敗でトーストを表示します。ハンドラーがロールバックやログ記録だけを行う場合に使います。 |
+| `"caller"`         | トーストを表示しません。バックグラウンドでの保存、意図的に無視する失敗、エラーを自分で表示する場所で使います。                |
+
+`errorLabel` は、トーストのタイトルを翻訳済みの独自テキストに置き換えます。以下の例では、担当者の割り当てに失敗すると、一般的なタイトルの代わりにこのタイトルが表示されます。
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const assign = useActionMutation("update-ticket", {
+  errorLabel: t("tickets.assignFailed"),
+});
+
+assign.mutate({ ticketId, assignedToEmail: "jordan@example.com" });
+```
+
+次の変更時に再試行される自動保存は、ユーザーの操作を妨げるべきではないため、オプトアウトします。
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const saveDraft = useActionMutation("save-ticket-draft", {
+  errorNotification: "caller",
+});
+```
+
+`useActionMutation()` ではない書き込み（アップロード用の `fetch` や、エラーを握りつぶす `catch` など）は、`reportWriteFailure()` で失敗を通知します。生の `fetch` のエラーにはステータスが含まれないため、トーストには指定したラベルか一般的なタイトルが表示されます。生の `useMutation()` は、`meta: surfaceMutationError(label)` を渡すことで対象にできます。この関数も同じ省略可能なラベルを受け取ります。
+
+```ts
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+
+try {
+  const response = await fetch(uploadUrl, { method: "PUT", body: file });
+  if (!response.ok) throw new Error(`Upload failed with ${response.status}`);
+} catch (error) {
+  reportWriteFailure(error, { label: t("tickets.uploadFailed") });
+}
+```
+
+トーストのテキストは失敗の種類によって異なります。キャンセルされたリクエストでは何も表示されません。オフライン、タイムアウト、`401`、`403` では、それぞれタイトルの下に短い翻訳済みメッセージが表示されます。`5xx` ではタイトルのみが表示されます。サーバーが独自のエラーテキストを隠すためです。アクションが `fail()` から型付きの `4xx` エラーで拒否すると、トーストにはそのアクションが書いたメッセージが表示されます。[アクションを失敗させる](/docs/actions-defining#failing) を参照してください。`401` または `403` ではサーバーのテキストは表示されません。
+
+`AppProviders` は、これらの失敗を受け取るコンポーネント `WriteFailureToaster` を常にマウントします。トーストはアプリの `Toaster` を通じて表示されるため、`toaster={null}` を渡すアプリは独自の `Toaster` をレンダリングする必要があります。`AppProviders` を使わないアプリは、`QueryClientProvider` の内側、独自の `Toaster` の隣で、`@agent-native/toolkit/app/shared` の `<WriteFailureToaster />` をレンダリングします。これがないと、トーストは表示されません。
+
 ## useDbSync {#usedbsync}
 
 <Signature

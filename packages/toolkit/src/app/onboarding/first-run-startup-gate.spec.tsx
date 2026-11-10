@@ -43,6 +43,7 @@ import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run
 import {
   FirstRunOnboardingStartupGate,
   useFirstRunOnboardingGateOwnsSurface,
+  useStartupInteractionBlocked,
 } from "./first-run-startup-gate.js";
 
 function deferred<T>() {
@@ -64,7 +65,12 @@ function StatefulApp() {
 
 function GateOwnershipProbe() {
   const ownsSurface = useFirstRunOnboardingGateOwnsSurface();
-  return <div data-testid="gate-ownership">{String(ownsSurface)}</div>;
+  const blocked = useStartupInteractionBlocked();
+  return (
+    <div data-blocked={blocked} data-testid="gate-ownership">
+      {String(ownsSurface)}
+    </div>
+  );
 }
 
 describe("FirstRunOnboardingStartupGate", () => {
@@ -91,6 +97,32 @@ describe("FirstRunOnboardingStartupGate", () => {
     container.remove();
     vi.unstubAllGlobals();
     document.cookie = `${FIRST_RUN_ONBOARDING_COOKIE}=; Max-Age=0; path=/`;
+  });
+
+  it("reserves onboarding ownership while Builder setup runs without mounting the onboarding surface", async () => {
+    mocks.fetchStatus.mockResolvedValue(true);
+    await act(async () => {
+      root.render(
+        <FirstRunOnboardingStartupGate deferSurface>
+          <GateOwnershipProbe />
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+    expect(
+      container.querySelector('[data-testid="gate-ownership"]')?.textContent,
+    ).toBe("true");
+    expect(
+      container.querySelector('[data-first-run-app-inert="true"]'),
+    ).toBeNull();
+    expect(container.querySelector("[aria-hidden='true']")).toBeNull();
+    expect(
+      container
+        .querySelector("[data-testid='gate-ownership']")
+        ?.getAttribute("data-blocked"),
+    ).toBe("false");
+    expect(
+      container.querySelector('[data-testid="first-run-onboarding"]'),
+    ).toBeNull();
   });
 
   it("holds the status read while the session preloads, then reads once it resolves", async () => {

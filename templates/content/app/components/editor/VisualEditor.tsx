@@ -12,6 +12,7 @@ import {
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
@@ -126,6 +127,7 @@ import {
   holdDroppedClipFile,
   watchClipUploadBlocks,
 } from "./clip-embed/clip-uploads";
+import { ColumnResizeControls } from "./ColumnResizeControls";
 import {
   buildDocText,
   resolveAnchor,
@@ -162,7 +164,7 @@ import {
 } from "./extensions/CommentHighlight";
 import { ContentReferenceNode } from "./extensions/ContentReferenceNode";
 import { DragHandle } from "./extensions/DragHandle";
-import { ImageNode } from "./extensions/ImageNode";
+import { ImageNode, type ContentImageOptions } from "./extensions/ImageNode";
 import {
   LOCAL_FILE_USER_EDIT_META,
   LocalMdxComponentNode,
@@ -220,6 +222,7 @@ import {
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import { suggestionPlacements } from "./suggestion-placement";
+import { caretAfterPageSwap } from "./suggestions/keep-caret";
 import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
@@ -1793,6 +1796,11 @@ interface VisualEditorProps {
   suggesting?: boolean;
   widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
+  /**
+   * Images pasted, dropped or picked into this body go to private storage
+   * and load only for people who can open the page.
+   */
+  privateImageUploads?: boolean;
   localFilePath?: string | null;
   referenceDepth?: number;
   onComment?: (
@@ -1827,6 +1835,8 @@ interface VisualEditorProps {
     actualContent: string,
   ) => void;
   activeSuggestionId?: string | null;
+  /** The suggestions decided together with the active one. */
+  activeSuggestionUnitIds?: readonly string[];
   onActivateSuggestion?: (suggestionId: string) => void;
   onHoverSuggestion?: (suggestionId: string | null) => void;
   onSuggestionReplacementIntent?: (intent: {
@@ -2186,10 +2196,12 @@ interface VisualEditorExtensionOptions {
     email?: string;
     avatarUrl?: string;
   } | null;
-  onImageComment?: (quotedText: string, offsetTop: number) => void;
+  /** Starts a comment on the whole image or audio clip at `pos`. */
+  onMediaComment?: ContentImageOptions["onImageComment"];
   onVideoComment?: ContentVideoOptions["onVideoComment"];
   canCommentOnVideo?: ContentVideoOptions["canCommentOnVideo"];
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
+  usesPrivateImageUploads?: () => boolean;
   canMutateMedia?: () => boolean;
   isSuggesting?: () => boolean;
   onJoinTitle?: (text: string) => void;
@@ -2645,10 +2657,27 @@ const VisualEditorPlaceholder = Extension.create<{
   },
 });
 
+/**
+ * True when some of these files go to the public file store, so they wait
+ * for its setup. Private image uploads go to the page's own image route,
+ * which reports missing private storage itself.
+ */
+function mediaNeedsFileStorage(
+  files: { imageFiles: File[]; videoFiles: File[]; audioFiles: File[] },
+  privateImages: boolean,
+): boolean {
+  return (
+    (files.imageFiles.length > 0 && !privateImages) ||
+    files.videoFiles.length > 0 ||
+    files.audioFiles.length > 0
+  );
+}
+
 export async function uploadAndInsertImageFiles(
   view: EditorView,
   files: File[],
   position: number,
+  upload: (file: File) => Promise<string> = uploadImageFile,
 ): Promise<void> {
   if (files.length === 0) return;
 
@@ -2671,7 +2700,7 @@ export async function uploadAndInsertImageFiles(
 
   for (const pending of pendingUploads) {
     try {
-      const src = await uploadImageFile(pending.file);
+      const src = await upload(pending.file);
       if (!view.dom.isConnected) return;
       updatePendingMediaNode(view, "image", pending.uploadId, { src, alt: "" });
     } catch (error) {
@@ -2834,10 +2863,11 @@ export function createVisualEditorExtensions({
   ydoc,
   localAwareness,
   user,
-  onImageComment,
+  onMediaComment,
   onVideoComment,
   canCommentOnVideo,
   onImageFilePickerRequest,
+  usesPrivateImageUploads,
   canMutateMedia,
   isSuggesting,
   onJoinTitle,
@@ -2895,8 +2925,9 @@ export function createVisualEditorExtensions({
       ImageNode.configure({
         HTMLAttributes: { class: "content-image" },
         documentId,
-        onImageComment,
+        onImageComment: onMediaComment,
         onImageFilePickerRequest,
+        usesPrivateImageUploads,
         canMutateMedia,
       }),
       VideoNode.configure({
@@ -2913,7 +2944,7 @@ export function createVisualEditorExtensions({
       AudioNode.configure({
         HTMLAttributes: { class: "content-audio" },
         documentId,
-        onAudioComment: onImageComment,
+        onAudioComment: onMediaComment,
         canMutateMedia,
       }),
       MediaSourceCommit.configure({ onMediaSourceCommitted }),
@@ -3294,6 +3325,7 @@ export function VisualEditor({
   suggesting = false,
   widgetLoadDiagnosticsActive = false,
   localFileMode = false,
+  privateImageUploads = false,
   localFilePath,
   referenceDepth,
   onComment,
@@ -3311,6 +3343,7 @@ export function VisualEditor({
   onProposalDecisionRendered,
   onProposalDecisionReadbackOutdated,
   activeSuggestionId,
+  activeSuggestionUnitIds,
   onActivateSuggestion,
   onHoverSuggestion,
   onSuggestionReplacementIntent,
@@ -3352,6 +3385,18 @@ export function VisualEditor({
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const suggestingRef = useRef(suggesting);
   suggestingRef.current = suggesting;
+  const privateImageTargetRef = useRef<{ documentId: string } | null>(null);
+  privateImageTargetRef.current =
+    privateImageUploads && documentId ? { documentId } : null;
+  const privateImagesEnabled = privateImageTargetRef.current !== null;
+  const usesPrivateImageUploads = useCallback(
+    () => privateImageTargetRef.current !== null,
+    [],
+  );
+  const uploadBodyImage = useCallback(
+    (file: File) => uploadImageFile(file, privateImageTargetRef.current),
+    [],
+  );
   const clipsEnabled = useFeatureFlag(CLIP_EMBED_FLAG.key);
   const videosGoToClipsRef = useRef(false);
   videosGoToClipsRef.current = clipsEnabled && Boolean(documentId);
@@ -3527,6 +3572,28 @@ export function VisualEditor({
         : undefined,
     [canCommentOnBlocks, savesVideoIds],
   );
+  // An image or audio clip goes by an id derived from its file, which nothing
+  // writes down, so any tab that comments can start a thread on one.
+  const onMediaComment = useMemo<ContentImageOptions["onImageComment"]>(
+    () =>
+      canCommentOnBlocks
+        ? (view, pos, offsetTop) => {
+            const node = view.state.doc.nodeAt(pos);
+            const block = commentAnchorBlockAt(view.state.doc, pos);
+            if (!node || !block) return;
+            onBlockCommentRef.current?.(
+              {
+                blockId: block.blockId,
+                blockType: block.blockType,
+                from: pos,
+                to: pos + node.nodeSize,
+              },
+              offsetTop,
+            );
+          }
+        : undefined,
+    [canCommentOnBlocks],
+  );
   const findCommentQuote = useCallback(
     (threadId: string, doc: ProseMirrorNode) => {
       const thread = threadsRef.current?.find((t) => t.threadId === threadId);
@@ -3539,7 +3606,10 @@ export function VisualEditor({
     (request: PendingImagePicker) => {
       runIfMediaCreationAllowed(suggestingRef.current, () => {
         if (pendingImagePickerRef.current) return;
-        if (fileStorageStateRef.current !== "configured") {
+        if (
+          !privateImageTargetRef.current &&
+          fileStorageStateRef.current !== "configured"
+        ) {
           if (editor) restorePendingImagePicker(editor.view, request);
           setIsFileStorageSetupOpen(true);
           return;
@@ -3568,6 +3638,7 @@ export function VisualEditor({
         pending.view,
         pending.imageFiles,
         pending.position,
+        uploadBodyImage,
       );
     }
     if (pending.videoFiles.length > 0) {
@@ -3584,7 +3655,7 @@ export function VisualEditor({
         pending.position,
       );
     }
-  }, [documentId, fileStorageConfigured]);
+  }, [documentId, fileStorageConfigured, uploadBodyImage]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
   const isSuggesting = useCallback(() => suggestingRef.current, []);
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
@@ -3631,10 +3702,11 @@ export function VisualEditor({
         ydoc,
         localAwareness,
         user,
-        onImageComment: onComment,
+        onMediaComment,
         onVideoComment,
         canCommentOnVideo,
         onImageFilePickerRequest,
+        usesPrivateImageUploads,
         canMutateMedia,
         isSuggesting,
         onJoinTitle,
@@ -3645,6 +3717,35 @@ export function VisualEditor({
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
         findCommentQuote,
+      }),
+      Extension.create({
+        name: "suggestingCaretOnPageSwap",
+        addProseMirrorPlugins() {
+          return [
+            new Plugin({
+              // The suggestion draft starting over from a newer Page swaps the
+              // editor's content; the caret stays by the text around it.
+              appendTransaction(transactions, oldState, newState) {
+                if (
+                  !isSuggesting() ||
+                  !guardsRef.current?.isSettingContentRef.current ||
+                  !oldState.selection.empty ||
+                  !transactions.some((transaction) => transaction.docChanged)
+                )
+                  return null;
+                const at = caretAfterPageSwap(
+                  oldState.doc,
+                  oldState.selection.from,
+                  newState.doc,
+                );
+                if (at === null || at === newState.selection.from) return null;
+                return newState.tr.setSelection(
+                  TextSelection.create(newState.doc, at),
+                );
+              },
+            }),
+          ];
+        },
       }),
       Extension.create({
         name: "contentEditorEscape",
@@ -3680,10 +3781,11 @@ export function VisualEditor({
       ydoc,
       localAwareness,
       user,
-      onComment,
+      onMediaComment,
       onVideoComment,
       canCommentOnVideo,
       onImageFilePickerRequest,
+      usesPrivateImageUploads,
       canMutateMedia,
       isSuggesting,
       onJoinTitle,
@@ -3803,7 +3905,7 @@ export function VisualEditor({
         throw new Error(t("empty.genericError"));
       }
     } catch (error) {
-      toast.error(t("empty.genericError"));
+      reportWriteFailure(error, { label: t("empty.genericError") });
       console.error("Media source persistence error:", error);
     }
   };
@@ -3883,7 +3985,13 @@ export function VisualEditor({
             );
             if (imageFiles.length === 0 && audioFiles.length === 0) return;
           }
-          if (fileStorageStateRef.current !== "configured") {
+          if (
+            fileStorageStateRef.current !== "configured" &&
+            mediaNeedsFileStorage(
+              { imageFiles, videoFiles: storedVideoFiles, audioFiles },
+              privateImageTargetRef.current !== null,
+            )
+          ) {
             pendingMediaFilesRef.current = {
               view,
               documentId: documentId ?? null,
@@ -3896,7 +4004,12 @@ export function VisualEditor({
             return;
           }
           if (imageFiles.length > 0) {
-            void uploadAndInsertImageFiles(view, imageFiles, position);
+            void uploadAndInsertImageFiles(
+              view,
+              imageFiles,
+              position,
+              uploadBodyImage,
+            );
           }
           if (storedVideoFiles.length > 0) {
             void uploadAndInsertVideoFiles(view, storedVideoFiles, position);
@@ -3934,7 +4047,13 @@ export function VisualEditor({
             );
             if (imageFiles.length === 0 && audioFiles.length === 0) return;
           }
-          if (fileStorageStateRef.current !== "configured") {
+          if (
+            fileStorageStateRef.current !== "configured" &&
+            mediaNeedsFileStorage(
+              { imageFiles, videoFiles: storedVideoFiles, audioFiles },
+              privateImageTargetRef.current !== null,
+            )
+          ) {
             pendingMediaFilesRef.current = {
               view,
               documentId: documentId ?? null,
@@ -3951,6 +4070,7 @@ export function VisualEditor({
               view,
               imageFiles,
               view.state.selection.from,
+              uploadBodyImage,
             );
           }
           if (storedVideoFiles.length > 0) {
@@ -4425,7 +4545,10 @@ export function VisualEditor({
       pendingImagePickerRef.current = null;
       if (suggestingRef.current) return;
       if (!editor || !file || !request) return;
-      if (fileStorageStateRef.current !== "configured") {
+      if (
+        !privateImageTargetRef.current &&
+        fileStorageStateRef.current !== "configured"
+      ) {
         restorePendingImagePicker(editor.view, request);
         setIsFileStorageSetupOpen(true);
         return;
@@ -4440,6 +4563,7 @@ export function VisualEditor({
       try {
         await completeImageFileUpload({
           file,
+          upload: uploadBodyImage,
           stageAttributes: (src) => {
             if (editor.isDestroyed || suggestingRef.current) return;
             staged = commitPendingImageUpload(editor.view, request, uploadId, {
@@ -4490,7 +4614,7 @@ export function VisualEditor({
         );
       }
     },
-    [editor, persistEditorContent, t],
+    [editor, persistEditorContent, t, uploadBodyImage],
   );
 
   const handleImageFileInputCancel = useCallback(() => {
@@ -5053,14 +5177,18 @@ export function VisualEditor({
               ) ?? null
             );
           }
+          const unitSpec =
+            spec && activeSuggestionUnitIds?.includes(suggestion.id)
+              ? { ...spec, inActiveUnit: true }
+              : spec;
           // While suggesting, a saved suggestion's text outside the document
           // is somewhere to type beside, not a control to focus.
-          return spec &&
+          return unitSpec &&
             suggesting &&
             editable &&
             suggestion.presentation === "canonical"
-            ? { ...spec, editableBoundary: true }
-            : spec;
+            ? { ...unitSpec, editableBoundary: true }
+            : unitSpec;
         })
         .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
       if (lagging) specs.push(...typed.filter(isProvisionalDraftSpec));
@@ -5099,6 +5227,7 @@ export function VisualEditor({
     };
   }, [
     activeSuggestionId,
+    activeSuggestionUnitIds,
     content,
     editable,
     editor,
@@ -5395,6 +5524,9 @@ export function VisualEditor({
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable && !suggesting ? <TableHoverControls editor={editor} /> : null}
+      {editable && !suggesting ? (
+        <ColumnResizeControls editor={editor} />
+      ) : null}
       {editable ? (
         <BlockActionsMenu
           editor={editor}
@@ -5446,7 +5578,7 @@ export function VisualEditor({
       <input
         ref={imageFileInputRef}
         type="file"
-        disabled={!fileStorageConfigured}
+        disabled={!fileStorageConfigured && !privateImagesEnabled}
         className="hidden"
         tabIndex={-1}
         aria-hidden="true"

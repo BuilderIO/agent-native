@@ -1,4 +1,5 @@
 import Image, { type ImageOptions } from "@tiptap/extension-image";
+import type { EditorView } from "@tiptap/pm/view";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 
@@ -7,12 +8,15 @@ import { ImageBlock } from "./ImageBlock";
 export interface ContentImageOptions extends ImageOptions {
   documentId?: string;
   canMutateMedia?: () => boolean;
-  onImageComment?: (quotedText: string, offsetTop: number) => void;
+  /** Starts a comment on the whole image at `pos` in `view`. */
+  onImageComment?: (view: EditorView, pos: number, offsetTop: number) => void;
   onImageFilePickerRequest?: (request: {
     pickerId: string;
     position: number;
     attrs: Record<string, unknown>;
   }) => void;
+  /** True when uploads go to the page's private image route, not file storage. */
+  usesPrivateImageUploads?: () => boolean;
 }
 
 function normalizedImageWidth(value: unknown): number | null {
@@ -72,6 +76,7 @@ export const ImageNode = Image.extend<ContentImageOptions>({
       canMutateMedia: undefined,
       onImageComment: undefined,
       onImageFilePickerRequest: undefined,
+      usesPrivateImageUploads: undefined,
     };
   },
 
