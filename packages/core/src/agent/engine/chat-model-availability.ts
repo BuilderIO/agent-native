@@ -22,19 +22,6 @@ import {
  */
 export type ChatModelAvailability = "available" | "unavailable" | "unknown";
 
-// Resolving reads the credential store and the engine setting. One clip's
-// title run and the polled request list ask several times a second, and an
-// answer only changes when the user connects or removes a model.
-const AVAILABILITY_TTL_MS = 5_000;
-const availabilityCache = new Map<
-  string,
-  { at: number; value: Promise<ChatModelAvailability> }
->();
-
-export function resetChatModelAvailabilityCache(): void {
-  availabilityCache.clear();
-}
-
 export async function resolveChatModelAvailability(): Promise<ChatModelAvailability> {
   // Credentials and the default-engine setting are both read in the request's
   // scope, so only the request user can be checked; with none, there is no one
@@ -42,33 +29,6 @@ export async function resolveChatModelAvailability(): Promise<ChatModelAvailabil
   const userEmail = getRequestUserEmail();
   if (!userEmail) return "unknown";
   const orgId = getRequestOrgId() ?? null;
-  const cacheKey = `${userEmail.trim().toLowerCase()}|${orgId ?? ""}`;
-  const cached = availabilityCache.get(cacheKey);
-  if (cached && Date.now() - cached.at < AVAILABILITY_TTL_MS) {
-    return cached.value;
-  }
-  const now = Date.now();
-  for (const [key, entry] of availabilityCache) {
-    if (now - entry.at >= AVAILABILITY_TTL_MS) availabilityCache.delete(key);
-  }
-  const value = resolveUncached(userEmail, orgId);
-  availabilityCache.set(cacheKey, { at: Date.now(), value });
-  // An unreadable store is not an answer: the next caller asks again.
-  void value.then((result) => {
-    if (
-      result === "unknown" &&
-      availabilityCache.get(cacheKey)?.value === value
-    ) {
-      availabilityCache.delete(cacheKey);
-    }
-  });
-  return value;
-}
-
-async function resolveUncached(
-  userEmail: string,
-  orgId: string | null,
-): Promise<ChatModelAvailability> {
   try {
     registerBuiltinEngines();
     const credentialIdentity = { userEmail, orgId };

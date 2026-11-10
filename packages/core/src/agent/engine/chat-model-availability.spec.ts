@@ -26,15 +26,11 @@ vi.mock("./index.js", () => ({
   isResolvedEngineUsableForRequest: mocks.isUsable,
 }));
 
-import {
-  resetChatModelAvailabilityCache,
-  resolveChatModelAvailability,
-} from "./chat-model-availability.js";
+import { resolveChatModelAvailability } from "./chat-model-availability.js";
 
 describe("resolveChatModelAvailability", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resetChatModelAvailabilityCache();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.email.mockReturnValue("owner@example.com");
     mocks.resolveOwnerEngineApiKey.mockResolvedValue({ apiKey: "k" });
@@ -70,19 +66,5 @@ describe("resolveChatModelAvailability", () => {
     mocks.email.mockReturnValue(undefined);
     await expect(resolveChatModelAvailability()).resolves.toBe("unknown");
     expect(mocks.resolveChatEngine).not.toHaveBeenCalled();
-  });
-
-  it("answers repeat calls for one user from the cache", async () => {
-    mocks.isUsable.mockResolvedValue(true);
-    await resolveChatModelAvailability();
-    await resolveChatModelAvailability();
-    expect(mocks.resolveChatEngine).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not cache an unknown answer", async () => {
-    mocks.resolveChatEngine.mockRejectedValueOnce(new Error("store down"));
-    await expect(resolveChatModelAvailability()).resolves.toBe("unknown");
-    mocks.isUsable.mockResolvedValue(true);
-    await expect(resolveChatModelAvailability()).resolves.toBe("available");
   });
 });

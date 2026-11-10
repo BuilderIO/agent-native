@@ -80,7 +80,7 @@ export async function queueTitleRegenerationRequest({
   transcriptText: string;
   transcriptStatus?: string;
   segmentsJson?: string | null;
-  ownerEmail?: string | null | undefined;
+  ownerEmail?: string | null;
   includeFullVideoInAi?: boolean;
   includeSummary?: boolean;
 }) {
@@ -186,7 +186,7 @@ export default defineAction({
       earlierAudioRemovedAt;
     // The queue refuses when no model can run or the check could not be made.
     // An automatic request keeps the local title and reports why nothing was
-    // queued.
+    // queued; a manual one fails loudly so the caller sees it.
     let queueRefusal:
       | "ai_model_unavailable"
       | "ai_model_lookup_unavailable"
@@ -199,8 +199,9 @@ export default defineAction({
       } catch (error) {
         const code = (error as { errorCode?: unknown }).errorCode;
         if (
-          code === "ai_model_unavailable" ||
-          code === "ai_model_lookup_unavailable"
+          args.automatic &&
+          (code === "ai_model_unavailable" ||
+            code === "ai_model_lookup_unavailable")
         ) {
           queueRefusal = code;
           return null;
