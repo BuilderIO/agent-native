@@ -105,7 +105,7 @@ describe("runPersistTweakSave queued-save signal", () => {
     expect(noteSaveLeftQueued).toHaveBeenCalledOnce();
   });
 
-  it("leaves a conflict to the person who made the tweak", async () => {
+  it("hands a conflict back to the person and clears its queued copy", async () => {
     const { args, noteSaveLeftQueued } = setup({
       apply: async () => {
         throw Object.assign(new Error("Tweaks changed"), { status: 409 });
@@ -115,6 +115,21 @@ describe("runPersistTweakSave queued-save signal", () => {
     await runToCompletion(args);
 
     expect(noteSaveLeftQueued).not.toHaveBeenCalled();
+    expect(args.acknowledgeOutboxEntry).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the queued copy of a save that failed for another reason", async () => {
+    const { args } = setup({
+      apply: async () => {
+        throw Object.assign(new Error("Internal server error"), {
+          status: 500,
+        });
+      },
+    });
+
+    await runToCompletion(args);
+
+    expect(args.acknowledgeOutboxEntry).not.toHaveBeenCalled();
   });
 
   it("reports nothing when no entry was journaled to replay", async () => {

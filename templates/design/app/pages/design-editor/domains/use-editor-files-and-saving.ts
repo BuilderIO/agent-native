@@ -460,9 +460,18 @@ export function useEditorFilesAndSaving({
         ownOperationSource: designSaveOperationSourceRef.current,
       });
       recordSaveReplayOutcomes(result, id);
-      if (result.rebased.length > 0) {
+      if (
+        result.rebased.some(({ entry }) => entry.actionName !== "apply-tweaks")
+      ) {
         toast.error(t("designEditor.toasts.saveConflict"), {
           id: "design-save-conflict:outbox",
+        });
+      }
+      if (
+        result.rebased.some(({ entry }) => entry.actionName === "apply-tweaks")
+      ) {
+        toast.error(t("designEditor.toasts.tweakConflict"), {
+          id: "design-tweak-conflict:outbox",
         });
       }
       for (const { entry } of result.rebased) {

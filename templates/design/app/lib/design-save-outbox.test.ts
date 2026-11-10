@@ -619,6 +619,92 @@ describe("design save outbox", () => {
     expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
 
+  describe("a tweak snapshot the server refuses", () => {
+    async function journalTweakSnapshot(storage: MemoryOutboxStorage) {
+      const entry = createDesignSaveOutboxEntry({
+        designId: "design-1",
+        actorScope: "user-1",
+        actionName: "apply-tweaks",
+        resourceId: "design-1",
+        operationSource: "editor-session-1",
+        operationRevision: 1,
+        payload: {
+          designId: "design-1",
+          selections: { density: "compact" },
+          expectedSelectionsHash: "stale-hash",
+        },
+      });
+      await journalDesignSaveOutboxEntry(entry, storage);
+      return entry;
+    }
+
+    it("settles a stale snapshot instead of retrying it forever", async () => {
+      const storage = new MemoryOutboxStorage();
+      const entry = await journalTweakSnapshot(storage);
+      const invokeAction = vi.fn().mockRejectedValue(
+        Object.assign(new Error("Tweak values changed elsewhere"), {
+          status: 409,
+          errorCode: "tweak_selections_conflict",
+        }),
+      );
+
+      const result = await drainDesignSaveOutbox({
+        designId: "design-1",
+        actorScope: "user-1",
+        invokeAction,
+        storage,
+      });
+
+      expect(result.rebased.map(({ entry: settled }) => settled)).toEqual([
+        entry,
+      ]);
+      expect(result.failed).toEqual([]);
+      expect(await storage.list("design-1", "user-1")).toEqual([]);
+    });
+
+    it("keeps a snapshot the server failed on for another reason", async () => {
+      const storage = new MemoryOutboxStorage();
+      await journalTweakSnapshot(storage);
+      const invokeAction = vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error("Internal server error"), { status: 500 }),
+        );
+
+      const result = await drainDesignSaveOutbox({
+        designId: "design-1",
+        actorScope: "user-1",
+        invokeAction,
+        storage,
+      });
+
+      expect(result.failed).toHaveLength(1);
+      expect(result.rebased).toEqual([]);
+      expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+    });
+
+    it("does not read the tweak conflict code on a file save", async () => {
+      const storage = new MemoryOutboxStorage();
+      await journalDesignSaveOutboxEntry(fileEntry(1), storage);
+      const invokeAction = vi.fn().mockRejectedValue(
+        Object.assign(new Error("Tweak values changed elsewhere"), {
+          status: 409,
+          errorCode: "tweak_selections_conflict",
+        }),
+      );
+
+      const result = await drainDesignSaveOutbox({
+        designId: "design-1",
+        actorScope: "user-1",
+        invokeAction,
+        storage,
+      });
+
+      expect(result.failed).toHaveLength(1);
+      expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+    });
+  });
+
   it("prunes abandoned sessions after 30 days without touching fresh edits", async () => {
     const storage = new MemoryOutboxStorage();
     const now = Date.now();

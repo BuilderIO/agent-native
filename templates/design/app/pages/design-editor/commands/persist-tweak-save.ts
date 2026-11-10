@@ -156,9 +156,13 @@ export function runPersistTweakSave(
         } else {
           toast.error(t("designEditor.toasts.tweakSaveNotDurable"));
         }
-        // A conflict is the user's to redo; any other failure leaves the
-        // journaled entry for the replay.
-        if (journaled && failureKind !== "conflict") noteSaveLeftQueued();
+        // A conflicting snapshot can never be replayed into a save, and the
+        // user was just told to redo it, so it must not wait in the outbox as
+        // an unsaved change. Any other failure leaves the entry for the replay.
+        if (journaled) {
+          if (failureKind === "conflict") await acknowledgeOutboxEntry(entry);
+          else noteSaveLeftQueued();
+        }
       } finally {
         tweakSaveInFlightRef.current = false;
       }

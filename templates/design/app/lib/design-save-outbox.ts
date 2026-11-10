@@ -2,6 +2,7 @@ import { callAction } from "@agent-native/core/client/hooks";
 import {
   SOURCE_FILE_NOT_FOUND_ERROR_CODE,
   SOURCE_VERSION_CONFLICT_ERROR_CODE,
+  TWEAK_SELECTIONS_CONFLICT_ERROR_CODE,
   saveErrorCode,
 } from "@shared/save-conflict";
 import { sourceContentHash } from "@shared/source-workspace";
@@ -87,6 +88,10 @@ export function isConflictSaveError(error: unknown): boolean {
     typeof message === "string" &&
     /changed since it was read|re-read the file/i.test(message)
   );
+}
+
+export function isTweakConflictSaveError(error: unknown): boolean {
+  return saveErrorCode(error) === TWEAK_SELECTIONS_CONFLICT_ERROR_CODE;
 }
 
 const REJECTED_RESTORE_CLAIM_ERROR_CODES = new Set([
@@ -763,7 +768,10 @@ async function drainEntries(
             `[design-save-outbox] dropped unrecoverable save for ${entry.actionName} ${entry.resourceId} (file no longer exists)`,
           );
         }
-      } else if (isConflictSaveError(error)) {
+      } else if (
+        isConflictSaveError(error) ||
+        (entry.actionName === "apply-tweaks" && isTweakConflictSaveError(error))
+      ) {
         await storage.deleteIfRevision(entry);
         result.rebased.push({ entry, error });
         if (typeof console !== "undefined") {
