@@ -1637,7 +1637,9 @@ export default function ShareRoute() {
         thumbnailUrl={recording.thumbnailUrl}
         animatedThumbnailUrl={recording.animatedThumbnailUrl}
         isLoomRecording={isEmbedBacked}
-        hasPassword={Boolean(recording.hasPassword)}
+        {...(recording.hasPassword !== undefined && {
+          hasPassword: recording.hasPassword,
+        })}
         expiresAt={recording.expiresAt}
         viewerReshareOnly={viewerReshareOnly}
       >

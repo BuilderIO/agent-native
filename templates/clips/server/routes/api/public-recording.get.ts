@@ -48,6 +48,7 @@ import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
   type RecordingPageAccessRole,
+  recordingUsesSharePassword,
 } from "../../lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../../lib/recording-share-grant.js";
 import {
@@ -314,7 +315,11 @@ export default defineEventHandler(async (event) => {
   }
 
   let protectedMediaToken: string | null = null;
-  if (rec.password && !viewerIsOwner) {
+  if (
+    recordingUsesSharePassword(rec.visibility) &&
+    rec.password &&
+    !viewerIsOwner
+  ) {
     if (!tokenAllowsAgentAccess) {
       if (!password) {
         // No password supplied at all — this is the initial load or a

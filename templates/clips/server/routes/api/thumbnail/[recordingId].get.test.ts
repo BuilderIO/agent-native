@@ -734,6 +734,30 @@ describe("/api/thumbnail/:recordingId route", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it.each(["private", "org"] as const)(
+    "serves %s thumbnails to an authorized viewer despite a stored password",
+    async (visibility) => {
+      const recording = makeRow({ visibility, password: "encrypted-password" });
+      mockGetDb.mockReturnValue(createDbWithSelectSequence([]));
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: recording,
+      });
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("thumbnail", {
+          headers: { "content-type": "image/jpeg" },
+        }),
+      );
+      const event = makeEvent();
+      const result = await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      );
+      expect(result).toBeInstanceOf(Response);
+      expect(event.status).not.toBe(401);
+      expect(mockVerifyShortLivedToken).not.toHaveBeenCalled();
+    },
+  );
+
   it("accepts the short-lived token minted after password unlock", async () => {
     mockGetDb.mockReturnValue(
       createDbWithRow(makeRow({ password: "encrypted-password" })),

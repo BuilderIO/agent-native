@@ -616,8 +616,8 @@ function SharePanel(
         confirmDetail={props.visibilityConfirmDetail}
         roleCopy={props.roleCopy}
         allowedRoles={allowedRolesFor(props)}
+        details={props.generalAccessExtras?.(controller)}
       >
-        {props.generalAccessExtras?.(controller)}
         {visibility === "org" && props.hideInSearchControl ? (
           <AdvancedAccessPopover
             control={props.hideInSearchControl}
@@ -2066,6 +2066,8 @@ export interface ShareGeneralAccessRowProps {
   onMenuOpenChange?: (open: boolean) => void;
   /** Shown beside the access control, such as an advanced-access popover. */
   children?: ReactNode;
+  /** Resource-specific controls nested beneath the access setting. */
+  details?: ReactNode;
 }
 
 /**
@@ -2084,6 +2086,7 @@ export function ShareGeneralAccessRow({
   roleCopy,
   allowedRoles,
   children,
+  details,
 }: ShareGeneralAccessRowProps) {
   const t = useT();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -2095,7 +2098,7 @@ export function ShareGeneralAccessRow({
     organizationName,
   );
   return (
-    <div className="flex min-h-10 items-center gap-2.5 py-1 ps-1">
+    <div className="grid min-h-10 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1.5 py-1 ps-1">
       <span
         aria-hidden
         className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
@@ -2146,6 +2149,9 @@ export function ShareGeneralAccessRow({
         <span className="shrink-0 px-2 text-xs text-muted-foreground">
           {roleMeta(controller.generalAccessRole, t, roleCopy).label}
         </span>
+      ) : null}
+      {details ? (
+        <div className="col-span-3 col-start-1 pe-3">{details}</div>
       ) : null}
       <ShareVisibilityConfirmDialog
         transition={controller.visibilityTransition}

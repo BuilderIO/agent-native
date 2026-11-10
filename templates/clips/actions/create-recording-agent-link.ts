@@ -12,6 +12,7 @@ import {
   CLIPS_AGENT_ACCESS_TTL_SECONDS,
   getServerAppBasePath,
 } from "../server/lib/public-agent-context.js";
+import { recordingUsesSharePassword } from "../server/lib/recording-page-access.js";
 import { getRecordingAccessTokenResourceId } from "../server/lib/share-password.js";
 import {
   buildAgentApiUrls,
@@ -65,6 +66,7 @@ export default defineAction({
 
     const recording = access.resource as {
       id: string;
+      visibility: "private" | "org" | "public";
       password: string | null;
       sharePasswordVersion: string;
       archivedAt?: string | null;
@@ -76,6 +78,7 @@ export default defineAction({
       );
     }
     if (
+      recordingUsesSharePassword(recording.visibility) &&
       recording.password &&
       access.role !== "owner" &&
       access.role !== "admin" &&

@@ -737,6 +737,10 @@ const messages = {
     saveThumbnail: "儲存縮圖",
   },
   shareDialog: {
+    enterPassword: "輸入密碼",
+    showPassword: "顯示密碼",
+    hidePassword: "隱藏密碼",
+    copyPassword: "複製密碼",
     redactionsPendingTitle: "分享前完成遮蔽處理",
     redactionsPendingBody:
       "待套用的遮蔽：{{count}} 處。請先在編輯器中套用；影片仍保留原始內容。",

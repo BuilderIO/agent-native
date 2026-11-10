@@ -7,7 +7,7 @@ import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
-import { ShareAdvancedPopover } from "@/components/sharing/share-ui";
+import { ShareAdvancedAccess } from "@/components/sharing/share-ui";
 import { Switch } from "@/components/ui/switch";
 
 export interface ShareMeetingPopoverProps {
@@ -109,7 +109,7 @@ function TranscriptAccess({
   };
 
   return (
-    <ShareAdvancedPopover
+    <ShareAdvancedAccess
       disabled={!canManage}
       summary={
         includeTranscript
@@ -138,6 +138,6 @@ function TranscriptAccess({
           className="shrink-0"
         />
       </div>
-    </ShareAdvancedPopover>
+    </ShareAdvancedAccess>
   );
 }

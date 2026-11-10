@@ -616,6 +616,31 @@ describe("/api/video/:recordingId route", () => {
     ).not.toContain("/compressed");
   });
 
+  it.each(["private", "org"] as const)(
+    "serves %s media to an authorized viewer despite a stored password",
+    async (visibility) => {
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: {
+          visibility,
+          password: "encrypted-password",
+          expiresAt: null,
+          videoUrl: "https://cdn.example.com/clip.mp4",
+        },
+      });
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("media", { headers: { "content-type": "video/mp4" } }),
+      );
+      const event = makeEvent();
+      const result = await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      );
+      expect(result).toBeInstanceOf(Response);
+      expect(event.status).not.toBe(401);
+      expect(mockVerifyShortLivedToken).not.toHaveBeenCalled();
+    },
+  );
+
   it("accepts a protected media cookie when the query token is expired", async () => {
     mockResolveAccess.mockResolvedValue({
       role: "viewer",

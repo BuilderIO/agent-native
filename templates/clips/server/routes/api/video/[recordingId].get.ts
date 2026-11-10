@@ -16,7 +16,7 @@
  *     supplied via `?password=<pw>`, `?t=<token>`, or the protected media
  *     cookie renewed by this route — otherwise 401.
  *   - non-public: caller must have a share grant (owner / viewer / editor /
- *     admin) via `resolveAccess`. Password is still enforced on top.
+ *     admin) via `resolveAccess`. Stored passwords do not gate this access.
  *   - expired recordings 410.
  *   - a Content playback grant (`content_grant`, from the Content playback
  *     route) names the reader in place of the browser session and never
@@ -38,7 +38,6 @@
  *
  * Route: GET /api/video/:recordingId
  */
-
 import { readAppState } from "@agent-native/core/application-state";
 import {
   createSsrfSafeDispatcher,
@@ -91,6 +90,7 @@ import {
 import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
+  recordingUsesSharePassword,
 } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { fetchS3ObjectByUrl } from "../../../lib/s3-upload-provider.js";
@@ -480,7 +480,11 @@ export default defineEventHandler(async (event: H3Event) => {
         password?: string;
         t?: string;
       };
-      if (gate.password && role !== "owner") {
+      if (
+        recordingUsesSharePassword(gate.visibility) &&
+        gate.password &&
+        role !== "owner"
+      ) {
         // A document cannot supply a password, so nothing unlocks one for a
         // Content reader; the Content playback route refuses it the same way.
         if (granted) {

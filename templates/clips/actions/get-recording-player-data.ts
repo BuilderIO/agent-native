@@ -66,6 +66,7 @@ import {
   canOpenDirectRecordingPage,
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
+  recordingUsesSharePassword,
 } from "../server/lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../server/lib/recording-share-grant.js";
 import {
@@ -359,7 +360,10 @@ export default defineAction({
     // it is part of the <img> URL, and a token minted fresh on every refetch
     // would make the browser download the whole picture again each time.
     const imageAccessToken =
-      isImageRecording(rec) && rec.password && access.role !== "owner"
+      isImageRecording(rec) &&
+      recordingUsesSharePassword(rec.visibility) &&
+      rec.password &&
+      access.role !== "owner"
         ? signShortLivedToken({
             resourceId: rec.id,
             ttlSeconds: steppedTokenTtlSeconds(),

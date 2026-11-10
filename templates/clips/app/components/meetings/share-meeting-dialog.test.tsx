@@ -73,6 +73,7 @@ describe("meeting sharing adoption", () => {
     expect(document.body.textContent).toContain(
       "shareMeeting.linkShowsNotesOnly",
     );
+    await click(button("shareDialog.advanced"));
     const toggle = document.getElementById(
       "meeting-share-transcript-meeting-test",
     )!;
@@ -96,6 +97,7 @@ describe("meeting sharing adoption", () => {
     mocks.data = { ...mocks.data, agentReadable: true };
     await render(false);
     await click(button("Share"));
+    await click(button("shareDialog.advanced"));
     expect(
       (
         document.getElementById(

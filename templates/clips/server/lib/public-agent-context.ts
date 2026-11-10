@@ -53,7 +53,10 @@ import { getDb, schema } from "../db/index.js";
 import { buildAgentEditedTimeline } from "./agent-edited-timeline.js";
 import { recordAgentView } from "./agent-views.js";
 import { isSupportedImageMimeType } from "./image-signature.js";
-import { isRecordingExpiredForViewer } from "./recording-page-access.js";
+import {
+  isRecordingExpiredForViewer,
+  recordingUsesSharePassword,
+} from "./recording-page-access.js";
 import { fetchS3ObjectByUrl } from "./s3-upload-provider.js";
 import {
   getRecordingAccessTokenResourceId,
@@ -484,7 +487,11 @@ export async function resolvePublicAgentAccess(
     });
   }
 
-  if (recording.password && !viewerIsOwner) {
+  if (
+    recordingUsesSharePassword(recording.visibility) &&
+    recording.password &&
+    !viewerIsOwner
+  ) {
     const suppliedPassword = options.password ?? "";
     let allowed = tokenAllowsAgentAccess;
 

@@ -42,6 +42,7 @@ import {
 import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
+  recordingUsesSharePassword,
 } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import {
@@ -535,7 +536,11 @@ export default defineEventHandler(async (event: H3Event) => {
           return { error: "Not found" };
         }
       }
-      if (recording.password && loaded.role !== "owner") {
+      if (
+        recordingUsesSharePassword(recording.visibility) &&
+        recording.password &&
+        loaded.role !== "owner"
+      ) {
         // A document cannot supply a password, so nothing unlocks one for a
         // Content reader; the Content playback route refuses it the same way.
         if (granted) {

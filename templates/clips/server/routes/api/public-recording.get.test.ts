@@ -671,6 +671,33 @@ describe("/api/public-recording route", () => {
     );
   });
 
+  it.each(["private", "org"] as const)(
+    "allows authorized %s viewers without the stored password",
+    async (visibility) => {
+      const event = { setCookies: [] as unknown[] };
+      const recording = makeRecording({ visibility, organizationId: "org-1" });
+      mockGetQuery.mockReturnValue({ id: "rec-1" });
+      mockGetSession.mockResolvedValue({
+        email: "viewer@example.com",
+        orgId: "org-1",
+      });
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: recording,
+      });
+      mockGetOrganizationRoleForEmail.mockResolvedValue("member");
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResults([[recording], [], [], [], []]),
+      );
+      const result = await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      );
+      expect(result).toMatchObject({ recording: { id: "rec-1", visibility } });
+      expect(mockVerifySharePassword).not.toHaveBeenCalled();
+      expect(mockSetResponseStatus).not.toHaveBeenCalledWith(event, 401);
+    },
+  );
+
   it("allows an authenticated viewer with an explicit user share", async () => {
     const event = { setCookies: [] as unknown[] };
     mockGetSession.mockResolvedValue({

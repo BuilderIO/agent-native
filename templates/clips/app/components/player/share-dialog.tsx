@@ -5,17 +5,22 @@ import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { JoinedShareControl } from "@agent-native/toolkit/sharing";
+import { IconCheck, IconCopy, IconEye, IconEyeOff } from "@tabler/icons-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import {
-  ShareAdvancedPopover,
   nestedLayerDismissGuards,
   type Visibility,
 } from "@/components/sharing/share-ui";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
@@ -190,7 +195,6 @@ function RecordingShareButton({
   initialVisibility,
   initialRole,
   hasPassword,
-  expiresAt,
   viewerReshareOnly,
   shareUrl,
   quickCopy,
@@ -205,6 +209,7 @@ function RecordingShareButton({
   onOpenChange?: (open: boolean) => void;
 }) {
   const t = useT();
+  const { session } = useSession();
   const createAgentLink = useActionMutation(
     "create-recording-agent-link" as any,
   );
@@ -246,9 +251,13 @@ function RecordingShareButton({
   const [passwordProtected, setPasswordProtected] = useState(
     Boolean(hasPassword),
   );
-  const [currentExpiry, setCurrentExpiry] = useState(expiresAt ?? null);
   useEffect(() => setPasswordProtected(Boolean(hasPassword)), [hasPassword]);
-  useEffect(() => setCurrentExpiry(expiresAt ?? null), [expiresAt]);
+  const blockViewerHandoff = Boolean(
+    viewerReshareOnly &&
+    initialVisibility !== "private" &&
+    initialVisibility !== "org" &&
+    (initialVisibility !== "public" || hasPassword !== false),
+  );
   return (
     <ShareButton
       resourceType="recording"
@@ -266,7 +275,7 @@ function RecordingShareButton({
       })}
       {...(defaultOpen !== undefined && { defaultOpen })}
       {...(onOpenChange && { onOpenChange })}
-      {...(!(viewerReshareOnly && hasPassword !== false) && {
+      {...(!blockViewerHandoff && {
         sendTo: {
           openInAgent: (destination: AgentShareDestination) => {
             void agentPrompt().then((prompt) => {
@@ -284,17 +293,16 @@ function RecordingShareButton({
         },
       })}
       {...(viewerReshareOnly !== undefined && { linkOnly: viewerReshareOnly })}
-      hideSendTo={Boolean(viewerReshareOnly && hasPassword !== false)}
+      hideSendTo={blockViewerHandoff}
       generalAccessExtras={(controller) => {
         const role = controller.data?.role ?? initialRole;
-        return !viewerReshareOnly && (passwordProtected || currentExpiry) ? (
-          <RecordingAdvancedAccess
+        return !viewerReshareOnly && controller.visibility === "public" ? (
+          <RecordingPasswordAccess
+            key={`${recordingId}:${session?.userId ?? ""}`}
             recordingId={recordingId}
             hasPassword={passwordProtected}
-            expiresAt={currentExpiry}
             canEdit={role === "owner" || role === "admin" || role === "editor"}
             onPasswordChange={setPasswordProtected}
-            onExpiryChange={setCurrentExpiry}
           />
         ) : null;
       }}
@@ -302,20 +310,16 @@ function RecordingShareButton({
   );
 }
 
-function RecordingAdvancedAccess({
+function RecordingPasswordAccess({
   recordingId,
   hasPassword,
-  expiresAt,
   canEdit,
   onPasswordChange,
-  onExpiryChange,
 }: {
   recordingId: string;
   hasPassword: boolean;
-  expiresAt: string | null;
   canEdit: boolean;
   onPasswordChange: (hasPassword: boolean) => void;
-  onExpiryChange: (expiresAt: string | null) => void;
 }) {
   const t = useT();
   const updateRecording = useActionMutation("update-recording", {
@@ -323,152 +327,157 @@ function RecordingAdvancedAccess({
   });
   const [passwordEnabled, setPasswordEnabled] = useState(hasPassword);
   const [password, setPassword] = useState("");
-  const [expiryDraft, setExpiryDraft] = useState(expiresAt ?? "");
+  const [copied, setCopied] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     setPasswordEnabled(hasPassword);
   }, [hasPassword]);
 
   useEffect(() => {
-    setExpiryDraft(expiresAt ?? "");
-  }, [expiresAt]);
+    if (!canEdit) setPassword("");
+  }, [canEdit]);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
 
   const setPasswordRequired = (enabled: boolean) => {
     setPasswordEnabled(enabled);
+    if (!enabled) {
+      setPassword("");
+      setCopied(false);
+      setShowPassword(false);
+    }
     if (enabled || !hasPassword) return;
 
-    setPassword("");
-    updateRecording.mutate({ id: recordingId, password: null } as any, {
-      onSuccess: () => onPasswordChange(false),
-      onError: () => setPasswordEnabled(true),
-    });
+    updateRecording.mutate(
+      { id: recordingId, password: null },
+      {
+        onSuccess: () => onPasswordChange(false),
+        onError: () => setPasswordEnabled(true),
+      },
+    );
   };
 
-  const summary = [
-    hasPassword ? t("shareDialog.passwordSet") : t("shareDialog.noPassword"),
-    expiresAt
-      ? t("shareDialog.expiresOn", { date: formatExpiry(expiresAt) })
-      : t("shareDialog.neverExpires"),
-  ].join(" · ");
+  const copyPassword = async () => {
+    try {
+      if (await writeClipboardText(password)) {
+        setCopied(true);
+        return;
+      }
+    } catch {
+      toast.error(t("dictateRoute.copyFailed"));
+      return;
+    }
+    toast.error(t("dictateRoute.copyFailed"));
+  };
 
   return (
-    <ShareAdvancedPopover summary={summary} disabled={!canEdit}>
-      <div className="grid gap-2">
-        <div className="flex min-h-8 items-center gap-2">
-          <Label
-            htmlFor="share-password-required"
-            className="min-w-0 flex-1 cursor-pointer text-sm font-normal"
-          >
-            {t("embedRoute.passwordRequired")}
-          </Label>
-          <Switch
-            id="share-password-required"
-            checked={passwordEnabled}
-            disabled={!canEdit || updateRecording.isPending || !hasPassword}
-            onCheckedChange={setPasswordRequired}
-          />
-        </div>
+    <div className="grid gap-2">
+      <div className="flex min-h-8 items-center gap-2">
+        <Label
+          htmlFor="share-password-required"
+          className="min-w-0 flex-1 cursor-pointer text-sm font-normal"
+        >
+          {t("embedRoute.passwordRequired")}
+        </Label>
+        <Switch
+          id="share-password-required"
+          checked={passwordEnabled}
+          disabled={!canEdit || updateRecording.isPending}
+          onCheckedChange={setPasswordRequired}
+        />
+      </div>
 
-        {passwordEnabled ? (
-          <>
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-              <Input
-                size="sm"
-                type="text"
+      {passwordEnabled ? (
+        <>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <InputGroup size="sm" data-private>
+              <InputGroupInput
+                type={showPassword ? "text" : "password"}
+                autoComplete="new-password"
                 value={password}
                 disabled={!canEdit}
-                onChange={(event) => setPassword(event.target.value)}
-                aria-label={t("playerSettings.passwordProtection")}
-                placeholder={
-                  hasPassword
-                    ? t("playerSettings.passwordSetPlaceholder")
-                    : t("playerSettings.passwordInputPlaceholder")
-                }
-              />
-              <Button
-                type="button"
-                size="sm"
-                disabled={
-                  !canEdit || updateRecording.isPending || !password.trim()
-                }
-                onClick={() => {
-                  updateRecording.mutate(
-                    { id: recordingId, password: password.trim() } as any,
-                    {
-                      onSuccess: () => {
-                        onPasswordChange(true);
-                        setPassword("");
-                      },
-                    },
-                  );
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  setCopied(false);
                 }}
-              >
-                {t("common.save")}
-              </Button>
-            </div>
-            {password.length > 0 && !password.trim() ? (
-              <p className="text-xs text-muted-foreground">
-                {t("playerSettings.passwordWhitespaceOnly")}
-              </p>
-            ) : null}
-          </>
-        ) : null}
-      </div>
-
-      <div className="grid gap-2">
-        <Label htmlFor="share-expiry" className="text-sm font-normal">
-          {t("shareDialog.linkExpires")}
-        </Label>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-          <Input
-            id="share-expiry"
-            size="sm"
-            type="datetime-local"
-            value={toDatetimeLocal(expiryDraft)}
-            disabled={!canEdit}
-            onChange={(event) =>
-              setExpiryDraft(fromDatetimeLocal(event.target.value))
-            }
-          />
-          <Button
-            type="button"
-            size="sm"
-            disabled={!canEdit || updateRecording.isPending}
-            onClick={() => {
-              const nextExpiry = expiryDraft || null;
-              updateRecording.mutate(
-                { id: recordingId, expiresAt: nextExpiry } as any,
-                { onSuccess: () => onExpiryChange(nextExpiry) },
-              );
-            }}
-          >
-            {t("common.save")}
-          </Button>
-        </div>
-      </div>
-    </ShareAdvancedPopover>
+                aria-label={t("playerSettings.passwordProtection")}
+                placeholder={t("shareDialog.enterPassword")}
+              />
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  size="icon-xs"
+                  disabled={!canEdit}
+                  aria-label={t(
+                    showPassword
+                      ? "shareDialog.hidePassword"
+                      : "shareDialog.showPassword",
+                  )}
+                  title={t(
+                    showPassword
+                      ? "shareDialog.hidePassword"
+                      : "shareDialog.showPassword",
+                  )}
+                  onClick={() => setShowPassword((visible) => !visible)}
+                >
+                  {showPassword ? (
+                    <IconEyeOff className="size-4" />
+                  ) : (
+                    <IconEye className="size-4" />
+                  )}
+                </InputGroupButton>
+                <InputGroupButton
+                  size="icon-xs"
+                  disabled={!canEdit || !password.trim()}
+                  aria-label={
+                    copied ? t("shareUi.copied") : t("shareDialog.copyPassword")
+                  }
+                  title={
+                    copied ? t("shareUi.copied") : t("shareDialog.copyPassword")
+                  }
+                  onClick={() => void copyPassword()}
+                >
+                  {copied ? (
+                    <IconCheck className="size-4" />
+                  ) : (
+                    <IconCopy className="size-4" />
+                  )}
+                </InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
+            <Button
+              type="button"
+              size="sm"
+              disabled={
+                !canEdit || updateRecording.isPending || !password.trim()
+              }
+              onClick={() => {
+                updateRecording.mutate(
+                  { id: recordingId, password: password.trim() },
+                  {
+                    onSuccess: () => {
+                      onPasswordChange(true);
+                      setPassword(password.trim());
+                    },
+                    onError: () => setCopied(false),
+                  },
+                );
+              }}
+            >
+              {t("common.save")}
+            </Button>
+          </div>
+          {password.length > 0 && !password.trim() ? (
+            <p className="text-xs text-muted-foreground">
+              {t("playerSettings.passwordWhitespaceOnly")}
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </div>
   );
-}
-
-function toDatetimeLocal(iso: string | null): string {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function fromDatetimeLocal(value: string): string {
-  if (!value) return "";
-  return new Date(value).toISOString();
-}
-
-function formatExpiry(iso: string | null): string {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
 }

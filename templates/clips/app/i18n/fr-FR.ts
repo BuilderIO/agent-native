@@ -816,6 +816,10 @@ const messages = {
     saveThumbnail: "Enregistrer la miniature",
   },
   shareDialog: {
+    enterPassword: "Saisir un mot de passe",
+    showPassword: "Afficher le mot de passe",
+    hidePassword: "Masquer le mot de passe",
+    copyPassword: "Copier le mot de passe",
     redactionsPendingTitle: "Terminer les masquages avant le partage",
     redactionsPendingBody:
       "Masquages en attente : {{count}}. Appliquez-les dans l’éditeur avant de partager ; la vidéo contient encore le contenu d’origine.",

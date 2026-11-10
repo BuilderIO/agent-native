@@ -9,12 +9,14 @@ import {
   youtubeEmbedUrl,
   youtubeVideoIdForRecording,
 } from "../../shared/youtube.js";
+import { recordingUsesSharePassword } from "./recording-page-access.js";
 import { getRecordingAccessTokenResourceId } from "./share-password.js";
 
 type PlayerVideoRecording = {
   id: string;
   password?: string | null;
   sharePasswordVersion?: string | null;
+  visibility?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
   videoUrl?: string | null;
@@ -74,6 +76,7 @@ export function resolvePlayerVideoUrl(
 
   if (
     options.addPasswordToken &&
+    recordingUsesSharePassword(recording.visibility) &&
     recording.password &&
     resolvedVideoUrl.startsWith("/api/video/")
   ) {
