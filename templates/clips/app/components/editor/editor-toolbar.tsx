@@ -1,5 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   IconArrowBackUp,
   IconArrowForwardUp,
@@ -210,8 +211,8 @@ export function EditorToolbar({
     try {
       await clear.mutateAsync({ recordingId });
       toast.success(t("editorToolbar.editsCleared"));
-    } catch (err: any) {
-      toast.error(err?.message ?? t("editorToolbar.clearFailed"));
+    } catch (err) {
+      reportWriteFailure(err, { label: t("editorToolbar.clearFailed") });
     }
   };
 

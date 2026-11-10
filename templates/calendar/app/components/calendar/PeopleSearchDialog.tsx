@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   IconSearch,
   IconX,
@@ -102,7 +103,10 @@ export function PeopleSearchDialog({
   }, [open]);
 
   function handleAdd(email: string, name?: string) {
-    addPerson.mutate({ email, name });
+    addPerson.mutate(
+      { email, name },
+      { onError: (error) => reportWriteFailure(error) },
+    );
   }
 
   useEffect(() => {
@@ -271,7 +275,11 @@ export function PeopleSearchDialog({
                     {person.name || person.email}
                   </span>
                   <button
-                    onClick={() => removePerson.mutate(person.email)}
+                    onClick={() =>
+                      removePerson.mutate(person.email, {
+                        onError: (error) => reportWriteFailure(error),
+                      })
+                    }
                     className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
                   >
                     <IconX className="h-3.5 w-3.5" />

@@ -6,7 +6,10 @@ import {
   blobToBase64,
   extractVisibleReplayUserMessages,
   isReplayFrameRequest,
+  replayFrameAtMs,
   replayFrameFailureReason,
+  replayFrameFitScale,
+  replayFramePauseMs,
   replayFramePath,
 } from "./session-replay-frame";
 import { ReplayScreenshotAssetError } from "./session-replay-screenshot";
@@ -140,6 +143,68 @@ describe("replayFramePath", () => {
     expect(replayFramePath("/reset/9f8e7d6c5b4a39281706f5e4d3c2b1a0")).toBe(
       "/reset/:id",
     );
+  });
+});
+
+describe("replayFrameAtMs", () => {
+  it("reads the moment a link names", () => {
+    expect(replayFrameAtMs("?frame=1&atMs=135000")).toBe(135_000);
+    expect(replayFrameAtMs("?atMs=0")).toBe(0);
+  });
+
+  it("tells a link with no moment from one with a bad moment", () => {
+    expect(replayFrameAtMs("?frame=1")).toBeNull();
+    for (const bad of ["", "-1", "1.5", "soon", "99999999999999999999"]) {
+      expect(() => replayFrameAtMs(`?atMs=${bad}`)).toThrow(
+        "replay_capture_offset_invalid",
+      );
+    }
+  });
+});
+
+describe("replayFramePauseMs", () => {
+  it("pauses on the moment itself inside the recording", () => {
+    expect(replayFramePauseMs(0, 5_000)).toBe(0);
+    expect(replayFramePauseMs(4_999, 5_000)).toBe(4_999);
+  });
+
+  it("pauses past the end, so the final event reaches the screen", () => {
+    expect(replayFramePauseMs(5_000, 5_000)).toBe(5_001);
+  });
+});
+
+describe("replayFrameFitScale", () => {
+  it("fits a recording wider than the window, so nothing is cropped", () => {
+    expect(
+      replayFrameFitScale(
+        { width: 1600, height: 800 },
+        { width: 800, height: 800 },
+      ),
+    ).toBe(0.5);
+  });
+
+  it("fits a recording taller than the window", () => {
+    expect(
+      replayFrameFitScale(
+        { width: 800, height: 1600 },
+        { width: 800, height: 800 },
+      ),
+    ).toBe(0.5);
+  });
+
+  it("leaves a recording that already fits at its real size", () => {
+    expect(
+      replayFrameFitScale(
+        { width: 800, height: 600 },
+        { width: 1600, height: 1200 },
+      ),
+    ).toBe(1);
+  });
+
+  it("does not collapse the stage in a window with no size", () => {
+    expect(
+      replayFrameFitScale({ width: 800, height: 600 }, { width: 0, height: 0 }),
+    ).toBe(1);
   });
 });
 
