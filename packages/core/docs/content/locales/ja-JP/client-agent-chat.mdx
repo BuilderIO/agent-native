@@ -202,6 +202,8 @@ sendToAgentChat({
 });
 ```
 
+`sendToAgentChat()` が返すのはタブ ID であり、配信確認ではありません。ローカル送信の確認には `sendToAgentChatAndConfirm({ message, chatTarget: "local" })` を使い、`delivered: false` と `reason` を処理してください。確認を待ち、タイムアウト時は送信をキャンセルします。下書きやコード宛ての送信には対応しません。
+
 ### AgentChatMessage {#agentchatmessage}
 
 | オプション     | タイプ     | 説明                                                                                                    |

@@ -8,7 +8,7 @@ import {
   QueryClientProvider,
   useQuery,
 } from "@tanstack/react-query";
-import { act, createElement } from "react";
+import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -180,7 +180,7 @@ describe("Page draft recovery on a page open", () => {
   let root: Root;
   let originalWindowStorage = new Map<string, PropertyDescriptor | undefined>();
 
-  const render = async () => {
+  const render = async (loading?: ReactNode) => {
     await act(async () => {
       root.render(
         createElement(
@@ -188,6 +188,7 @@ describe("Page draft recovery on a page open", () => {
           { client: queryClient },
           createElement(PageDraftRecovery, {
             document: page,
+            loading,
             children: createElement("textarea", {
               defaultValue: "Live editor",
             }),
@@ -280,6 +281,20 @@ describe("Page draft recovery on a page open", () => {
       expect(container.querySelector("textarea")).not.toBeNull(),
     );
     expect(draftReads()).toBe(1);
+  });
+
+  it("draws its host's loading view instead of the page skeleton during the check", async () => {
+    server.draftResponse = new Promise(() => {});
+
+    await render(createElement("div", { "data-testid": "host-loading" }));
+
+    expect(
+      container.querySelector('[data-testid="host-loading"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="editor-skeleton"]'),
+    ).toBeNull();
+    expect(container.querySelector("textarea")).toBeNull();
   });
 
   it("does not release the editor when the reader can no longer edit", async () => {

@@ -62,6 +62,21 @@ describe("getOnboardingHtml", () => {
     vi.unstubAllEnvs();
   });
 
+  it("adds trusted head customization without replacing the sign-in page", () => {
+    const html = getOnboardingHtml({
+      authHeadHtml:
+        '<style id="custom-auth">.card { border-radius: 0 }</style>',
+    });
+
+    expect(html).toContain(
+      '<style id="custom-auth">.card { border-radius: 0 }</style>',
+    );
+    expect(html.indexOf('id="custom-auth"')).toBeLessThan(
+      html.indexOf("</head>"),
+    );
+    expect(html).toContain('<main data-auth-view="signup" />');
+  });
+
   it("does not include local upgrade copy in SSR HTML by default", () => {
     const html = getOnboardingHtml();
 

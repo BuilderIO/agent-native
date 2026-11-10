@@ -1,4 +1,5 @@
 import { useActionQuery, callAction } from "@agent-native/core/client/hooks";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   buildCodeLayerProjection,
   type CodeLayerProjection,
@@ -1303,7 +1304,9 @@ export function useEditorContentAndComponents({
               });
               return;
             }
-            toast.error(t("designEditor.toasts.componentCreateFailed"));
+            reportWriteFailure(error, {
+              label: t("designEditor.toasts.componentCreateFailed"),
+            });
           });
       void run();
     },

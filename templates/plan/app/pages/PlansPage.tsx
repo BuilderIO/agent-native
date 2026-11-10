@@ -32,8 +32,10 @@ import {
   serverAuthReturnPath,
 } from "@agent-native/core/client/sign-in-return";
 import { type ErrorReportDebugItem } from "@agent-native/core/client/ui";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { isFreeEmailProvider } from "@agent-native/core/org/free-email-providers";
 import { commentExcerpt } from "@agent-native/core/review/plain-text";
+import { saveWithMerge } from "@agent-native/core/save-conflict";
 import { docsUrl } from "@agent-native/core/shared";
 import {
   useSetHeaderActions,
@@ -61,6 +63,7 @@ import {
   type PlanCommentMention,
   type PlanCommentResolutionTarget,
 } from "@shared/comment-context";
+import { mergePlanBlocks } from "@shared/plan-blocks-merge";
 import type {
   PlanAnnotation,
   PlanBlock,
@@ -290,8 +293,10 @@ import {
   type RuntimeAnnotationParticipant,
 } from "@/lib/plan-annotation-runtime";
 import {
-  saveBlocksMergingConflicts,
-  type PlanBlocksRevision,
+  startBlockSave,
+  type OwnBlockSave,
+  type PlanBlocksOverlapResolver,
+  type SavedPlanBlocks,
 } from "@/lib/plan-block-save";
 import {
   appendMessageToEditor,
@@ -579,6 +584,20 @@ function withPlanComments(
         .length,
     },
   };
+}
+
+/**
+ * The anchor's section id, if it names one of the plan's sections. An anchor
+ * records whatever element id was nearest the click, and a comment's section
+ * must be a real section row.
+ */
+export function planSectionIdForAnchor(
+  sections: Pick<PlanBundle["sections"][number], "id">[],
+  sectionId: string | null | undefined,
+): string | undefined {
+  return sectionId && sections.some((section) => section.id === sectionId)
+    ? sectionId
+    : undefined;
 }
 
 export function addPlanCommentToBundle(
@@ -1858,14 +1877,16 @@ function PlanStatusControl({
       updateStatus.mutate(
         { planId, status: newStatus },
         {
-          onError: () => {
+          onError: (error) => {
             if (prevBundle !== undefined)
               qc.setQueryData(bundleKey, prevBundle);
             if (prevActiveList !== undefined)
               qc.setQueryData(ACTIVE_PLANS_QUERY_KEY, prevActiveList);
             if (prevAllList !== undefined)
               qc.setQueryData(ALL_PLANS_QUERY_KEY, prevAllList);
-            toast.error(t("plansPage.status.updateFailed"));
+            reportWriteFailure(error, {
+              label: t("plansPage.status.updateFailed"),
+            });
           },
         },
       );
@@ -2731,8 +2752,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
             if (selectedPlanQueryKey) {
               queryClient.setQueryData(selectedPlanQueryKey, updated);
             }
-          } catch {
-            toast.error(t("plansPage.reader.saveAnswersFailed"));
+          } catch (error) {
+            reportWriteFailure(error, {
+              label: t("plansPage.reader.saveAnswersFailed"),
+            });
           } finally {
             if (localPlanBridgeUrl) setLocalBridgeCommentPending(false);
           }
@@ -2745,8 +2768,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           comments: [comment],
         },
         {
-          onError: () => {
-            toast.error(t("plansPage.reader.saveAnswersFailed"));
+          onError: (error) => {
+            reportWriteFailure(error, {
+              label: t("plansPage.reader.saveAnswersFailed"),
+            });
           },
         },
       );
@@ -4035,75 +4060,74 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
 
-  // The newest block save this tab made, with the blocks it sent. Until the
-  // open document adopts the saved result, that save (not the older revision
+  // The newest block save this tab made, with the blocks the document held. Until
+  // the open document adopts the saved result, that save (not the older revision
   // the document still reports) is what the next edit was made on top of, and
-  // the blocks sent, not the merged result, are what the document holds.
-  const lastBlockSaveRef = useRef<{
-    planId: string;
-    updatedAt: string;
-    sent: PlanBlock[];
-  } | null>(null);
+  // those blocks, not the merged result, are what the document holds.
+  const lastBlockSaveRef = useRef<OwnBlockSave | null>(null);
 
   // `base` is the saved revision the open document's edits were made on top
   // of; without a document (no live editor) the plan as loaded stands in.
   const saveBlocks = async (
     plan: PlanBundleWithHtml["plan"],
     blocks: PlanBlock[],
-    documentBase: PlanBlocksRevision | null | undefined,
+    documentBase: SavedPlanBlocks | null | undefined,
+    resolveOverlap: PlanBlocksOverlapResolver | undefined,
   ) => {
     const planId = plan.id;
-    const toRevision = (saved: PlanBundleWithHtml): PlanBlocksRevision => {
-      if (!saved.plan?.content) {
-        throw new Error("The saved plan has no structured content.");
-      }
-      return {
-        updatedAt: saved.plan.updatedAt,
-        blocks: saved.plan.content.blocks,
-      };
-    };
-    const loaded =
-      documentBase ??
-      (plan.content
-        ? { updatedAt: plan.updatedAt, blocks: plan.content.blocks }
-        : null);
     const own = lastBlockSaveRef.current;
-    const base =
-      own?.planId === planId && (!loaded || own.updatedAt >= loaded.updatedAt)
-        ? { updatedAt: own.updatedAt, blocks: own.sent }
-        : loaded;
-    const saved = await saveBlocksMergingConflicts({
-      base,
+    const { base, mine } = startBlockSave(
+      own?.planId === planId ? own : null,
+      documentBase,
+      plan.content
+        ? { value: plan.content.blocks, revision: plan.updatedAt }
+        : null,
       blocks,
-      save: async (nextBlocks, expectedUpdatedAt) =>
-        toRevision(
-          await savePlanBlocks.mutateAsync({
-            planId,
-            expectedUpdatedAt,
-            contentPatches: [{ op: "replace-blocks", blocks: nextBlocks }],
-            note: "Patched structured visual plan content.",
-          }),
-        ),
-      readLatest: async () =>
-        toRevision(
-          await callAction<PlanBundleWithHtml>(
-            "get-visual-plan",
-            planBundleQueryParams(planId),
-            { method: "GET" },
-          ),
-        ),
+    );
+    // Not `mine`, which can carry what the last save's merge brought in before
+    // the document has it. After a choice the document holds that version.
+    let held = blocks;
+    const saved = await saveWithMerge<PlanBlock[]>({
+      base,
+      mine,
+      merge: mergePlanBlocks,
+      parseCurrent: (current) => (current as PlanContent).blocks,
+      resolveOverlap:
+        resolveOverlap &&
+        (async (overlap, finished) => {
+          held = await resolveOverlap(overlap, finished);
+          return held;
+        }),
+      save: async ({ value, revision }) => {
+        const result = await savePlanBlocks.mutateAsync({
+          planId,
+          ...(revision ? { expectedUpdatedAt: revision } : {}),
+          contentPatches: [{ op: "replace-blocks", blocks: value }],
+          note: "Patched structured visual plan content.",
+        });
+        if (!result.plan?.content) {
+          throw new Error("The saved plan has no structured content.");
+        }
+        return {
+          value: result.plan.content.blocks,
+          revision: result.plan.updatedAt,
+        };
+      },
     });
     lastBlockSaveRef.current = {
       planId,
-      updatedAt: saved.updatedAt,
-      sent: blocks,
+      startedFrom: base.revision,
+      held,
+      saved,
     };
-    return saved;
   };
 
   const patchStructuredContent = async (
     patch: PlanContentPatch,
-    options?: { base?: PlanBlocksRevision | null },
+    options?: {
+      base?: SavedPlanBlocks | null;
+      resolveOverlap?: PlanBlocksOverlapResolver;
+    },
   ) => {
     if (!bundle) return;
     if (localPlanMode) {
@@ -4123,7 +4147,12 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       return;
     }
     if (patch.op === "replace-blocks") {
-      await saveBlocks(bundle.plan, patch.blocks, options?.base);
+      await saveBlocks(
+        bundle.plan,
+        patch.blocks,
+        options?.base,
+        options?.resolveOverlap,
+      );
       return;
     }
     await updatePlan.mutateAsync({
@@ -4550,11 +4579,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       resolutionTarget: draft.resolutionTarget,
       mentions: draft.mentions,
     };
-    const sectionId =
-      anchor.sectionId &&
-      bundle.sections.some((section) => section.id === anchor.sectionId)
-        ? anchor.sectionId
-        : undefined;
+    const sectionId = planSectionIdForAnchor(bundle.sections, anchor.sectionId);
     const anchorJson = JSON.stringify(anchor);
     const commentId = newCommentId();
     const now = new Date().toISOString();
@@ -4649,7 +4674,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           kind: annotation.kind as PlanBundle["comments"][number]["kind"],
           status: annotation.status as PlanBundle["comments"][number]["status"],
           message,
-          sectionId: annotation.sectionId ?? anchor.sectionId,
+          sectionId:
+            annotation.sectionId ??
+            planSectionIdForAnchor(bundle.sections, anchor.sectionId),
           anchor: JSON.stringify(anchor),
           createdBy: "human",
           authorEmail: collabUser?.email,
@@ -6529,8 +6556,10 @@ function PlanInviteSuggestionCard({
     trackAction("plan_invite_suggestion_clicked", "enable_domain_join");
     try {
       await setOrgDomain.mutateAsync(domain);
-    } catch {
-      toast.error(t("plansPage.share.teammateSuggestion.enableFailed"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("plansPage.share.teammateSuggestion.enableFailed"),
+      });
       return;
     }
     trackAction("plan_invite_suggestion_accepted", "enable_domain_join");
