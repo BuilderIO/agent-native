@@ -539,6 +539,32 @@ describe("tracking providers", () => {
       expect(await settles(handedOff[0])).toBe(true);
     });
 
+    it("hands a Cloudflare Pages send to the waitUntil its request carries", async () => {
+      const { fetchMock, release } = deferredFetch();
+      stubAnalytics();
+      vi.stubEnv("CF_PAGES", "1");
+      const handedOff: Promise<unknown>[] = [];
+      const { registerBuiltinProviders, track } = await freshTrackingModules();
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      registerBuiltinProviders();
+
+      await runWithRequestContext(
+        { run: { waitUntil: (promise) => handedOff.push(promise) } },
+        async () => {
+          track("qa_event", { app: "qa" }, { userId: "u1" });
+        },
+      );
+
+      await vi.waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+      expect(handedOff).toHaveLength(1);
+      expect(await settles(handedOff[0])).toBe(false);
+      release();
+      expect(await settles(handedOff[0])).toBe(true);
+    });
+
     it("waits for a send already under way when flushing", async () => {
       const { fetchMock, release } = deferredFetch();
       stubAnalytics();

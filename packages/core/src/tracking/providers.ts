@@ -1,7 +1,10 @@
 import { withoutWriteObservation } from "../action-frame.js";
 import { getAppConfig } from "../app-config/index.js";
 import { platformWaitUntil } from "../server/background-work.js";
-import { getRequestContext } from "../server/request-context.js";
+import {
+  getRequestContext,
+  getRequestRunContext,
+} from "../server/request-context.js";
 import { isTestIdentity } from "../server/test-identity.js";
 import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
 import { reshapeTrackedExceptionProperties } from "./posthog-exception.js";
@@ -60,11 +63,12 @@ function setTimer(t: ReturnType<typeof setTimeout> | null): void {
 /**
  * A serverless host can freeze the function once the reply is out, cutting
  * off a send still under way. Inside a request, the host's waitUntil keeps the
- * function up until the send ends; actions reach it without the request event.
+ * function up until the send ends. Actions reach it without the request event:
+ * Cloudflare's through the request's run context, Netlify's through its store.
  */
 function keepAlive(sending: Promise<unknown>): void {
   try {
-    platformWaitUntil()?.(sending);
+    (getRequestRunContext()?.waitUntil ?? platformWaitUntil())?.(sending);
   } catch {
     // coercion-ok: the send is already under way; a host refusing to wait for it only risks that event.
   }
