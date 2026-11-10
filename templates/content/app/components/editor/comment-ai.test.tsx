@@ -1383,10 +1383,12 @@ describe("useLeftAloneCountdown", () => {
     enabled,
     onGone,
     showReply = true,
+    showMenu = true,
   }: {
     enabled: boolean;
     onGone: () => void;
     showReply?: boolean;
+    showMenu?: boolean;
   }) {
     const ref = useRef<HTMLDivElement>(null);
     const { handlers } = useLeftAloneCountdown({
@@ -1398,7 +1400,9 @@ describe("useLeftAloneCountdown", () => {
     return (
       <div ref={ref} {...handlers}>
         {showReply ? <button data-reply="">Reply</button> : null}
-        {createPortal(<button data-menu-item="">Edit</button>, document.body)}
+        {showMenu
+          ? createPortal(<button data-menu-item="">Edit</button>, document.body)
+          : null}
       </div>
     );
   }
@@ -1450,6 +1454,27 @@ describe("useLeftAloneCountdown", () => {
     wait(HOLD_MS - 100);
     expect(onGone).not.toHaveBeenCalled();
     wait(100);
+    expect(onGone).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts the count over when its menu closes under the pointer", async () => {
+    const onGone = vi.fn();
+    act(() => root.render(createElement(Card, { enabled: true, onGone })));
+    act(() => {
+      button("[data-menu-item]").dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true }),
+      );
+    });
+    wait(HOLD_MS * 3);
+    expect(onGone).not.toHaveBeenCalled();
+
+    // Choosing an item closes the menu, which sends no pointerleave.
+    await act(async () =>
+      root.render(
+        createElement(Card, { enabled: true, onGone, showMenu: false }),
+      ),
+    );
+    wait(HOLD_MS);
     expect(onGone).toHaveBeenCalledTimes(1);
   });
 

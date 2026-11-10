@@ -383,6 +383,21 @@ export function useLeftAloneCountdown({
     release();
     return () => observer.disconnect();
   }, [enabled, focused]);
+  // Likewise a portal menu item taken from under the pointer sends no
+  // pointerleave, so the hover would hold the count forever.
+  useEffect(() => {
+    if (!enabled || !hovered) return;
+    const release = () => {
+      const { pointer } = presence.current;
+      if (!pointer || pointer.isConnected) return;
+      presence.current.pointer = null;
+      if (!ref.current?.matches(":hover")) setHovered(false);
+    };
+    const observer = new MutationObserver(release);
+    observer.observe(document.body, { childList: true, subtree: true });
+    release();
+    return () => observer.disconnect();
+  }, [enabled, hovered, ref]);
   useEffect(() => {
     if (!enabled || hovered || focused?.isConnected) return;
     let fadeTimer: ReturnType<typeof setTimeout> | undefined;
