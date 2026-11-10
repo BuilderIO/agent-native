@@ -77,11 +77,18 @@ function chatProviderFromEnv(env: NodeJS.ProcessEnv): ChatProvider | null {
   };
 }
 
+/** The fields read from an OpenAI-compatible answer. */
+interface ApiAnswer {
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  data?: { index: number; embedding: number[] }[];
+  choices?: { message?: { content?: string | null } }[];
+}
+
 async function postWithRetry(
   url: string,
   headers: Record<string, string>,
   body: unknown,
-): Promise<Record<string, any>> {
+): Promise<ApiAnswer> {
   for (let attempt = 1; ; attempt += 1) {
     // A network error or timeout is retried like a 429 or 5xx answer.
     const response = await fetch(url, {
@@ -93,8 +100,9 @@ async function postWithRetry(
       if (attempt === 4) throw error;
       return null;
     });
-    if (response?.ok) return (await response.json()) as Record<string, any>;
+    if (response?.ok) return (await response.json()) as ApiAnswer;
     if (response) {
+      // coercion-ok: the body only adds detail to an error thrown either way.
       const detail = (await response.text().catch(() => "")).slice(0, 300);
       // An account out of quota answers 429 too, but waiting won't help.
       const retryable =
@@ -119,7 +127,7 @@ async function timed<T>(usage: ModelUsage, run: () => Promise<T>) {
 
 /**
  * Embeddings through Builder's gateway when its key pair is set (what hosted
- * Agent Native ships), else the chat provider's. Chat goes to OpenAI, or to
+ * Agent-Native ships), else the chat provider's. Chat goes to OpenAI, or to
  * OpenRouter when asked for.
  */
 export function bakeoffModelsFromEnv(
@@ -163,12 +171,9 @@ export function bakeoffModelsFromEnv(
           }),
         );
         usage.embeddedCharacters += batch.reduce((n, t) => n + t.length, 0);
-        usage.inputTokens += Number(data.usage?.prompt_tokens ?? 0);
+        usage.inputTokens += data.usage?.prompt_tokens ?? 0;
         // Each row names the input it embeds; place it by that, not by order.
-        const rows = (data.data ?? []) as {
-          index: number;
-          embedding: number[];
-        }[];
+        const rows = data.data ?? [];
         if (rows.length !== batch.length)
           throw new Error(
             `Expected ${batch.length} embeddings, got ${rows.length}.`,
@@ -200,9 +205,9 @@ export function bakeoffModelsFromEnv(
           temperature: 0,
         }),
       );
-      usage.inputTokens += Number(data.usage?.prompt_tokens ?? 0);
-      usage.outputTokens += Number(data.usage?.completion_tokens ?? 0);
-      return String(data.choices?.[0]?.message?.content ?? "").trim();
+      usage.inputTokens += data.usage?.prompt_tokens ?? 0;
+      usage.outputTokens += data.usage?.completion_tokens ?? 0;
+      return (data.choices?.[0]?.message?.content ?? "").trim();
     },
   };
 }

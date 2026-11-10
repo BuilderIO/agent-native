@@ -120,14 +120,19 @@ export function pageChunks(doc: CorpusDocument): string[] {
 }
 
 export function cosine(left: readonly number[], right: readonly number[]) {
+  if (left.length !== right.length)
+    throw new Error(
+      `Vectors differ in length: ${left.length} and ${right.length}.`,
+    );
   let dot = 0;
   let leftNorm = 0;
   let rightNorm = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    dot += left[index]! * right[index]!;
-    leftNorm += left[index]! ** 2;
-    rightNorm += right[index]! ** 2;
-  }
+  left.forEach((value, index) => {
+    const other = right.at(index) ?? 0;
+    dot += value * other;
+    leftNorm += value ** 2;
+    rightNorm += other ** 2;
+  });
   return dot / (Math.sqrt(leftNorm * rightNorm) || 1);
 }
 
@@ -165,6 +170,7 @@ export function replyJson(reply: string): Record<string, unknown> | null {
   if (start < 0 || end <= start) return null;
   try {
     return JSON.parse(reply.slice(start, end + 1));
+    // coercion-ok: null is this function's "no JSON in the reply" answer.
   } catch {
     return null;
   }

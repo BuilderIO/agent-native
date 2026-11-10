@@ -186,17 +186,27 @@ async function eachLimit<T>(
   items: readonly T[],
   run: (item: T) => Promise<void>,
 ) {
-  let next = 0;
+  // The workers share one iterator, so each item runs once.
+  const queue = items.values();
   await Promise.all(
     Array.from({ length: Math.min(CONCURRENCY, items.length) }, async () => {
-      while (next < items.length) await run(items[next++]!);
+      for (const item of queue) await run(item);
     }),
   );
 }
 
+/** The embedding at `index`, or an error naming what it was for. */
+function vectorAt(vectors: readonly number[][], index: number, what: string) {
+  const vector = vectors.at(index);
+  if (!vector)
+    throw new Error(`The embedding model returned no vector for ${what}.`);
+  return vector;
+}
+
 interface CaseRun {
   kase: SearchEvalCase;
-  ranked: Record<string, string[]>;
+  /** A skipped method has no entry. */
+  ranked: Partial<Record<string, string[]>>;
   usage: Record<QueryLane, ModelUsage>;
 }
 
@@ -270,7 +280,7 @@ async function runBakeoff(models: BakeoffModels | null) {
     );
     chunks.forEach((chunk, index) => {
       const list = chunkVectors.get(chunk.key) ?? [];
-      list.push(vectors[index]!);
+      list.push(vectorAt(vectors, index, `chunk ${index} of ${chunk.key}`));
       chunkVectors.set(chunk.key, list);
     });
     if (hasChat) {
@@ -285,14 +295,14 @@ async function runBakeoff(models: BakeoffModels | null) {
       });
       const keys = [...summaries.keys()];
       const summaryVectors = await models.embed(
-        keys.map((key) => summaries.get(key)!),
+        [...summaries.values()],
         "document",
         indexUsage.enrichment,
       );
       keys.forEach((key, index) =>
         enrichedVectors.set(key, [
           ...(chunkVectors.get(key) ?? []),
-          summaryVectors[index]!,
+          vectorAt(summaryVectors, index, `the summary of ${key}`),
         ]),
       );
     }
@@ -317,12 +327,12 @@ async function runBakeoff(models: BakeoffModels | null) {
     };
 
     if (models) {
-      const [queryVector] = await models.embed(
-        [kase.query],
-        "query",
-        usage["query-embedding"],
+      const queryVector = vectorAt(
+        await models.embed([kase.query], "query", usage["query-embedding"]),
+        0,
+        `the question "${kase.query}"`,
       );
-      const embedded = vectorLane(chunkVectors, queryVector!, pages);
+      const embedded = vectorLane(chunkVectors, queryVector, pages);
       ranked.embeddings = embedded.slice(0, 10);
       ranked.hybrid = fuse({ current, embedded });
       const hybridKeywords = fuse(
@@ -361,19 +371,19 @@ async function runBakeoff(models: BakeoffModels | null) {
         const passage =
           (await models.chat(HYDE_PROMPT, kase.query, usage.hyde)) ||
           kase.query;
-        const [hydeVector] = await models.embed(
-          [passage],
-          "document",
-          usage.hyde,
+        const hydeVector = vectorAt(
+          await models.embed([passage], "document", usage.hyde),
+          0,
+          `the answer passage for "${kase.query}"`,
         );
         ranked.HyDE = fuse({
           current,
-          hyde: vectorLane(chunkVectors, hydeVector!, pages),
+          hyde: vectorLane(chunkVectors, hydeVector, pages),
         });
 
         ranked.enrichment = fuse({
           current,
-          enriched: vectorLane(enrichedVectors, queryVector!, pages),
+          enriched: vectorLane(enrichedVectors, queryVector, pages),
         });
 
         const candidates = hybridKeywords;
@@ -456,8 +466,10 @@ async function runBakeoff(models: BakeoffModels | null) {
         method.name,
         questions
           .filter((run) => {
-            const rank = rankOf(run.kase, run.ranked[method.name] ?? []);
-            return run.ranked[method.name] && (rank === null || rank > 3);
+            const keys = run.ranked[method.name];
+            if (!keys) return false;
+            const rank = rankOf(run.kase, keys);
+            return rank === null || rank > 3;
           })
           .map((run) => run.kase.id),
       ]),
@@ -481,18 +493,19 @@ function markdown(report: Report) {
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
   for (const method of report.methods) {
-    if (method.skipped) {
+    const { question, other, perSearch, indexTime } = method;
+    if (method.skipped || !question || !other || !perSearch || !indexTime) {
       lines.push(
-        `| ${method.name} | skipped: ${method.skipped} | | | | | | | | | |`,
+        `| ${method.name} | skipped: ${method.skipped ?? "not scored"} | | | | | | | | | |`,
       );
       continue;
     }
     lines.push(
-      `| ${method.name} | ${percent(method.question!.top1)} | ${percent(method.question!.top3)} | ` +
-        `${method.question!.mrr.toFixed(2)} | ${percent(method.other!.top3)} | ` +
-        `${method.other!.mrr.toFixed(2)} | ${method.leaks} | ${method.perSearch!.calls.toFixed(1)} | ` +
-        `${Math.round(method.perSearch!.milliseconds)} | ${Math.round(method.perSearch!.tokens)} | ` +
-        `${method.indexTime!.calls} |`,
+      `| ${method.name} | ${percent(question.top1)} | ${percent(question.top3)} | ` +
+        `${question.mrr.toFixed(2)} | ${percent(other.top3)} | ` +
+        `${other.mrr.toFixed(2)} | ${method.leaks} | ${perSearch.calls.toFixed(1)} | ` +
+        `${Math.round(perSearch.milliseconds)} | ${Math.round(perSearch.tokens)} | ` +
+        `${indexTime.calls} |`,
     );
   }
   lines.push("", "Methods:", "");
@@ -501,6 +514,7 @@ function markdown(report: Report) {
   return `${lines.join("\n")}\n`;
 }
 
+// oracle-change: a new opt-in eval that calls paid models; it runs only with SEARCH_QUESTION_BAKEOFF=1.
 describe.skipIf(!ENABLED)("question-search bake-off", () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -508,7 +522,7 @@ describe.skipIf(!ENABLED)("question-search bake-off", () => {
     searchDocuments = (await import("../../actions/search-documents.js"))
       .default;
     const plugin = (await import("../../server/plugins/db.js")).default;
-    await plugin(undefined as any);
+    await plugin(undefined as never);
     await seedSearchEvalCorpus(dbModule.getDb, dbModule.schema);
   }, 60_000);
 

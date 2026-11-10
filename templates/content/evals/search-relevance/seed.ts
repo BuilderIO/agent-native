@@ -10,9 +10,10 @@ import {
 } from "./corpus.js";
 
 type Schema = typeof import("../../server/db/schema.js");
+type GetDb = typeof import("../../server/db/index.js").getDb;
 
 /** Seeds the invented corpus into a fresh Content database. */
-export async function seedSearchEvalCorpus(getDb: () => any, schema: Schema) {
+export async function seedSearchEvalCorpus(getDb: GetDb, schema: Schema) {
   const spaceOwner = (space: CorpusSpace) =>
     space === "outsider" ? OUTSIDER_EMAIL : OWNER_EMAIL;
 
