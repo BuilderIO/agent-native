@@ -722,6 +722,7 @@ const editor = {
     altText: "替代文本",
     altTextGenerationFailed: "无法启动替代文本生成。",
     assets: "资产",
+    assetsCopyFailed: "无法从资产复制此图像。请重试，或改为上传文件。",
     assetsImagePicker: "资产图像选择器",
     assetsMissingImageUrl: "资产未返回图像 URL。",
     audio: "音频",

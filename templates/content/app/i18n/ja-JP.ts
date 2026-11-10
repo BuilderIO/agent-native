@@ -774,6 +774,8 @@ const editor = {
     altText: "代替テキスト",
     altTextGenerationFailed: "代替テキストの生成を開始できませんでした。",
     assets: "資産",
+    assetsCopyFailed:
+      "アセットからこの画像をコピーできませんでした。もう一度試すか、ファイルをアップロードしてください。",
     assetsImagePicker: "アセットイメージピッカー",
     assetsMissingImageUrl: "アセットは画像 URL を返しませんでした。",
     audio: "オーディオ",

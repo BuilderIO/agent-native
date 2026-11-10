@@ -51,6 +51,14 @@ export class ImagePersistenceError extends Error {
   }
 }
 
+/** The page has no private storage connected to keep an image in. */
+export class ImageStorageUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImageStorageUnavailableError";
+  }
+}
+
 export function waitForRenderedImage(
   findImage: () => HTMLImageElement | null,
 ): Promise<void> {
@@ -149,6 +157,24 @@ export function createImagePickerId(): string {
       ? crypto.randomUUID()
       : Math.random().toString(36).slice(2);
   return `image-picker-${random}`;
+}
+
+/**
+ * The file in the Assets picker's answer to a request for a chosen image, or
+ * null from a picker that sends none.
+ */
+export function pickedAssetImageFile(answer: unknown): File | null {
+  if (!answer || typeof answer !== "object") return null;
+  const { blob, filename, mimeType } = answer as {
+    blob?: unknown;
+    filename?: unknown;
+    mimeType?: unknown;
+  };
+  if (!(blob instanceof Blob)) return null;
+  const name = typeof filename === "string" ? filename.trim() : "";
+  return new File([blob], name || "image", {
+    type: typeof mimeType === "string" && mimeType ? mimeType : blob.type,
+  });
 }
 
 function mediaUploadLabel(kind: MediaUploadKind) {
@@ -286,6 +312,11 @@ export async function uploadImageFile(
   });
   // coercion-ok: a body that isn't JSON still fails below, on the status or the missing URL.
   const body = (await response.json().catch(() => ({}))) as UploadResponse;
+  if (response.status === 503) {
+    throw new ImageStorageUnavailableError(
+      uploadResponseMessage(response, body, "image"),
+    );
+  }
   if (!response.ok) {
     throw new Error(uploadResponseMessage(response, body, "image"));
   }

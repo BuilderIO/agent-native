@@ -791,6 +791,8 @@ const editor = {
     altTextGenerationFailed:
       "Die Alternativtextgenerierung konnte nicht gestartet werden.",
     assets: "Vermögenswerte",
+    assetsCopyFailed:
+      "Dieses Bild konnte nicht aus Assets kopiert werden. Versuche es erneut oder lade stattdessen die Datei hoch.",
     assetsImagePicker: "Bildauswahl für Assets",
     assetsMissingImageUrl: "Assets haben keine Bild-URL zurückgegeben.",
     audio: "Audio [de-DE]",

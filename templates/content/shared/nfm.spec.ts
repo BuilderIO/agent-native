@@ -2096,3 +2096,42 @@ describe("video block ids", () => {
     );
   });
 });
+
+describe("images copied from Assets", () => {
+  const copied =
+    '![Hero](/api/private-media/media-1) {color="red" asset="asset-1"}';
+
+  it("keeps the asset an image was copied from through a round trip", () => {
+    const doc = nfmToDoc(copied);
+    expect(doc.content[0]).toMatchObject({
+      type: "image",
+      attrs: {
+        src: "/api/private-media/media-1",
+        alt: "Hero",
+        color: "red",
+        assetId: "asset-1",
+      },
+    });
+    expect(docToNfm(doc)).toBe(copied);
+    expect(inspectNfmFidelity(copied)).toMatchObject({
+      normalizedChanged: false,
+      unresolved: [],
+    });
+  });
+
+  it("writes the asset alone on an image with no color", () => {
+    const plain = '![Hero](/api/private-media/media-1) {asset="asset-1"}';
+    expect(canonicalizeNfm(plain)).toBe(plain);
+  });
+
+  it("drops an asset id that isn't one", () => {
+    const doc = nfmToDoc('![Hero](/x.png) {asset="a b"}');
+    expect(found(doc.content?.[0]).attrs).not.toHaveProperty("assetId");
+  });
+
+  it("leaves the asset out of the form Notion receives", () => {
+    expect(canonicalizeNotionNfm(copied)).toBe(
+      '![Hero](/api/private-media/media-1) {color="red"}',
+    );
+  });
+});

@@ -8,6 +8,8 @@ import {
   getAudioFiles,
   getImageFiles,
   getVideoFiles,
+  ImageStorageUnavailableError,
+  pickedAssetImageFile,
   uploadAudioFile,
   uploadImageFile,
   uploadVideoFile,
@@ -84,6 +86,27 @@ describe("image uploads", () => {
     const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
     expect(body.get("documentId")).toBe("document-1");
     expect((body.get("file") as File).name).toBe("diagram.png");
+  });
+
+  it("tells a page with no private storage apart from a failed upload", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          statusMessage: "No private storage is connected.",
+        }),
+      }),
+    );
+    const file = new File(["image-bytes"], "diagram.png", {
+      type: "image/png",
+    });
+
+    const upload = uploadImageFile(file, { documentId: "document-1" });
+
+    await expect(upload).rejects.toBeInstanceOf(ImageStorageUnavailableError);
+    await expect(upload).rejects.toThrow("No private storage is connected.");
   });
 
   it.each(["", "application/octet-stream"])(
@@ -254,5 +277,24 @@ describe("image uploads", () => {
       "Only audio files can be uploaded.",
     );
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reads the file the Assets picker sends for a chosen image", () => {
+    const file = pickedAssetImageFile({
+      blob: new Blob(["image-bytes"], { type: "image/png" }),
+      filename: " Hero ",
+      mimeType: "image/png",
+    });
+
+    expect(file?.name).toBe("Hero");
+    expect(file?.type).toBe("image/png");
+    expect(file?.size).toBe("image-bytes".length);
+  });
+
+  it("finds no file in an answer from a picker that sends none", () => {
+    expect(pickedAssetImageFile(undefined)).toBeNull();
+    expect(
+      pickedAssetImageFile({ url: "https://example.com/x.png" }),
+    ).toBeNull();
   });
 });

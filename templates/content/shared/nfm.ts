@@ -68,6 +68,11 @@ export const NFM_COLORS = new Set<string>([
   ...NFM_BASE_COLORS,
   ...NFM_BASE_COLORS.map((c) => `${c}_bg`),
 ]);
+/** An Assets asset id, which an image copied from Assets keeps. */
+function isAssetId(value: unknown): value is string {
+  return typeof value === "string" && /^[\w.:-]{1,200}$/.test(value);
+}
+
 function isColor(value: string | null | undefined): value is string {
   return !!value && NFM_COLORS.has(value) && value !== "default";
 }
@@ -1434,7 +1439,10 @@ export interface NfmSerializeContext {
   ) => string | undefined | null;
   /** Write the trailing empty paragraph the editor's save drops. */
   keepTrailingEmptyBlock?: boolean;
-  /** Leave out video block ids, which a Notion page has no place for. */
+  /**
+   * Leave out video block ids and the Assets ids of images, which a Notion
+   * page has no place for.
+   */
   omitMediaIds?: boolean;
 }
 
@@ -1738,7 +1746,14 @@ function serializeImage(node: PMNode, ind: number): string[] {
   const src = (node.attrs?.src as string) || "";
   const alt = (node.attrs?.alt as string) || "";
   const color = node.attrs?.color;
-  const suffix = isColor(color) ? ` {color="${color}"}` : "";
+  const assetId = activeSerializeContext?.omitMediaIds
+    ? null
+    : node.attrs?.assetId;
+  const attrs = serializeAttrs([
+    ["color", isColor(color) ? color : null],
+    ["asset", isAssetId(assetId) ? assetId : null],
+  ]);
+  const suffix = attrs ? ` {${attrs.slice(1)}}` : "";
   return [
     indentStr(ind) +
       `![${escapeInlineText(alt)}](${serializeUrlForParens(src)})${suffix}`,
@@ -2895,18 +2910,16 @@ function parseSingleBlock(
         const rest = dedent.slice(srcCloseParen + 1);
         const suffixMatch = rest.match(/^\s*(\{[^}]*\})?\s*$/);
         if (suffixMatch) {
-          if (suffixMatch[1]) {
-            readAttrs("image", suffixMatch[1].slice(1, -1), IMAGE_ATTRS);
-          }
-          const colorMatch = suffixMatch[1]?.match(/color="([^"]+)"/);
+          const attrs = suffixMatch[1]
+            ? readAttrs("image", suffixMatch[1].slice(1, -1), IMAGE_ATTRS)
+            : {};
           const node: PMNode = {
             type: "image",
             attrs: {
               src,
               alt: unescapeInlineText(alt),
-              ...(colorMatch && isColor(colorMatch[1])
-                ? { color: colorMatch[1] }
-                : {}),
+              ...(isColor(attrs.color) ? { color: attrs.color } : {}),
+              ...(isAssetId(attrs.asset) ? { assetId: attrs.asset } : {}),
             },
           };
           return { nodes: [withIndentAttr(node)], end: start + 1 };
@@ -3819,7 +3832,7 @@ function splitTableCells(source: string): TableLinePart[] {
 const MEDIA_TAGS = new Set(["video", "audio"]);
 const MEDIA_ATTRS = new Set(["src", "color"]);
 const VIDEO_ATTRS = new Set(["src", "color", "id"]);
-const IMAGE_ATTRS = new Set(["color"]);
+const IMAGE_ATTRS = new Set(["color", "asset"]);
 const BLOCK_ATOM_TAGS = new Set([
   "page",
   "database",
@@ -3885,8 +3898,9 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
 /**
  * Canonical Markdown that keeps a trailing empty block. A Notion page can end
  * in an empty paragraph its author made, and its pulls, pushes and sync hashes
- * must not drop it. Video block ids are left out: Notion has nowhere to keep
- * them, and the editor writing one down is not a change to sync.
+ * must not drop it. Video block ids and the Assets ids of images are left
+ * out: Notion has nowhere to keep them, and the editor writing one down is not
+ * a change to sync.
  */
 export function canonicalizeNotionNfm(nfm: string | null | undefined): string {
   return docToNfm(nfmToDoc(nfm ?? ""), {

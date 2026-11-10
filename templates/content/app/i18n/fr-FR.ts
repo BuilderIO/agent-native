@@ -795,6 +795,8 @@ const editor = {
     altTextGenerationFailed:
       "Impossible de démarrer la génération de texte alternatif.",
     assets: "Actifs",
+    assetsCopyFailed:
+      "Impossible de copier cette image depuis les éléments. Réessayez ou importez plutôt le fichier.",
     assetsImagePicker: "Sélecteur d'images d'éléments",
     assetsMissingImageUrl: "Les éléments n'ont pas renvoyé d'URL d'image.",
     audio: "Audio [fr-FR]",

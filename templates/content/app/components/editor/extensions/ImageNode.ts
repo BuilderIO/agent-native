@@ -15,6 +15,22 @@ export interface ContentImageOptions extends ImageOptions {
   }) => void;
   /** True when uploads go to the page's private image route, not file storage. */
   usesPrivateImageUploads?: () => boolean;
+  /**
+   * Uploads an image file the block already has, such as one chosen in
+   * Assets, as the picker request's image, with `attrs` set once it's in.
+   * Calls `onStorageUnavailable`, if given, instead of reporting an error
+   * when the page has no storage to keep the image in.
+   */
+  onPickedImageFile?: (
+    request: {
+      pickerId: string;
+      position: number;
+      attrs: Record<string, unknown>;
+    },
+    file: File,
+    attrs: Record<string, unknown>,
+    onStorageUnavailable?: () => void,
+  ) => void;
 }
 
 function normalizedImageWidth(value: unknown): number | null {
@@ -75,6 +91,7 @@ export const ImageNode = Image.extend<ContentImageOptions>({
       onImageComment: undefined,
       onImageFilePickerRequest: undefined,
       usesPrivateImageUploads: undefined,
+      onPickedImageFile: undefined,
     };
   },
 
@@ -98,6 +115,16 @@ export const ImageNode = Image.extend<ContentImageOptions>({
             "data-width": String(width),
             width: String(width),
           };
+        },
+      },
+      // The Assets asset an image came from, so the page keeps track of where
+      // its own copy came from.
+      assetId: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("data-asset-id"),
+        renderHTML: (attributes) => {
+          if (!attributes.assetId) return {};
+          return { "data-asset-id": attributes.assetId };
         },
       },
       uploadId: {
