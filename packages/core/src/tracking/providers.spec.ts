@@ -429,39 +429,43 @@ describe("tracking providers", () => {
     );
   });
 
-  it("waits for queued provider sends when flushing", async () => {
-    let resolveFetch: (() => void) | undefined;
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveFetch = () => resolve(new Response("{}"));
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
-    vi.stubEnv(
-      "AGENT_NATIVE_ANALYTICS_ENDPOINT",
-      "https://analytics.example.test/track",
-    );
-    const { flushTracking, registerBuiltinProviders, track } =
-      await freshTrackingModules();
+  it.each([false, true])(
+    "waits for provider sends when flushing (serverless=%s)",
+    async (serverless) => {
+      vi.stubEnv("NETLIFY", serverless ? "true" : "");
+      let resolveFetch: (() => void) | undefined;
+      const fetchMock = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = () => resolve(new Response("{}"));
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+      vi.stubEnv(
+        "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+        "https://analytics.example.test/track",
+      );
+      const { flushTracking, registerBuiltinProviders, track } =
+        await freshTrackingModules();
 
-    registerBuiltinProviders();
-    track("qa.event", { app: "qa" }, { userId: "u1" });
-    let flushed = false;
-    const flushPromise = flushTracking().then(() => {
-      flushed = true;
-    });
-    await Promise.resolve();
+      registerBuiltinProviders();
+      track("qa_event", { app: "qa" }, { userId: "u1" });
+      let flushed = false;
+      const flushPromise = flushTracking().then(() => {
+        flushed = true;
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(flushed).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(flushed).toBe(false);
 
-    resolveFetch?.();
-    await flushPromise;
+      resolveFetch?.();
+      await flushPromise;
 
-    expect(flushed).toBe(true);
-  });
+      expect(flushed).toBe(true);
+    },
+  );
 
   describe("sends that outlive the reply", () => {
     const netlifyStoreKey = Symbol.for(

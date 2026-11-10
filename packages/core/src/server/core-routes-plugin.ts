@@ -49,7 +49,8 @@ import {
   writeAgentLoopSettings,
 } from "../agent/loop-settings.js";
 import {
-  createBuilderSignupExperimentHandler,
+  createBuilderSignupExperiment,
+  setBuilderSignupVerifiedStarter,
   getBuilderSignupConnectError,
   getBuilderSignupTrackingIdentity,
 } from "./builder-signup-experiment.js";
@@ -5124,37 +5125,41 @@ export function createCoreRoutesPlugin(
         }),
       );
 
+      const builderSignupExperiment = createBuilderSignupExperiment({
+        getSession,
+        sameOrigin: isSameOriginConnect,
+        activate: async (event, session, owner) => {
+          const authorization = await authorizeBuilderConnectScope(
+            event,
+            session.email,
+            null,
+          );
+          if ("deny" in authorization)
+            return { ok: false, code: authorization.deny.reason };
+          return activateBuilderAccount(event, {
+            ownerEmail: session.email,
+            session,
+            provisioningToken: signBuilderProvisioningToken(
+              session.email,
+              session.token ?? "",
+            ),
+            requestedScope: null,
+            member: authorization.member,
+            connectAttemptId: null,
+            tracking: getBuilderSignupTrackingIdentity(),
+            newAccountOnly: true,
+            signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
+          });
+        },
+
+        reconcile: reconcileBuilderSignupActivation,
+      });
+      setBuilderSignupVerifiedStarter(
+        builderSignupExperiment.startVerifiedSignup,
+      );
       getH3App(nitroApp).use(
         `${P}/auth/builder-signup-experiment`,
-        createBuilderSignupExperimentHandler({
-          getSession,
-          sameOrigin: isSameOriginConnect,
-          activate: async (event, session, owner) => {
-            const authorization = await authorizeBuilderConnectScope(
-              event,
-              session.email,
-              null,
-            );
-            if ("deny" in authorization)
-              return { ok: false, code: authorization.deny.reason };
-            return activateBuilderAccount(event, {
-              ownerEmail: session.email,
-              session,
-              provisioningToken: signBuilderProvisioningToken(
-                session.email,
-                session.token ?? "",
-              ),
-              requestedScope: null,
-              member: authorization.member,
-              connectAttemptId: null,
-              tracking: getBuilderSignupTrackingIdentity(),
-              newAccountOnly: true,
-              signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
-            });
-          },
-
-          reconcile: reconcileBuilderSignupActivation,
-        }),
+        builderSignupExperiment.handler,
       );
 
       getH3App(nitroApp).use(

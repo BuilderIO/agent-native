@@ -29,18 +29,23 @@ interface EnqueueOptions {
 
 const QUEUE_KEY = Symbol.for("@agent-native/core/tracking.queue");
 const TIMER_KEY = Symbol.for("@agent-native/core/tracking.timer");
-const SENDING_KEY = Symbol.for("@agent-native/core/tracking.sending");
+const IN_FLIGHT_KEY = Symbol.for("@agent-native/core/tracking.in-flight");
 
 interface GlobalWithQueue {
   [QUEUE_KEY]?: QueuedEvent[];
+  [IN_FLIGHT_KEY]?: Set<Promise<void>>;
   [TIMER_KEY]?: ReturnType<typeof setTimeout> | null;
-  [SENDING_KEY]?: Set<Promise<unknown>>;
 }
 
 function getQueue(): QueuedEvent[] {
   const g = globalThis as unknown as GlobalWithQueue;
   if (!g[QUEUE_KEY]) g[QUEUE_KEY] = [];
   return g[QUEUE_KEY]!;
+}
+
+function getInFlight(): Set<Promise<void>> {
+  const global = globalThis as unknown as GlobalWithQueue;
+  return (global[IN_FLIGHT_KEY] ??= new Set());
 }
 
 function getTimer(): ReturnType<typeof setTimeout> | null {
@@ -50,14 +55,6 @@ function getTimer(): ReturnType<typeof setTimeout> | null {
 
 function setTimer(t: ReturnType<typeof setTimeout> | null): void {
   (globalThis as unknown as GlobalWithQueue)[TIMER_KEY] = t;
-}
-
-/** Sends already started and not yet ended, so a flush can wait for them. */
-function getSending(): Set<Promise<unknown>> {
-  const g = globalThis as unknown as GlobalWithQueue;
-  const sending = g[SENDING_KEY] ?? new Set<Promise<unknown>>();
-  g[SENDING_KEY] = sending;
-  return sending;
 }
 
 /**
@@ -101,28 +98,26 @@ function drainQueue(): Promise<void[]> {
   }
   const queue = getQueue();
   const batch = queue.splice(0, queue.length);
-  const sending = Promise.all(
-    batch.map((item) =>
-      // Whichever call's frame drains the queue, the events are not its writes.
-      withoutWriteObservation(() =>
-        fetch(item.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...item.headers },
-          body: item.body,
-          signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-        }),
-      ).then(
-        () => undefined,
-        () => undefined,
-      ),
-    ),
-  );
-  if (batch.length > 0) {
-    const allSending = getSending();
-    allSending.add(sending);
-    void sending.then(() => allSending.delete(sending));
+  const inFlight = getInFlight();
+  for (const item of batch) {
+    // Whichever call's frame drains the queue, the events are not its writes.
+    const send = withoutWriteObservation(() =>
+      fetch(item.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...item.headers },
+        body: item.body,
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      }),
+    ).then(
+      () => undefined,
+      () => undefined,
+    );
+    inFlight.add(send);
+    void send.finally(() => inFlight.delete(send));
   }
-  return sending;
+  // Serverless sends leave the queue immediately. A later flush must still
+  // hold the request's background lifetime until those sends settle.
+  return Promise.all([...inFlight]);
 }
 
 /**
@@ -130,9 +125,7 @@ function drainQueue(): Promise<void[]> {
  * the ones a serverless runtime started the moment their event was tracked.
  */
 function flushSends(): Promise<void> {
-  return drainQueue()
-    .then(() => Promise.all(getSending()))
-    .then(() => undefined);
+  return drainQueue().then(() => undefined);
 }
 
 /**

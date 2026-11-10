@@ -9,6 +9,8 @@ description: "介绍迁移到 Core 0.198.0、Toolkit 导入、可选 peer 包和
 命令，并在开始前保留可审阅的源代码差异。请单独检查远程部署配置：CLI
 可以读取本地环境文件，但无法查看远程环境或保存在数据库中的功能设置。
 
+GitHub 桌面版发布使用独立的 `v` 标签，不能代表 `@agent-native/core` 的 npm 版本。请在 npm 查看 Core 版本。 `npm view @agent-native/core version`; `npm ls @agent-native/core`.
+
 ## 1. 预览升级和 import codemod
 
 使用 Core 0.198.0 随附的 CLI，以加载该版本的 migration manifest：
