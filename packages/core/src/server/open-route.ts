@@ -6,6 +6,7 @@ import {
   AGENT_SIDEBAR_QUERY_PARAM,
   withCollapsedAgentSidebarParam,
 } from "../shared/agent-sidebar-url.js";
+import { BROWSER_TAB_QUERY_PARAM } from "../shared/browser-tab-url.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
@@ -38,6 +39,7 @@ const RESERVED = new Set([
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_PARAM,
+  BROWSER_TAB_QUERY_PARAM,
 ]);
 
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
@@ -214,9 +216,17 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
 
     if (session?.email) {
       try {
-        await appStatePut(session.email, "navigate", navPayload, {
+        // Tabs read only their own `navigate:<tabId>` row, and the tab this
+        // link opens doesn't exist yet. Pick its ID here and hand it over on
+        // the redirect; the page adopts it as its tab ID.
+        const tabId = crypto.randomUUID();
+        await appStatePut(session.email, `navigate:${tabId}`, navPayload, {
           requestSource: "deep-link",
         });
+        target = appendSearchParams(
+          target,
+          new URLSearchParams({ [BROWSER_TAB_QUERY_PARAM]: tabId }),
+        );
         if (compose) {
           try {
             const draft = JSON.parse(decodeBase64Url(compose));

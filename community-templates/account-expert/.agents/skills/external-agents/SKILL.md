@@ -416,10 +416,15 @@ link in any browser or inline webview, `GET /_agent-native/open`
 3. Writes the existing one-shot `navigate` application-state command (payload =
    every non-reserved query param + `view`) scoped to the browser session's
    email with `requestSource: "deep-link"`, and decodes a `compose` base64url
-   draft into a `compose-<id>` key.
+   draft into a `compose-<id>` key. Tabs read only their own
+   `navigate:<tabId>`, so the route picks the ID of the tab the link is about to
+   open and writes `navigate:<thatId>`.
 4. 302-redirects to a safe same-origin relative path (`to=`, else `/<view>`,
    else `resolveOpenPath`), forwarding `f_*` filter params so lists/dashboards
-   open pre-filtered before the `navigate` command is even drained.
+   open pre-filtered before the `navigate` command is even drained, and adds
+   `agentNativeTab=<thatId>`. `getBrowserTabId()` adopts it on that page's
+   first load and drops it from the URL, so every app's `navigate` reader picks
+   up the command with no app code.
 
 Cross-origin, scheme-relative `//host`, and control-char redirects are rejected
 (open-redirect guard). **Identity rule:** the link carries no privileged

@@ -1,3 +1,4 @@
+import { BROWSER_TAB_QUERY_PARAM } from "../shared/browser-tab-url.js";
 import {
   appBasePath,
   isWorkspaceRuntime,
@@ -41,6 +42,30 @@ function generate(): string {
     return crypto.randomUUID();
   }
   return Math.random().toString(36).slice(2, 10);
+}
+
+// A page opened through `/_agent-native/open` arrives with the tab ID the
+// route wrote its `navigate` command under. Take it once and drop it from the
+// URL, so a copied link doesn't give a second tab the same ID.
+function takeIdFromUrl(): string | null {
+  try {
+    const url = new URL(window.location.href);
+    const id = url.searchParams.get(BROWSER_TAB_QUERY_PARAM);
+    if (id === null) return null;
+    url.searchParams.delete(BROWSER_TAB_QUERY_PARAM);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+    return SAFE_BROWSER_TAB_ID_RE.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+function newTabId(): string {
+  return takeIdFromUrl() ?? generate();
 }
 
 function shouldReuseStoredTabId(): boolean {
@@ -119,7 +144,7 @@ export function getBrowserTabId(): string {
     return existing;
   }
 
-  const id = generate();
+  const id = newTabId();
   try {
     sessionStorage.setItem(key, id);
   } catch {
@@ -160,12 +185,12 @@ export function isBrowserTabIdForCurrentDocument(tabId?: string): boolean {
 function getOrCreateMemoryId(key: string): string {
   const cached = browserTabIdState.ids.get(key);
   if (cached) return cached;
-  const id = generate();
+  const id = newTabId();
   browserTabIdState.ids.set(key, id);
   return id;
 }
 
 function getOrCreatePendingId(): string {
-  browserTabIdState.pendingId ??= generate();
+  browserTabIdState.pendingId ??= newTabId();
   return browserTabIdState.pendingId;
 }
