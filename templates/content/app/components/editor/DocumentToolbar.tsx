@@ -134,7 +134,7 @@ import {
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
 
-import { AgentLevelNote, useAgentLevel } from "./AgentLevel";
+import { type AgentLevel, AgentLevelNote, useAgentLevel } from "./AgentLevel";
 import {
   DatabaseExportDialog,
   type DatabaseExportContext,
@@ -849,7 +849,7 @@ interface DocumentToolbarProps {
   canShare?: boolean;
   readOnly?: boolean;
   hideFromSearch?: boolean;
-  agentTextLocked?: boolean;
+  agentLevel?: AgentLevel;
   canManageAgentTextLock?: boolean;
   source?: DocumentSourceInfo;
   canDelete?: boolean;
@@ -946,7 +946,7 @@ export function DocumentToolbar({
   canShare = true,
   readOnly = false,
   hideFromSearch = false,
-  agentTextLocked = false,
+  agentLevel: savedAgentLevel = "edit",
   canManageAgentTextLock = false,
   source,
   canDelete = false,
@@ -1043,7 +1043,7 @@ export function DocumentToolbar({
   const [shareRequested, setShareRequested] = useState(false);
   const [shareInitialTab, setShareInitialTab] = useState("share");
   const shareActionRef = useRef<ShareButtonActionHandle>(null);
-  const agentLevel = useAgentLevel(documentId, agentTextLocked);
+  const agentLevel = useAgentLevel(documentId, savedAgentLevel);
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
     false,

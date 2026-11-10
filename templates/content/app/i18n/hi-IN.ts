@@ -1095,6 +1095,11 @@ const editor = {
     agentLevelUpdateFailed: "यहाँ एजेंट क्या कर सकते हैं, यह बदला नहीं जा सका।",
     agentLevelNote: "एजेंट टिप्पणी कर सकते हैं",
     agentLevelNoteHint: "एजेंट इस पेज पर टिप्पणी कर सकते हैं। इसे ‘साझा करें’ में बदलें।",
+    agentLevelViewDescription:
+      "इस पेज को पढ़ सकते हैं। टिप्पणी, सुझाव या संपादन नहीं कर सकते।",
+    agentLevelViewConfirm: "एजेंट अब इस पेज को सिर्फ़ पढ़ सकते हैं।",
+    agentLevelViewNote: "एजेंट सिर्फ़ देख सकते हैं",
+    agentLevelViewNoteHint: "एजेंट इस पेज को सिर्फ़ देख सकते हैं। इसे ‘साझा करें’ में बदलें।",
     sendPageToAgent: "यह पेज किसी एजेंट को भेजें",
     connectAgentOverMcp: "MCP से एजेंट कनेक्ट करें",
     importingFromNotion: "नोशन से आयात किया जा रहा है...",
