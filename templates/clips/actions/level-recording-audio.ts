@@ -49,6 +49,7 @@ const outputSchema = z.object({
   results: z.array(resultSchema),
   message: z.string().optional(),
   nextBefore: z.string().optional(),
+  unprocessedIds: z.array(z.string()).optional(),
 });
 const DEFAULT_ALL_LIMIT = 20;
 const cliBoolean = z.preprocess((value) => {
@@ -58,6 +59,11 @@ const cliBoolean = z.preprocess((value) => {
 }, z.boolean());
 
 const MAX_IDS_INPUT_CHARS = 8_000;
+/**
+ * Stop starting new clips after this long, so the call returns its results
+ * and a cursor well before a request timeout. One clip may still run past it.
+ */
+export const LEVEL_CALL_BUDGET_MS = 4 * 60 * 1000;
 const CURSOR_SEPARATOR = "|";
 
 function itemAt<T>(items: readonly T[], index: number): T | undefined {
@@ -207,6 +213,8 @@ export default defineAction({
 
     const targetIds = [...explicitIds];
     let nextBefore: string | undefined;
+    let sweepRows: { id: string; createdAt: string }[] = [];
+    let sweepFilledBatch = false;
     if (args.all) {
       const cursor = args.before ? decodeSweepCursor(args.before) : null;
       const limit = Math.min(
@@ -251,13 +259,11 @@ export default defineAction({
               )
               .limit(limit)
           : [];
+      sweepRows = rows;
+      sweepFilledBatch = limit > 0 && rows.length === limit;
       for (const row of rows) {
         if (!targetIds.includes(row.id)) targetIds.push(row.id);
       }
-      const last = rows.length === limit ? rows[rows.length - 1] : undefined;
-      nextBefore = last
-        ? encodeSweepCursor(last.createdAt, last.id)
-        : undefined;
     }
 
     if (targetIds.length === 0) {
@@ -272,7 +278,13 @@ export default defineAction({
     }
 
     const results: AudioLevelResult[] = [];
-    for (const recordingId of targetIds) {
+    const deadline = Date.now() + LEVEL_CALL_BUDGET_MS;
+    let stoppedAt = targetIds.length;
+    for (const [index, recordingId] of targetIds.entries()) {
+      if (index > 0 && Date.now() > deadline) {
+        stoppedAt = index;
+        break;
+      }
       try {
         results.push(
           await ensureRecordingAudioLevel({ recordingId, ownerEmail, force }),
@@ -287,6 +299,16 @@ export default defineAction({
         });
       }
     }
+    const processedIds = new Set(results.map((r) => r.recordingId));
+    const unprocessedIds = targetIds.slice(stoppedAt);
+
+    // Continue the sweep after the last swept clip this call reached: the
+    // whole batch when it finished, or fewer when the time budget ran out.
+    const reached = sweepRows.filter((row) => processedIds.has(row.id));
+    const lastReached = itemAt(reached, reached.length - 1);
+    if (lastReached && (sweepFilledBatch || unprocessedIds.length > 0)) {
+      nextBefore = encodeSweepCursor(lastReached.createdAt, lastReached.id);
+    }
 
     const changed = results.filter((r) => r.changed).length;
     return {
@@ -295,6 +317,7 @@ export default defineAction({
       changed,
       results,
       ...(nextBefore ? { nextBefore } : {}),
+      ...(unprocessedIds.length > 0 ? { unprocessedIds } : {}),
     };
   },
 });

@@ -88,6 +88,18 @@ export type AudioLevelStatus =
   | "skipped-upload-failed"
   | "not-found";
 
+/** Statuses a later attempt can fix (network, storage, a busy ffmpeg). */
+export const RETRYABLE_AUDIO_LEVEL_STATUSES: ReadonlySet<AudioLevelStatus> =
+  new Set<AudioLevelStatus>([
+    "skipped-fetch-failed",
+    "skipped-measure-failed",
+    "skipped-upload-failed",
+  ]);
+
+export function isRetryableAudioLevelStatus(status: AudioLevelStatus): boolean {
+  return RETRYABLE_AUDIO_LEVEL_STATUSES.has(status);
+}
+
 export interface AudioLevelResult {
   recordingId: string;
   status: AudioLevelStatus;
@@ -568,7 +580,9 @@ export async function ensureRecordingAudioLevel(params: {
     filename: `${recordingId}.${format}`,
     mimeType,
     ownerEmail,
-    stableUrl: true,
+    // A new object, never an overwrite: the compare-and-swap below may still
+    // reject this run, and a stable key would already have replaced newer media.
+    stableUrl: false,
     recordAsset: false,
   }).catch((err: unknown) => {
     console.warn("[audio-level] leveled media upload failed", {

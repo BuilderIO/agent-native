@@ -55,6 +55,7 @@ import levelRecordingAudio, {
   decodeSweepCursor,
   encodeSweepCursor,
   isValidSweepCursor,
+  LEVEL_CALL_BUDGET_MS,
 } from "./level-recording-audio.js";
 
 describe("level-recording-audio", () => {
@@ -138,5 +139,29 @@ describe("level-recording-audio", () => {
       levelRecordingAudio.run({ all: true, before: "not-a-cursor" }),
     ).rejects.toThrow();
     expect(mockLimit).not.toHaveBeenCalled();
+  });
+
+  it("stops at the time budget and returns a cursor and the rest", async () => {
+    mockRows.value = [
+      { id: "rec-a", createdAt: "2026-11-10T10:00:00.000Z" },
+      { id: "rec-b", createdAt: "2026-11-09T10:00:00.000Z" },
+      { id: "rec-c", createdAt: "2026-11-08T10:00:00.000Z" },
+    ];
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    mockEnsure.mockImplementation(async ({ recordingId }) => {
+      now += LEVEL_CALL_BUDGET_MS + 1;
+      return { recordingId, status: "already-normal", changed: false };
+    });
+
+    const result = await levelRecordingAudio.run({ all: true, limit: 3 });
+    clock.mockRestore();
+
+    expect(mockEnsure).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      processed: 1,
+      nextBefore: "2026-11-10T10:00:00.000Z|rec-a",
+      unprocessedIds: ["rec-b", "rec-c"],
+    });
   });
 });
