@@ -139,15 +139,15 @@ describe.each([
       expect(
         queryByLabel("editor.toolbar.pageBreadcrumb")?.textContent,
       ).toContain("Roadmap");
-      // The app's toolbar keeps its menu and the agent toggle; the widget's
-      // holds the one link, which stands where the menu would.
+      // The app's toolbar keeps its menu; the widget's holds the one link,
+      // which stands where the menu would.
       expect(queryByLabel("editor.toolbar.morePageActions") !== null).toBe(
         !inWidget,
       );
       expect(queryByLabel("editor.toolbar.openInAgentNative") !== null).toBe(
         inWidget,
+        // oracle-change: the agent's toolbar button became the Agent tab.
       );
-      expect(queryByLabel("agentPanel.toggleAgent") !== null).toBe(!inWidget);
     },
   );
 

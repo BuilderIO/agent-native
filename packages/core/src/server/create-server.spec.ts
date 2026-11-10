@@ -331,6 +331,21 @@ describe("createServer", () => {
         expect(codesOf(configuration)).not.toContain(code);
       }
     });
+
+    it("asks a new local app to fix nothing", async () => {
+      // The setup prompt has the agent read this probe; an "ok" answer must
+      // not come with instructions to change the deployment.
+      stubUnconfiguredDeploy();
+      vi.stubEnv("NODE_ENV", "development");
+      const { app } = createServer();
+
+      const res = await app.request(
+        "http://localhost/_agent-native/ping?configuration=1",
+      );
+
+      const { configuration } = await res.json();
+      expect(configuration).toMatchObject({ status: "ok", prompt: "" });
+    });
   });
 
   it("honors app opt-outs in the public configuration probe", async () => {
