@@ -189,6 +189,7 @@ function isServerlessRuntime(): boolean {
   return Boolean(
     process.env.NETLIFY ||
     process.env.VERCEL ||
+    process.env.CF_PAGES ||
     process.env.AWS_LAMBDA_FUNCTION_NAME ||
     process.env.AWS_EXECUTION_ENV ||
     process.env.LAMBDA_TASK_ROOT ||

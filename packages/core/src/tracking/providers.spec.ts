@@ -558,21 +558,24 @@ describe("tracking providers", () => {
       expect(await settles(flushed)).toBe(true);
     });
 
-    it("flushes at the end of a serverless request", async () => {
-      const { fetchMock, release } = deferredFetch();
-      vi.stubEnv("NETLIFY", "true");
-      vi.stubEnv("POSTHOG_API_KEY", "ph_test");
-      const { flushTrackingSendsForResponse, sendPostHogEvent } =
-        await freshTrackingModules();
-      sendPostHogEvent("qa_event", {}, "u1");
+    it.each(["NETLIFY", "CF_PAGES"])(
+      "flushes at the end of a serverless request on %s",
+      async (platformEnv) => {
+        const { fetchMock, release } = deferredFetch();
+        vi.stubEnv(platformEnv, "1");
+        vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+        const { flushTrackingSendsForResponse, sendPostHogEvent } =
+          await freshTrackingModules();
+        sendPostHogEvent("qa_event", {}, "u1");
 
-      const flushed = flushTrackingSendsForResponse();
+        const flushed = flushTrackingSendsForResponse();
 
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(await settles(flushed)).toBe(false);
-      release();
-      expect(await settles(flushed)).toBe(true);
-    });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(await settles(flushed)).toBe(false);
+        release();
+        expect(await settles(flushed)).toBe(true);
+      },
+    );
 
     it("keeps a long-running server's batch at the end of a request", async () => {
       const { fetchMock, release } = deferredFetch();
