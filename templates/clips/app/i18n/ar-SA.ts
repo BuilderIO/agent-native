@@ -2518,7 +2518,7 @@ const messages = {
     offerAction: "واصل التسجيل",
     offerDismiss: "تجاهل",
     offerDialogDescription: "دع وكلاءك يرون ويسمعون كل مقطع.",
-    offerCheckRecording: "واصل التسجيل، مع 2 GB من مساحة التخزين",
+    offerCheckRecording: "واصل التسجيل، مع 2 GB من مساحة التخزين",
     offerCheckTranscripts: "نصوص مكتوبة وصور بطوابع زمنية في كل مقطع",
     offerCheckSummaries: "عناوين وملخصات تلقائية، وإجابات من مكتبتك كلها",
     offerDialogAction: "المتابعة مع Builder.io",
@@ -2541,7 +2541,7 @@ const messages = {
     alertNotNow: "ليس الآن",
     lastClipTitle: "تبقّى مقطع مجاني واحد",
     lastClipDescription:
-      "بعد هذا المقطع، واصل التسجيل بحساب Builder.io مجاني. يتضمن نصوصًا مكتوبة وملخصات و2 GB من مساحة التخزين.",
+      "بعد هذا المقطع، واصل التسجيل بحساب Builder.io مجاني. يتضمن نصوصًا مكتوبة وملخصات و2 GB من مساحة التخزين.",
     lastClipRecord: "سجّل آخر مقطع مجاني لي",
     lastClipUpload: "ارفع آخر مقطع مجاني لي",
     storageTitle: "احفظ مقاطعك مع Builder.io",

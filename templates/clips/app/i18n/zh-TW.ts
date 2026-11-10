@@ -2391,7 +2391,7 @@ const messages = {
     offerAction: "繼續錄製",
     offerDismiss: "關閉",
     offerDialogDescription: "讓你的代理程式看到並聽到每個片段。",
-    offerCheckRecording: "繼續錄製，附帶 2 GB 儲存空間",
+    offerCheckRecording: "繼續錄製，附帶 2 GB 儲存空間",
     offerCheckTranscripts: "每個片段都有逐字稿和帶時間戳記的圖片",
     offerCheckSummaries: "自動產生標題和摘要，並可在整個資料庫中取得解答",
     offerDialogAction: "使用 Builder.io 繼續",
@@ -2414,7 +2414,7 @@ const messages = {
     alertNotNow: "稍後再說",
     lastClipTitle: "還剩 1 個免費片段",
     lastClipDescription:
-      "錄完這個片段後，使用免費的 Builder.io 帳號繼續錄製。它包含逐字稿、摘要和 2 GB 儲存空間。",
+      "錄完這個片段後，使用免費的 Builder.io 帳號繼續錄製。它包含逐字稿、摘要和 2 GB 儲存空間。",
     lastClipRecord: "錄製我的最後一個免費片段",
     lastClipUpload: "上傳我的最後一個免費片段",
     storageTitle: "使用 Builder.io 保存你的片段",

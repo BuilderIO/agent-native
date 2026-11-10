@@ -2525,7 +2525,7 @@ const messages = {
     offerAction: "계속 녹화하기",
     offerDismiss: "닫기",
     offerDialogDescription: "에이전트가 모든 클립을 보고 들을 수 있게 하세요.",
-    offerCheckRecording: "2 GB 저장 공간으로 계속 녹화",
+    offerCheckRecording: "2 GB 저장 공간으로 계속 녹화",
     offerCheckTranscripts: "모든 클립의 스크립트와 타임스탬프 이미지",
     offerCheckSummaries: "자동 제목과 요약, 라이브러리 전체에서 찾는 답변",
     offerDialogAction: "Builder.io로 계속하기",
@@ -2548,7 +2548,7 @@ const messages = {
     alertNotNow: "나중에",
     lastClipTitle: "무료 클립 1개 남음",
     lastClipDescription:
-      "이 클립 다음부터는 무료 Builder.io 계정으로 계속 녹화하세요. 스크립트, 요약, 2 GB 저장 공간이 포함됩니다.",
+      "이 클립 다음부터는 무료 Builder.io 계정으로 계속 녹화하세요. 스크립트, 요약, 2 GB 저장 공간이 포함됩니다.",
     lastClipRecord: "마지막 무료 클립 녹화하기",
     lastClipUpload: "마지막 무료 클립 업로드하기",
     storageTitle: "Builder.io로 클립 저장하기",

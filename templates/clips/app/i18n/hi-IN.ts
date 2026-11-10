@@ -2495,7 +2495,7 @@ const messages = {
     offerAction: "रिकॉर्ड करते रहें",
     offerDismiss: "खारिज करें",
     offerDialogDescription: "अपने एजेंट को हर क्लिप देखने और सुनने दें।",
-    offerCheckRecording: "2 GB स्टोरेज के साथ रिकॉर्ड करते रहें",
+    offerCheckRecording: "2 GB स्टोरेज के साथ रिकॉर्ड करते रहें",
     offerCheckTranscripts: "हर क्लिप पर ट्रांसक्रिप्ट और टाइमस्टैम्प वाली इमेज",
     offerCheckSummaries: "अपने-आप बनने वाले टाइटल और सारांश, और पूरी लाइब्रेरी से जवाब",
     offerDialogAction: "Builder.io के साथ जारी रखें",
@@ -2518,7 +2518,7 @@ const messages = {
     alertNotNow: "अभी नहीं",
     lastClipTitle: "एक मुफ़्त क्लिप बाकी",
     lastClipDescription:
-      "इसके बाद, मुफ़्त Builder.io खाते के साथ रिकॉर्ड करते रहें। इसमें ट्रांसक्रिप्ट, सारांश और 2 GB स्टोरेज शामिल है।",
+      "इसके बाद, मुफ़्त Builder.io खाते के साथ रिकॉर्ड करते रहें। इसमें ट्रांसक्रिप्ट, सारांश और 2 GB स्टोरेज शामिल है।",
     lastClipRecord: "मेरी आखिरी मुफ़्त क्लिप रिकॉर्ड करें",
     lastClipUpload: "मेरी आखिरी मुफ़्त क्लिप अपलोड करें",
     storageTitle: "Builder.io के साथ अपनी क्लिप सेव करें",

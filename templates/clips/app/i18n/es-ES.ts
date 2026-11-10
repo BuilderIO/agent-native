@@ -2590,7 +2590,7 @@ const messages = {
     offerAction: "Seguir grabando",
     offerDismiss: "Descartar",
     offerDialogDescription: "Deja que tus agentes vean y escuchen cada clip.",
-    offerCheckRecording: "Sigue grabando, con 2 GB de almacenamiento",
+    offerCheckRecording: "Sigue grabando, con 2 GB de almacenamiento",
     offerCheckTranscripts:
       "Transcripciones e imágenes con marca de tiempo en cada clip",
     offerCheckSummaries:
@@ -2615,7 +2615,7 @@ const messages = {
     alertNotNow: "Ahora no",
     lastClipTitle: "Te queda un clip gratis",
     lastClipDescription:
-      "Después de este, sigue grabando con una cuenta gratis de Builder.io. Incluye transcripciones, resúmenes y 2 GB de almacenamiento.",
+      "Después de este, sigue grabando con una cuenta gratis de Builder.io. Incluye transcripciones, resúmenes y 2 GB de almacenamiento.",
     lastClipRecord: "Grabar mi último clip gratis",
     lastClipUpload: "Subir mi último clip gratis",
     storageTitle: "Guarda tus clips con Builder.io",

@@ -2606,7 +2606,7 @@ const messages = {
     offerAction: "Continuer à enregistrer",
     offerDismiss: "Ignorer",
     offerDialogDescription: "Laissez vos agents voir et entendre chaque clip.",
-    offerCheckRecording: "Continuez à enregistrer, avec 2 Go de stockage",
+    offerCheckRecording: "Continuez à enregistrer, avec 2 Go de stockage",
     offerCheckTranscripts:
       "Transcriptions et images horodatées sur chaque clip",
     offerCheckSummaries:
@@ -2631,7 +2631,7 @@ const messages = {
     alertNotNow: "Pas maintenant",
     lastClipTitle: "Plus qu’un clip gratuit",
     lastClipDescription:
-      "Après celui-ci, continuez à enregistrer avec un compte Builder.io gratuit. Il inclut les transcriptions, les résumés et 2 Go de stockage.",
+      "Après celui-ci, continuez à enregistrer avec un compte Builder.io gratuit. Il inclut les transcriptions, les résumés et 2 Go de stockage.",
     lastClipRecord: "Enregistrer mon dernier clip gratuit",
     lastClipUpload: "Importer mon dernier clip gratuit",
     storageTitle: "Enregistrez vos clips avec Builder.io",

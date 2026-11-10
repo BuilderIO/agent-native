@@ -2409,7 +2409,7 @@ const messages = {
     offerAction: "继续录制",
     offerDismiss: "关闭",
     offerDialogDescription: "让你的智能体看到并听到每个片段。",
-    offerCheckRecording: "继续录制，附带 2 GB 存储空间",
+    offerCheckRecording: "继续录制，附带 2 GB 存储空间",
     offerCheckTranscripts: "每个片段都有转录和带时间戳的图片",
     offerCheckSummaries: "自动生成标题和摘要，并可在整个资料库中获得解答",
     offerDialogAction: "使用 Builder.io 继续",
@@ -2432,7 +2432,7 @@ const messages = {
     alertNotNow: "以后再说",
     lastClipTitle: "还剩 1 个免费片段",
     lastClipDescription:
-      "录完这个片段后，使用免费的 Builder.io 账号继续录制。它包含转录、摘要和 2 GB 存储空间。",
+      "录完这个片段后，使用免费的 Builder.io 账号继续录制。它包含转录、摘要和 2 GB 存储空间。",
     lastClipRecord: "录制我的最后一个免费片段",
     lastClipUpload: "上传我的最后一个免费片段",
     storageTitle: "使用 Builder.io 保存你的片段",

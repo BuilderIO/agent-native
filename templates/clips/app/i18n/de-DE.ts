@@ -2602,7 +2602,7 @@ const messages = {
     offerAction: "Weiter aufnehmen",
     offerDismiss: "Schließen",
     offerDialogDescription: "Lass deine Agents jeden Clip sehen und hören.",
-    offerCheckRecording: "Weiter aufnehmen, mit 2 GB Speicher",
+    offerCheckRecording: "Weiter aufnehmen, mit 2 GB Speicher",
     offerCheckTranscripts:
       "Transkripte und Bilder mit Zeitstempel für jeden Clip",
     offerCheckSummaries:
@@ -2628,7 +2628,7 @@ const messages = {
     alertNotNow: "Nicht jetzt",
     lastClipTitle: "Noch ein kostenloser Clip",
     lastClipDescription:
-      "Nimm danach mit einem kostenlosen Builder.io-Konto weiter auf. Es umfasst Transkripte, Zusammenfassungen und 2 GB Speicher.",
+      "Nimm danach mit einem kostenlosen Builder.io-Konto weiter auf. Es umfasst Transkripte, Zusammenfassungen und 2 GB Speicher.",
     lastClipRecord: "Meinen letzten kostenlosen Clip aufnehmen",
     lastClipUpload: "Meinen letzten kostenlosen Clip hochladen",
     storageTitle: "Speichere deine Clips mit Builder.io",

@@ -2565,7 +2565,7 @@ const messages = {
     offerDismiss: "閉じる",
     offerDialogDescription:
       "エージェントがすべてのクリップを見て、聞けるようにします。",
-    offerCheckRecording: "2 GB のストレージ付きで録画を続けられる",
+    offerCheckRecording: "2 GB のストレージ付きで録画を続けられる",
     offerCheckTranscripts:
       "すべてのクリップに文字起こしとタイムスタンプ付き画像",
     offerCheckSummaries: "自動のタイトルと要約、ライブラリ全体からの回答",
@@ -2590,7 +2590,7 @@ const messages = {
     alertNotNow: "今はしない",
     lastClipTitle: "無料クリップは残り 1 本",
     lastClipDescription:
-      "このクリップの後は、無料の Builder.io アカウントで録画を続けられます。文字起こし、要約、2 GB のストレージが含まれます。",
+      "このクリップの後は、無料の Builder.io アカウントで録画を続けられます。文字起こし、要約、2 GB のストレージが含まれます。",
     lastClipRecord: "最後の無料クリップを録画",
     lastClipUpload: "最後の無料クリップをアップロード",
     storageTitle: "Builder.io でクリップを保存",
