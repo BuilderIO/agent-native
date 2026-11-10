@@ -1,4 +1,5 @@
 import Image, { type ImageOptions } from "@tiptap/extension-image";
+import type { EditorView } from "@tiptap/pm/view";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 
@@ -7,7 +8,8 @@ import { ImageBlock } from "./ImageBlock";
 export interface ContentImageOptions extends ImageOptions {
   documentId?: string;
   canMutateMedia?: () => boolean;
-  onImageComment?: (quotedText: string, offsetTop: number) => void;
+  /** Starts a comment on the whole image at `pos` in `view`. */
+  onImageComment?: (view: EditorView, pos: number, offsetTop: number) => void;
   onImageFilePickerRequest?: (request: {
     pickerId: string;
     position: number;

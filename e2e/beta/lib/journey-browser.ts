@@ -577,7 +577,7 @@ export async function assertSignedInApp(
   await watch.assertClean(label);
 
   const session = await readSessionEmail(page);
-  const expected = expectedEmail();
+  const expected = expectedEmail(site.id);
   expect(
     session.email?.toLowerCase(),
     `${label}: /_agent-native/auth/session answered HTTP ${session.status} ${session.body} at ${page.url()}; expected the e2e identity ${expected}.\nNavigations so far:\n${describeNavigations(watch.navigations)}`,

@@ -658,6 +658,8 @@ const messages = {
     noMatches: "没有匹配项。",
     noTranscript: "还没有文字记录。",
     noTranscriptCaptured: "没有捕获任何文字记录。",
+    unreadableDescription:
+      "已保存的转录文本已损坏。重新生成会根据片段的音频创建新的转录文本。",
     partialTranscript: "部分文字记录：录制被截断，部分内容可能缺失。",
     backupFailed:
       "本地未捕获任何语音，备份转录未完成。重试或检查麦克风和语音权限。",

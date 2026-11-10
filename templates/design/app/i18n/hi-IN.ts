@@ -2551,6 +2551,9 @@ export default {
     changesDiscarded:
       "कुछ परिवर्तन सहेजे नहीं जा सके क्योंकि फ़ाइल अब मौजूद नहीं है, और उन्हें छोड़ दिया गया।",
     offline: "ऑफ़लाइन",
+    unsaved: "सहेजा नहीं गया",
+    saveRetrying:
+      "आपके परिवर्तन सहेजे नहीं जा सके। अपने-आप फिर से प्रयास किया जा रहा है।",
     saving: "सहेजा जा रहा है...",
     clearedAllAnnotations: "सभी एनोटेशन साफ़ किए गए",
     annotationsDiscardedOnViewChange:

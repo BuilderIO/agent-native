@@ -1,3 +1,9 @@
+// @vitest-environment happy-dom
+//
+// Mount the real DatabaseView with an empty mocked database so UI regressions
+// can cover its composed controls and mutation error paths without heavier row
+// and property subtrees.
+import { appPath } from "@agent-native/core/client/api-path";
 import type {
   BuilderCmsModelSummary,
   ContentDatabaseItem,
@@ -6,11 +12,6 @@ import type {
   ContentDatabaseTableQuery,
   DocumentProperty,
 } from "@shared/api";
-// @vitest-environment happy-dom
-//
-// Mount the real DatabaseView with an empty mocked database so UI regressions
-// can cover its composed controls and mutation error paths without heavier row
-// and property subtrees.
 import type { QueryClient as QueryClientType } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -19,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
+const writeClipboardTextMock = vi.hoisted(() => vi.fn());
 const contentDatabaseQueryMock = vi.hoisted(() => vi.fn());
 const databaseItemsState = vi.hoisted(() => ({ settled: true, failed: false }));
 const databaseQueryState = vi.hoisted(() => ({
@@ -53,6 +55,10 @@ vi.mock("sonner", async (importOriginal) => {
     }),
   };
 });
+
+vi.mock("@agent-native/toolkit/clipboard", () => ({
+  writeClipboardText: writeClipboardTextMock,
+}));
 
 const benignMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
@@ -274,11 +280,17 @@ vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
   useSetBuilderEntryStatus: () => benignMutation,
 }));
 
+const contentSpacesData = vi.hoisted(() => ({
+  spaces: [],
+  catalogDocumentId: null as string | null,
+}));
+
 vi.mock("@/hooks/use-content-spaces", () => ({
   useContentSpaces: () => ({
-    data: { spaces: [] },
+    data: contentSpacesData,
     isLoading: false,
   }),
+  useCreateContentSpace: () => benignMutation,
   useDeleteContentSpace: () => benignMutation,
 }));
 
@@ -495,6 +507,7 @@ describe("DatabaseView UI regressions", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     toastErrorMock.mockReset();
     toastSuccessMock.mockReset();
+    writeClipboardTextMock.mockReset().mockResolvedValue(true);
     contentDatabaseQueryMock.mockReset();
     databaseItemsState.settled = true;
     databaseItemsState.failed = false;
@@ -515,6 +528,7 @@ describe("DatabaseView UI regressions", () => {
     updateViewMutation.mutateAsync
       .mockReset()
       .mockResolvedValue(databaseResponse);
+    contentSpacesData.catalogDocumentId = null;
     databaseResponse.items = [];
     databaseResponse.properties = [];
     databaseResponse.source = null;
@@ -1892,5 +1906,228 @@ describe("DatabaseView UI regressions", () => {
       document.querySelector("[data-menu-outside-click-shield]"),
     ).toBeNull();
     expect(document.activeElement).not.toBe(chip);
+  });
+
+  function commentableRow(
+    id: string,
+    title: string,
+    canComment: boolean,
+  ): ContentDatabaseItem {
+    const { database: _database, ...page } = fakeDocument;
+    return {
+      id: `item-${id}`,
+      databaseId: "database-1",
+      document: {
+        ...page,
+        id: `document-${id}`,
+        parentId: "document-1",
+        title,
+        accessRole: canComment ? "commenter" : "viewer",
+        canEdit: false,
+        canManage: false,
+        canComment,
+      },
+      position: 0,
+      properties: [],
+    };
+  }
+
+  const menuItem = (text: string) =>
+    [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].find(
+      (item) => item.textContent.trim() === text,
+    );
+
+  async function selectMenuItem(text: string) {
+    const item = menuItem(text);
+    if (!item) throw new Error(`No "${text}" in the open menu.`);
+    await act(async () => {
+      item.click();
+      await Promise.resolve();
+    });
+  }
+
+  it("copies the link that opens the collection on the view whose menu it is", async () => {
+    const editorial = createDatabaseView("Editorial", "editorial");
+    const numbers = createDatabaseView("Numbers", "numbers");
+    databaseResponse.database.viewConfig = {
+      activeViewId: numbers.id,
+      views: [editorial, numbers],
+      sorts: numbers.sorts,
+      filters: numbers.filters,
+      columnWidths: numbers.columnWidths,
+    };
+    await renderDatabaseView();
+    const tab = container.querySelector('[aria-label="Numbers view menu"]');
+    if (!tab) throw new Error("Numbers is not the active view.");
+
+    await mousePointerDown(tab);
+    await selectMenuItem("Copy link to view");
+    expect(writeClipboardTextMock).toHaveBeenCalledWith(
+      `${window.location.origin}${appPath(
+        "/page/document-1?databaseId=database-1&viewId=numbers",
+      )}`,
+    );
+    expect(toastSuccessMock).toHaveBeenCalledWith("Copied view link");
+    expect(tab.getAttribute("aria-expanded")).toBe("false");
+
+    // The closed menu returns focus to its button on a timer, which would
+    // close a menu opened before it runs.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    // A copy the browser refused is not reported as copied.
+    toastSuccessMock.mockReset();
+    writeClipboardTextMock.mockResolvedValue(false);
+    await mousePointerDown(tab);
+    await selectMenuItem("Copy link to view");
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "editor.toolbar.couldNotCopyLink",
+      { description: "editor.toolbar.clipboardAccessUnavailable" },
+    );
+  });
+
+  it("copies a row's page link from its menu, and says when the copy fails", async () => {
+    databaseResponse.items = [commentableRow("a", "Alpha", false)];
+    await renderDatabaseView();
+    const trigger = container.querySelector(
+      '[aria-label="Row actions for Alpha"]',
+    );
+    if (!trigger) throw new Error("Alpha has no row menu.");
+
+    await mousePointerDown(trigger);
+    // Someone who can't comment on the row isn't offered a Comment.
+    expect(menuItem("editor.comment")).toBeUndefined();
+    await selectMenuItem("sidebar.copyLink");
+    expect(writeClipboardTextMock).toHaveBeenCalledWith(
+      `${window.location.origin}${appPath("/p/document-a")}`,
+    );
+    expect(toastSuccessMock).toHaveBeenCalledWith(
+      "editor.toolbar.copiedPageLink",
+    );
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    // The closed menu returns focus to its button on a timer, which would
+    // close a menu opened before it runs.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    toastSuccessMock.mockReset();
+    writeClipboardTextMock.mockResolvedValue(false);
+    await mousePointerDown(trigger);
+    await selectMenuItem("sidebar.copyLink");
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "editor.toolbar.couldNotCopyLink",
+      { description: "editor.toolbar.clipboardAccessUnavailable" },
+    );
+  });
+
+  it("keeps the preview a row's menu opened for a comment", async () => {
+    databaseResponse.items = [commentableRow("a", "Alpha", true)];
+    await renderDatabaseView();
+    const trigger = container.querySelector(
+      '[aria-label="Row actions for Alpha"]',
+    );
+    if (!trigger) throw new Error("Alpha has no row menu.");
+
+    await mousePointerDown(trigger);
+    await selectMenuItem("editor.comment");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    // The preview closes when focus leaves it, so the menu must not hand focus
+    // back to its button.
+    expect(document.activeElement).not.toBe(trigger);
+    expect(
+      document.body.querySelector('[aria-label^="Preview actions for"]'),
+    ).toBeTruthy();
+  });
+
+  it("offers a comment from a board card's menu", async () => {
+    const done: DocumentProperty = {
+      definition: {
+        id: "done",
+        databaseId: "database-1",
+        name: "Done",
+        type: "checkbox",
+        visibility: "always_show",
+        options: {},
+        position: 0,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      value: null,
+      editable: true,
+    };
+    const view = createDatabaseView(
+      "Board",
+      "board",
+      { groupByPropertyId: "done" },
+      "board",
+    );
+    databaseResponse.database.viewConfig = {
+      activeViewId: view.id,
+      views: [view],
+      sorts: view.sorts,
+      filters: view.filters,
+      columnWidths: view.columnWidths,
+    };
+    databaseResponse.properties = [done];
+    databaseResponse.items = [
+      { ...commentableRow("a", "Alpha", true), properties: [done] },
+    ];
+    await renderDatabaseView();
+    const trigger = container.querySelector(
+      '[aria-label="Row actions for Alpha"]',
+    );
+    if (!trigger) throw new Error("Alpha's board card has no row menu.");
+
+    await mousePointerDown(trigger);
+    expect(menuItem("editor.comment")).toBeDefined();
+  });
+
+  it("offers no page link or comment on a workspace's row, which opens the workspace", async () => {
+    contentSpacesData.catalogDocumentId = "document-1";
+    databaseResponse.items = [commentableRow("a", "Alpha", true)];
+    await renderDatabaseView();
+    const trigger = container.querySelector(
+      '[aria-label="Row actions for Alpha"]',
+    );
+    if (!trigger) throw new Error("Alpha has no row menu.");
+
+    await mousePointerDown(trigger);
+    expect(menuItem("Open page")).toBeDefined();
+    expect(menuItem("sidebar.copyLink")).toBeUndefined();
+    expect(menuItem("editor.comment")).toBeUndefined();
+  });
+
+  it("opens a full-page row on a new comment on the whole page from its menu", async () => {
+    const view = createDatabaseView("Pages", "pages", {
+      openPagesIn: "full_page",
+    });
+    databaseResponse.database.viewConfig = {
+      activeViewId: view.id,
+      views: [view],
+      sorts: view.sorts,
+      filters: view.filters,
+      columnWidths: view.columnWidths,
+    };
+    databaseResponse.items = [commentableRow("a", "Alpha", true)];
+    await renderDatabaseView();
+    const trigger = container.querySelector(
+      '[aria-label="Row actions for Alpha"]',
+    );
+    if (!trigger) throw new Error("Alpha has no row menu.");
+
+    await mousePointerDown(trigger);
+    await selectMenuItem("editor.comment");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const opened = new URL(currentRoute, "http://content.test");
+    expect(opened.pathname).toBe("/page/document-a");
+    expect(Object.fromEntries(opened.searchParams)).toMatchObject({
+      databaseId: "database-1",
+      databaseDocumentId: "document-1",
+      fromViewId: "pages",
+      commentPage: "1",
+    });
   });
 });

@@ -4,6 +4,11 @@ import { getDbExec } from "../db/client.js";
 import type { SecretScope } from "../secrets/register.js";
 import { readAppSecret } from "../secrets/storage.js";
 import {
+  getResolvedKeyAllowlist,
+  validateUrlAllowlist,
+  type ResolvedKeyReference,
+} from "../secrets/substitution.js";
+import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -93,19 +98,22 @@ function secretCandidates(row: WorkspaceMcpResourceRow): Array<{
 async function resolveKeyReferencesForRow(
   text: string,
   row: WorkspaceMcpResourceRow,
-): Promise<string> {
+): Promise<{ value: string; refs: ResolvedKeyReference[] }> {
   const matches = Array.from(text.matchAll(KEY_REFERENCE_REGEX));
-  if (matches.length === 0) return text;
+  if (matches.length === 0) return { value: text, refs: [] };
 
   const values = new Map<string, string>();
+  const refs: ResolvedKeyReference[] = [];
   for (const match of matches) {
     const key = match[1];
+    if (!key) throw new Error("Invalid workspace MCP key reference");
     if (values.has(key)) continue;
     let value: string | null = null;
     for (const ref of secretCandidates(row)) {
       const secret = await readAppSecret({ key, ...ref });
       if (secret) {
         value = secret.value;
+        refs.push({ name: key, ...ref });
         break;
       }
     }
@@ -117,13 +125,14 @@ async function resolveKeyReferencesForRow(
     values.set(key, value);
   }
 
-  return text.replace(KEY_REFERENCE_REGEX, (_match, key: string) => {
+  const value = text.replace(KEY_REFERENCE_REGEX, (_match, key: string) => {
     const value = values.get(key);
     if (value === undefined) {
       throw new Error(`Referenced key "${key}" was not resolved.`);
     }
     return value;
   });
+  return { value, refs };
 }
 
 function objectRecord(value: unknown): Record<string, unknown> | null {
@@ -196,9 +205,9 @@ async function normalizeWorkspaceMcpConfig(
   if (typeof rawUrl !== "string" || !rawUrl.trim()) {
     throw new Error("Workspace MCP server resource is missing a URL.");
   }
-  const url = await resolveKeyReferencesForRow(rawUrl, row);
-  const urlCheck = validateRemoteUrl(url);
-  if (!urlCheck.ok) {
+  const resolvedUrl = await resolveKeyReferencesForRow(rawUrl, row);
+  const urlCheck = validateRemoteUrl(resolvedUrl.value);
+  if (!urlCheck.ok || !urlCheck.url) {
     throw new Error(
       urlCheck.error ?? "Workspace MCP server URL is not allowed.",
     );
@@ -206,10 +215,21 @@ async function normalizeWorkspaceMcpConfig(
 
   const headersInput = objectRecord(parsed.config.headers);
   const headers: Record<string, string> = {};
+  const refs = [...resolvedUrl.refs];
   if (headersInput) {
     for (const [name, value] of Object.entries(headersInput)) {
       if (typeof value !== "string") continue;
-      headers[name] = await resolveKeyReferencesForRow(value, row);
+      const resolved = await resolveKeyReferencesForRow(value, row);
+      headers[name] = resolved.value;
+      refs.push(...resolved.refs);
+    }
+  }
+  for (const ref of refs) {
+    const allowlist = await getResolvedKeyAllowlist(ref);
+    if (!validateUrlAllowlist(urlCheck.url.href, allowlist)) {
+      throw new Error(
+        `Workspace MCP destination is not approved for key "${ref.name}".`,
+      );
     }
   }
 
@@ -220,7 +240,8 @@ async function normalizeWorkspaceMcpConfig(
 
   return {
     type: "http",
-    url: urlCheck.url!.toString(),
+    url: urlCheck.url.toString(),
+    ...(refs.length > 0 ? { secretRequestOrigin: urlCheck.url.origin } : {}),
     headers: Object.keys(headers).length > 0 ? headers : undefined,
     description,
   };
@@ -352,18 +373,31 @@ export async function loadWorkspaceMcpServers(options?: {
 
   const servers: Record<string, McpServerConfig> = {};
   for (const row of rows) {
+    let parsedServers: ParsedWorkspaceMcpServer[];
     try {
-      for (const parsed of parseWorkspaceMcpServers(row)) {
+      parsedServers = parseWorkspaceMcpServers(row);
+    } catch (error) {
+      servers[resourceServerKey(row, defaultNameFromPath(row.path))] = {
+        type: "http",
+        url: "https://invalid.invalid",
+        configurationError:
+          error instanceof Error ? error : new Error(String(error)),
+      };
+      continue;
+    }
+    for (const parsed of parsedServers) {
+      try {
         const config = await normalizeWorkspaceMcpConfig(row, parsed);
         if (!config) continue;
         servers[resourceServerKey(row, parsed.name)] = config;
+      } catch (error) {
+        servers[resourceServerKey(row, parsed.name)] = {
+          type: "http",
+          url: "https://invalid.invalid",
+          configurationError:
+            error instanceof Error ? error : new Error(String(error)),
+        };
       }
-    } catch (error) {
-      console.warn(
-        `[mcp-client] Skipping workspace MCP server resource ${row.path}: ${
-          (error as { message?: string })?.message ?? String(error)
-        }`,
-      );
     }
   }
 
