@@ -145,6 +145,9 @@ export default defineAction({
         actionItems: JSON.parse(actionItemsJson),
         provider: null,
         skipped: "already-in-progress",
+        // `pending` while another run or a live recording holds the meeting.
+        // Any other status means a run can't claim it from that status.
+        transcriptStatus: current?.transcriptStatus ?? null,
       };
     }
 
