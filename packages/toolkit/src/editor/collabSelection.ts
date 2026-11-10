@@ -99,7 +99,8 @@ function positionInMovedBlock(
   if (!block.isTextblock || !text || isBlock($resolved.parent)) return null;
   if (textblockPositions(oldDoc, isBlock).length !== 1) return null;
   const found = textblockPositions(newDoc, isBlock);
-  return found.length === 1 ? found[0] + 1 + $old.parentOffset : null;
+  const start = found.length === 1 ? found.at(0) : undefined;
+  return start === undefined ? null : start + 1 + $old.parentOffset;
 }
 
 function endpointAfterRemoteChange(
