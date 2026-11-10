@@ -46,6 +46,12 @@ export interface MeetingTranscriptionPayload {
 
 interface MeetingTranscriptionSession {
   meetingId: string;
+  /**
+   * The id the start was requested with. A calendar event start resolves to a
+   * new meeting row id, and later starts for the same event still carry the
+   * calendar id; they must find this session rather than replace it.
+   */
+  requestedMeetingId: string;
   audioRunId: number;
   resumingRunId: number | null;
   settlingRunDeadlines: Map<number, number>;
@@ -580,7 +586,8 @@ export function useMeetingTranscription({
         if (
           !existing.stopping &&
           !existing.stopPending &&
-          existing.meetingId === meetingId
+          (existing.meetingId === meetingId ||
+            existing.requestedMeetingId === meetingId)
         ) {
           clearPendingStart();
           await invoke("recording_pill_show", {
@@ -622,6 +629,10 @@ export function useMeetingTranscription({
         initialNotes: "",
         starting: true,
       };
+      // Mark the meeting active with its pill, not once the engine is up: the
+      // ad hoc watcher and overlay teardown only leave a meeting's pill alone
+      // while it is active. The failed-start cleanup below clears it again.
+      invoke("set_meeting_active", { active: true, meetingId }).catch(() => {});
       invoke("recording_pill_show", { meetingId, mode: "meeting" }).catch(
         () => {},
       );
@@ -686,6 +697,7 @@ export function useMeetingTranscription({
 
         const session: MeetingTranscriptionSession = {
           meetingId,
+          requestedMeetingId: meetingId,
           audioRunId: allocateVoiceRunId(),
           resumingRunId: null,
           settlingRunDeadlines: new Map(),
