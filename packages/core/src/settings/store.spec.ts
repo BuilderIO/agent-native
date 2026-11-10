@@ -34,6 +34,7 @@ const {
   deleteSetting,
   deleteSettingIfValue,
   mutateSetting,
+  replaceSettingIfValue,
 } = await import("./store.js");
 const { runWithRequestContext } = await import("../server/request-context.js");
 
@@ -166,6 +167,121 @@ describe("settings store", () => {
       true,
     );
     expect(await getSetting("conditional")).toBeNull();
+  });
+
+  describe("replaceSettingIfValue", () => {
+    const updatedAt = async (key: string) =>
+      (
+        (await pglite
+          .prepare(`SELECT updated_at FROM settings WHERE key = ?`)
+          .get(key)) as { updated_at: unknown }
+      ).updated_at;
+
+    it("swaps the value only while it is still the inspected one", async () => {
+      await putSetting("sealed", { value: "plain", kept: 1 });
+
+      expect(
+        await replaceSettingIfValue(
+          "sealed",
+          { value: "changed-by-someone-else", kept: 1 },
+          { value: "ciphertext", kept: 1 },
+        ),
+      ).toBe(false);
+      expect(await getSetting("sealed")).toEqual({ value: "plain", kept: 1 });
+
+      expect(
+        await replaceSettingIfValue(
+          "sealed",
+          { value: "plain", kept: 1 },
+          { value: "ciphertext", kept: 1 },
+        ),
+      ).toBe(true);
+      expect(await getSetting("sealed")).toEqual({
+        value: "ciphertext",
+        kept: 1,
+      });
+    });
+
+    it("re-encodes in place: no new timestamp and no change event", async () => {
+      await putSetting("quiet", { value: "plain" });
+      const before = await updatedAt("quiet");
+      const onChange = vi.fn();
+      const emitter = (await import("./store.js")).getSettingsEmitter();
+      emitter.on("settings", onChange);
+
+      try {
+        await replaceSettingIfValue(
+          "quiet",
+          { value: "plain" },
+          { value: "ciphertext" },
+        );
+      } finally {
+        emitter.off("settings", onChange);
+      }
+
+      expect(await updatedAt("quiet")).toBe(before);
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("does not create a row that is missing", async () => {
+      expect(
+        await replaceSettingIfValue("ghost", { value: "a" }, { value: "b" }),
+      ).toBe(false);
+      expect(await getSetting("ghost")).toBeNull();
+    });
+
+    it("keeps the request cache in step with the row it rewrote", async () => {
+      await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+        await putSetting("cached-seal", { value: "plain" });
+        await getSetting("cached-seal");
+
+        await replaceSettingIfValue(
+          "cached-seal",
+          { value: "plain" },
+          { value: "ciphertext" },
+        );
+        rawClient.execute.mockClear();
+
+        expect(await getSetting("cached-seal")).toEqual({
+          value: "ciphertext",
+        });
+        expect(rawClient.execute).not.toHaveBeenCalled();
+      });
+    });
+
+    it("leaves the cache alone when the row did not match", async () => {
+      await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+        await putSetting("cached-miss", { value: "plain" });
+        await getSetting("cached-miss");
+
+        await replaceSettingIfValue(
+          "cached-miss",
+          { value: "other" },
+          { value: "ciphertext" },
+        );
+
+        expect(await getSetting("cached-miss")).toEqual({ value: "plain" });
+      });
+    });
+
+    it("refuses inline image bytes and names the setting", async () => {
+      await putSetting("img", { value: "plain" });
+      rawClient.execute.mockClear();
+
+      await expect(
+        replaceSettingIfValue(
+          "img",
+          { value: "plain" },
+          {
+            attachment: {
+              type: "image",
+              data: "data:image/png;base64,ZmFrZQ==",
+            },
+          },
+        ),
+      ).rejects.toThrow(/setting "img"/);
+      expect(rawClient.execute).not.toHaveBeenCalled();
+    });
   });
 
   it("preserves every concurrent read-modify-write update", async () => {

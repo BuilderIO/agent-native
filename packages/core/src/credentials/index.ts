@@ -140,6 +140,8 @@ function orgCredentialSettingKey(orgId: string, key: string): string {
   return `o:${orgId}:${SETTING_PREFIX}${key}`;
 }
 
+// One attempt per row per process: a seal that keeps failing (a read-only role,
+// a row stored as non-canonical JSON) must not write on every read.
 const sealAttempted = new Set<string>();
 
 /**

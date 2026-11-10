@@ -75,6 +75,7 @@ import {
 beforeEach(() => {
   // clearAllMocks keeps implementations, so a rejection set by one test would
   // leak into the next.
+  mocks.deleteAppSecret.mockReset();
   mocks.writeAppSecret.mockReset();
   mocks.readAppSecret.mockReset();
   mocks.listAppSecretsForScope.mockReset();
@@ -203,6 +204,7 @@ describe("vault secret metadata", () => {
     expect(mocks.listAppSecretsForScope).toHaveBeenCalledTimes(1);
     expect(mocks.listAppSecretsForScope).toHaveBeenCalledWith("org", "org_123");
     expect(metadata.map((m) => m.last4)).toEqual(["••••mple", "••••9999"]);
+    expect(metadata.map((m) => m.valueStatus)).toEqual(["stored", "stored"]);
     expect(metadata[0]).not.toHaveProperty("value");
   });
 
@@ -218,6 +220,22 @@ describe("vault secret metadata", () => {
 
     expect(mocks.listAppSecretsForScope).toHaveBeenCalledTimes(2);
     expect(metadata.map((m) => m.last4)).toEqual(["••••mple", ""]);
+    expect(metadata.map((m) => m.valueStatus)).toEqual(["stored", "missing"]);
+  });
+
+  it("tells a copy this deployment cannot decrypt apart from one that is missing", async () => {
+    // listAppSecretsForScope reports an undecryptable copy as an empty preview.
+    mocks.listAppSecretsForScope.mockResolvedValue([
+      { key: "TEST_KEY", last4: "" },
+    ]);
+
+    const [unreadable, missing] = await listVaultSecretMetadata(
+      [row(), row({ id: "secret-2", credentialKey: "ABSENT_KEY" })],
+      ctx,
+    );
+
+    expect(unreadable).toMatchObject({ last4: "", valueStatus: "unreadable" });
+    expect(missing).toMatchObject({ last4: "", valueStatus: "missing" });
   });
 
   it("reads a single preview straight from the credential store", async () => {
@@ -233,9 +251,38 @@ describe("vault secret metadata", () => {
       scope: "org",
       scopeId: "org_123",
     });
-    expect(metadata?.last4).toBe("••••live");
+    expect(metadata).toMatchObject({
+      last4: "••••live",
+      valueStatus: "stored",
+    });
     expect(JSON.stringify(metadata)).not.toContain("sk-live");
     expect(await getVaultSecretMetadata(null, ctx)).toBeNull();
+  });
+
+  it("reports a single key with no copy as missing", async () => {
+    mocks.readAppSecret.mockResolvedValue(null);
+
+    expect(await getVaultSecretMetadata(row(), ctx)).toMatchObject({
+      last4: "",
+      valueStatus: "missing",
+    });
+  });
+
+  it("reports a single key whose copy cannot be decrypted as unreadable, and rethrows anything else", async () => {
+    mocks.readAppSecret.mockRejectedValueOnce(
+      Object.assign(new Error("cannot decrypt"), {
+        errorCode: "app_secret_unreadable",
+      }),
+    );
+    expect(await getVaultSecretMetadata(row(), ctx)).toMatchObject({
+      last4: "",
+      valueStatus: "unreadable",
+    });
+
+    mocks.readAppSecret.mockRejectedValueOnce(new Error("database down"));
+    await expect(getVaultSecretMetadata(row(), ctx)).rejects.toThrow(
+      "database down",
+    );
   });
 });
 
@@ -256,28 +303,41 @@ describe("vault writes keep the value out of vault_secrets", () => {
     ...overrides,
   });
 
-  function fakeVaultDb(rows: Array<Record<string, unknown>>) {
+  function fakeVaultDb(
+    rows: Array<Record<string, unknown>>,
+    options: {
+      // Results for the first selects, in order; later ones return `rows`.
+      selects?: Array<Array<Record<string, unknown>>>;
+      failInsert?: Error;
+      failUpdate?: Error;
+    } = {},
+  ) {
     const writes = {
       inserted: [] as Array<Record<string, unknown>>,
       updated: [] as Array<Record<string, unknown>>,
     };
+    const queued = [...(options.selects ?? [])];
     const select: any = {
       from: () => select,
       where: () => select,
       orderBy: () => select,
-      limit: async () => rows,
+      limit: async () => queued.shift() ?? rows,
     };
     mocks.getDb.mockReturnValue({
       select: () => select,
       insert: (table: unknown) => ({
         values: async (values: Record<string, unknown>) => {
-          if (table === schema.vaultSecrets) writes.inserted.push(values);
+          if (table !== schema.vaultSecrets) return;
+          if (options.failInsert) throw options.failInsert;
+          writes.inserted.push(values);
         },
       }),
       update: (table: unknown) => ({
         set: (values: Record<string, unknown>) => ({
           where: async () => {
-            if (table === schema.vaultSecrets) writes.updated.push(values);
+            if (table !== schema.vaultSecrets) return;
+            if (options.failUpdate) throw options.failUpdate;
+            writes.updated.push(values);
           },
         }),
       }),
@@ -463,6 +523,86 @@ describe("vault writes keep the value out of vault_secrets", () => {
     await updateSecret("secret-1", { credentialKey: "OPENAI_KEY_V2" });
 
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+  });
+
+  describe("when the vault row cannot be written after the value is stored", () => {
+    it("removes the stored value of a new key, so no key is left that the vault does not own", async () => {
+      actAsOrgAdmin();
+      fakeVaultDb([], { failInsert: new Error("insert failed") });
+
+      await expect(
+        createSecret({
+          credentialKey: "OPENAI_API_KEY",
+          value: "sk-test-key",
+          name: "OpenAI API Key",
+        }),
+      ).rejects.toThrow("insert failed");
+
+      expect(mocks.deleteAppSecret).toHaveBeenCalledWith(
+        orgStore("OPENAI_API_KEY"),
+      );
+    });
+
+    it("keeps the stored value of a key a vault row still owns", async () => {
+      actAsOrgAdmin();
+      fakeVaultDb([existingRow()], { failUpdate: new Error("update failed") });
+
+      await expect(
+        createSecret({
+          credentialKey: "OPENAI_API_KEY",
+          value: "sk-rotated",
+          name: "OpenAI API Key",
+        }),
+      ).rejects.toThrow("update failed");
+
+      expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
+    });
+
+    it("removes the value copied to a new key when a rename's row write fails", async () => {
+      actAsOrgAdmin();
+      // Selects, in order: the row, the new-key conflict check, then the
+      // rollback's "does any vault row still use this key" lookup.
+      fakeVaultDb([], {
+        selects: [[existingRow()], [], []],
+        failUpdate: new Error("update failed"),
+      });
+      mocks.readAppSecret.mockResolvedValue({
+        value: "sk-stored",
+        last4: "••••ored",
+      });
+
+      await expect(
+        updateSecret("secret-1", { credentialKey: "OPENAI_KEY_V2" }),
+      ).rejects.toThrow("update failed");
+
+      expect(mocks.deleteAppSecret).toHaveBeenCalledWith(
+        orgStore("OPENAI_KEY_V2"),
+      );
+    });
+
+    it("reports the row write's error even when the cleanup also fails", async () => {
+      actAsOrgAdmin();
+      fakeVaultDb([], { failInsert: new Error("insert failed") });
+      mocks.deleteAppSecret.mockRejectedValue(new Error("delete failed"));
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      try {
+        await expect(
+          createSecret({
+            credentialKey: "OPENAI_API_KEY",
+            value: "sk-test-key",
+            name: "OpenAI API Key",
+          }),
+        ).rejects.toThrow("insert failed");
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining("OPENAI_API_KEY"),
+          "delete failed",
+        );
+        expect(JSON.stringify(warn.mock.calls)).not.toContain("sk-test-key");
+      } finally {
+        warn.mockRestore();
+      }
+    });
   });
 
   it("fails the rename when the stored copy cannot be read", async () => {

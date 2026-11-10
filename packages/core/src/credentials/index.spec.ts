@@ -8,12 +8,18 @@ const deleteAppSecret = vi.fn();
 const isMissingAppSecretsTableError = vi.fn();
 const isDevelopmentProcessOnSharedDatabase = vi.fn();
 const replaceSettingIfValue = vi.fn();
+const captureError = vi.fn();
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret,
   deleteAppSecret,
   isDevelopmentProcessOnSharedDatabase,
   isMissingAppSecretsTableError,
+}));
+
+vi.mock("../server/capture-error.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/capture-error.js")>()),
+  captureError: (...args: unknown[]) => captureError(...args),
 }));
 
 vi.mock("../settings/store.js", async (importOriginal) => ({
@@ -51,6 +57,7 @@ beforeEach(() => {
   isMissingAppSecretsTableError.mockReturnValue(false);
   isDevelopmentProcessOnSharedDatabase.mockReset();
   isDevelopmentProcessOnSharedDatabase.mockReturnValue(false);
+  captureError.mockReset();
   replaceSettingIfValue.mockReset();
   replaceSettingIfValue.mockImplementation(
     async (
@@ -104,6 +111,12 @@ describe("credentials encryption at rest", () => {
         "plaintext-key",
       );
 
+      expect(replaceSettingIfValue).toHaveBeenCalledOnce();
+      expect(replaceSettingIfValue).toHaveBeenCalledWith(
+        userKey("SEAL_ME"),
+        { value: "plaintext-key" },
+        { value: expect.stringMatching(/^v1:/) },
+      );
       const sealed = store.get(userKey("SEAL_ME"))?.value as string;
       expect(sealed).toMatch(/^v1:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/);
       expect(sealed).not.toContain("plaintext-key");
@@ -125,12 +138,39 @@ describe("credentials encryption at rest", () => {
 
     it("still returns the value when sealing fails", async () => {
       store.set(userKey("SEAL_FAILS"), { value: "plaintext-key" });
-      replaceSettingIfValue.mockRejectedValue(new Error("read-only role"));
+      const failure = new Error("read-only role");
+      replaceSettingIfValue.mockRejectedValue(failure);
       const { resolveCredential } = await import("./index.js");
 
       expect(
         await resolveCredential("SEAL_FAILS", { userEmail: "a@x.com" }),
       ).toBe("plaintext-key");
+      expect(captureError).toHaveBeenCalledOnce();
+      expect(captureError).toHaveBeenCalledWith(failure, {
+        errorMessagePolicy: "omit",
+        tags: { source: "credentials", op: "seal-legacy-setting" },
+      });
+    });
+
+    it("tries each row once per process, so a failing seal does not write on every read", async () => {
+      store.set(userKey("ONCE"), { value: "plaintext-key" });
+      replaceSettingIfValue.mockResolvedValue(false);
+      const { resolveCredential } = await import("./index.js");
+
+      await resolveCredential("ONCE", { userEmail: "a@x.com" });
+      await resolveCredential("ONCE", { userEmail: "a@x.com" });
+      await resolveCredential("ONCE", { userEmail: "a@x.com" });
+
+      expect(replaceSettingIfValue).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not try to seal an empty value", async () => {
+      store.set(userKey("EMPTY_VALUE"), { value: "" });
+      const { resolveCredential } = await import("./index.js");
+
+      await resolveCredential("EMPTY_VALUE", { userEmail: "a@x.com" });
+
+      expect(replaceSettingIfValue).not.toHaveBeenCalled();
     });
 
     it("does not seal from a development process on a shared database", async () => {

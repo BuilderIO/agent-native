@@ -8,7 +8,7 @@ import {
 
 export default defineAction({
   description:
-    "List all secrets stored in the workspace vault. Admin only. Returns metadata and a masked last-four preview; never returns secret values.",
+    "List all secrets stored in the workspace vault. Admin only. Returns metadata, a masked last-four preview, and `valueStatus` (stored, missing, or unreadable) for each key; never returns secret values.",
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {

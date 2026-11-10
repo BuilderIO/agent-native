@@ -298,31 +298,34 @@ export async function createSecret(
     .limit(1);
 
   if (existing[0]) {
-    await storeSecretValue(
-      ctxForSecretRow(existing[0], ctx),
+    const found = existing[0];
+    await storeValueThenWriteRow(
+      ctxForSecretRow(found, ctx),
       { credentialKey, name: input.name },
       input.value,
+      async () => {
+        await db
+          .update(schema.vaultSecrets)
+          .set({
+            name: input.name,
+            credentialKey,
+            value: SEALED_VAULT_VALUE,
+            provider: input.provider || null,
+            description: input.description || null,
+            updatedAt: timestamp,
+          })
+          .where(
+            and(
+              eq(schema.vaultSecrets.id, found.id),
+              ctxScope(schema.vaultSecrets, ctx),
+            ),
+          );
+      },
     );
-    await db
-      .update(schema.vaultSecrets)
-      .set({
-        name: input.name,
-        credentialKey,
-        value: SEALED_VAULT_VALUE,
-        provider: input.provider || null,
-        description: input.description || null,
-        updatedAt: timestamp,
-      })
-      .where(
-        and(
-          eq(schema.vaultSecrets.id, existing[0].id),
-          ctxScope(schema.vaultSecrets, ctx),
-        ),
-      );
 
     await recordVaultAudit({
       action: "secret.updated",
-      secretId: existing[0].id,
+      secretId: found.id,
       summary: `Updated secret "${input.name}" (${credentialKey})`,
       metadata: { credentialKey, provider: input.provider },
     });
@@ -330,30 +333,36 @@ export async function createSecret(
     await recordAudit({
       action: "vault.secret.updated",
       targetType: "vault-secret",
-      targetId: existing[0].id,
+      targetId: found.id,
       summary: `Updated vault secret "${input.name}" (${credentialKey})`,
     });
 
-    return getSecret(existing[0].id, ctx);
+    return getSecret(found.id, ctx);
   }
 
   const secretId = id();
   const actor = ctx.ownerEmail;
 
-  await storeSecretValue(ctx, { credentialKey, name: input.name }, input.value);
-  await db.insert(schema.vaultSecrets).values({
-    id: secretId,
-    ownerEmail: actor,
-    orgId: ctx.orgId,
-    name: input.name,
-    credentialKey,
-    value: SEALED_VAULT_VALUE,
-    provider: input.provider || null,
-    description: input.description || null,
-    createdBy: actor,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  });
+  await storeValueThenWriteRow(
+    ctx,
+    { credentialKey, name: input.name },
+    input.value,
+    async () => {
+      await db.insert(schema.vaultSecrets).values({
+        id: secretId,
+        ownerEmail: actor,
+        orgId: ctx.orgId,
+        name: input.name,
+        credentialKey,
+        value: SEALED_VAULT_VALUE,
+        provider: input.provider || null,
+        description: input.description || null,
+        createdBy: actor,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+    },
+  );
 
   await recordVaultAudit({
     action: "secret.created",
@@ -427,36 +436,45 @@ export async function updateSecret(
   }
 
   const storeCtx = ctxForSecretRow(existing, ctx);
-  if (valueToStore) {
-    await storeSecretValue(storeCtx, { credentialKey, name }, valueToStore);
-  } else if (credentialKey !== existing.credentialKey) {
+  let valueForKey = valueToStore;
+  if (!valueForKey && credentialKey !== existing.credentialKey) {
     // A rename carries the stored value to the new key. A failed read throws;
     // only a missing copy means there is nothing to move.
     const current = await readAppSecret({
       key: existing.credentialKey,
       ...credentialStoreScopeForVaultCtx(storeCtx),
     });
-    if (current) {
-      await storeSecretValue(storeCtx, { credentialKey, name }, current.value);
-    }
+    valueForKey = current?.value;
   }
 
-  await db
-    .update(schema.vaultSecrets)
-    .set({
-      name,
-      credentialKey,
-      value: SEALED_VAULT_VALUE,
-      provider,
-      description,
-      updatedAt: now(),
-    })
-    .where(
-      and(
-        eq(schema.vaultSecrets.id, secretId),
-        ctxScope(schema.vaultSecrets, ctx),
-      ),
+  const writeRow = async () => {
+    await db
+      .update(schema.vaultSecrets)
+      .set({
+        name,
+        credentialKey,
+        value: SEALED_VAULT_VALUE,
+        provider,
+        description,
+        updatedAt: now(),
+      })
+      .where(
+        and(
+          eq(schema.vaultSecrets.id, secretId),
+          ctxScope(schema.vaultSecrets, ctx),
+        ),
+      );
+  };
+  if (valueForKey) {
+    await storeValueThenWriteRow(
+      storeCtx,
+      { credentialKey, name },
+      valueForKey,
+      writeRow,
     );
+  } else {
+    await writeRow();
+  }
 
   const auditMetadata = {
     name,
@@ -761,11 +779,18 @@ export async function revokeGrant(
 
 type VaultSecretRow = typeof schema.vaultSecrets.$inferSelect;
 
+/**
+ * What the credential store holds for a vault row: a readable value, nothing,
+ * or a value this deployment cannot decrypt (a rotated key, a copied database).
+ */
+export type VaultValueStatus = "stored" | "missing" | "unreadable";
+
 export interface VaultSecretMetadata {
   id: string;
   name: string;
   credentialKey: string;
   last4: string;
+  valueStatus: VaultValueStatus;
   provider: string | null;
   description: string | null;
   createdBy: string;
@@ -776,12 +801,14 @@ export interface VaultSecretMetadata {
 function vaultSecretMetadata(
   secret: VaultSecretRow,
   last4Value: string,
+  valueStatus: VaultValueStatus,
 ): VaultSecretMetadata {
   return {
     id: secret.id,
     name: secret.name,
     credentialKey: secret.credentialKey,
     last4: last4Value,
+    valueStatus,
     provider: secret.provider,
     description: secret.description,
     createdBy: secret.createdBy,
@@ -827,12 +854,19 @@ export async function listVaultSecretMetadata(
       previews.set(`${scopeKey}\u0000${meta.key}`, meta.last4);
     }
   }
-  return rows.map((row) =>
-    vaultSecretMetadata(
+  return rows.map((row) => {
+    const preview = previews.get(
+      `${storeKey(row).scopeKey}\u0000${row.credentialKey}`,
+    );
+    // The scope listing reports a copy it cannot decrypt as an empty preview,
+    // and a stored value is never empty, so empty here means unreadable.
+    if (preview === undefined) return vaultSecretMetadata(row, "", "missing");
+    return vaultSecretMetadata(
       row,
-      previews.get(`${storeKey(row).scopeKey}\u0000${row.credentialKey}`) ?? "",
-    ),
-  );
+      preview,
+      preview === "" ? "unreadable" : "stored",
+    );
+  });
 }
 
 export async function getVaultSecretMetadata(
@@ -840,11 +874,51 @@ export async function getVaultSecretMetadata(
   fallback: VaultCtx = requireVaultCtx(),
 ): Promise<VaultSecretMetadata | null> {
   if (!row) return null;
-  const copy = await readAppSecret({
-    key: row.credentialKey,
-    ...credentialStoreScopeForVaultCtx(ctxForSecretRow(row, fallback)),
-  });
-  return vaultSecretMetadata(row, copy?.last4 ?? "");
+  try {
+    const copy = await readAppSecret({
+      key: row.credentialKey,
+      ...credentialStoreScopeForVaultCtx(ctxForSecretRow(row, fallback)),
+    });
+    return copy
+      ? vaultSecretMetadata(row, copy.last4, "stored")
+      : vaultSecretMetadata(row, "", "missing");
+  } catch (error) {
+    // Core does not export the error class; it is recognised by its code.
+    if (
+      (error as { errorCode?: unknown }).errorCode !== "app_secret_unreadable"
+    ) {
+      throw error;
+    }
+    return vaultSecretMetadata(row, "", "unreadable");
+  }
+}
+
+/**
+ * Store a value, then write the vault row that owns it. If the row write fails,
+ * drop the stored value when no vault row references its key, so a reported
+ * failure never leaves a key that apps can read and the vault cannot manage.
+ */
+async function storeValueThenWriteRow(
+  ctx: VaultCtx,
+  secret: { credentialKey: string; name: string },
+  value: string,
+  writeRow: () => Promise<void>,
+): Promise<void> {
+  await storeSecretValue(ctx, secret, value);
+  try {
+    await writeRow();
+  } catch (error) {
+    try {
+      await cleanupSyncedCredentialKeysIfUnused(ctx, [secret.credentialKey]);
+    } catch (cleanupError) {
+      // The row write's error is the one to report; this only names the key.
+      console.warn(
+        `[dispatch] could not remove the unreferenced stored value for ${secret.credentialKey}`,
+        cleanupError instanceof Error ? cleanupError.message : cleanupError,
+      );
+    }
+    throw error;
+  }
 }
 
 /** Encrypt a vault secret's value into the credential store. */

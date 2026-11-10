@@ -576,9 +576,20 @@ function SecretRow({
 
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Value:</span>
-            <code className="text-xs font-mono text-foreground">
-              {secret.last4}
-            </code>
+            {secret.valueStatus === "unreadable" ? (
+              <span className="text-xs text-destructive">
+                Saved, but this deployment cannot decrypt it. Save the key
+                again.
+              </span>
+            ) : secret.valueStatus === "missing" ? (
+              <span className="text-xs text-destructive">
+                Nothing stored. Save the key again.
+              </span>
+            ) : (
+              <code className="text-xs font-mono text-foreground">
+                {secret.last4}
+              </code>
+            )}
           </div>
 
           <div className="space-y-2">
