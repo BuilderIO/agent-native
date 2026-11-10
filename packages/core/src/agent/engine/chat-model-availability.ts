@@ -35,21 +35,13 @@ export function resetChatModelAvailabilityCache(): void {
   availabilityCache.clear();
 }
 
-export async function resolveChatModelAvailability(
-  input: { ownerEmail?: string | null | undefined } = {},
-): Promise<ChatModelAvailability> {
-  // Background callers pass the owner; without either there is no one whose
-  // credentials to check, which is "unknown", never "unavailable".
-  const userEmail = input.ownerEmail ?? getRequestUserEmail();
+export async function resolveChatModelAvailability(): Promise<ChatModelAvailability> {
+  // Credentials and the default-engine setting are both read in the request's
+  // scope, so only the request user can be checked; with none, there is no one
+  // whose model to look up, which is "unknown", never "unavailable".
+  const userEmail = getRequestUserEmail();
   if (!userEmail) return "unknown";
-  // The request's org belongs to the request user only; a passed owner who is
-  // someone else is looked up with no org rather than the wrong one.
-  const requestEmail = getRequestUserEmail();
-  const orgId =
-    requestEmail &&
-    requestEmail.trim().toLowerCase() === userEmail.trim().toLowerCase()
-      ? (getRequestOrgId() ?? null)
-      : null;
+  const orgId = getRequestOrgId() ?? null;
   const cacheKey = `${userEmail.trim().toLowerCase()}|${orgId ?? ""}`;
   const cached = availabilityCache.get(cacheKey);
   if (cached && Date.now() - cached.at < AVAILABILITY_TTL_MS) {

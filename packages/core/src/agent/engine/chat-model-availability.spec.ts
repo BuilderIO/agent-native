@@ -66,21 +66,10 @@ describe("resolveChatModelAvailability", () => {
     await expect(resolveChatModelAvailability()).resolves.toBe("unknown");
   });
 
-  it("is unknown with no owner and no request user", async () => {
+  it("is unknown with no request user", async () => {
     mocks.email.mockReturnValue(undefined);
     await expect(resolveChatModelAvailability()).resolves.toBe("unknown");
     expect(mocks.resolveChatEngine).not.toHaveBeenCalled();
-  });
-
-  it("uses a passed owner when there is no request user", async () => {
-    mocks.email.mockReturnValue(undefined);
-    mocks.isUsable.mockResolvedValue(true);
-    await expect(
-      resolveChatModelAvailability({ ownerEmail: "bg@example.com" }),
-    ).resolves.toBe("available");
-    expect(mocks.resolveOwnerEngineApiKey).toHaveBeenCalledWith(
-      expect.objectContaining({ ownerEmail: "bg@example.com" }),
-    );
   });
 
   it("answers repeat calls for one user from the cache", async () => {
@@ -95,15 +84,5 @@ describe("resolveChatModelAvailability", () => {
     await expect(resolveChatModelAvailability()).resolves.toBe("unknown");
     mocks.isUsable.mockResolvedValue(true);
     await expect(resolveChatModelAvailability()).resolves.toBe("available");
-  });
-
-  it("looks up a passed owner with no org instead of the request's org", async () => {
-    mocks.isUsable.mockResolvedValue(true);
-    await resolveChatModelAvailability({ ownerEmail: "bg@example.com" });
-    expect(mocks.resolveChatEngine).toHaveBeenCalledWith(
-      expect.objectContaining({
-        credentialIdentity: { userEmail: "bg@example.com", orgId: null },
-      }),
-    );
   });
 });
