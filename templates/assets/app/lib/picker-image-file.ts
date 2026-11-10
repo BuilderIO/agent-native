@@ -60,6 +60,7 @@ function sameOrigin(url: string): boolean {
   try {
     return new URL(url, window.location.href).origin === window.location.origin;
   } catch {
+    // coercion-ok: an unparseable URL gets no cookies, and its fetch then fails
     return false;
   }
 }
