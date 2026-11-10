@@ -3739,15 +3739,16 @@ fn await_segmented_capture_readiness(
     }
     let _ = stream.stop_capture();
     let finish_error = writer.finish(true).err();
+    let reason = match segment_failure {
+        Some(error) => format!("failed on segment output: {error}"),
+        None => String::from("timed out waiting for the first fragmented-media bytes"),
+    };
     Err(format!(
-        "capture startup timed out waiting for the first fragmented-media bytes (screen={screen}, usable_screen={usable_screen}, system_audio={system}, microphone={mic}, requested_system_audio={requested_system_audio}, requested_microphone={requested_microphone}, initialization={}, media_fragments={}, bytes={}, video_frames_past_first_segment={frames_past_first_segment}, closing_frame={}){}{}",
+        "capture startup {reason} (screen={screen}, usable_screen={usable_screen}, system_audio={system}, microphone={mic}, requested_system_audio={requested_system_audio}, requested_microphone={requested_microphone}, initialization={}, media_fragments={}, bytes={}, video_frames_past_first_segment={frames_past_first_segment}, closing_frame={}){}",
         progress.has_initialization,
         progress.media_fragments,
         progress.bytes_written,
         describe_closing_frame(closing_frame_age),
-        segment_failure
-            .map(|error| format!("; segment output: {error}"))
-            .unwrap_or_default(),
         finish_error
             .map(|error| format!("; writer: {error}"))
             .unwrap_or_default()
