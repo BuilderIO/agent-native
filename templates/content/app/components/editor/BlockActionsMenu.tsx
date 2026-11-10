@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { isApplePlatform } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 
 import {
@@ -79,12 +80,6 @@ const LOCK_REASON_KEYS: Record<BlockLock, string> = {
   suggesting: "editor.blockMenu.lockedSuggesting",
   page: "editor.blockMenu.lockedPage",
 };
-
-// ProseMirror's test for `Mod`, so each hint names the key its shortcut
-// listens for.
-const isApplePlatform = () =>
-  typeof navigator !== "undefined" &&
-  /Mac|iP(hone|[oa]d)/.test(navigator.platform);
 
 const ENABLED_ITEMS = '[role^="menuitem"]:not([data-disabled])';
 

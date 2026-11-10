@@ -93,6 +93,7 @@ import {
   contentFilesCollectionFilter,
   contentRowTargets,
   invalidateContentQueries,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
 } from "@/hooks/use-content-action-mutation";
 import {
@@ -3042,6 +3043,7 @@ export function DocumentSidebar({
       invalidateContentQueries(queryClient, [
         ...contentRowTargets(queryClient, [documentId]),
         contentFilesCollectionFilter(),
+        ...SEARCH_QUERY_KEYS,
       ]),
   });
   const [movingPage, setMovingPage] = useState<MovePageTarget | null>(null);

@@ -39,6 +39,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { ActionTooltip } from "@/components/email/ActionTooltip";
 import { AiFilterDialog } from "@/components/email/AiFilterDialog";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
@@ -65,11 +66,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useAiPriority, type AiPriorityResult } from "@/hooks/use-ai-priority";
 import {
@@ -114,7 +110,7 @@ import {
   warmThreads,
 } from "@/lib/thread-cache";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
-import { cn } from "@/lib/utils";
+import { cn, formatShortcut } from "@/lib/utils";
 
 import { EmailListItem } from "./EmailListItem";
 import { GmailCooldownNotice } from "./GmailCooldownNotice";
@@ -1954,6 +1950,21 @@ export function EmailList({
     [setSelectedIds],
   );
 
+  const toggleFocusedSelection = useCallback(() => {
+    const id = focusedIdRef.current;
+    const thread = id
+      ? threads.find((t) => t.latestMessage.id === id)
+      : undefined;
+    if (!thread) return;
+    const key = thread.latestMessage.threadId || thread.latestMessage.id;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, [threads, setSelectedIds]);
+
   useKeyboardShortcuts([
     { key: "a", meta: true, handler: selectAllThreads },
     { key: "j", handler: () => moveFocus(1) },
@@ -1970,8 +1981,7 @@ export function EmailList({
     { key: "d", handler: trashFocused },
     { key: "#", shift: "either", handler: trashFocused },
     { key: "u", handler: toggleFocusedRead },
-    { key: "I", handler: markFocusedRead, shift: true },
-    { key: "U", handler: markFocusedUnread, shift: true },
+    { key: "x", handler: toggleFocusedSelection },
     { key: "s", handler: starFocused },
     { key: "r", handler: replyFocused },
     { key: "f", handler: forwardFocused },
@@ -2039,6 +2049,21 @@ export function EmailList({
     if (focusedIndex < 0) return;
     rowVirtualizer.scrollToIndex(focusedIndex, { align: "auto" });
   }, [focusedIndex, rowVirtualizer]);
+
+  const pageFocus = useCallback(
+    (direction: 1 | -1) => {
+      const parent = scrollParentRef.current;
+      if (!parent) return;
+      const rowsPerPage = Math.floor(parent.clientHeight / rowHeightEstimate);
+      moveFocus(direction * Math.max(1, rowsPerPage - 1));
+    },
+    [moveFocus, rowHeightEstimate],
+  );
+
+  useKeyboardShortcuts([
+    { key: " ", handler: () => pageFocus(1) },
+    { key: " ", shift: true, handler: () => pageFocus(-1) },
+  ]);
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -2403,30 +2428,30 @@ export function EmailList({
       view === "inbox" && !searchQuery && !labelParam && threads.length > 0 ? (
         <div className="flex items-center gap-1">
           <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex h-7 w-[112px] items-center justify-between rounded-md border border-input bg-transparent px-2.5 text-[11px] text-foreground hover:bg-accent/40"
-                    aria-label={`${t("mail.sort.label")} · ⌘I`}
-                    aria-busy={isPriorityPending}
-                  >
-                    <span>
-                      {currentSortMode === "priority"
-                        ? t("mail.sort.priority")
-                        : t("mail.sort.newest")}
-                    </span>
-                    {isPriorityPending ? (
-                      <Spinner className="size-3" />
-                    ) : (
-                      <IconChevronDown className="size-3.5 text-muted-foreground" />
-                    )}
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>{`${t("mail.sort.label")} · ⌘I`}</TooltipContent>
-            </Tooltip>
+            <ActionTooltip
+              label={t("mail.sort.label")}
+              keys={[formatShortcut("cmd"), "I"]}
+            >
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-7 w-[112px] items-center justify-between rounded-md border border-input bg-transparent px-2.5 text-[11px] text-foreground hover:bg-accent/40"
+                  aria-label={`${t("mail.sort.label")} · ⌘I`}
+                  aria-busy={isPriorityPending}
+                >
+                  <span>
+                    {currentSortMode === "priority"
+                      ? t("mail.sort.priority")
+                      : t("mail.sort.newest")}
+                  </span>
+                  {isPriorityPending ? (
+                    <Spinner className="size-3" />
+                  ) : (
+                    <IconChevronDown className="size-3.5 text-muted-foreground" />
+                  )}
+                </button>
+              </DropdownMenuTrigger>
+            </ActionTooltip>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem
                 onSelect={() => onSortModeChange?.("newest")}
@@ -2508,37 +2533,31 @@ export function EmailList({
     () =>
       selectedIds.size > 0 ? (
         <div className="flex h-7 max-w-[calc(100vw-11rem)] shrink-0 items-center gap-1 rounded-md border border-border/50 bg-muted/50 px-1.5 text-muted-foreground shadow-sm">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={clearSelection}
-                className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
-                aria-label={t("mail.selection.clear")}
-              >
-                <IconX className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("mail.selection.clear")}</TooltipContent>
-          </Tooltip>
+          <ActionTooltip label={t("mail.selection.clear")} keys={["Esc"]}>
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
+              aria-label={t("mail.selection.clear")}
+            >
+              <IconX className="h-3.5 w-3.5" />
+            </button>
+          </ActionTooltip>
           <span className="whitespace-nowrap text-xs font-medium text-foreground/80">
             {t("mail.selection.selected", { count: selectedIds.size })}
           </span>
           <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
-                    aria-label={t("mail.selection.actions")}
-                  >
-                    <IconDots className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>{t("mail.selection.actions")}</TooltipContent>
-            </Tooltip>
+            <ActionTooltip label={t("mail.selection.actions")}>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex size-5 items-center justify-center rounded transition-colors hover:bg-accent hover:text-foreground"
+                  aria-label={t("mail.selection.actions")}
+                >
+                  <IconDots className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+            </ActionTooltip>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem
                 onClick={() =>
