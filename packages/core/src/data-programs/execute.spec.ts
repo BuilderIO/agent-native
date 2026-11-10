@@ -1003,6 +1003,47 @@ describe("data-programs/execute", () => {
       },
     );
 
+    it("returns a failed refresh over rows that are still fresh", async () => {
+      storeMocks.getDataProgram.mockResolvedValue(
+        makeProgram({ background: true }),
+      );
+      accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+      storeMocks.getLatestSuccessfulRun.mockResolvedValue(
+        makeRun({ finishedAt: Date.now() - 60_000 }),
+      );
+      storeMocks.getLatestFinishedRun.mockResolvedValue(
+        makeRun({
+          id: "dpr_refresh",
+          status: "failed",
+          rowsJson: null,
+          errorCode: "program_error",
+          errorMessage: "The panels haven't been saved yet",
+          finishedAt: Date.now() - 1_000,
+        }),
+      );
+      const enqueueSandboxExecution = vi.fn();
+      vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        enqueueSandboxExecution,
+        getSandboxExecutionForOwner: vi.fn(),
+      }));
+      const { runDataProgram } = await loadExecute();
+
+      const result = await runDataProgram({
+        programId: PROGRAM_ID,
+        ctx: { userEmail: OWNER },
+        triggeredBy: "panel_view",
+      });
+
+      expect(enqueueSandboxExecution).not.toHaveBeenCalled();
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toEqual({
+        code: "program_error",
+        message: "The panels haven't been saved yet",
+      });
+      expect(result.lastGoodRun?.rows).toEqual([{ a: 1 }]);
+    });
+
     it.each([
       ["the executor's own error", "", "Sandbox executor error: spawn ENOENT"],
       [

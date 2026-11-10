@@ -642,10 +642,9 @@ async function runBackgroundProgram(
   // Includes a run finalized just above, which serves as a fresh hit rather
   // than queueing another run behind it.
   if (!args.forceRefresh) {
-    const cached = await resolveCacheHit(program, paramsHash);
-    if (cached) return cached;
-    // Queueing another run behind a failure would report it as pending and
-    // run the broken program again on every read.
+    // Checked before the cache, or a Refresh that failed hides behind the rows
+    // it was meant to replace until they expire. Queueing another run behind
+    // it would run the broken program again on every read.
     const failed =
       finishedFailure ??
       (active ? null : await recentBackgroundFailure(program, paramsHash));
@@ -657,6 +656,8 @@ async function runBackgroundProgram(
         failed.message,
       );
     }
+    const cached = await resolveCacheHit(program, paramsHash);
+    if (cached) return cached;
   }
 
   const stillActive = await getActiveRun(program.id, paramsHash);
