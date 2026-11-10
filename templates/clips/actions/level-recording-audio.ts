@@ -52,6 +52,8 @@ const outputSchema = z.object({
   message: z.string().optional(),
   nextBefore: z.string().optional(),
   unprocessedIds: z.array(z.string()).optional(),
+  /** True when the sweep has more clips; call again (with nextBefore if set). */
+  moreRemaining: z.boolean().optional(),
 });
 const DEFAULT_ALL_LIMIT = 20;
 const cliBoolean = z.preprocess((value) => {
@@ -321,6 +323,8 @@ export default defineAction({
     const lastReached = itemAt(sweepRows, reachedCount - 1);
     if (lastReached && (sweepFilledBatch || reachedCount < sweepRows.length)) {
       nextBefore = encodeSweepCursor(lastReached.createdAt, lastReached.id);
+    } else if (!lastReached && args.before && reachedCount < sweepRows.length) {
+      nextBefore = args.before;
     }
 
     const changed = results.filter((r) => r.changed).length;
@@ -331,6 +335,11 @@ export default defineAction({
       results,
       ...(nextBefore ? { nextBefore } : {}),
       ...(unprocessedIds.length > 0 ? { unprocessedIds } : {}),
+      // Also set when the first swept clip failed in a retryable way and no
+      // cursor could advance: calling again (with the same `before`) retries it.
+      ...(args.all && (sweepFilledBatch || reachedCount < sweepRows.length)
+        ? { moreRemaining: true }
+        : {}),
     };
   },
 });

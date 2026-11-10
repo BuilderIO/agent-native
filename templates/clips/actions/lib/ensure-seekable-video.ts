@@ -87,7 +87,12 @@ export function isRemoteProviderUrl(
 
 export async function fetchProviderBytes(
   videoUrl: string,
-  options: { recordingId?: string; storageMode?: "own" | "hosted" | null } = {},
+  options: {
+    recordingId?: string;
+    storageMode?: "own" | "hosted" | null;
+    /** Refuse anything larger than this; defaults to the upload limit. */
+    maxBytes?: number;
+  } = {},
 ): Promise<
   | { ok: true; bytes: Uint8Array }
   | { ok: false; reason: "skipped-fetch-failed" | "skipped-too-large" }
@@ -115,7 +120,8 @@ export async function fetchProviderBytes(
     }
 
     const declaredLength = Number(res.headers.get("content-length") ?? "0");
-    if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
+    const maxBytes = options.maxBytes ?? MAX_UPLOAD_BYTES;
+    if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
       await res.body?.cancel().catch(() => {});
       return { ok: false, reason: "skipped-too-large" };
     }
@@ -123,7 +129,7 @@ export async function fetchProviderBytes(
     const buf = new Uint8Array(await res.arrayBuffer());
     if (buf.byteLength === 0)
       return { ok: false, reason: "skipped-fetch-failed" };
-    if (buf.byteLength > MAX_UPLOAD_BYTES) {
+    if (buf.byteLength > maxBytes) {
       return { ok: false, reason: "skipped-too-large" };
     }
     return { ok: true, bytes: buf };

@@ -1018,6 +1018,7 @@ async function completeReadyRecordingBookkeeping(params: {
       await dispatchPostFinalizeJob({
         recordingId: params.id,
         kind: "audio-level",
+        requireAccepted: true,
       }).catch((err: unknown) => {
         console.warn("[finalize] audio level dispatch failed", {
           id: params.id,

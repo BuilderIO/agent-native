@@ -389,8 +389,9 @@ export async function boostQuietAudio(input: {
         : null;
     if (
       !after.hasAudio ||
-      durationDrift === null ||
-      durationDrift > DURATION_TOLERANCE_MS
+      // Unknown duration (WebM can report N/A) is not a failure; audio
+      // presence stays the hard check.
+      (durationDrift !== null && durationDrift > DURATION_TOLERANCE_MS)
     ) {
       return {
         changed: false,
@@ -399,7 +400,7 @@ export async function boostQuietAudio(input: {
         detail: `Boosted file failed verification (audio=${String(after.hasAudio)}, durationDriftMs=${String(durationDrift)}).`,
       };
     }
-    const bytes = new Uint8Array(await readFile(outputPath));
+    const bytes: Uint8Array = await readFile(outputPath);
     if (bytes.byteLength === 0) {
       return {
         changed: false,
@@ -600,9 +601,12 @@ export async function ensureRecordingAudioLevel(params: {
     }
   }
 
+  // The cap applies to the download itself (declared length), not only to
+  // the stored size, which can be stale.
   const fetched = await fetchProviderBytes(rec.videoUrl, {
     recordingId,
     storageMode: rec.storageMode,
+    maxBytes: AUDIO_LEVEL_MAX_BYTES,
   });
   if (!fetched.ok) {
     return { recordingId, status: fetched.reason, changed: false };
@@ -748,11 +752,27 @@ export async function ensureRecordingAudioLevel(params: {
     throw err;
   }
 
-  if (updated.length !== 1 || updated[0]?.videoUrl !== upload.url) {
-    await deleteRecordingMediaObjects(
+  if (updated.length !== 1 || itemAt(updated, 0)?.videoUrl !== upload.url) {
+    // The row was not updated, so the upload is unused. An unconfirmed delete
+    // is queued as a pending upload (already settled) for the next run.
+    const cleanup = await deleteRecordingMediaObjects(
       { id: recordingId, storageMode: rec.storageMode, videoUrl: upload.url },
       { protectedUrls: [rec.videoUrl] },
     );
+    if (cleanup.errors.length > 0) {
+      await writeAppState(audioLevelPendingUploadKey(recordingId), {
+        recordingId,
+        url: upload.url,
+        at: new Date(0).toISOString(),
+      }).catch((stateErr: unknown) => {
+        console.warn("[audio-level] could not queue the unused upload", {
+          recordingId,
+          uploadedUrl: upload.url,
+          error:
+            stateErr instanceof Error ? stateErr.message : String(stateErr),
+        });
+      });
+    }
     return {
       recordingId,
       status: "skipped-upload-failed",
