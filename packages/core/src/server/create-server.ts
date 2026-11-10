@@ -27,7 +27,7 @@ import {
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import { runWithRequestContext } from "./request-context.js";
-import { readBuildRequiredEnv } from "./required-env-build.js";
+import { loadRequiredEnv } from "./required-env-config.js";
 import type { ScopedKeySaveRequestScope } from "./scoped-key-storage.js";
 
 const getSession: (typeof import("./auth.js"))["getSession"] = (...args) =>
@@ -173,7 +173,7 @@ export function createServer(
           ...(event.url?.searchParams.get("database") === "0"
             ? { databaseRequired: false }
             : {}),
-          requiredEnv: readBuildRequiredEnv(),
+          requiredEnv: await loadRequiredEnv(),
         };
         return {
           message,

@@ -5,7 +5,7 @@
  * names from the build, never from the request.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -103,5 +103,35 @@ describe("configuration probe required env vars", () => {
     );
 
     expect(missingRequiredEnv(body)).toEqual([["NOTION_API_KEY"]]);
+  });
+
+  it("reads the app's config on a dev server, where the build recorded nothing", async () => {
+    // Nitro's dev runtime loads an npm-installed core without the build's
+    // replacements, so the probe reads agent-native.config from the app root.
+    const appRoot = join(tempDir, "app");
+    mkdirSync(appRoot, { recursive: true });
+    writeFileSync(
+      join(appRoot, "agent-native.mts"),
+      `export default ${JSON.stringify({
+        runtime: { environment: { required: ["NOTION_API_KEY"] } },
+      })};
+`,
+    );
+    vi.stubEnv("DATABASE_URL", `pglite:${join(tempDir, "db")}`);
+    vi.stubEnv("AGENT_NATIVE_BUILD_REQUIRED_ENV", undefined);
+    vi.stubEnv("NOTION_API_KEY", "");
+    const nitroApp = createNitroApp();
+    await createCoreRoutesPlugin()(nitroApp);
+
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(appRoot);
+    try {
+      const body = await dispatch(
+        nitroApp,
+        "https://app.test/_agent-native/ping?configuration=1",
+      );
+      expect(missingRequiredEnv(body)).toEqual([["NOTION_API_KEY"]]);
+    } finally {
+      cwd.mockRestore();
+    }
   });
 });
