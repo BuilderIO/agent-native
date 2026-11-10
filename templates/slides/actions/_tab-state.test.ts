@@ -50,9 +50,10 @@ describe("Slides tab state", () => {
     await expect(getCurrentRequestStateTabId()).resolves.toBe("tab-b");
   });
 
-  it("reads no account-wide row the caller opted out of when no tab was used recently", async () => {
+  it("reads no account-wide row unless asked when no tab was used recently", async () => {
     mcpCall({ kind: "unavailable" });
 
+    await expect(readAppStateForCurrentTab("navigation")).resolves.toBeNull();
     await expect(
       readAppStateForCurrentTab("slides-selection", {
         fallbackToGlobal: false,
@@ -60,9 +61,20 @@ describe("Slides tab state", () => {
     ).resolves.toBeNull();
     expect(readAppState).not.toHaveBeenCalled();
     await expect(
-      readAppStateForCurrentTab("slides-selection"),
+      readAppStateForCurrentTab("slides-selection", { fallbackToGlobal: true }),
     ).resolves.toEqual({ key: "slides-selection" });
     await expect(getCurrentRequestStateTabId()).resolves.toBeNull();
+  });
+
+  it("surfaces a failed read of the tab's row instead of reporting no state", async () => {
+    mcpCall({ kind: "last-used", tabId: "tab-b" });
+    readAppState.mockRejectedValueOnce(new Error("store unavailable"));
+
+    await expect(
+      readAppStateForCurrentTab("slides-selection", {
+        fallbackToGlobal: false,
+      }),
+    ).rejects.toThrow("store unavailable");
   });
 
   it("keeps reading the account-wide row for a request with no tab to look for", async () => {

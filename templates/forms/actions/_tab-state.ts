@@ -46,10 +46,12 @@ export async function readAppStateForCurrentTab(
   const { tabId, unavailable } = await currentStateTab();
   const tabKey = appStateKeyForBrowserTab(key, tabId);
   if (tabKey !== key) {
-    const scoped = await readAppState(tabKey).catch(() => null);
+    const scoped = await readAppState(tabKey);
     if (scoped) return scoped;
     if (options?.fallbackToGlobal === false) return null;
-  } else if (unavailable && options?.fallbackToGlobal === false) {
+  } else if (unavailable && options?.fallbackToGlobal !== true) {
+    // No tab keeps the account-wide row current, so an MCP call that found
+    // none reads it only when the caller asks for it.
     return null;
   }
   return readAppState(key);
