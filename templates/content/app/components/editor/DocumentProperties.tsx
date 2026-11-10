@@ -2,6 +2,7 @@ import { emailToName } from "@agent-native/core/client/collab";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   closestCenter,
   DndContext,
@@ -1750,10 +1751,16 @@ export function PropertyManagementPopover({
   }
 
   async function deleteProperty() {
-    await remove.mutateAsync({
-      documentId,
-      propertyId: property.definition.id,
-    });
+    // The hook's own `onError` rolls back, so the shared toast needs this.
+    try {
+      await remove.mutateAsync({
+        documentId,
+        propertyId: property.definition.id,
+      });
+    } catch (error) {
+      reportWriteFailure(error);
+      return;
+    }
     setOpen(false);
   }
 
@@ -3109,8 +3116,9 @@ function RelationValueEditor({
       setQuery("");
       // Build on the latest list: other rows may have been picked meanwhile.
       add(newId);
-    } catch {
-      // coercion-ok: useActionMutation surfaces the failure; keep the typed title.
+    } catch (error) {
+      // Keep the typed title so the person can retry.
+      reportWriteFailure(error);
     }
   }
 

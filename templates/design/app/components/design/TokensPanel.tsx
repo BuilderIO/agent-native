@@ -5,6 +5,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { parseCssColorExtended } from "@shared/color-utils";
 import {
   DESIGN_TOKEN_GROUPS,
@@ -48,7 +49,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import { cn } from "@/lib/utils";
 
 import {
@@ -886,7 +886,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
         edits: [{ cssVar, value }],
       })) as { resolvedCssVars?: Record<string, string> };
     } catch (error) {
-      reportDesignWriteFailure(error);
+      reportWriteFailure(error);
       // Rethrow so TokenColorPicker still resets its preview and logs.
       throw error;
     }
@@ -906,7 +906,7 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     const value = editDraft.trim();
     cancelEdit();
     applyTokenEdit(cssVar, value, {
-      onError: (error) => reportDesignWriteFailure(error),
+      onError: (error) => reportWriteFailure(error),
     });
   };
 

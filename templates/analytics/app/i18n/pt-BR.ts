@@ -1425,6 +1425,10 @@ export default {
     hide: "Hide",
     show: "Show",
     saveAsView: "Salvar como visualização",
+    unknownTraffic: "Desconhecido {{count}}",
+    unknownTrafficUnavailable: "Contagem de desconhecidos indisponível",
+    unknownTrafficTip:
+      "Eventos dos últimos {{days}} dias sem host nem ambiente reconhecido. Contam como produção.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
