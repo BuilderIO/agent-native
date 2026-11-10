@@ -1,5 +1,6 @@
 import { useAgentChatGenerating } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   appendSignatureToBody,
   splitAppendedSignature,
@@ -261,9 +262,11 @@ export const InlineReplyComposer = forwardRef<
             });
           }
         })
-        .catch(() => {
+        .catch((error) => {
           toast.dismiss(sendingToastId);
-          toast.error(t("mail.toasts.failedToSendEmail"));
+          reportWriteFailure(error, {
+            label: t("mail.toasts.failedToSendEmail"),
+          });
           const { id: _id, ...reopenData } = draftSnapshot;
           onReopen(reopenData);
         })
@@ -437,7 +440,7 @@ export const InlineReplyComposer = forwardRef<
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      toast.error(t("mail.toasts.failedToUploadImage"));
+      reportWriteFailure(err, { label: t("mail.toasts.failedToUploadImage") });
       throw err;
     }
   };
