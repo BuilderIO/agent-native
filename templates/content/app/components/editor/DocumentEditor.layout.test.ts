@@ -5,6 +5,7 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import type { DocumentUpdateResult } from "@/hooks/use-documents";
 import { documentQueryKey } from "@/lib/document-query";
 import {
   documentReadFailure,
@@ -70,10 +71,14 @@ import {
   refreshUnchangedTitleSaveWatermark,
   resizeDocumentTitleTextarea,
   retainThenAdoptDisplacedWinner,
+  shouldAdoptServerTitle,
   shouldAttestUnchangedEditorSave,
   shouldSubmitDocumentContent,
   subscribeToAuthoritativeQuerySuccess,
   titleMatchConfirmsSave,
+  failedSaveRestoresSavedTitle,
+  createTitleMarkCarriers,
+  unansweredTitleAfterSave,
   updateAdditionalBlockContents,
   updateDocumentLoadFailureState,
   utilityPanelAfterCommentFocusDismissal,
@@ -2887,22 +2892,209 @@ describe("document editor layout", () => {
   });
 
   it("does not mistake an optimistic title cache patch for a confirmed save", () => {
+    const renamed = {
+      serverTitle: "Renamed page",
+      localTitle: "Renamed page",
+      lastSavedTitle: "Untitled",
+    };
     expect(
       titleMatchConfirmsSave({
-        serverTitle: "Renamed page",
-        localTitle: "Renamed page",
-        lastSavedTitle: "Untitled",
+        ...renamed,
         pendingTitle: "Renamed page",
+        unansweredTitle: "Renamed page",
+      }),
+    ).toBe(false);
+    // The save is in flight: the cached title is still the one typed.
+    expect(
+      titleMatchConfirmsSave({
+        ...renamed,
+        pendingTitle: null,
+        unansweredTitle: "Renamed page",
+      }),
+    ).toBe(false);
+    // Another writer gave the page the same name.
+    expect(
+      titleMatchConfirmsSave({
+        ...renamed,
+        pendingTitle: null,
+        unansweredTitle: null,
+      }),
+    ).toBe(true);
+    expect(
+      titleMatchConfirmsSave({
+        serverTitle: "Untitled",
+        localTitle: "Untitled",
+        lastSavedTitle: "Untitled",
+        pendingTitle: null,
+        unansweredTitle: "Untitled",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not adopt this editor's unanswered title from a newer page copy", () => {
+    // A save of another field, such as the favorite star, made the cached page
+    // newer while the title typed into it is still waiting for its save.
+    const newerPage = {
+      serverTitle: "Renamed page",
+      localTitle: "Renamed page",
+      lastSavedTitle: "Untitled",
+      serverIsNewer: true,
+      titleFocused: false,
+    };
+    expect(
+      shouldAdoptServerTitle({ ...newerPage, unansweredTitle: "Renamed page" }),
+    ).toBe(false);
+    expect(
+      shouldAdoptServerTitle({ ...newerPage, unansweredTitle: null }),
+    ).toBe(true);
+    expect(
+      shouldAdoptServerTitle({
+        ...newerPage,
+        serverTitle: "Renamed elsewhere",
+        unansweredTitle: "Renamed page",
+      }),
+    ).toBe(true);
+    expect(
+      shouldAdoptServerTitle({
+        ...newerPage,
+        serverTitle: "Renamed elsewhere",
+        titleFocused: true,
+        unansweredTitle: "Renamed page",
       }),
     ).toBe(false);
     expect(
-      titleMatchConfirmsSave({
-        serverTitle: "Renamed page",
-        localTitle: "Renamed page",
-        lastSavedTitle: "Untitled",
-        pendingTitle: null,
+      shouldAdoptServerTitle({
+        ...newerPage,
+        serverTitle: "Renamed elsewhere",
+        localTitle: "Untitled",
+        serverIsNewer: false,
+        unansweredTitle: null,
       }),
     ).toBe(true);
+  });
+
+  it("keeps a title unanswered through an answer that may send it again", () => {
+    // A conflict answer puts the server's page back in the cache, and the
+    // rebased retry writes the same title into it again before it answers.
+    const page = { id: "page", title: "Renamed page" } as DocumentUpdateResult;
+    const typed = { title: "Renamed page" };
+    const sent = { unanswered: typed, sent: typed };
+    expect(unansweredTitleAfterSave({ ...sent, answer: page })).toBeNull();
+    expect(unansweredTitleAfterSave({ ...sent, answer: null })).toBeNull();
+    for (const answer of [
+      { conflict: true, document: page },
+      { superseded: true, document: page },
+      { preservationRequired: true, document: page },
+    ] as DocumentUpdateResult[]) {
+      expect(unansweredTitleAfterSave({ ...sent, answer })).toBe(typed);
+    }
+    expect(
+      unansweredTitleAfterSave({ unanswered: typed, sent: null, answer: page }),
+    ).toBe(typed);
+  });
+
+  it("keeps a title typed after a save was sent through that save's answer", () => {
+    // Typing "A", then "B", then "A" again while the first save of "A" is out
+    // makes a new mark, so the old save's answer settles neither.
+    const page = { id: "page", title: "A" } as DocumentUpdateResult;
+    const first = { title: "A" };
+    const retyped = { title: "A" };
+    expect(
+      unansweredTitleAfterSave({
+        unanswered: retyped,
+        sent: first,
+        answer: page,
+      }),
+    ).toBe(retyped);
+    expect(
+      unansweredTitleAfterSave({
+        unanswered: retyped,
+        sent: first,
+        answer: null,
+      }),
+    ).toBe(retyped);
+  });
+
+  it("leaves a typed title to the save still carrying it when another carrier fails", () => {
+    // The title's own save and an icon save both carry "Renamed page"; the
+    // icon save fails first.
+    const page = { id: "page", title: "Renamed page" } as DocumentUpdateResult;
+    const typed = { title: "Renamed page" };
+    const carriers = createTitleMarkCarriers();
+    carriers.send(typed);
+    carriers.send(typed);
+    const iconSave = carriers.settle(typed, true);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed page",
+        unanswered: typed,
+        sent: iconSave,
+      }),
+    ).toBe(false);
+    expect(
+      unansweredTitleAfterSave({
+        unanswered: typed,
+        sent: iconSave,
+        answer: null,
+      }),
+    ).toBe(typed);
+    const titleSave = carriers.settle(typed, false);
+    expect(
+      unansweredTitleAfterSave({
+        unanswered: typed,
+        sent: titleSave,
+        answer: page,
+      }),
+    ).toBeNull();
+  });
+
+  it("settles a typed title when the last save carrying it fails", () => {
+    const typed = { title: "Renamed page" };
+    const carriers = createTitleMarkCarriers();
+    carriers.send(typed);
+    carriers.send(typed);
+    expect(carriers.settle(typed, false)).toBe(typed);
+    expect(carriers.settle(typed, true)).toBe(typed);
+    expect(carriers.settle(null, true)).toBeNull();
+  });
+
+  it("keeps a newer typed title in the cache when an older save fails", () => {
+    const typed = { title: "Renamed page" };
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed page",
+        unanswered: typed,
+        sent: typed,
+      }),
+    ).toBe(true);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed page",
+        unanswered: null,
+        sent: null,
+      }),
+    ).toBe(true);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed",
+        unanswered: typed,
+        sent: { title: "Renamed" },
+      }),
+    ).toBe(false);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed page",
+        unanswered: typed,
+        sent: { title: "Renamed page" },
+      }),
+    ).toBe(false);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: undefined,
+        unanswered: null,
+        sent: null,
+      }),
+    ).toBe(false);
   });
 
   it("keeps prose titles on the reading column", () => {
@@ -3403,7 +3595,7 @@ describe("document editor layout", () => {
     const bounds = [
       source.indexOf("const sendKeepaliveSave"),
       source.indexOf("const onVisibilityChange"),
-      source.indexOf("return await updateDocument.mutateAsync("),
+      source.indexOf("answer = await updateDocument.mutateAsync("),
       source.indexOf("editorSnapshotTitle: options.editorSnapshotTitle"),
     ];
     expect(bounds).not.toContain(-1);
