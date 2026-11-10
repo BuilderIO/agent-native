@@ -396,8 +396,13 @@ export const searchRelevanceCases: SearchEvalCase[] = [
     id: "question-out-of-scope-this-quarter",
     class: "question",
     query: "what did we leave out of this quarter's plan",
-    acceptableTop3: ["q3-roadmap", "product-review-aug-20"],
-    rationale: "Pricing tier changes are out of scope for Q3.",
+    acceptableTop3: [
+      "q3-roadmap",
+      "product-review-aug-20",
+      "japanese-roadmap-overview",
+    ],
+    rationale:
+      "Pricing tier changes are out of scope for Q3; the Japanese roadmap overview says so too.",
   },
   {
     id: "question-new-hire-laptop",

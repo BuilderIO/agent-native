@@ -51,7 +51,7 @@ const FIELD_WEIGHTS = { title: 3, description: 2, body: 1 } as const;
  */
 export function keywordLane(
   documents: readonly CorpusDocument[],
-): (query: string) => string[] {
+): (query: string, searchFields?: "all" | "title") => string[] {
   const fields = documents.map((doc) => ({
     key: doc.key,
     title: keywordTokens(doc.title),
@@ -67,15 +67,18 @@ export function keywordLane(
     fields.reduce((sum, doc) => sum + doc.body.length, 0) / fields.length || 1;
   const k1 = 1.2;
   const b = 0.75;
-  return (query) => {
+  return (query, searchFields = "all") => {
     const words = [...new Set(keywordTokens(query))];
+    // A title-only search scores titles alone, as search-documents does.
+    const scored =
+      searchFields === "title"
+        ? (["title"] as const)
+        : (Object.keys(FIELD_WEIGHTS) as (keyof typeof FIELD_WEIGHTS)[]);
     return fields
       .map((doc) => {
         let score = 0;
         for (const word of words) {
-          const weighted = (
-            Object.keys(FIELD_WEIGHTS) as (keyof typeof FIELD_WEIGHTS)[]
-          ).reduce(
+          const weighted = scored.reduce(
             (sum, field) =>
               sum +
               FIELD_WEIGHTS[field] *

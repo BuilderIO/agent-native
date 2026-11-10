@@ -56,22 +56,28 @@ The gated evals workflow runs it as the `content-question-search` suite.
 ## Results, 2026-11-09
 
 Through OpenRouter (`openai/text-embedding-3-small`, `openai/gpt-6-luna`) on
-116 visible invented pages, 27 question cases and 29 other ranked cases. The
-whole run cost about $0.04. Model time is from a home connection, so read it
-as relative.
+116 visible invented pages, 27 question cases and 29 other ranked cases. A run
+costs about $0.04. Model time is from a home connection, so read it as
+relative.
 
 | Method             | Question top-3 | Question top-1 | Other top-3 | Model calls per search | Model ms per search |
 | ------------------ | -------------- | -------------- | ----------- | ---------------------- | ------------------- |
 | current            | 0%             | 0%             | 97%         | 0                      | 0                   |
 | current + keywords | 70%            | 58%            | 97%         | 0                      | 0                   |
-| hybrid             | 96%            | 71%            | 100%        | 1                      | 289                 |
-| rewrite + hybrid   | 96%            | 75%            | 97%         | 2                      | 3,178               |
-| enrichment         | 96%            | 75%            | 100%        | 1                      | 289                 |
-| HyDE               | 100%           | 92%            | 100%        | 2                      | 3,575               |
-| rerank             | 100%           | 96%            | 100%        | 2                      | 3,701               |
+| hybrid             | 96%            | 71%            | 100%        | 1                      | 282                 |
+| rewrite + hybrid   | 96%            | 71%            | 100%        | 2                      | 3,275               |
+| enrichment         | 96%            | 75%            | 100%        | 1                      | 282                 |
+| HyDE               | 100%           | 92%            | 100%        | 2                      | 3,685               |
+| rerank             | 100%           | 92%            | 100%        | 2                      | 3,778               |
 
 No method surfaced a page the searcher couldn't open. Hybrid answers nearly
 every question with one embedding call and no chat model, and it also lifts the
-other searches. HyDE and rerank mostly improve which page comes first, at about
-twelve times the time per search. Enrichment matches hybrid but makes a chat
-call for every page at index time (122 calls against 4).
+other searches. Its one miss, "what did we leave out of this quarter's plan",
+ranks the Q3 roadmap fourth, behind an older roadmap and a Q4 draft. HyDE and
+rerank mostly improve which page comes first, at about thirteen times the time
+per search. Enrichment matches hybrid but makes a chat call for every page at
+index time (124 calls against 6).
+
+Methods that use a chat model vary between runs: in an earlier run that day,
+rerank's top-1 was 96% and rewrite's top-3 85% (81% here). The JSON report
+keeps every search's ranked pages, so a run can be rechecked.

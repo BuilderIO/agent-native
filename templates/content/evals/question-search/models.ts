@@ -40,6 +40,9 @@ export interface BakeoffModels {
 }
 
 const OPENAI_EMBEDDING_BATCH = 64;
+/** Builder's per-request input limit, so each embed call is one request. */
+const BUILDER_EMBEDDING_BATCH = 32;
+const ATTEMPTS = 4;
 
 /** An OpenAI-compatible API: OpenAI's own, or OpenRouter's. */
 interface ChatProvider {
@@ -84,35 +87,70 @@ interface ApiAnswer {
   choices?: { message?: { content?: string | null } }[];
 }
 
+/** Retries `run` while `retryable` says the failure may pass. */
+async function withRetry<T>(
+  run: () => Promise<T>,
+  retryable: (error: unknown) => boolean,
+): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      if (attempt === ATTEMPTS || !retryable(error)) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, attempt * 2_000));
+  }
+}
+
+/** An HTTP answer that isn't 2xx, and whether waiting could help. */
+class HttpError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+  }
+}
+
 async function postWithRetry(
   url: string,
   headers: Record<string, string>,
   body: unknown,
 ): Promise<ApiAnswer> {
-  for (let attempt = 1; ; attempt += 1) {
-    // A network error or timeout is retried like a 429 or 5xx answer.
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120_000),
-    }).catch((error: unknown) => {
-      if (attempt === 4) throw error;
-      return null;
-    });
-    if (response?.ok) return (await response.json()) as ApiAnswer;
-    if (response) {
-      // coercion-ok: the body only adds detail to an error thrown either way.
-      const detail = (await response.text().catch(() => "")).slice(0, 300);
-      // An account out of quota answers 429 too, but waiting won't help.
-      const retryable =
-        (response.status === 429 && !detail.includes("insufficient_quota")) ||
-        response.status >= 500;
-      if (!retryable || attempt === 4)
-        throw new Error(`${url} answered ${response.status}: ${detail}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, attempt * 2_000));
-  }
+  return withRetry(
+    async () => {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(120_000),
+      });
+      if (!response.ok) {
+        // coercion-ok: the body only adds detail to an error thrown either way.
+        const detail = (await response.text().catch(() => "")).slice(0, 300);
+        // An account out of quota answers 429 too, but waiting won't help.
+        throw new HttpError(
+          `${url} answered ${response.status}: ${detail}`,
+          (response.status === 429 && !detail.includes("insufficient_quota")) ||
+            response.status >= 500,
+        );
+      }
+      return (await response.json()) as ApiAnswer;
+    },
+    // A network error, a timeout or a body cut off mid-read is retried too.
+    (error) => !(error instanceof HttpError) || error.retryable,
+  );
+}
+
+/**
+ * Whether a failed Builder gateway request may pass on retry: a 429 or 5xx
+ * answer, a timeout, or a dropped connection (fetch's TypeError).
+ */
+function retryableBuilderError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const status = /failed with status (\d+)\./.exec(error.message)?.[1];
+  if (status) return status === "429" || Number(status) >= 500;
+  return error instanceof TypeError || error.message.endsWith("timed out.");
 }
 
 async function timed<T>(usage: ModelUsage, run: () => Promise<T>) {
@@ -148,15 +186,27 @@ export function bakeoffModelsFromEnv(
       spaceId: builderSpace,
       userId: null,
     });
-    embeddingLabel = `builder/${family.model}`;
-    embed = (texts, purpose, usage) =>
-      timed(usage, async () => {
-        usage.embeddedCharacters += texts.reduce((n, t) => n + t.length, 0);
-        return family.embed(
-          texts.map((text) => ({ text })),
-          purpose,
+    // The gateway reports no token counts, so its tokens show as 0.
+    embeddingLabel = `builder/${family.model} (no token counts)`;
+    embed = async (texts, purpose, usage) => {
+      const vectors: number[][] = [];
+      for (let at = 0; at < texts.length; at += BUILDER_EMBEDDING_BATCH) {
+        const batch = texts.slice(at, at + BUILDER_EMBEDDING_BATCH);
+        const embedded = await timed(usage, () =>
+          withRetry(
+            () =>
+              family.embed(
+                batch.map((text) => ({ text })),
+                purpose,
+              ),
+            retryableBuilderError,
+          ),
         );
-      });
+        usage.embeddedCharacters += batch.reduce((n, t) => n + t.length, 0);
+        vectors.push(...embedded);
+      }
+      return vectors;
+    };
   } else if (provider) {
     const model = provider.model(openaiEmbeddingModel);
     embeddingLabel = `${provider.name}/${model}`;

@@ -171,7 +171,6 @@ async function currentSearch(kase: SearchEvalCase, query = kase.query) {
 /** The visible pages a case's filters allow, for the lanes beside search. */
 function casePages(kase: SearchEvalCase): string[] {
   const filters = kase.filters;
-  if (filters?.searchFields === "title") return [];
   return visible
     .filter(
       (doc) =>
@@ -269,7 +268,19 @@ async function runBakeoff(models: BakeoffModels | null) {
   // Index time: every visible page in chunks, and a model's summary of it.
   const chunkVectors = new Map<string, number[][]>();
   const enrichedVectors = new Map<string, number[][]>();
+  // Title-only searches compare the question with titles alone.
+  const titleVectors = new Map<string, number[][]>();
   if (models) {
+    const titles = await models.embed(
+      visible.map((doc) => doc.title),
+      "document",
+      indexUsage["page-embeddings"],
+    );
+    visible.forEach((doc, index) =>
+      titleVectors.set(doc.key, [
+        vectorAt(titles, index, `the title of ${doc.key}`),
+      ]),
+    );
     const chunks = visible.flatMap((doc) =>
       pageChunks(doc).map((text) => ({ key: doc.key, text })),
     );
@@ -319,7 +330,13 @@ async function runBakeoff(models: BakeoffModels | null) {
     const pages = casePages(kase);
     const allowed = new Set(pages);
     const current = await currentSearch(kase);
-    const keyworded = keywords(kase.query).filter((key) => allowed.has(key));
+    const titleOnly = kase.filters?.searchFields === "title";
+    const keyworded = keywords(kase.query, kase.filters?.searchFields).filter(
+      (key) => allowed.has(key),
+    );
+    // The vectors a lane may compare: titles alone for a title-only search.
+    const lens = (vectors: Map<string, number[][]>) =>
+      titleOnly ? titleVectors : vectors;
     const ranked: Record<string, string[]> = {
       current: current.slice(0, 10),
       keywords: keyworded.slice(0, 10),
@@ -332,7 +349,7 @@ async function runBakeoff(models: BakeoffModels | null) {
         0,
         `the question "${kase.query}"`,
       );
-      const embedded = vectorLane(chunkVectors, queryVector, pages);
+      const embedded = vectorLane(lens(chunkVectors), queryVector, pages);
       ranked.embeddings = embedded.slice(0, 10);
       ranked.hybrid = fuse({ current, embedded });
       const hybridKeywords = fuse(
@@ -378,12 +395,12 @@ async function runBakeoff(models: BakeoffModels | null) {
         );
         ranked.HyDE = fuse({
           current,
-          hyde: vectorLane(chunkVectors, hydeVector, pages),
+          hyde: vectorLane(lens(chunkVectors), hydeVector, pages),
         });
 
         ranked.enrichment = fuse({
           current,
-          enriched: vectorLane(enrichedVectors, queryVector, pages),
+          enriched: vectorLane(lens(enrichedVectors), queryVector, pages),
         });
 
         const candidates = hybridKeywords;
@@ -394,7 +411,12 @@ async function runBakeoff(models: BakeoffModels | null) {
                 `Question: ${kase.query}\n\n${candidates
                   .map((key, index) => {
                     const doc = byKey.get(key);
-                    return `${index + 1}. ${doc ? excerpt(doc) : key}`;
+                    const text = doc
+                      ? titleOnly
+                        ? doc.title
+                        : excerpt(doc)
+                      : key;
+                    return `${index + 1}. ${text}`;
                   })
                   .join("\n")}`,
                 usage.rerank,
@@ -474,6 +496,12 @@ async function runBakeoff(models: BakeoffModels | null) {
           .map((run) => run.kase.id),
       ]),
     ),
+    // Every search's ranked pages per method, so a run can be rechecked.
+    cases: runs.map((run) => ({
+      id: run.kase.id,
+      class: run.kase.class,
+      ranked: run.ranked,
+    })),
   };
 }
 
