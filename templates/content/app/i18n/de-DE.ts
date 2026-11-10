@@ -1136,6 +1136,29 @@ const editor = {
     hideInSearch: "In der Suche verstecken",
     hideInSearchDescription:
       "Vor Organisation und Suche verbergen. Personen mit dem Link können ihn weiterhin ansehen.",
+    sharePeopleTab: "Personen",
+    shareAgentsTab: "Agenten",
+    agentLevelHeading: "Agenten auf dieser Seite",
+    agentLevelMenuLabel: "Was Agenten auf dieser Seite tun können",
+    agentLevelDefault: "(Standard)",
+    agentLevelCommentDescription:
+      "Können lesen, kommentieren und Änderungen vorschlagen. Nur Personen können sie annehmen.",
+    agentLevelEditDescription:
+      "Können lesen, kommentieren, vorschlagen, Text, Titel und Tabs bearbeiten und die Seite in den Papierkorb verschieben.",
+    agentLevelCommentConfirm:
+      "Agenten können auf dieser Seite jetzt kommentieren und Änderungen vorschlagen, sie aber nicht bearbeiten.",
+    agentLevelEditConfirm: "Agenten können diese Seite wieder bearbeiten.",
+    agentLevelLimit:
+      "Ein Agent bekommt nie mehr Rechte als die Person, für die er arbeitet.",
+    agentLevelManagersOnly:
+      "Nur Personen, die diese Seite verwalten, können das ändern.",
+    agentLevelUpdateFailed:
+      "Die Rechte der Agenten konnten hier nicht geändert werden.",
+    agentLevelNote: "Agenten können kommentieren",
+    agentLevelNoteHint:
+      "Agenten können auf dieser Seite kommentieren. Ändere das unter Teilen.",
+    sendPageToAgent: "Diese Seite an einen Agenten senden",
+    connectAgentOverMcp: "Agenten über MCP verbinden",
     importingFromNotion: "Aus Notion importieren...",
     lastSynced: "Zuletzt synchronisiert",
     linkedToNotion: "Mit Notion verknüpft",

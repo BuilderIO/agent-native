@@ -1,5 +1,6 @@
 import type { AgentEngineKeyScope } from "@agent-native/core/client/agent-engine-key";
 import { useChangeVersions } from "@agent-native/core/client/hooks";
+import { surfaceMutationError } from "@agent-native/core/client/write-failure";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { appApiPath } from "@/lib/api-path";
@@ -30,6 +31,7 @@ function useIntegrationStatus(provider: Provider) {
 function useIntegrationConnect(provider: Provider) {
   const qc = useQueryClient();
   return useMutation({
+    meta: surfaceMutationError(),
     mutationFn: async ({
       apiKey,
       scope,
@@ -54,6 +56,7 @@ function useIntegrationConnect(provider: Provider) {
 function useIntegrationDisconnect(provider: Provider) {
   const qc = useQueryClient();
   return useMutation({
+    meta: surfaceMutationError(),
     mutationFn: async () => {
       const res = await fetch(appApiPath(`/api/${provider}/key`), {
         method: "DELETE",

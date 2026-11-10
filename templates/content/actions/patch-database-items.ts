@@ -83,6 +83,8 @@ export default defineAction({
   },
   run: (args, context) => {
     if (context?.caller === "mcp") agentSchema.parse(args);
-    return withContentWebhookDelivery(context, () => patchDatabaseRows(args));
+    return withContentWebhookDelivery(context, () =>
+      patchDatabaseRows(args, context),
+    );
   },
 });

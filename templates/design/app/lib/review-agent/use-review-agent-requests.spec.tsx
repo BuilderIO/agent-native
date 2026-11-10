@@ -61,6 +61,7 @@ const mocks = vi.hoisted(() => ({
   },
   toastError: vi.fn(),
   toastInfo: vi.fn(),
+  reportWriteFailure: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -95,6 +96,10 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+}));
+
+vi.mock("@agent-native/core/client/write-failure", () => ({
+  reportWriteFailure: mocks.reportWriteFailure,
 }));
 
 vi.mock("sonner", () => ({
@@ -189,6 +194,7 @@ describe("useReviewAgentRequests", () => {
     mocks.requireEngine.mockReset().mockResolvedValue(undefined);
     mocks.toastError.mockReset();
     mocks.toastInfo.mockReset();
+    mocks.reportWriteFailure.mockReset();
     props = { designId: DESIGN_ID, enabled: true, surfaceActive: true };
     queryClient = new QueryClient();
     container = document.createElement("div");
@@ -289,7 +295,13 @@ describe("useReviewAgentRequests", () => {
         controller.start({ threadId: "thread-1", mode: "reply" }),
       ).resolves.toBe("unavailable");
       expect(mocks.startSession).not.toHaveBeenCalled();
-      expect(mocks.toastError).toHaveBeenCalledWith("review.agent.startFailed");
+      expect(mocks.reportWriteFailure).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          message:
+            "start-review-agent-request asked for a dispatch without a session",
+        }),
+        { label: "review.agent.startFailed" },
+      );
       warn.mockRestore();
     });
 
@@ -355,7 +367,10 @@ describe("useReviewAgentRequests", () => {
       await expect(
         controller.start({ threadId: "thread-1", mode: "reply" }),
       ).resolves.toBe("unavailable");
-      expect(mocks.toastError).toHaveBeenCalledWith("review.agent.startFailed");
+      expect(mocks.reportWriteFailure).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ message: "boom" }),
+        { label: "review.agent.startFailed" },
+      );
       expect(mocks.startSession).not.toHaveBeenCalled();
       warn.mockRestore();
     });
@@ -604,6 +619,7 @@ describe("useReviewAgentRequests", () => {
       expect(cancelOrder).toBeLessThan(abortOrder);
       expect(controller.stoppingRequestIds.size).toBe(0);
       expect(mocks.toastError).not.toHaveBeenCalled();
+      expect(mocks.reportWriteFailure).not.toHaveBeenCalled();
     });
 
     it("does not abort when the request was already finished", async () => {
@@ -645,8 +661,9 @@ describe("useReviewAgentRequests", () => {
       );
       await setRequests([request]);
       await act(async () => controller.stop(request));
-      expect(mocks.toastError).toHaveBeenCalledWith(
-        "review.agent.cancelFailed",
+      expect(mocks.reportWriteFailure).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ message: "server error" }),
+        { label: "review.agent.cancelFailed" },
       );
     });
 
@@ -659,8 +676,9 @@ describe("useReviewAgentRequests", () => {
       await setRequests([request]);
       await act(async () => controller.stop(request));
       expect(mocks.cancelSession).not.toHaveBeenCalled();
-      expect(mocks.toastError).toHaveBeenCalledWith(
-        "review.agent.cancelFailed",
+      expect(mocks.reportWriteFailure).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ message: "offline" }),
+        { label: "review.agent.cancelFailed" },
       );
       expect(controller.stoppingRequestIds.size).toBe(0);
       warn.mockRestore();

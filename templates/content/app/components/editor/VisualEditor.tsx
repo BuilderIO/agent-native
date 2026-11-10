@@ -12,6 +12,7 @@ import {
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
@@ -221,6 +222,7 @@ import {
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import { suggestionPlacements } from "./suggestion-placement";
+import { caretAfterPageSwap } from "./suggestions/keep-caret";
 import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
@@ -3694,6 +3696,35 @@ export function VisualEditor({
         findCommentQuote,
       }),
       Extension.create({
+        name: "suggestingCaretOnPageSwap",
+        addProseMirrorPlugins() {
+          return [
+            new Plugin({
+              // The suggestion draft starting over from a newer Page swaps the
+              // editor's content; the caret stays by the text around it.
+              appendTransaction(transactions, oldState, newState) {
+                if (
+                  !isSuggesting() ||
+                  !guardsRef.current?.isSettingContentRef.current ||
+                  !oldState.selection.empty ||
+                  !transactions.some((transaction) => transaction.docChanged)
+                )
+                  return null;
+                const at = caretAfterPageSwap(
+                  oldState.doc,
+                  oldState.selection.from,
+                  newState.doc,
+                );
+                if (at === null || at === newState.selection.from) return null;
+                return newState.tr.setSelection(
+                  TextSelection.create(newState.doc, at),
+                );
+              },
+            }),
+          ];
+        },
+      }),
+      Extension.create({
         name: "contentEditorEscape",
         // Last, so editor Escape handlers such as the table's run first. Not 0:
         // TipTap reads a priority of 0 as unset, which puts this first instead.
@@ -3851,7 +3882,7 @@ export function VisualEditor({
         throw new Error(t("empty.genericError"));
       }
     } catch (error) {
-      toast.error(t("empty.genericError"));
+      reportWriteFailure(error, { label: t("empty.genericError") });
       console.error("Media source persistence error:", error);
     }
   };
