@@ -1,4 +1,5 @@
 import type {
+  ReviewResourceContext,
   ReviewResourceRole,
   ReviewableResourceRegistration,
 } from "@agent-native/core/review";
@@ -14,6 +15,16 @@ import {
 } from "../../actions/_document-agent-lock.js";
 import { agentLevelFromStored } from "../../shared/agent-level.js";
 
+/** The access context core's default path builds from a review call's. */
+function accessContextFrom(ctx: ReviewResourceContext): AccessContext {
+  const transaction = ctx.transaction as AccessContext["transaction"];
+  return {
+    ...(ctx.userEmail != null ? { userEmail: ctx.userEmail } : {}),
+    ...(ctx.orgId != null ? { orgId: ctx.orgId } : {}),
+    ...(transaction ? { transaction } : {}),
+  };
+}
+
 /**
  * Core's review comments and suggestions on a page take its access from here,
  * as they would from the page's sharing. While the page is set to Can view an
@@ -26,17 +37,14 @@ export const contentDocumentReviewResource: ReviewableResourceRegistration = {
     const access = await resolveAccess(
       "document",
       resourceId,
-      ctx
-        ? {
-            userEmail: ctx.userEmail ?? undefined,
-            orgId: ctx.orgId ?? undefined,
-            transaction: ctx.transaction as AccessContext["transaction"],
-          }
-        : undefined,
+      ctx ? accessContextFrom(ctx) : undefined,
     );
     if (!access) return null;
+    const { agentTextLocked } = access.resource as {
+      agentTextLocked?: number | null;
+    };
     const viewOnly =
-      agentLevelFromStored(access.resource.agentTextLocked) === "view" &&
+      agentLevelFromStored(agentTextLocked) === "view" &&
       isAgentCall(ctx as CallProvenance | undefined) &&
       roleSatisfies(access.role, "commenter");
     return {

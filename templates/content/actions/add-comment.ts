@@ -576,11 +576,14 @@ export async function addCommentWithGuard(
     }
     const current = await assertAccess("document", documentId, "commenter", {
       userEmail: email,
-      orgId: ctx?.orgId ?? undefined,
+      ...(ctx?.orgId != null ? { orgId: ctx.orgId } : {}),
       transaction: getDbExec(),
     });
     // After the receipt, so a retry of a comment that landed first replays.
-    assertAgentsMayCommentOnPage(current.resource, ctx);
+    assertAgentsMayCommentOnPage(
+      current.resource as { agentTextLocked?: number | null },
+      ctx,
+    );
     if (args.threadId && args.parentId) {
       const [root] = await tx
         .select()
