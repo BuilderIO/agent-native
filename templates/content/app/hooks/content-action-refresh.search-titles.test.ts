@@ -6,6 +6,10 @@ const titles = (open: boolean) => ({
   queryKey: ["action", "list-document-titles", {}],
   isActive: () => open,
 });
+const results = (open: boolean) => ({
+  queryKey: ["action", "search-documents", { query: "plan" }],
+  isActive: () => open,
+});
 const event = (key: string) => [{ source: "action", key }];
 
 describe("Search's title list after another tab's writes", () => {
@@ -18,10 +22,16 @@ describe("Search's title list after another tab's writes", () => {
     "add-database-item",
     "remove-database-items",
     "set-document-discoverability",
+    "restore-document-version",
+    "share-resource",
+    "unshare-resource",
+    "set-resource-visibility",
   ])("reloads after %s, with the menu open or closed", (key) => {
     const predicate = contentActionInvalidatePredicate("/page/document-1");
     expect(predicate(titles(true), event(key))).toBe(true);
     expect(predicate(titles(false), event(key))).toBe(true);
+    expect(predicate(results(true), event(key))).toBe(true);
+    expect(predicate(results(false), event(key))).toBe(true);
   });
 
   it.each(["update-document", "update-database-item"])(
@@ -29,12 +39,14 @@ describe("Search's title list after another tab's writes", () => {
     (key) => {
       const predicate = contentActionInvalidatePredicate("/page/document-1");
       expect(predicate(titles(false), event(key))).toBe(true);
+      expect(predicate(results(false), event(key))).toBe(true);
     },
   );
 
   it("doesn't reload an open menu's titles for every body save", () => {
     const predicate = contentActionInvalidatePredicate("/page/document-1");
     expect(predicate(titles(true), event("update-document"))).toBe(false);
+    expect(predicate(results(true), event("update-document"))).toBe(false);
   });
 
   it("ignores writes that can't change a title or place", () => {

@@ -145,9 +145,15 @@ const SEARCH_PLACEMENT_MUTATIONS = new Set([
   "migrate-content-database-rows",
   "move-document",
   "remove-database-items",
+  // A restored version can bring back or drop a page's inline collections.
+  "restore-document-version",
   "set-document-discoverability",
+  // The title list holds only pages the caller can see.
+  "set-resource-visibility",
+  "share-resource",
   "submit-content-database-form",
   "undo-content-import",
+  "unshare-resource",
   "upsert-database-item-by-key",
 ]);
 
@@ -401,7 +407,8 @@ export function contentActionInvalidatePredicate(
     }
     if (
       query.queryKey[0] === "action" &&
-      query.queryKey[1] === "list-document-titles"
+      (query.queryKey[1] === "list-document-titles" ||
+        query.queryKey[1] === "search-documents")
     ) {
       return eventsIncludeMutation(
         events,

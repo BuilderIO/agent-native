@@ -241,7 +241,7 @@ export async function searchSubtreeDocumentIds(
     const found: string[] = [];
     for (const idGroup of groups(frontier)) {
       // guard:allow-unscoped — ids only; search-documents filters every result by access.
-      const children: Array<{ id: string }> = await db
+      const childrenRead: Promise<Array<{ id: string }>> = db
         .select({ id: schema.documents.id })
         .from(schema.documents)
         .where(
@@ -252,7 +252,9 @@ export async function searchSubtreeDocumentIds(
         )
         .limit(SEARCH_SUBTREE_LIMIT);
       // guard:allow-unscoped — ids only; search-documents filters every result by access.
-      const collections: Array<{ id: string; documentId: string }> = await db
+      const collectionsRead: Promise<
+        Array<{ id: string; documentId: string }>
+      > = db
         .select({
           id: schema.contentDatabases.id,
           documentId: schema.contentDatabases.documentId,
@@ -269,6 +271,10 @@ export async function searchSubtreeDocumentIds(
           ),
         )
         .limit(SEARCH_SUBTREE_LIMIT);
+      const [children, collections] = await Promise.all([
+        childrenRead,
+        collectionsRead,
+      ]);
       found.push(
         ...children.map((child) => child.id),
         ...collections.map((collection) => collection.documentId),
