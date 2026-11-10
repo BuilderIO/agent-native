@@ -49,7 +49,8 @@ import {
 } from "../shared/mcp-embed-headers.js";
 import {
   bindBuilderSignupAttempt,
-  BUILDER_SIGNUP_COOKIE,
+  startBuilderSignupForVerifiedSession,
+  builderSignupAssignmentCookieName,
 } from "./builder-signup-experiment.js";
 import {
   createConsentHandler,
@@ -197,6 +198,7 @@ import {
   signupAttributionFromCookieHeader,
   type SignupAttributionContext,
 } from "./attribution.js";
+import { getAuthGuardPath } from "./auth-guard-path.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
 import {
   markBearerCredentialRefused,
@@ -393,16 +395,44 @@ function headersWithSignupAttribution(
   );
 }
 
-async function recordBuilderSignupBinding(
+export async function recordBuilderSignupBinding(
   event: H3Event,
   attemptId: unknown,
   method: "password" | "magic-link" | "google",
   email: string,
+  verifiedSession?: AuthSession,
 ): Promise<void> {
-  if (typeof attemptId !== "string" && !getCookie(event, BUILDER_SIGNUP_COOKIE))
+  if (
+    typeof attemptId !== "string" &&
+    !getCookie(event, builderSignupAssignmentCookieName())
+  )
     return;
   try {
-    await bindBuilderSignupAttempt(event, attemptId, method, email);
+    const bound = await bindBuilderSignupAttempt(
+      event,
+      attemptId,
+      method,
+      email,
+    );
+    if (
+      bound &&
+      verifiedSession?.emailVerified === true &&
+      verifiedSession.token &&
+      verifiedSession.email.trim().toLowerCase() === email.trim().toLowerCase()
+    ) {
+      // The callback just issued this session; its cookie is in the response,
+      // not the incoming request. Org/credential checks must see that identity.
+      const signupSession = { ...verifiedSession, userId: bound.userId };
+      event.context.__anSessionCache = Promise.resolve(signupSession);
+      delete event.context.__anOrgContextCache;
+      markRequestIdentityAuthenticatedAtMs(
+        event,
+        verifiedSession.email,
+        Date.now(),
+        verifiedSession.token,
+      );
+      await startBuilderSignupForVerifiedSession(event, signupSession);
+    }
   } catch (error) {
     captureAuthError(error, { route: "signup", email });
   }
@@ -486,8 +516,16 @@ export interface AuthOptions {
   workspaceAppPublicPaths?: string[];
   workspaceAppProtectedPaths?: string[];
   loginHtml?: string;
-  renderSignInPage?: (props: AuthPageProps) => string;
-  renderResetPasswordPage?: (props: ResetPasswordPageProps) => string;
+  /**
+   * Server-render the sign-in page. Returning `undefined` serves core's
+   * fallback markup, which the auth client script replaces in the browser.
+   */
+  renderSignInPage?: (props: AuthPageProps) => string | undefined;
+  /** Trusted HTML appended to the sign-in document head. */
+  authHeadHtml?: string;
+  renderResetPasswordPage?: (
+    props: ResetPasswordPageProps,
+  ) => string | undefined;
   rootAuth?: boolean;
   googleOnly?: boolean;
   mountGoogleOAuthRoutes?: boolean;
@@ -2597,6 +2635,7 @@ function getOnboardingHtmlOptions(
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     renderSignInPage: options.renderSignInPage,
+    authHeadHtml: options.authHeadHtml,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
@@ -4003,24 +4042,6 @@ function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
 
   const accept = getHeader(event, "accept")?.toLowerCase();
   return !accept || accept.includes("text/html") || accept.includes("*/*");
-}
-
-export function getAuthGuardPath(event: H3Event): string | null {
-  const rawUrl = event.node?.req?.url;
-  if (rawUrl !== undefined) {
-    const rawPath = rawUrl.split("?")[0]!;
-    // Encoded separators are opaque route-parameter data; URL parsing must
-    // not change the path's structure before any public-route decision.
-    if (
-      !rawPath.startsWith("/") ||
-      rawPath.startsWith("//") ||
-      rawPath.includes("\\") ||
-      new URL(`http://agent-native.invalid${rawPath}`).pathname !== rawPath
-    ) {
-      return null;
-    }
-  }
-  return stripAppBasePath(canonicalFrameworkPathname(event.url.pathname));
 }
 
 function isBrowserNavigationRequest(event: H3Event): boolean {
@@ -5930,15 +5951,16 @@ async function mountBetterAuthRoutes(
             });
           }
 
+          const signupUserId = isNewGoogleUser
+            ? await getBetterAuthUserIdForEmail(email)
+            : undefined;
           const { sessionToken } = await createOAuthSession(event, email, {
             hasProductionSession: false,
             desktop,
             mobile,
             trackSignup: {
               authProvider: "google",
-              canonicalAuthUserId: isNewGoogleUser
-                ? await getBetterAuthUserIdForEmail(email)
-                : undefined,
+              ...(signupUserId ? { canonicalAuthUserId: signupUserId } : {}),
               name: typeof user.name === "string" ? user.name : undefined,
               attribution: signupAttribution,
               signupAnonymousId,
@@ -5947,13 +5969,20 @@ async function mountBetterAuthRoutes(
               isNewUser: isNewGoogleUser,
             },
           });
-          if (isNewGoogleUser)
+          if (isNewGoogleUser) {
             await recordBuilderSignupBinding(
               event,
               builderSignupAttemptId,
               "google",
               email,
+              {
+                email,
+                ...(sessionToken ? { token: sessionToken } : {}),
+                ...(typeof user.name === "string" ? { name: user.name } : {}),
+                emailVerified: true,
+              },
             );
+          }
           logGoogleOAuthDebug(event, "callback-session-created", {
             flowId,
             desktop,
@@ -7179,6 +7208,7 @@ async function mountBetterAuthRoutes(
           query.builder_signup_attempt,
           "magic-link",
           signupSession.email,
+          signupSession,
         );
       setFirstRunOnboardingCookie(event);
       return queryEchoSafeRedirect(

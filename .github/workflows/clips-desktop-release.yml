@@ -1,6 +1,6 @@
 name: Clips Desktop Release
 run-name: >-
-  ${{ github.event.inputs.coordinator_run_id && format('{0} [release:{1}]', github.workflow, github.event.inputs.coordinator_run_id) || '' }}
+  ${{ github.event.inputs.coordinator_run_id && format('{0} ({1}) [release:{2}]', github.workflow, github.event.inputs.mode, github.event.inputs.coordinator_run_id) || '' }}
 
 on:
   push:
@@ -26,6 +26,15 @@ on:
         description: "Exact source commit to build for a coordinated release"
         required: false
         type: string
+      mode:
+        description: "release builds and publishes; stage builds into the draft release without publishing it; publish publishes a draft that a stage run built"
+        required: false
+        default: release
+        type: choice
+        options:
+          - release
+          - stage
+          - publish
       coordinator_run_id:
         description: Release coordinator ID used to reconcile a transient dispatch failure
         required: false
@@ -42,6 +51,7 @@ concurrency:
 env:
   TAURI_APP_PATH: templates/clips/desktop
   RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
+  RELEASE_MODE: ${{ inputs.mode || 'release' }}
   RELEASE_TAG_PREFIX: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'clips-nightly-v' || 'clips-v' }}
   RELEASE_POINTER_TAG: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'clips-nightly-latest' || 'clips-latest' }}
   RELEASE_MANIFEST_NAME: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'clips-nightly-latest.json' || 'clips-latest.json' }}
@@ -168,6 +178,10 @@ jobs:
             fi
             echo "Draft release $TAG already points to $RELEASE_SOURCE_REF; the builds will upload to it."
           elif grep -q 'release not found' "$RELEASE_ERROR"; then
+            if [ "$RELEASE_MODE" = "publish" ]; then
+              echo "::error::There is no draft release $TAG to publish. Build it first with mode stage."
+              exit 1
+            fi
             if TAG_SHA=$(get_tag_sha "$TAG" 2>"$TAG_ERROR"); then
               if [ "$TAG_SHA" != "$RELEASE_SOURCE_REF" ]; then
                 echo "::error::Existing tag $TAG points to $TAG_SHA, expected $RELEASE_SOURCE_REF."
@@ -204,6 +218,7 @@ jobs:
 
   build-tauri:
     needs: [resolve-source-ref, prepare-release]
+    if: ${{ inputs.mode != 'publish' }}
     strategy:
       fail-fast: false
       matrix:
@@ -365,6 +380,12 @@ jobs:
 
   publish-release:
     needs: [prepare-release, build-tauri]
+    # A publish run skips the builds, so the default success() check would skip
+    # this job too.
+    if: >-
+      ${{ !cancelled() && inputs.mode != 'stage' &&
+      needs.prepare-release.result == 'success' &&
+      (inputs.mode == 'publish' || needs.build-tauri.result == 'success') }}
     runs-on: ubuntu-latest
     steps:
       # The manifest script comes from this workflow's revision, not the
@@ -392,18 +413,32 @@ jobs:
           # fails when the file already exists.
           mkdir -p updater/signatures
           gh release view "$RELEASE_TAG" --json assets,body > updater/release.json
+          # The DMG is the macOS download and has no signature, so the
+          # manifest script below never checks for it.
+          if ! jq -e 'any(.assets[].name; endswith(".dmg"))' updater/release.json > /dev/null; then
+            echo "::error::$RELEASE_TAG has no .dmg, so the macOS build did not finish."
+            exit 1
+          fi
           SIGNATURES=$(jq '[.assets[].name | select(endswith(".sig"))] | length' updater/release.json)
           if [ "$SIGNATURES" -eq 0 ]; then
+            # A publish run never saw the builds, so a draft without signatures
+            # may hold no builds at all.
+            if [ "$RELEASE_MODE" = "publish" ]; then
+              echo "::error::$RELEASE_TAG has no .sig files, so no build reached it. Build it again with mode stage before publishing."
+              exit 1
+            fi
             echo "⚠️ No .sig files in $RELEASE_TAG — TAURI_SIGNING_PRIVATE_KEY may not be configured; writing no updater manifest."
             exit 0
           fi
           gh release download "$RELEASE_TAG" --pattern '*.sig' --dir updater/signatures
-          # One required key per build in the build-tauri matrix.
+          # One key per bundle the build-tauri matrix makes; each also implies
+          # its plain {os}-{arch} key. Tauri's updater reads the installer's
+          # own key first, so a .deb install without one gets the AppImage.
           node --experimental-strip-types scripts/clips-updater-manifest.ts \
             --release updater/release.json \
             --signatures updater/signatures \
             --version "$RELEASE_VERSION" \
-            --require darwin-universal,windows-x86_64,linux-x86_64 \
+            --require darwin-universal-app,windows-x86_64-msi,linux-x86_64-appimage,linux-x86_64-deb,linux-x86_64-rpm \
             > updater/latest.json
           gh release upload "$RELEASE_TAG" updater/latest.json --clobber
 
