@@ -109,15 +109,18 @@ export function previewFrameSize(
     ? rawDevices.filter(isGenerationViewport)
     : [];
   const primaryViewport = readJsonPath(input.value, ["primaryViewport"]);
-  // Like the action, an empty device list means the same as leaving it out.
+  // Like the action, an empty device list means the same as leaving it out,
+  // and `fixedCanvas: true` replaces the devices with none.
   const resolvedDevices =
-    devices.length > 0
-      ? devices
-      : devicesForPrimaryViewport(
-          isGenerationViewport(primaryViewport)
-            ? primaryViewport
-            : DEFAULT_GENERATION_VIEWPORT,
-        );
+    readJsonPath(input.value, ["fixedCanvas"]) === true
+      ? []
+      : devices.length > 0
+        ? devices
+        : devicesForPrimaryViewport(
+            isGenerationViewport(primaryViewport)
+              ? primaryViewport
+              : DEFAULT_GENERATION_VIEWPORT,
+          );
   return GENERATION_VIEWPORT_SIZES[widestGenerationDevice(resolvedDevices)];
 }
 

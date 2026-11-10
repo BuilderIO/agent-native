@@ -37,6 +37,23 @@ describe("previewFrameSize", () => {
     ).toEqual({ width: 390, height: 844 });
   });
 
+  it("previews a fixed canvas at the default frame the action saves", () => {
+    expect(
+      size({
+        prompt: "A checkout flow",
+        primaryViewport: "mobile",
+        fixedCanvas: true,
+      }),
+    ).toEqual({ width: 1440, height: 900 });
+    expect(
+      size({
+        prompt: "A checkout flow",
+        devices: ["mobile"],
+        fixedCanvas: true,
+      }),
+    ).toEqual({ width: 1440, height: 900 });
+  });
+
   it("uses the widest requested device", () => {
     expect(
       size({ prompt: "A dashboard", devices: ["mobile", "tablet"] }),
