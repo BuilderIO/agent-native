@@ -22,8 +22,8 @@ export function findReactRouterInvocation(
   cwd = process.cwd(),
 ): { command: string; args: string[]; shell: boolean } {
   const shim = findBinUpwards("react-router", cwd);
-  if (shim) {
-    return { command: shim, args, shell: process.platform === "win32" };
+  if (shim && process.platform !== "win32") {
+    return { command: shim, args, shell: false };
   }
 
   const require = createRequire(path.join(cwd, "package.json"));
