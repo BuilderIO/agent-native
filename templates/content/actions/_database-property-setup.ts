@@ -20,6 +20,7 @@ import {
 import {
   DOCUMENT_PROPERTY_VISIBILITIES,
   defaultPropertyOptions,
+  isBlocksPropertyType,
   parsePropertyOptions,
   serializePropertyOptions,
   normalizePropertyVisibility,
@@ -27,12 +28,18 @@ import {
   type DocumentPropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { type MutationContext } from "./_database-row-mutation.js";
 import {
   runDatabaseSetupMutation,
   setupError,
   setupGuardSchema,
 } from "./_database-setup-mutation.js";
+import {
+  type CallProvenance,
+  isAgentCall,
+  lockPagesAndAssertAgentsMayEditText,
+} from "./_document-agent-lock.js";
 import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
 import { assertRelationTargetDatabase } from "./_relation-values.js";
 
@@ -358,20 +365,41 @@ async function assertRemovedOptionsUnused(
     .where(eq(schema.contentDatabaseItems.databaseId, context.database.id));
   const { views } = parseDatabaseViewConfig(context.database.viewConfigJson);
 
+  const removedOptionIdsByName = new Map<string, string[]>();
   for (const option of removed) {
-    const rowDocumentIds = new Set<string>();
-    for (const value of values) {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(value.valueJson);
-      } catch {
-        parsed = value.valueJson;
-      }
-      const items = Array.isArray(parsed) ? parsed : [parsed];
-      if (items.some((item) => usesOption(item, option))) {
-        rowDocumentIds.add(value.documentId);
+    for (const key of new Set([
+      normalizedOptionName(option.id),
+      normalizedOptionName(option.name),
+    ])) {
+      removedOptionIdsByName.set(key, [
+        ...(removedOptionIdsByName.get(key) ?? []),
+        option.id,
+      ]);
+    }
+  }
+  const rowDocumentIdsByOption = new Map<string, Set<string>>();
+  for (const value of values) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value.valueJson);
+    } catch {
+      parsed = value.valueJson;
+    }
+    for (const item of Array.isArray(parsed) ? parsed : [parsed]) {
+      if (typeof item !== "string") continue;
+      for (const optionId of removedOptionIdsByName.get(
+        normalizedOptionName(item),
+      ) ?? []) {
+        const rows = rowDocumentIdsByOption.get(optionId) ?? new Set<string>();
+        rows.add(value.documentId);
+        rowDocumentIdsByOption.set(optionId, rows);
       }
     }
+  }
+
+  for (const option of removed) {
+    const rowDocumentIds =
+      rowDocumentIdsByOption.get(option.id) ?? new Set<string>();
     const viewIds = views
       .filter((view) =>
         view.filters.some(
@@ -579,8 +607,34 @@ async function configureNaturalKey(
     .where(eq(schema.contentDatabases.id, context.database.id));
 }
 
+/** Every row shows a Blocks field as a tab, so an agent's change to one waits for, and is held to, each row's lock. */
+export async function lockRowsAndAssertAgentsMayEditTabs(
+  tx: Db,
+  databaseId: string,
+  provenance: CallProvenance | undefined,
+) {
+  if (!isAgentCall(provenance)) return;
+  const memberships = await tx
+    .select({
+      id: schema.contentDatabaseItems.id,
+      documentId: schema.contentDatabaseItems.documentId,
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  await lockDatabaseMemberships(
+    tx,
+    memberships.map((membership) => membership.id),
+  );
+  await lockPagesAndAssertAgentsMayEditText(
+    tx,
+    memberships.map((membership) => membership.documentId),
+    provenance,
+  );
+}
+
 export async function runConfigureDocumentProperty(
   input: ConfigureDocumentPropertyAgentInput,
+  provenance: CallProvenance | undefined,
 ) {
   return runDatabaseSetupMutation({
     operation: `configure-document-property.${input.operation}`,
@@ -612,6 +666,13 @@ export async function runConfigureDocumentProperty(
           userEmail,
           orgId: context.database.orgId,
         });
+        // A new Blocks field adds a tab to every row.
+        if (definition.type === "blocks")
+          await lockRowsAndAssertAgentsMayEditTabs(
+            tx,
+            context.database.id,
+            provenance,
+          );
         const options: DocumentPropertyOptions =
           definition.type === "relation"
             ? {
@@ -756,6 +817,18 @@ export async function runConfigureDocumentProperty(
             : input.patch.visibility,
         optionsJson: serializePropertyOptions(nextOptions),
       };
+      // Renaming or hiding a Blocks field renames or hides every row's tab.
+      if (
+        isBlocksPropertyType(existing.type as DocumentPropertyType) &&
+        (nextValues.name !== existing.name ||
+          nextValues.visibility !==
+            normalizePropertyVisibility(existing.visibility))
+      )
+        await lockRowsAndAssertAgentsMayEditTabs(
+          tx,
+          context.database.id,
+          provenance,
+        );
       const changed =
         nextValues.name !== existing.name ||
         nextValues.description !== existing.description ||

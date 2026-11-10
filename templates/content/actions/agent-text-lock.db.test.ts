@@ -1159,6 +1159,73 @@ describe("Agents set to Can comment on a page", () => {
     });
   });
 
+  it("refuses an agent's collection setup adding, renaming or hiding a Blocks tab on locked rows, and lets a person", async () => {
+    await asOwner(async () => {
+      const row = await collectionRow();
+      const setup = async (
+        key: string,
+        change:
+          | { operation: "create"; definition: Record<string, unknown> }
+          | {
+              operation: "update";
+              propertyId: string;
+              patch: Record<string, unknown>;
+            },
+        caller: typeof person | typeof agent,
+      ) => {
+        const discovered = await contract(row.databaseId);
+        return (await configureProperty.run(
+          {
+            ...change,
+            target: discovered.target,
+            expectedSchemaRevision: discovered.schemaRevision,
+            idempotencyKey: `${key}-${caller.caller}`,
+          } as never,
+          caller,
+        )) as { value: { id: string } };
+      };
+      const newTab = {
+        operation: "create" as const,
+        definition: { name: "Agent notes", type: "blocks" },
+      };
+
+      await expect(setup("new-tab", newTab, agent)).rejects.toMatchObject(
+        locked,
+      );
+      const notes = (await setup("new-tab", newTab, person)).value.id;
+      for (const patch of [
+        { name: "Agent's notes" },
+        { visibility: "always_hide" },
+      ]) {
+        await expect(
+          setup(
+            `tab-${Object.keys(patch)[0]}`,
+            { operation: "update", propertyId: notes, patch },
+            agent,
+          ),
+        ).rejects.toMatchObject(locked);
+      }
+      await setup(
+        "tab-description",
+        {
+          operation: "update",
+          propertyId: notes,
+          patch: { description: "Working notes" },
+        },
+        agent,
+      );
+      await setup(
+        "tab-rename",
+        {
+          operation: "update",
+          propertyId: notes,
+          patch: { name: "Renamed notes", visibility: "always_hide" },
+        },
+        person,
+      );
+    });
+  });
+
   it("checks the lock again after a block edit has waited its turn", async () => {
     await asOwner(async () => {
       const row = await collectionRow();
