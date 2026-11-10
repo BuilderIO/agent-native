@@ -226,6 +226,38 @@ describe("s3FileUploadProvider", () => {
     ).resolves.toBe(true);
   });
 
+  it("reports the status a refused upload came back with", async () => {
+    useSecrets({
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_BUCKET: "uploads-example",
+      S3_ACCESS_KEY_ID: "access-example",
+      S3_SECRET_ACCESS_KEY: "secret-example",
+      S3_REGION: "us-east-1",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com/assets",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 403,
+        statusText: "Forbidden",
+        text: async () => "AccessDenied",
+      })),
+    );
+
+    await expect(
+      s3FileUploadProvider.upload({
+        data: new Uint8Array([1, 2, 3]),
+        filename: "report.pdf",
+      }),
+    ).rejects.toMatchObject({
+      name: "S3RequestError",
+      provider: "s3",
+      status: 403,
+      message: expect.stringContaining("S3 PutObject failed (403)"),
+    });
+  });
+
   it("never mixes a workspace's saved storage with the deployment's", async () => {
     const deployment: Record<string, string> = {
       S3_ENDPOINT: "https://deploy-s3.example.com",

@@ -46,6 +46,7 @@ import {
   scheduleContentWebhookDelivery,
 } from "./_content-webhooks.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
 import {
@@ -282,6 +283,7 @@ export default defineAction({
     const now = new Date().toISOString();
 
     if (isBlocksPropertyType(type)) {
+      assertAgentsMayEditPageText(document, ctx);
       if (expectedGeneration !== undefined) {
         throw new ActionContractError(
           "Blocks fields are guarded by expectedBlocksFieldRevision, not expectedGeneration.",
@@ -366,10 +368,14 @@ export default defineAction({
           documentId,
         ]);
         const [lockedPage] = await tx
-          .select({ trashedAt: schema.documents.trashedAt })
+          .select({
+            trashedAt: schema.documents.trashedAt,
+            agentTextLocked: schema.documents.agentTextLocked,
+          })
           .from(schema.documents)
           .where(eq(schema.documents.id, documentId));
         assertEditableDocument(lockedPage);
+        assertAgentsMayEditPageText(lockedPage, ctx);
         const [lockedDefinition] = await tx
           .select()
           .from(schema.documentPropertyDefinitions)

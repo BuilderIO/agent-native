@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { CLIPS_VOICE_DICTATION } from "@shared/labs";
 import {
   IconChevronDown,
@@ -570,8 +571,8 @@ function DictationCard({
             queryKey: ["action", "list-dictations"],
           });
         },
-        onError: () => {
-          toast.error(t("dictateRoute.deleteFailed"));
+        onError: (error) => {
+          reportWriteFailure(error, { label: t("dictateRoute.deleteFailed") });
         },
       },
     );

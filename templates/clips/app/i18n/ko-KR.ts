@@ -703,6 +703,8 @@ const messages = {
     noMatches: "일치하는 항목이 없습니다.",
     noTranscript: "아직 성적표가 없습니다.",
     noTranscriptCaptured: "캡처된 녹취록이 없습니다.",
+    unreadableDescription:
+      "저장된 스크립트가 손상되었습니다. 다시 생성하면 클립 오디오로 새 스크립트를 만듭니다.",
     partialTranscript:
       "일부 녹취록: 녹화가 중간에 끊겨 일부 내용이 누락되었을 수 있습니다.",
     backupFailed:
@@ -2020,6 +2022,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "무료 클립 {{count}}개 남음",
     freeClipsLeft_other: "무료 클립 {{count}}개 남음",
+    activateBuilder: "Builder.io 활성화",
     hostedClipsExhaustedTitle: "Builder.io에 무료로 연결하고 계속 녹화하세요",
     hostedClipsExhaustedDescription:
       "무료 호스팅 클립을 모두 사용했습니다. Builder.io 저장소를 연결하면 라이브러리에 클립을 계속 저장할 수 있습니다.",

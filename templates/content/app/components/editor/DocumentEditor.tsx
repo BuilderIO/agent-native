@@ -1,4 +1,5 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { readClientAppState } from "@agent-native/core/client/application-state";
 import {
   isReconcileLeadClient,
@@ -36,6 +37,7 @@ import type {
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
+import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import type {
   ContentNavigationPathEntry,
   Document,
@@ -43,6 +45,7 @@ import type {
   DocumentSyncStatus,
 } from "@shared/api";
 import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
+import type { CommentAiRequest } from "@shared/comment-ai";
 import { commentPropertyTarget } from "@shared/comment-property-target";
 import { DOCUMENT_FLUSH_PROTOCOL } from "@shared/document-flush-protocol";
 import {
@@ -64,7 +67,7 @@ import {
   suggestionMarkedSourceRanges,
 } from "@shared/suggestion-formatting";
 import { resolveMarkdownSuggestionRange } from "@shared/suggestion-rebase";
-import { IconDatabase, IconLoader2, IconX } from "@tabler/icons-react";
+import { IconDatabase, IconLoader2 } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
 import {
   hashKey,
@@ -95,16 +98,17 @@ import {
   contentBlockRegistry,
   createContentBlockRenderContext,
 } from "@/blocks/contentBlockRegistry";
+import { useAgentPanelSlot } from "@/components/layout/agent-panel-host";
 import {
   type ContentCommentSurfaces,
+  type ContentPanelLayout,
   resolveCommentSurfaces,
+  resolveContentPanel,
   sameContentCommentSurfaces,
+  sameContentPanelLayout,
 } from "@/components/layout/content-layout";
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
-import {
-  useContentLayout,
-  useContentUtilityRail,
-} from "@/components/layout/use-content-layout";
+import { useContentLayout } from "@/components/layout/use-content-layout";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   remainingPageAfterDelete,
@@ -116,12 +120,6 @@ import {
   selectContentSpace,
 } from "@/components/sidebar/select-content-space";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { flushDocumentPropertyWrites } from "@/hooks/document-property-persistence";
 import { useComments, type CommentThread } from "@/hooks/use-comments";
 import {
@@ -238,7 +236,12 @@ import {
   type ClipCommentHost,
 } from "./clip-embed/clip-comments";
 import { flushBeforeSave } from "./collab-flush-before-save";
-import { isCommentAiWorkingOn, useCommentAiRequests } from "./comment-ai";
+import {
+  isCommentAiWorkingOn,
+  missingCommentAiReplyIds,
+  noteCommentAiPageChanges,
+  useCommentAiRequests,
+} from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   commentThreadAt,
@@ -294,6 +297,17 @@ import {
 } from "./document-flush-participant";
 import { createHistorySession } from "./document-history-session";
 import {
+  type DocumentPagePanelTab,
+  keepFocusInPagePanel,
+  pagePanelEscapeCloses,
+  returnFocusFromPagePanel,
+  sendPagePanelAgentCommand,
+  useAgentPanelState,
+  usePagePanelEscape,
+  usePagePanelMotion,
+  usePagePanelShortcuts,
+} from "./document-page-panel-state";
+import {
   saveDocumentWithRebase,
   type DocumentContentBase,
 } from "./document-save-rebase";
@@ -306,6 +320,7 @@ import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
+import { DocumentPagePanel } from "./DocumentPagePanel";
 import { DocumentProperties } from "./DocumentProperties";
 import { DocumentReconcileRecovery } from "./DocumentReconcileRecovery";
 import {
@@ -399,6 +414,10 @@ import {
 import { suggestedEditorIsolation } from "./suggestions/editor-isolation";
 import { useRememberedEditorMode } from "./suggestions/editor-mode-memory";
 import {
+  readPageOnLiveCopyChange,
+  suggestionPageFollow,
+} from "./suggestions/follow-page";
+import {
   createDraftSuggestionPresentationTransition,
   createObservedSuggestionPresentationTransition,
   drawnSuggestionPresentationOperations,
@@ -446,6 +465,7 @@ import type {
 import { WidgetVisualEditorBoundary } from "./WidgetLoadDiagnostic";
 
 const NO_COMMENT_THREADS: CommentThread[] = [];
+const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
 
 export function observeAcceptedCanonicalSettlement(args: {
   ydoc: YDoc;
@@ -545,14 +565,16 @@ export interface PageEditorSession {
 
 /**
  * Opens the Page with its Comments showing: one thread when `threadId` is
- * set, a new comment on the Property `propertyId` names, otherwise the list.
- * A new `key` asks again.
+ * set, a new comment on the Property `propertyId` names, a new comment on the
+ * whole Page when `pageComment` is set, otherwise the list. A new `key` asks
+ * again.
  */
 export interface PageCommentIntent {
   key: number;
   documentId: string;
   threadId?: string | null;
   propertyId?: string;
+  pageComment?: true;
 }
 
 export interface PageEditorSurfaceProps extends DocumentEditorProps {
@@ -742,6 +764,17 @@ export function sameSuggestionAnchorIds(
     current.length === next.length &&
     current.every((id) => next.includes(id))
   );
+}
+
+// The editor redraws its highlights whenever this list changes, and the
+// redraw renders the Page again, so a draft it can't map shares one empty
+// list instead of making a new one every render.
+export function previewDraftSuggestions(
+  preview: ReturnType<typeof previewSuggestionDraft>,
+) {
+  return preview.status === "ready"
+    ? preview.suggestions
+    : NO_DRAFT_SUGGESTIONS;
 }
 
 export function documentEditorReservesInlineReviewSpace(args: {
@@ -1279,16 +1312,99 @@ export function metadataUpdatesWithPendingTitle<
   return { ...updates, title: currentTitle };
 }
 
+// Typing writes each unsaved title into the cached page, and it stays there
+// until a save carrying it answers. A cached title this editor wrote is no sign
+// the server has it, however new the cached page is: a save of any other field
+// moves its updatedAt too.
 export function titleMatchConfirmsSave(args: {
   serverTitle: string;
   localTitle: string;
   lastSavedTitle: string;
   pendingTitle: string | null;
+  unansweredTitle: string | null;
 }) {
   if (args.serverTitle !== args.localTitle) return false;
-  return !(
-    args.pendingTitle === args.localTitle &&
-    args.localTitle !== args.lastSavedTitle
+  if (args.localTitle === args.lastSavedTitle) return true;
+  return (
+    args.pendingTitle !== args.localTitle &&
+    args.unansweredTitle !== args.localTitle
+  );
+}
+
+export function shouldAdoptServerTitle(args: {
+  serverTitle: string;
+  localTitle: string;
+  lastSavedTitle: string;
+  serverIsNewer: boolean;
+  titleFocused: boolean;
+  unansweredTitle: string | null;
+}) {
+  if (args.localTitle === args.lastSavedTitle) return true;
+  return (
+    args.serverIsNewer &&
+    !args.titleFocused &&
+    args.serverTitle !== args.unansweredTitle
+  );
+}
+
+// Each typed title gets its own mark, so a save can tell the title it carried
+// from the same text typed again after it was sent.
+export type UnansweredTitle = { readonly title: string };
+
+// A save settles the typed title it was sent with (`sent`) when the server
+// accepts it or the request fails (`answer` is null). A conflict, superseded
+// or preservation answer leaves it unanswered: the save behind it may send the
+// title again, and that attempt writes it back into the cached page before its
+// own answer.
+export function unansweredTitleAfterSave(args: {
+  unanswered: UnansweredTitle | null;
+  sent: UnansweredTitle | null;
+  answer: DocumentUpdateResult | null;
+}) {
+  if (args.sent === null || args.sent !== args.unanswered)
+    return args.unanswered;
+  if (
+    args.answer &&
+    (isDocumentUpdateConflict(args.answer) ||
+      isDocumentUpdateSuperseded(args.answer) ||
+      isDocumentUpdatePreservationRequired(args.answer))
+  )
+    return args.unanswered;
+  return null;
+}
+
+// Saves are not queued behind each other, so an icon or other metadata save can
+// carry the typed title while the title's own save is still out. A failed save
+// answers for the title only when it is the last save carrying it; otherwise
+// the one still out settles it.
+export function createTitleMarkCarriers() {
+  const carrying = new Map<UnansweredTitle, number>();
+  return {
+    send(mark: UnansweredTitle | null) {
+      if (mark) carrying.set(mark, (carrying.get(mark) ?? 0) + 1);
+    },
+    /** Lets go of `mark` and returns the mark this save's answer settles. */
+    settle(mark: UnansweredTitle | null, failed: boolean) {
+      if (!mark) return null;
+      const left = (carrying.get(mark) ?? 1) - 1;
+      if (left > 0) carrying.set(mark, left);
+      else carrying.delete(mark);
+      return failed && left > 0 ? null : mark;
+    },
+  };
+}
+
+// A failed save puts the last saved title back into the cached page, unless a
+// title typed after it was sent is waiting for its own save, whose answer
+// settles it.
+export function failedSaveRestoresSavedTitle(args: {
+  sentTitle: string | undefined;
+  unanswered: UnansweredTitle | null;
+  sent: UnansweredTitle | null;
+}) {
+  return (
+    args.sentTitle !== undefined &&
+    (args.unanswered === null || args.unanswered === args.sent)
   );
 }
 
@@ -1597,6 +1713,24 @@ export function pageEditorSessionKey({
   return `${documentId}:${databaseId ?? ""}:${databaseDocumentId ?? ""}`;
 }
 
+// A link to a named view opens on the collection's own page. Links the
+// agent's view and setup actions return carry only `viewId`, so a missing
+// `databaseId` means the page's own collection; one naming another collection
+// is a stale link.
+export function namedViewLinkMatchesPage({
+  viewId,
+  databaseId,
+  pageDatabaseId,
+}: {
+  viewId: string | null | undefined;
+  databaseId: string | null | undefined;
+  pageDatabaseId: string | null | undefined;
+}) {
+  if (!viewId) return true;
+  if (!pageDatabaseId) return false;
+  return !databaseId || databaseId === pageDatabaseId;
+}
+
 export function suggestionModeCapability(args: {
   permission: boolean;
   bodyReady: boolean;
@@ -1823,9 +1957,12 @@ export function PageEditorSurface({
   }
 
   if (
-    viewId &&
     document &&
-    (!document.database || document.database.id !== databaseId)
+    !namedViewLinkMatchesPage({
+      viewId,
+      databaseId,
+      pageDatabaseId: document.database?.id,
+    })
   ) {
     return host === "page" ? (
       <Navigate to="/home" replace />
@@ -2582,10 +2719,17 @@ function commentSurfacesForEditorWidth(
 ) {
   const next = resolveCommentSurfaces({
     pageWidth: width,
-    viewportWidth: window.innerWidth,
     previous: current,
   });
   return sameContentCommentSurfaces(next, current) ? current : next;
+}
+
+function panelLayoutForEditorWidth(width: number, current: ContentPanelLayout) {
+  const next = resolveContentPanel({
+    rowWidth: width,
+    viewportWidth: window.innerWidth,
+  });
+  return sameContentPanelLayout(next, current) ? current : next;
 }
 
 export function positionAnchoredCommentCard({
@@ -2695,22 +2839,58 @@ export function positionUnanchoredCommentCard({
 
 export function documentEditorShowsInlineComments(args: {
   showIndicators: boolean;
-  hasUtilityRailSpace: boolean;
-  commentsHistoryDrawerOpen: boolean;
-  utilityPanel: DocumentUtilityPanel;
+  hasInlineCommentSpace: boolean;
   hasOpenCommentThreads: boolean;
   hasSelectedCommentThread: boolean;
   hasPendingComment: boolean;
 }) {
   return (
     args.showIndicators &&
-    args.hasUtilityRailSpace &&
-    !args.commentsHistoryDrawerOpen &&
-    args.utilityPanel !== "info" &&
+    args.hasInlineCommentSpace &&
     (args.hasOpenCommentThreads ||
       args.hasSelectedCommentThread ||
       args.hasPendingComment)
   );
+}
+
+/**
+ * What the page panel shows. `utilityPanel === "comments"` alone only means a
+ * comment is in focus, which the margin or a card on the text shows; the panel
+ * takes it when Discussion was asked for, or for a suggestion with no margin to
+ * open beside.
+ */
+export function documentPagePanelTab(args: {
+  agentInPanel: boolean;
+  commentsHistoryDrawerOpen: boolean;
+  utilityPanel: DocumentUtilityPanel;
+  selectedSuggestionId: string | null;
+  hasInlineCommentSpace: boolean;
+}): DocumentPagePanelTab | null {
+  if (args.agentInPanel) return "agent";
+  if (args.commentsHistoryDrawerOpen) return "comments";
+  if (args.utilityPanel === "info") return "info";
+  return args.utilityPanel === "comments" &&
+    args.selectedSuggestionId &&
+    !args.hasInlineCommentSpace
+    ? "comments"
+    : null;
+}
+
+/** The page editor an event belongs to, by its path or else by focus. */
+function documentEditorEventOwner(event: KeyboardEvent) {
+  const pathOwner = event
+    .composedPath()
+    .find(
+      (node): node is HTMLElement =>
+        node instanceof HTMLElement && !!node.dataset.pageEditorOwner,
+    );
+  const activeElement = window.document.activeElement;
+  const owner =
+    pathOwner ??
+    (activeElement instanceof HTMLElement
+      ? activeElement.closest<HTMLElement>("[data-page-editor-owner]")
+      : null);
+  return owner?.dataset.pageEditorOwner ?? null;
 }
 
 export function utilityPanelAfterCommentFocusDismissal(
@@ -2721,16 +2901,11 @@ export function utilityPanelAfterCommentFocusDismissal(
 
 type DocumentCommentSurfaceLayout = {
   commentsHistoryDrawerOpen: boolean;
-  hasUtilityRailSpace: boolean;
   hasInlineCommentSpace: boolean;
 };
 
-function documentEditorHasDesktopCommentSurface(
-  args: DocumentCommentSurfaceLayout,
-) {
-  return args.commentsHistoryDrawerOpen
-    ? args.hasUtilityRailSpace
-    : args.hasInlineCommentSpace;
+function documentEditorHasCommentSurface(args: DocumentCommentSurfaceLayout) {
+  return args.commentsHistoryDrawerOpen || args.hasInlineCommentSpace;
 }
 
 export function dismissDocumentCommentFocus(
@@ -2742,34 +2917,7 @@ export function dismissDocumentCommentFocus(
 ) {
   args.closeReply();
   args.clearFocus();
-  if (!documentEditorHasDesktopCommentSurface(args)) args.closePanel();
-}
-
-export function documentEditorShowsUtilityPanelSheet(
-  args: DocumentCommentSurfaceLayout & {
-    utilityPanel: DocumentUtilityPanel;
-    selectedSuggestionId: string | null;
-    agentPanelOverlay?: boolean;
-  },
-) {
-  if (args.utilityPanel === "comments") {
-    return (
-      args.agentPanelOverlay ||
-      (!documentEditorHasDesktopCommentSurface(args) &&
-        (args.commentsHistoryDrawerOpen || !!args.selectedSuggestionId))
-    );
-  }
-  return args.utilityPanel === "info" && !args.hasUtilityRailSpace;
-}
-
-export function utilityPanelRegionShouldReceiveFocus({
-  openerConnected,
-  focusOnBody,
-}: {
-  openerConnected: boolean;
-  focusOnBody: boolean;
-}) {
-  return !openerConnected || focusOnBody;
+  if (!documentEditorHasCommentSurface(args)) args.closePanel();
 }
 
 export {
@@ -3264,6 +3412,7 @@ function PageEditorSessionBody({
   );
   const suggestionDraftRef = useRef(suggestionDraft);
   suggestionDraftRef.current = suggestionDraft;
+  const suggestionDraftChangedAtRef = useRef<number | null>(null);
   const suggestionDraftSaveFailedRef = useRef(suggestionDraftSaveFailed);
   suggestionDraftSaveFailedRef.current = suggestionDraftSaveFailed;
   const suggestionFlushRef = useRef<Promise<Map<
@@ -3297,11 +3446,7 @@ function PageEditorSessionBody({
     ResourceSuggestion[]
   >([]);
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
-  const [lastUtilityPanel, setLastUtilityPanel] =
-    useState<Exclude<DocumentUtilityPanel, null>>("comments");
   const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
-  const [commentsHistoryRailMounted, setCommentsHistoryRailMounted] =
-    useState(false);
   const [showCommentIndicators, setShowCommentIndicators] = useState(true);
   const [primaryFieldAvailability, setPrimaryFieldAvailability] = useState<{
     scope: string;
@@ -3609,6 +3754,10 @@ function PageEditorSessionBody({
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
     { title: "", updatedAt: null },
   );
+  // The newest title this editor typed into the cached page that no save
+  // carrying it has settled yet.
+  const unansweredTitleRef = useRef<UnansweredTitle | null>(null);
+  const titleMarkCarriersRef = useRef(createTitleMarkCarriers());
   const lastSavedContentRef = useRef<ContentSaveWatermark>({
     content: "",
     updatedAt: null,
@@ -4137,6 +4286,7 @@ function PageEditorSessionBody({
       historySessionRef.current.reset();
       ownContentSaveLineageRef.current.clear();
       authoredContentBaseRef.current.reset();
+      unansweredTitleRef.current = null;
       prevDocIdRef.current = documentId;
       isInitializedRef.current = false;
       if (saveTimeoutRef.current) {
@@ -4183,9 +4333,14 @@ function PageEditorSessionBody({
       });
       return;
     }
-    const adopt =
-      localTitle === lastSaved.title ||
-      (titleExternalIsNewer && !titleFocusedRef.current);
+    const adopt = shouldAdoptServerTitle({
+      serverTitle,
+      localTitle,
+      lastSavedTitle: lastSaved.title,
+      serverIsNewer: titleExternalIsNewer,
+      titleFocused: titleFocusedRef.current,
+      unansweredTitle: unansweredTitleRef.current?.title ?? null,
+    });
     if (adopt) {
       localTitleRef.current = serverTitle;
       setLocalTitle(serverTitle);
@@ -4252,6 +4407,7 @@ function PageEditorSessionBody({
       localTitle,
       lastSavedTitle: lastSavedTitleRef.current.title,
       pendingTitle: pendingDocumentSaveRef.current?.title ?? null,
+      unansweredTitle: unansweredTitleRef.current?.title ?? null,
     });
     const contentMatchesLocal = document.content === localContent;
 
@@ -4398,6 +4554,14 @@ function PageEditorSessionBody({
         setLocalContentUpdatedAt(nextSavedAt);
       }
 
+      const sentTitleMark =
+        updates.title !== undefined &&
+        unansweredTitleRef.current?.title === updates.title
+          ? unansweredTitleRef.current
+          : null;
+      titleMarkCarriersRef.current.send(sentTitleMark);
+      let settledTitleMark: UnansweredTitle | null | undefined;
+      let answer: DocumentUpdateResult | null = null;
       try {
         if (!isLinkedLocalSource) requireActiveEditorSession();
         const baseUpdatedAt =
@@ -4409,7 +4573,7 @@ function PageEditorSessionBody({
           updates.content !== undefined
             ? (options.contentBase ?? lastSavedContentRef.current).revision
             : undefined;
-        return await updateDocument.mutateAsync(
+        answer = await updateDocument.mutateAsync(
           withContentSaveOrigin(
             {
               id: documentId,
@@ -4461,8 +4625,19 @@ function PageEditorSessionBody({
             options.telemetryOrigin,
           ),
         );
+        return answer;
       } catch (error) {
-        if (updates.title !== undefined) {
+        settledTitleMark = titleMarkCarriersRef.current.settle(
+          sentTitleMark,
+          true,
+        );
+        if (
+          failedSaveRestoresSavedTitle({
+            sentTitle: updates.title,
+            unanswered: unansweredTitleRef.current,
+            sent: settledTitleMark,
+          })
+        ) {
           patchDocumentCaches(queryClient, documentId, {
             title: lastSavedTitleRef.current.title,
           });
@@ -4479,6 +4654,18 @@ function PageEditorSessionBody({
           queryKey: ["action", "list-documents"],
         });
         return fileFirstDocument;
+      } finally {
+        if (settledTitleMark === undefined) {
+          settledTitleMark = titleMarkCarriersRef.current.settle(
+            sentTitleMark,
+            answer === null,
+          );
+        }
+        unansweredTitleRef.current = unansweredTitleAfterSave({
+          unanswered: unansweredTitleRef.current,
+          sent: settledTitleMark,
+          answer,
+        });
       }
     },
     [document, documentId, queryClient, updateDocument],
@@ -6483,6 +6670,7 @@ function PageEditorSessionBody({
         return;
       }
       patchDocumentCaches(queryClient, documentId, { title: newTitle });
+      unansweredTitleRef.current = { title: newTitle };
       if (host === "page") {
         refreshLandingTitleHintCache(queryClient, documentId, newTitle);
         void rememberContentLandingDocument(documentId, newTitle).catch(
@@ -7163,6 +7351,7 @@ function PageEditorSessionBody({
     (next: string) => {
       if (next === suggestionDraftRef.current) return;
       suggestionDraftRef.current = next;
+      suggestionDraftChangedAtRef.current = Date.now();
       setSuggestionDraft(next);
       scheduleSuggestionAutosave();
     },
@@ -7358,6 +7547,98 @@ function PageEditorSessionBody({
     },
     [clearSuggestionAutosave],
   );
+
+  // Someone else's change moves the Page past the draft's start, and the
+  // server refuses a suggestion against an older Page. The draft moves to the
+  // new Page once everything typed here is saved and the typing has paused.
+  // A failed save keeps its own alert, which offers to discard and move.
+  useEffect(() => {
+    if (
+      !isSuggesting ||
+      isSubmittingSuggestions ||
+      suggestionDraftSaveFailed ||
+      suggestionAmendmentConflict ||
+      pendingSuggestionDecision ||
+      pendingProposalDecision
+    )
+      return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const check = () => {
+      timer = null;
+      const session = suggestionBaseRef.current;
+      const follow = suggestionPageFollow({
+        session,
+        page: {
+          content: document.content,
+          revision: canonicalSuggestionRevision(document),
+          updatedAt: document.updatedAt,
+        },
+        draftUpdatedAt: suggestionDraftUpdatedAt,
+        settled:
+          suggestionAutosaveRef.current.dirtySince === null &&
+          !suggestionFlushRef.current &&
+          !unresolvedProposalCreationRef.current &&
+          !suggestionDecisionInFlightRef.current &&
+          !proposalDecisionInFlightRef.current &&
+          decisionRefreshInFlightRef.current === null,
+        draftChangedAt: suggestionDraftChangedAtRef.current,
+        now: Date.now(),
+      });
+      if (follow.kind === "wait") timer = setTimeout(check, follow.ms);
+      else if (follow.kind === "rebase" && session)
+        suggestionBaseRef.current = {
+          ...session,
+          baseRevision: follow.baseRevision,
+        };
+      else if (follow.kind === "restart") {
+        // The editor reports typing to the draft on its next task, so a key
+        // pressed just before this check hasn't arrived yet. Move only after
+        // that report has had its turn and changed nothing.
+        const changedAt = suggestionDraftChangedAtRef.current;
+        timer = setTimeout(() => {
+          timer = null;
+          if (suggestionDraftChangedAtRef.current === changedAt)
+            continueSuggestionModeFrom(document);
+          else check();
+        }, 0);
+      }
+    };
+    check();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [
+    continueSuggestionModeFrom,
+    document,
+    isSubmittingSuggestions,
+    isSuggesting,
+    pendingProposalDecision,
+    pendingSuggestionDecision,
+    suggestionAmendmentConflict,
+    suggestionDraftSaveFailed,
+    suggestionDraftUpdatedAt,
+    suggestionPersistenceRevision,
+  ]);
+
+  // On a Page whose body is its live copy, someone else's typing reaches the
+  // server through the live copy, whose writes send no refresh event, and the
+  // suggesting editor isn't bound to it. The server saves the Page before it
+  // passes the update on, so read the Page again when the live copy changes.
+  useEffect(() => {
+    if (!isSuggesting || !bodyWritesThroughLiveCopy || !ydoc) return;
+    const filter = {
+      ...documentQueryFilter(documentId),
+      type: "active" as const,
+    };
+    return readPageOnLiveCopyChange({
+      subscribe: (changed) => {
+        ydoc.on("update", changed);
+        return () => ydoc.off("update", changed);
+      },
+      read: () => queryClient.refetchQueries(filter, { cancelRefetch: false }),
+      alreadyReading: () => queryClient.isFetching(filter) > 0,
+    });
+  }, [bodyWritesThroughLiveCopy, documentId, isSuggesting, queryClient, ydoc]);
 
   const refreshSuggestionDecisionDocument = useCallback(
     async (
@@ -7864,10 +8145,9 @@ function PageEditorSessionBody({
     suggestionDraft,
     suggestionPersistenceRevision,
   ]);
-  const sessionDraftSuggestions =
-    suggestionDraftPreview.status === "ready"
-      ? suggestionDraftPreview.suggestions
-      : [];
+  const sessionDraftSuggestions = previewDraftSuggestions(
+    suggestionDraftPreview,
+  );
   const draftSuggestions = useMemo(() => {
     if (suggestionBaseRef.current?.existingSuggestion) return [];
     return unpersistedDraftSuggestions(
@@ -8469,15 +8749,20 @@ function PageEditorSessionBody({
   } = usePendingCommentDraft(documentId);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
-  const [utilityPanelSheetContainer, setUtilityPanelSheetContainer] =
-    useState<HTMLElement | null>(null);
-  const utilityPanelSheetCloseRef = useRef<HTMLButtonElement>(null);
-  const utilityPanelRegionRef = useRef<HTMLElement>(null);
-  const utilityPanelSheetTriggerRef = useRef<HTMLElement | null>(null);
+  const pagePanelRef = useRef<HTMLElement>(null);
+  const pagePanelSpacerRef = useRef<HTMLDivElement>(null);
+  const pagePanelHeadingRef = useRef<HTMLHeadingElement>(null);
+  const agentSlotRef = useRef<HTMLDivElement>(null);
+  const pagePanelOpenRef = useRef(false);
+  const pagePanelLastTabRef = useRef<DocumentPagePanelTab | null>(null);
+  const pagePanelReturnFocusRef = useRef<HTMLElement | null>(null);
+  const pagePanelFocusInsideRef = useRef(false);
+  // A row preview's panel sits in the same document as its collection's.
+  const pagePanelId = host === "page" ? undefined : "document-row-panel";
+  const pagePanelComposerRef = useRef<TiptapComposerHandle>(null);
+  const pagePanelEscapeRef = useRef(false);
   const commentsHistoryTriggerRef = useRef<HTMLButtonElement>(null);
   const utilityPanelFocusFallbackRef = useRef<HTMLButtonElement>(null);
-  const utilityPanelFocusGenerationRef = useRef(0);
-  const utilityPanelRegionWasOpenRef = useRef(false);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const replyDrafts = useCommentReplyDrafts(documentId, session?.email);
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
@@ -8530,12 +8815,14 @@ function PageEditorSessionBody({
   const [focusSuggestionId, setFocusSuggestionId] = useState<string | null>(
     null,
   );
+  const [focusPageComposer, setFocusPageComposer] = useState(false);
   const appliedSuggestionLinkRef = useRef<string | null>(null);
   const {
     data: threads,
     isLoading: commentsLoading,
     isFetching: commentsFetching,
     isError: commentsError,
+    refetch: refetchComments,
   } = useComments(
     !isLocalFileDocument && !mcpDirectoryWidgetReadOnly ? documentId : null,
   );
@@ -8563,6 +8850,32 @@ function PageEditorSessionBody({
   const commentAi = useCommentAiRequests(documentId, {
     enabled: !isLocalFileDocument && canComment,
   });
+  // A request finishes on its own poll, before the reply or receipt it wrote
+  // is in this Page's comments, and the notice that would read them again
+  // can come late or not at all. Read them again then. Both reads follow the
+  // server's statuses, since a local error can show a run that went on to
+  // finish as needing review.
+  const missingRequestCommentIds = useMemo(
+    () => missingCommentAiReplyIds(commentAi.serverRequests, threads),
+    [commentAi.serverRequests, threads],
+  );
+  useEffect(() => {
+    if (missingRequestCommentIds) void refetchComments();
+  }, [missingRequestCommentIds, refetchComments]);
+  // So can the notice for a change AI made to the page, so read the page
+  // again when a run seen here finishes with one.
+  const commentAiStatusesRef = useRef(
+    new Map<string, CommentAiRequest["status"]>(),
+  );
+  useEffect(() => {
+    if (
+      noteCommentAiPageChanges(
+        commentAiStatusesRef.current,
+        commentAi.serverRequests,
+      )
+    )
+      void queryClient.invalidateQueries(documentQueryFilter(documentId));
+  }, [commentAi.serverRequests, documentId, queryClient]);
   // A request turns suggested on its own poll, often before the suggestion it
   // names is in this Page's list. Read the list again then; until that read
   // lands, its thread holds a placeholder rather than an empty status.
@@ -8705,24 +9018,31 @@ function PageEditorSessionBody({
   const measuredCommentSurfaces = useElementWidthValue(
     documentLayoutRef,
     commentSurfacesForEditorWidth,
-    resolveCommentSurfaces({ pageWidth: 0, viewportWidth: window.innerWidth }),
+    resolveCommentSurfaces({ pageWidth: 0 }),
     !shellCommentSurfaces,
   );
   const commentSurfaces = shellCommentSurfaces ?? measuredCommentSurfaces;
-  const hasUtilityRailSpace = commentSurfaces.list === "rail";
   const hasInlineCommentSpace = commentSurfaces.margin === "lane";
   const showCommentsHistoryDrawer =
     utilityPanel === "comments" && commentsBrowseOpen;
-  useContentUtilityRail(
-    host === "page" && (showCommentsHistoryDrawer || utilityPanel === "info"),
+  const pagePanelLayout = useElementWidthValue(
+    documentLayoutRef,
+    panelLayoutForEditorWidth,
+    resolveContentPanel({ rowWidth: 0, viewportWidth: window.innerWidth }),
   );
-  const showDesktopCommentsHistory =
-    showCommentsHistoryDrawer &&
-    documentEditorHasDesktopCommentSurface({
-      commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
-      hasUtilityRailSpace,
-      hasInlineCommentSpace,
-    });
+  // A row preview's sheet covers the page's panel, so the agent stays there
+  // and the preview's own panel holds Discussion and Info.
+  const agent = useAgentPanelState();
+  const showAgentTab = useAgentPanelSlot(agentSlotRef, host === "page");
+  const agentInPanel = showAgentTab && agent.inPanel;
+  const utilityPanelTab = documentPagePanelTab({
+    agentInPanel: false,
+    commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
+    utilityPanel,
+    selectedSuggestionId,
+    hasInlineCommentSpace,
+  });
+  const requestedPanelTab = agentInPanel ? "agent" : utilityPanelTab;
   // A comment on the whole page lives in Discussion, not the margin, so it
   // must not hold open an otherwise empty margin either.
   const hasOpenCommentThreads =
@@ -8750,15 +9070,20 @@ function PageEditorSessionBody({
           thread.threadId === selectedThreadId && !isPageCommentThread(thread),
       ) ??
         false));
-  const showInlineComments = documentEditorShowsInlineComments({
+  const marginWanted = documentEditorShowsInlineComments({
     showIndicators: showCommentIndicators,
-    hasUtilityRailSpace: hasInlineCommentSpace,
-    commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
-    utilityPanel,
+    hasInlineCommentSpace,
     hasOpenCommentThreads: hasOpenCommentThreads || hasOpenSuggestions,
     hasSelectedCommentThread,
     hasPendingComment: !!pendingComment,
   });
+  const pagePanel = usePagePanelMotion(requestedPanelTab, marginWanted);
+  // The margin gives its space back with the panel's arrival and takes it again
+  // as the panel leaves, so the page moves once; its comments wait until the
+  // panel has gone.
+  const marginReserved = marginWanted && !pagePanel.tab;
+  const showInlineComments = marginReserved && !pagePanel.closing;
+  if (pagePanel.tab) pagePanelLastTabRef.current = pagePanel.tab;
   // A failed read says nothing about whether the page still has open review,
   // so the remembered margin holds until both reads answer.
   const reviewReadsSettled = documentEditorReviewReadsSettled({
@@ -8775,10 +9100,10 @@ function PageEditorSessionBody({
     [documentId, host],
   );
   const reserveInlineReviewSpace = documentEditorReservesInlineReviewSpace({
-    showInlineComments,
+    showInlineComments: marginReserved,
     preserveInlineReviewSpace:
       preserveInlineReviewSpace || (pageHadOpenReview && !reviewReadsSettled),
-    hasInlineCommentSpace,
+    hasInlineCommentSpace: hasInlineCommentSpace && !pagePanel.tab,
     isDatabasePage: Boolean(document.database),
   });
   const scrollContentRef = useRef<HTMLDivElement>(null);
@@ -8788,8 +9113,10 @@ function PageEditorSessionBody({
       scroller: scrollContainerRef,
       content: scrollContentRef,
       column: pageColumnRef,
+      panelSpacer: pagePanelSpacerRef,
     },
     reserveInlineReviewSpace,
+    !!pagePanel.tab && pagePanelLayout.mode === "dock",
   );
   const hasOpenReview = hasOpenCommentThreads || hasOpenSuggestions;
   useEffect(() => {
@@ -8828,7 +9155,10 @@ function PageEditorSessionBody({
       setPendingComment(null, { keepWritten: true });
       setHoveredThreadId(null);
       setSelectedThreadId(threadId);
-      setCommentsBrowseOpen(preserveBrowseContext || !!pageThread);
+      // With the panel open there is no margin to open beside.
+      setCommentsBrowseOpen(
+        preserveBrowseContext || !!pageThread || pagePanelOpenRef.current,
+      );
       setUtilityPanel("comments");
     },
     [],
@@ -8969,81 +9299,64 @@ function PageEditorSessionBody({
     () => commentRailThreads(clipThreads, blockFieldComments.openFieldId),
     [blockFieldComments.openFieldId, clipThreads],
   );
-  const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
-  const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
   const showAnchoredCommentPopover =
     !showCommentsHistoryDrawer &&
     utilityPanel === "comments" &&
-    !hasInlineCommentSpace &&
+    (!hasInlineCommentSpace || !!pagePanel.tab) &&
     !blockFieldComments.tabSwitchPending &&
     ((!!pendingComment && blockFieldComments.pendingVisible) ||
       !!selectedThreadId);
-  // A panel without a docked rail opens over the page. Only a phone gets
-  // the modal Sheet: wider, the Sheet would cover a docked agent panel.
-  const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet({
-    utilityPanel,
-    commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
-    hasUtilityRailSpace,
-    hasInlineCommentSpace,
-    selectedSuggestionId,
+  // Escape closes what is innermost, so a reply box or a card goes first. A
+  // reply left open in Discussion doesn't show behind another tab, so it
+  // doesn't hold Escape there.
+  const { openReply } = replyDrafts;
+  pagePanelEscapeRef.current = pagePanelEscapeCloses({
+    tab: pagePanel.tab,
+    replyOpen: !!(openReply?.threadId || openReply?.suggestionId),
+    commentCardOpen: showAnchoredCommentPopover,
   });
-  const showUtilityPanelSheet =
-    showUtilityPanelOffColumn &&
-    (commentSurfaces.list === "sheet" ||
-      (utilityPanel === "comments" && shellLayout?.agentPanel === "overlay"));
-  const showUtilityPanelRegion =
-    showUtilityPanelOffColumn && commentSurfaces.list === "region-list";
-  const hasFocusedCommentReply =
-    replyDrafts.focus.current?.documentId === documentId;
 
+  // A phone's sheet covers the page under the header, so nothing behind it
+  // takes focus; the header's tabs stay live above it to switch or close.
+  const pageUnderSheet = !!pagePanel.tab && pagePanelLayout.mode === "sheet";
+
+  const pagePanelTab = pagePanel.tab;
   useEffect(() => {
-    if (showUtilityPanelRegion) {
-      if (
-        !utilityPanelRegionWasOpenRef.current &&
-        utilityPanelRegionShouldReceiveFocus({
-          openerConnected: !!utilityPanelSheetTriggerRef.current?.isConnected,
-          focusOnBody:
-            globalThis.document.activeElement === globalThis.document.body,
-        })
-      ) {
-        utilityPanelRegionRef.current?.focus();
+    const wasOpen = pagePanelOpenRef.current;
+    pagePanelOpenRef.current = !!pagePanelTab;
+    const panel = pagePanelRef.current;
+    if (pagePanelTab) {
+      if (!pagePanelFocusInsideRef.current) return;
+      pagePanelFocusInsideRef.current = false;
+      const composer =
+        pagePanelTab === "comments" ? pagePanelComposerRef.current : null;
+      if (composer) {
+        composer.focus();
+        return;
       }
-      utilityPanelRegionWasOpenRef.current = true;
+      // The agent's own open event moves on to its composer once the chat
+      // loads, and the heading takes focus back if that box then switches off.
+      if (pagePanelTab === "agent") {
+        if (!panel?.contains(globalThis.document.activeElement)) {
+          pagePanelHeadingRef.current?.focus({ preventScroll: true });
+        }
+        return keepFocusInPagePanel(() => pagePanelHeadingRef.current);
+      }
+      pagePanelHeadingRef.current?.focus({ preventScroll: true });
       return;
     }
-    if (!utilityPanelRegionWasOpenRef.current) return;
-
-    const transferredToRail =
-      showDesktopCommentsHistory || showDesktopInfoPanel;
-    if (utilityPanel && !transferredToRail) return;
-    utilityPanelRegionWasOpenRef.current = false;
-
-    const focusGeneration = utilityPanelFocusGenerationRef.current;
-    const restoreTarget = utilityPanelSheetTriggerRef.current;
-    const fallbackTarget =
-      utilityPanel === "comments" &&
-      commentsHistoryTriggerRef.current?.isConnected
-        ? commentsHistoryTriggerRef.current
-        : utilityPanelFocusFallbackRef.current;
-    globalThis.setTimeout(() => {
-      if (utilityPanelFocusGenerationRef.current !== focusGeneration) return;
-      (restoreTarget?.isConnected ? restoreTarget : fallbackTarget)?.focus();
-      utilityPanelSheetTriggerRef.current = null;
-    }, 0);
-  }, [
-    showDesktopCommentsHistory,
-    showDesktopInfoPanel,
-    showUtilityPanelRegion,
-    utilityPanel,
-  ]);
-
-  useEffect(() => {
-    if (utilityPanel) setLastUtilityPanel(utilityPanel);
-  }, [utilityPanel]);
-
-  useEffect(() => {
-    if (showDesktopCommentsHistory) setCommentsHistoryRailMounted(true);
-  }, [showDesktopCommentsHistory]);
+    if (!wasOpen) return;
+    const target = pagePanelReturnFocusRef.current;
+    pagePanelReturnFocusRef.current = null;
+    returnFocusFromPagePanel({
+      panel,
+      target,
+      tab: globalThis.document.querySelector<HTMLElement>(
+        `[data-page-editor-owner="${CSS.escape(pageEditorOwner)}"] [data-document-panel-tab="${pagePanelLastTabRef.current}"]`,
+      ),
+      fallback: utilityPanelFocusFallbackRef.current,
+    });
+  }, [pageEditorOwner, pagePanelTab]);
 
   useLayoutEffect(() => {
     if (!showInlineComments) {
@@ -9066,7 +9379,6 @@ function PageEditorSessionBody({
   const dismissCommentFocus = useCallback(() => {
     dismissDocumentCommentFocus({
       commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
-      hasUtilityRailSpace,
       hasInlineCommentSpace,
       closeReply: () => replyDrafts.setOpenReply(null),
       clearFocus: clearCommentFocus,
@@ -9078,15 +9390,9 @@ function PageEditorSessionBody({
   }, [
     clearCommentFocus,
     hasInlineCommentSpace,
-    hasUtilityRailSpace,
     replyDrafts.setOpenReply,
     showCommentsHistoryDrawer,
   ]);
-
-  const handleEditorEscape = useCallback(() => {
-    dismissCommentFocus();
-    editorEscapeTargetRef.current?.focus({ preventScroll: true });
-  }, [dismissCommentFocus]);
 
   const activateSuggestion = useCallback((suggestionId: string) => {
     setPendingComment(null);
@@ -9252,6 +9558,7 @@ function PageEditorSessionBody({
   );
   const handledCommentDeepLinkRef = useRef<string | null>(null);
   const handledPropertyCommentLinkRef = useRef<string | null>(null);
+  const handledPageCommentLinkRef = useRef<string | null>(null);
 
   const startPropertyComment = useCallback(
     (property: DocumentProperty) => {
@@ -9295,15 +9602,6 @@ function PageEditorSessionBody({
 
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
-      ++utilityPanelFocusGenerationRef.current;
-      const activeElement = globalThis.document.activeElement;
-      if (
-        nextPanel &&
-        activeElement instanceof HTMLElement &&
-        activeElement !== globalThis.document.body
-      ) {
-        utilityPanelSheetTriggerRef.current = activeElement;
-      }
       if (!nextPanel) replyDrafts.setOpenReply(null);
       setUtilityPanel(nextPanel);
       if (nextPanel === "comments") {
@@ -9317,6 +9615,94 @@ function PageEditorSessionBody({
     [clearCommentFocus, replyDrafts.setOpenReply],
   );
 
+  const handlePagePanelChange = useCallback(
+    (next: DocumentPagePanelTab | null) => {
+      const activeElement = globalThis.document.activeElement;
+      if (
+        next &&
+        activeElement instanceof HTMLElement &&
+        activeElement !== globalThis.document.body &&
+        !pagePanelRef.current?.contains(activeElement)
+      ) {
+        pagePanelReturnFocusRef.current = activeElement;
+      }
+      if (next) {
+        trackEvent("document_utility_panel_opened", {
+          app_name: "content",
+          template_name: "content",
+          panel: next,
+        });
+      }
+      // One panel: the side that opens closes the other, in the effect below,
+      // so the panel stays open across a switch between the agent and the rest.
+      if (
+        sendPagePanelAgentCommand(next, {
+          ownsAgent: showAgentTab,
+          focus: pagePanelFocusInsideRef.current,
+        })
+      ) {
+        return;
+      }
+      handleUtilityPanelChange(next);
+    },
+    [handleUtilityPanelChange, showAgentTab],
+  );
+
+  // The page's text takes Escape before the window does, so it closes an open
+  // panel the same way and leaves focus in the text; with no panel to close,
+  // Escape moves focus out of the text.
+  const handleEditorEscape = useCallback(() => {
+    const closePanel = pagePanelEscapeRef.current;
+    dismissCommentFocus();
+    if (closePanel) {
+      handlePagePanelChange(null);
+      return;
+    }
+    editorEscapeTargetRef.current?.focus({ preventScroll: true });
+  }, [dismissCommentFocus, handlePagePanelChange]);
+
+  const pagePanelClaims = useRef({
+    agent: agentInPanel,
+    utility: !!utilityPanelTab,
+  });
+  useEffect(() => {
+    const claims = pagePanelClaims.current;
+    pagePanelClaims.current = {
+      agent: agentInPanel,
+      utility: !!utilityPanelTab,
+    };
+    if (agentInPanel && !claims.agent && utilityPanelTab) {
+      handleUtilityPanelChange(null);
+    } else if (utilityPanelTab && !claims.utility && agentInPanel) {
+      window.dispatchEvent(new CustomEvent("agent-panel:close"));
+    }
+  }, [agentInPanel, handleUtilityPanelChange, utilityPanelTab]);
+
+  const openPanelTab = showAgentTab && agent.open ? "agent" : requestedPanelTab;
+  const showCommentsTab = canComment && !isLocalFileDocument;
+  const ownsPageEvent = (event: KeyboardEvent) => {
+    const owner = documentEditorEventOwner(event);
+    return owner ? owner === pageEditorOwner : host === "page";
+  };
+  usePagePanelShortcuts((shortcut, event) => {
+    if (!ownsPageEvent(event)) return;
+    const tab =
+      shortcut === "last"
+        ? (pagePanelLastTabRef.current ??
+          (showAgentTab ? "agent" : showCommentsTab ? "comments" : "info"))
+        : shortcut;
+    if (
+      (tab === "agent" && !showAgentTab) ||
+      (tab === "comments" && !showCommentsTab)
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const closing = shortcut === "last" ? !!openPanelTab : openPanelTab === tab;
+    pagePanelFocusInsideRef.current = !closing;
+    handlePagePanelChange(closing ? null : tab);
+  });
+
   useEffect(() => {
     setPendingComment(null);
     setCommentsBrowseOpen(false);
@@ -9324,6 +9710,18 @@ function PageEditorSessionBody({
     clearCommentFocus();
     setSelectedSuggestionId(null);
   }, [clearCommentFocus, documentId]);
+
+  // A comment on the whole Page is written in Discussion's own composer.
+  const startPageComment = useCallback(() => {
+    handleUtilityPanelChange("comments");
+    if (canComment) setFocusPageComposer(true);
+  }, [canComment, handleUtilityPanelChange]);
+
+  // A request the composer never took lapses when Discussion closes, so it
+  // can't take focus the next time Discussion opens.
+  useEffect(() => {
+    if (utilityPanel !== "comments") setFocusPageComposer(false);
+  }, [utilityPanel]);
 
   useEffect(() => {
     const suggestionId = new URLSearchParams(location.search).get("suggestion");
@@ -9424,6 +9822,19 @@ function PageEditorSessionBody({
     startPropertyComment,
   ]);
 
+  // ...and on the whole Page, as a row's Comment command does. The address is
+  // the routed Page's, so a row previewed beside it leaves it alone.
+  useEffect(() => {
+    if (host === "preview") return;
+    if (!new URLSearchParams(location.search).has("commentPage")) {
+      handledPageCommentLinkRef.current = null;
+      return;
+    }
+    if (handledPageCommentLinkRef.current === documentId) return;
+    handledPageCommentLinkRef.current = documentId;
+    startPageComment();
+  }, [documentId, host, location.search, startPageComment]);
+
   const handledCommentIntentRef = useRef<number | null>(null);
   useEffect(() => {
     if (
@@ -9431,7 +9842,12 @@ function PageEditorSessionBody({
       handledCommentIntentRef.current === commentIntent.key
     )
       return;
-    const { threadId, propertyId } = commentIntent;
+    const { threadId, propertyId, pageComment } = commentIntent;
+    if (pageComment) {
+      handledCommentIntentRef.current = commentIntent.key;
+      startPageComment();
+      return;
+    }
     if (threadId) {
       // Wait for the thread; a thread that is gone opens the list instead.
       if (!threads) return;
@@ -9463,30 +9879,18 @@ function PageEditorSessionBody({
     handleUtilityPanelChange,
     pageProperties,
     pagePropertiesFailed,
+    startPageComment,
     startPropertyComment,
     threads,
   ]);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      const path = event.composedPath();
-      const pathOwner = path.find(
-        (node) => node instanceof HTMLElement && node.dataset.pageEditorOwner,
-      );
-      const activeElement = window.document.activeElement;
-      const activeOwner =
-        activeElement instanceof HTMLElement
-          ? activeElement.closest<HTMLElement>("[data-page-editor-owner]")
-          : null;
-      const eventOwner =
-        pathOwner instanceof HTMLElement ? pathOwner : activeOwner;
-      const ownsEvent = eventOwner?.dataset.pageEditorOwner === pageEditorOwner;
-      if (ownsEvent) dismissCommentFocus();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [dismissCommentFocus, pageEditorOwner]);
+  usePagePanelEscape({
+    belongs: ownsPageEvent,
+    closes: () => pagePanelEscapeRef.current,
+    keeps: preserveCommentComposerEscape,
+    onDismiss: dismissCommentFocus,
+    onClose: () => handlePagePanelChange(null),
+  });
 
   useEffect(() => {
     if (!showAnchoredCommentPopover) {
@@ -10197,6 +10601,7 @@ function PageEditorSessionBody({
     <CommentsSidebar
       compact={!hasInlineCommentSpace}
       replyDrafts={replyDrafts}
+      pageComposerRef={pagePanelComposerRef}
       documentId={documentId}
       highlightsVisible={showCommentIndicators}
       onHighlightsVisibleChange={
@@ -10236,6 +10641,8 @@ function PageEditorSessionBody({
       unplaceableSuggestionRevisions={unplaceableSuggestionRevisions}
       focusSuggestionId={focusSuggestionId}
       onSuggestionFocused={() => setFocusSuggestionId(null)}
+      focusPageComposer={presentation === "history" && focusPageComposer}
+      onPageComposerFocused={() => setFocusPageComposer(false)}
       hoveredSuggestionId={hoveredSuggestionId ?? editingSuggestionId}
       anchoredSuggestionIds={reviewAnchoredSuggestionIds}
       onActivateSuggestion={activateSuggestionOrThread}
@@ -10526,86 +10933,30 @@ function PageEditorSessionBody({
   const exportContent = isInitializedRef.current
     ? localContent
     : document.content;
-  const renderUtilityPanelContent = (
-    panel: Exclude<DocumentUtilityPanel, null>,
-    inSheet = false,
-    popoverContainer?: HTMLElement | null,
-  ) => {
-    const utilityPanelTitle =
-      panel === "info" ? t("editor.toolbar.info") : t("comments.discussion");
-    return (
-      <div
-        className="flex min-h-full w-full min-w-0 flex-col bg-background"
-        data-document-utility-panel
-        data-page-editor-owner={pageEditorOwner}
-      >
-        <div className="sticky top-0 z-10 flex h-12 items-center border-b border-border bg-background px-4">
-          <h2 className="sr-only" aria-hidden={inSheet || undefined}>
-            {utilityPanelTitle}
-          </h2>
-          <div
-            role="tablist"
-            aria-label={t("comments.panelTabs")}
-            className="flex h-full items-stretch gap-5"
-            data-utility-panel-tabs
-          >
-            {(["comments", "info"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                role="tab"
-                aria-selected={panel === tab}
-                onClick={() => {
-                  if (panel !== tab) handleUtilityPanelChange(tab);
-                }}
-                className={cn(
-                  "relative inline-flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                  "after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full",
-                  panel === tab && "text-foreground after:bg-foreground",
-                )}
-              >
-                {tab === "comments"
-                  ? t("comments.discussion")
-                  : t("editor.toolbar.info")}
-              </button>
-            ))}
-          </div>
-          <button
-            ref={inSheet ? utilityPanelSheetCloseRef : undefined}
-            type="button"
-            className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={t("editor.toolbar.closeUtilityPanel")}
-            onClick={() => handleUtilityPanelChange(null)}
-          >
-            <IconX size={16} />
-          </button>
-        </div>
-        {panel === "info" ? (
-          <PropertyCommentsContext.Provider value={propertyComments}>
-            <DocumentInfoPanel
-              document={document}
-              documentContent={exportContent}
-              additionalBlockContents={additionalBlockContents}
-              databaseId={databaseId}
-              databaseDocumentId={databaseDocumentId}
-              rowView={rowView}
-              rowViewPending={addressRowView.pending}
-              canEdit={editorCanEdit}
-              popoverContainer={popoverContainer}
-              onSaveDescription={(description) =>
-                persistDocumentUpdates({ description })
-              }
-            />
-          </PropertyCommentsContext.Provider>
-        ) : (
-          renderCommentsSidebar(undefined, false, "history")
-        )}
+  const pagePanelBody =
+    pagePanel.rendered === "info" ? (
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <PropertyCommentsContext.Provider value={propertyComments}>
+          <DocumentInfoPanel
+            document={document}
+            documentContent={exportContent}
+            additionalBlockContents={additionalBlockContents}
+            databaseId={databaseId}
+            databaseDocumentId={databaseDocumentId}
+            rowView={rowView}
+            rowViewPending={addressRowView.pending}
+            canEdit={editorCanEdit}
+            onSaveDescription={(description) =>
+              persistDocumentUpdates({ description })
+            }
+          />
+        </PropertyCommentsContext.Provider>
       </div>
-    );
-  };
-  const utilityPanelContent = utilityPanel
-    ? renderUtilityPanelContent(utilityPanel)
-    : null;
+    ) : pagePanel.rendered === "comments" ? (
+      <CommentHistoryScrollContainer className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+        {renderCommentsSidebar(undefined, false, "history")}
+      </CommentHistoryScrollContainer>
+    ) : null;
 
   return (
     <BlockRegistryProvider
@@ -10621,7 +10972,7 @@ function PageEditorSessionBody({
       ) : null}
       <div
         ref={documentLayoutRef}
-        className="relative flex min-h-0 min-w-0 flex-1"
+        className="relative grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_minmax(0,1fr)] overflow-hidden"
         data-document-print-root
         data-page-editor-owner={pageEditorOwner}
         onClickCapture={(event) => {
@@ -10652,7 +11003,7 @@ function PageEditorSessionBody({
           setHoveredThreadId,
         )}
       >
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="col-span-2 min-w-0">
           <DocumentToolbar
             compact={host === "preview"}
             documentId={documentId}
@@ -10688,6 +11039,8 @@ function PageEditorSessionBody({
             canShare={!mcpDirectoryWidgetReadOnly || canEdit}
             readOnly={mcpDirectoryWidgetReadOnly}
             hideFromSearch={document.hideFromSearch}
+            agentTextLocked={Boolean(document.agentTextLocked)}
+            canManageAgentTextLock={Boolean(document.canManage)}
             source={document.source}
             canDelete={canDelete}
             deletePending={
@@ -10696,11 +11049,12 @@ function PageEditorSessionBody({
             onDelete={handleDeleteDocument}
             isFavorite={document.isFavorite}
             onToggleFavorite={handleToggleFavorite}
-            utilityPanel={utilityPanel}
-            commentsHistoryOpen={showCommentsHistoryDrawer}
+            utilityPanel={openPanelTab}
             openCommentCount={openCommentCount}
-            onUtilityPanelChange={handleUtilityPanelChange}
-            showCommentsControl={canComment && !isLocalFileDocument}
+            onUtilityPanelChange={handlePagePanelChange}
+            showAgentTab={showAgentTab}
+            panelId={pagePanelId}
+            showCommentsControl={showCommentsTab}
             commentsTriggerRef={commentsHistoryTriggerRef}
             utilityPanelFocusFallbackRef={utilityPanelFocusFallbackRef}
             onOpenBreadcrumbItem={
@@ -10729,6 +11083,11 @@ function PageEditorSessionBody({
             }}
             onImport={canImportPages ? openImport : undefined}
           />
+        </div>
+        <div
+          className="col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col"
+          inert={pageUnderSheet || undefined}
+        >
           <ContentImportDialog
             request={importRequest}
             parentId={documentId}
@@ -10940,17 +11299,13 @@ function PageEditorSessionBody({
           >
             <div
               ref={scrollContentRef}
-              className={cn(
-                "relative flex min-h-full w-full min-w-0",
-                showDesktopInfoPanel ? "justify-center" : "flex-col",
-              )}
+              className="relative flex min-h-full w-full min-w-0 flex-col"
               data-document-scroll-content
             >
               <div
                 ref={pageColumnRef}
                 className={cn(
-                  "min-w-0",
-                  showDesktopInfoPanel ? "flex-1" : "w-full",
+                  "w-full min-w-0",
                   reserveInlineReviewSpace && "pr-80",
                   !isDatabasePage &&
                     DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
@@ -11095,6 +11450,14 @@ function PageEditorSessionBody({
                           canEdit &&
                           !isGitHubSourceDocument &&
                           !collabInitializationFailed
+                        }
+                        // A syncing body, or a collection's own page, has no
+                        // fields on screen to report it.
+                        leaveReadFailureToPage={
+                          !isDatabasePage &&
+                          !mcpDirectoryWidgetReadOnly &&
+                          !bodyHydrationPending &&
+                          !bodyHydrationError
                         }
                         popoversPortalled={false}
                       />
@@ -11552,37 +11915,37 @@ function PageEditorSessionBody({
                 ) : null}
               </div>
 
-              {showDesktopRightRail ? (
-                showInlineComments ? (
-                  blockFieldComments.tabSwitchPending ? null : (
-                    <aside
-                      ref={commentLaneRef}
-                      className="absolute right-0 top-0 w-80"
-                      aria-label={t("comments.title")}
-                      data-comments-flow-lane
-                    >
-                      <div
-                        style={{
-                          transform: `translateX(${commentLaneOffset}px)`,
-                        }}
-                      >
-                        <div className="relative min-h-full translate-x-4">
-                          {renderCommentsSidebar()}
-                        </div>
-                      </div>
-                    </aside>
-                  )
-                ) : (
-                  <aside className="w-80 shrink-0 border-s border-border">
-                    {utilityPanelContent}
-                  </aside>
-                )
+              {showInlineComments && !blockFieldComments.tabSwitchPending ? (
+                <aside
+                  ref={commentLaneRef}
+                  className={cn(
+                    "absolute right-0 top-0 w-80 transition-opacity duration-[80ms] motion-reduce:transition-none",
+                    pagePanel.marginFading && "opacity-0",
+                  )}
+                  aria-label={t("comments.title")}
+                  data-comments-flow-lane
+                >
+                  <div
+                    style={{
+                      transform: `translateX(${commentLaneOffset}px)`,
+                    }}
+                  >
+                    <div className="relative min-h-full translate-x-4">
+                      {renderCommentsSidebar()}
+                    </div>
+                  </div>
+                </aside>
               ) : null}
 
+              {/* translateZ(0) gives the card its own layer: Safari otherwise
+                  can paint the Blocks field's sticky tab row (z-10) across it.
+                  compositing-ok: it mounts only while a thread is open. Its
+                  menus portal to the body, so the new containing block for
+                  fixed children moves nothing. */}
               {showAnchoredCommentPopover ? (
                 <aside
                   ref={anchoredCommentRef}
-                  className="pointer-events-none absolute z-30"
+                  className="pointer-events-none absolute z-30 [transform:translateZ(0)]"
                   aria-label={t("comments.title")}
                   data-comments-anchored-popover
                   data-placement={anchoredCommentPosition?.placement}
@@ -11616,155 +11979,20 @@ function PageEditorSessionBody({
           </div>
         </div>
 
-        <aside
-          className={cn(
-            "min-h-0 shrink-0 overflow-hidden border-s bg-background transition-[width] duration-[260ms] ease-[var(--ease-drawer)]",
-            showDesktopCommentsHistory
-              ? "w-80 border-border"
-              : "pointer-events-none w-0 border-transparent",
-          )}
-          aria-hidden={!showDesktopCommentsHistory || undefined}
-          inert={!showDesktopCommentsHistory || undefined}
-          data-comments-history-rail
-          onTransitionEnd={(event) => {
-            if (event.propertyName === "width" && !showDesktopCommentsHistory) {
-              setCommentsHistoryRailMounted(false);
-            }
-          }}
+        <DocumentPagePanel
+          open={!!pagePanel.tab}
+          tab={pagePanel.rendered}
+          layout={pagePanelLayout}
+          panelId={pagePanelId}
+          pageEditorOwner={pageEditorOwner}
+          panelRef={pagePanelRef}
+          spacerRef={pagePanelSpacerRef}
+          headingRef={pagePanelHeadingRef}
+          agentSlotRef={host === "page" ? agentSlotRef : undefined}
+          onClose={() => handlePagePanelChange(null)}
         >
-          <CommentHistoryScrollContainer className="h-full w-80 overflow-x-hidden overflow-y-auto">
-            {commentsHistoryRailMounted
-              ? renderUtilityPanelContent("comments")
-              : null}
-          </CommentHistoryScrollContainer>
-        </aside>
-
-        {showUtilityPanelRegion && utilityPanel ? (
-          <aside
-            ref={utilityPanelRegionRef}
-            tabIndex={-1}
-            className="absolute inset-y-0 end-0 z-40 flex w-80 max-w-full flex-col border-s border-border bg-background shadow-[var(--agent-kit-drawer-elevation)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-8 motion-safe:duration-[260ms] motion-safe:ease-[var(--ease-drawer)]"
-            aria-label={
-              utilityPanel === "info"
-                ? t("editor.toolbar.info")
-                : t("comments.discussion")
-            }
-            data-document-utility-region
-          >
-            {utilityPanel === "comments" ? (
-              <CommentHistoryScrollContainer className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {renderUtilityPanelContent(utilityPanel)}
-              </CommentHistoryScrollContainer>
-            ) : (
-              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {renderUtilityPanelContent(utilityPanel)}
-              </div>
-            )}
-          </aside>
-        ) : null}
-
-        <Sheet
-          modal
-          open={showUtilityPanelSheet}
-          onOpenChange={(open) => {
-            if (!open) handleUtilityPanelChange(null);
-          }}
-        >
-          <SheetContent
-            ref={setUtilityPanelSheetContainer}
-            side="right"
-            inert={!showUtilityPanelSheet || undefined}
-            onOpenAutoFocus={(event) => {
-              const activeElement = globalThis.document.activeElement;
-              if (
-                !utilityPanelSheetTriggerRef.current &&
-                activeElement instanceof HTMLElement &&
-                activeElement !== globalThis.document.body &&
-                !utilityPanelSheetContainer?.contains(activeElement)
-              ) {
-                utilityPanelSheetTriggerRef.current = activeElement;
-              }
-              event.preventDefault();
-              const focusedReply = hasFocusedCommentReply
-                ? utilityPanelSheetContainer?.querySelector<HTMLElement>(
-                    "[data-comment-reply-composer] [contenteditable=true]",
-                  )
-                : null;
-              (focusedReply ?? utilityPanelSheetCloseRef.current)?.focus();
-            }}
-            onCloseAutoFocus={(event) => {
-              event.preventDefault();
-              if (hasInlineCommentSpace && hasFocusedCommentReply) return;
-              const focusGeneration = utilityPanelFocusGenerationRef.current;
-              const restoreTarget = utilityPanelSheetTriggerRef.current;
-              const fallbackTarget = commentsHistoryTriggerRef.current
-                ?.isConnected
-                ? commentsHistoryTriggerRef.current
-                : utilityPanelFocusFallbackRef.current;
-              globalThis.setTimeout(() => {
-                if (utilityPanelFocusGenerationRef.current !== focusGeneration)
-                  return;
-                (restoreTarget?.isConnected
-                  ? restoreTarget
-                  : fallbackTarget
-                )?.focus();
-                utilityPanelSheetTriggerRef.current = null;
-              }, 0);
-            }}
-            overlayClassName={
-              shellLayout?.agentPanel === "overlay" ? "z-[79]" : undefined
-            }
-            className={cn(
-              "flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]",
-              shellLayout?.agentPanel === "overlay" && "z-[80]",
-            )}
-            aria-describedby={undefined}
-            onEscapeKeyDown={(event) => {
-              preserveCommentComposerEscape(event);
-              if (event.defaultPrevented) return;
-              const target = event.target;
-              const nestedPopper =
-                target instanceof Element
-                  ? target.closest("[data-radix-popper-content-wrapper]")
-                  : null;
-              if (
-                nestedPopper &&
-                utilityPanelSheetContainer?.contains(nestedPopper)
-              ) {
-                event.preventDefault();
-              }
-            }}
-          >
-            <SheetHeader className="sr-only">
-              <SheetTitle>
-                {lastUtilityPanel === "info"
-                  ? t("editor.toolbar.info")
-                  : t("comments.discussion")}
-              </SheetTitle>
-            </SheetHeader>
-            {lastUtilityPanel === "comments" ? (
-              <CommentHistoryScrollContainer className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {showUtilityPanelSheet
-                  ? renderUtilityPanelContent(
-                      lastUtilityPanel,
-                      true,
-                      utilityPanelSheetContainer,
-                    )
-                  : null}
-              </CommentHistoryScrollContainer>
-            ) : (
-              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-                {showUtilityPanelSheet
-                  ? renderUtilityPanelContent(
-                      lastUtilityPanel,
-                      true,
-                      utilityPanelSheetContainer,
-                    )
-                  : null}
-              </div>
-            )}
-          </SheetContent>
-        </Sheet>
+          {pagePanelBody}
+        </DocumentPagePanel>
       </div>
     </BlockRegistryProvider>
   );

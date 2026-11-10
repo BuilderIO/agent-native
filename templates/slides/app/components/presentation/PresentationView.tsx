@@ -37,7 +37,11 @@ import { trackSlidesRelay } from "@/lib/slides-relay-tracking";
 
 import type { DesignSystemData } from "../../../shared/api";
 import { normalizeSlideTransition } from "../../../shared/slide-transitions";
-import { openPresentChannel, type PresentMessage } from "./present-channel";
+import {
+  openPresentChannel,
+  presentChannelSupported,
+  type PresentMessage,
+} from "./present-channel";
 import {
   annotateBuildSteps,
   buildClickCount,
@@ -471,6 +475,11 @@ export default function PresentationView({
   const openPresenterWindow = useCallback(() => {
     // Shared routes ignore `presenter=1`, so a window opened there shows no notes.
     if (isShared) return false;
+    // Without a channel the presenter window can neither follow nor drive this view.
+    if (!presentChannelSupported()) {
+      toast.error(t("editorToolbar.presenterViewUnsupported"));
+      return true;
+    }
     const url = new URL(window.location.href);
     url.searchParams.set("presenter", "1");
     url.searchParams.set(
@@ -632,7 +641,7 @@ export default function PresentationView({
 
     const exportPdf = async () => {
       try {
-        await exportDeckAsPdf(
+        const { sidecarSkipped } = await exportDeckAsPdf(
           pdfExportRequest.title,
           pdfExportRequest.slides,
           pdfExportRequest.aspectRatio,
@@ -644,6 +653,7 @@ export default function PresentationView({
             ...(isShared ? {} : { analytics: { deckId } }),
           },
         );
+        if (sidecarSkipped) toast.warning(t("editorExport.pdfSidecarSkipped"));
       } catch (error) {
         if (cancelled || abortController.signal.aborted) return;
         console.error("[slides] shared PDF export failed:", error);

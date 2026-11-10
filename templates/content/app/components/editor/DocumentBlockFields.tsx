@@ -59,6 +59,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   documentPropertiesPlaceholder,
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
@@ -404,7 +405,9 @@ export function DocumentBlockFields({
     placeholder,
   });
   const propertiesData = usePagePropertiesOnly ? placeholder : query.data;
-  const hasQueryError = !usePagePropertiesOnly && query.isError;
+  const hasQueryError =
+    !usePagePropertiesOnly &&
+    documentPropertiesReadFailed(documentId, databaseId, query);
   const canEditFields =
     canEdit &&
     propertiesData?.canEditValues === true &&
@@ -480,11 +483,7 @@ export function DocumentBlockFields({
         className={cn(BLOCK_FIELDS_GRID, "gap-1")}
         data-block-fields-state="error"
       >
-        <QueryErrorState
-          compact
-          onRetry={() => globalThis.location.reload()}
-          retrying={query.isRefetching}
-        />
+        <QueryErrorState compact onRetry={() => void query.refetch()} />
       </div>
     );
   }

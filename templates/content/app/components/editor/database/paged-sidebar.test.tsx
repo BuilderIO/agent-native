@@ -27,6 +27,7 @@ vi.mock("@/lib/files-navigation", async (importOriginal) => ({
 import {
   navigationItemAsDatabaseItem,
   PagedContentFilesSidebarView,
+  type ActivePathDocument,
 } from "./sidebar";
 
 function navigationItem(
@@ -78,7 +79,7 @@ function Harness({
   queryClient: providedQueryClient,
 }: {
   activeDocumentId?: string;
-  activePathDocuments?: Document[];
+  activePathDocuments?: ActivePathDocument[];
   onDeleteItem?: (item: ContentDatabaseItem) => void;
   onToggleFavorite?: (item: ContentDatabaseItem) => void;
   initiallyExpanded?: string[];
@@ -573,6 +574,65 @@ describe("PagedContentFilesSidebarView", () => {
       "/page/second-root",
       "/page/open-root",
     ]);
+
+    await act(async () => root.unmount());
+  });
+
+  it("gives the open page's off-page row an expand arrow when its path entry has children", async () => {
+    useFilesNavigationPage.mockImplementation((args) => ({
+      data:
+        args.navigation.parentId === "off-page-open"
+          ? page([navigationItem("open-child", "off-page-open")])
+          : page([navigationItem("first-root")], "next-root-page"),
+      isLoading: false,
+      isError: false,
+      isFetching: false,
+      refetch: vi.fn(),
+    }));
+    const openDocument = {
+      id: "off-page-open",
+      parentId: null,
+      title: "Off-page open",
+      content: "",
+      icon: null,
+      position: 99,
+      isFavorite: false,
+      hideFromSearch: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    } satisfies Document;
+
+    const leaf = await renderHarness({
+      activeDocumentId: openDocument.id,
+      activePathDocuments: [{ ...openDocument, hasChildren: false }],
+    });
+    expect(leaf.container.textContent).toContain("Off-page open");
+    expect(
+      leaf.container.querySelector('[aria-label="Expand Off-page open"]'),
+    ).toBeNull();
+    await act(async () => leaf.root.unmount());
+
+    const { container, root } = await renderHarness({
+      activeDocumentId: openDocument.id,
+      activePathDocuments: [{ ...openDocument, hasChildren: true }],
+    });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Expand Off-page open"]')
+        ?.click(),
+    );
+    expect(container.textContent).toContain("Page open-child");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Collapse Off-page open"]',
+        )
+        ?.click(),
+    );
+    expect(container.textContent).not.toContain("Page open-child");
+    expect(
+      container.querySelector('[aria-label="Expand Off-page open"]'),
+    ).not.toBeNull();
 
     await act(async () => root.unmount());
   });

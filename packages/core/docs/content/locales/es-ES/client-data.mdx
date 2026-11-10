@@ -355,9 +355,9 @@ try {
 }
 ```
 
-El texto de la notificación depende del fallo. Un `401` y una solicitud cancelada no muestran nada, porque la comprobación de sesión ya gestiona el `401`. Estar sin conexión, un tiempo de espera y un `403` muestran cada uno un mensaje breve traducido bajo el título. Un `5xx` muestra solo el título, porque el servidor oculta su propio texto de error. Cuando una acción rechaza con un error `4xx` tipado desde `fail()`, la notificación muestra el mensaje que escribió la acción; consulta [Hacer fallar una acción](/docs/actions-defining#failing). Un `403` nunca muestra texto del servidor.
+El texto de la notificación depende del fallo. Una solicitud cancelada no muestra nada. Estar sin conexión, un tiempo de espera, un `401` y un `403` muestran cada uno un mensaje breve traducido bajo el título. Un `5xx` muestra solo el título, porque el servidor oculta su propio texto de error. Cuando una acción rechaza con un error `4xx` tipado desde `fail()`, la notificación muestra el mensaje que escribió la acción; consulta [Hacer fallar una acción](/docs/actions-defining#failing). Un `401` o un `403` nunca muestra texto del servidor.
 
-`AppProviders` monta el componente que escucha estos fallos, `WriteFailureToaster`, siempre que su prop `toaster` no sea `null`. Una app que no usa `AppProviders`, o que pasa `toaster={null}`, renderiza `<WriteFailureToaster />` de `@agent-native/toolkit/app/shared` dentro de su `QueryClientProvider` y junto a su propio `Toaster`. Sin él, no se muestra ninguna notificación.
+`AppProviders` siempre monta el componente que escucha estos fallos, `WriteFailureToaster`. Este muestra su notificación a través del `Toaster` de la app, así que una app que pasa `toaster={null}` debe renderizar el suyo propio. Una app que no usa `AppProviders` renderiza `<WriteFailureToaster />` de `@agent-native/toolkit/app/shared` dentro de su `QueryClientProvider` y junto a su `Toaster`. Sin él, no se muestra ninguna notificación.
 
 ## useDbSync {#usedbsync}
 

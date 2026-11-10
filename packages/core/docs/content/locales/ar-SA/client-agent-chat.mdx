@@ -201,6 +201,8 @@ sendToAgentChat({
 });
 ```
 
+تعيد `sendToAgentChat()` معرّف تبويب وليس تأكيد تسليم. لتأكيد إرسال محلي، استخدم `sendToAgentChatAndConfirm({ message, chatTarget: "local" })` وتعامل مع `delivered: false` و `reason`. تنتظر الدالة التأكيد وتلغي الإرسال عند انتهاء المهلة. لا تدعم المسودات أو وجهات التعليمات البرمجية.
+
 ### AgentChatMessage {#agentchatmessage}
 
 | الخيار         | النوع      | الوصف                                                                                   |

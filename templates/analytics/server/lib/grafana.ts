@@ -1,3 +1,4 @@
+import { fetchConfiguredEndpoint } from "./configured-endpoint-fetch";
 import {
   assertCredentialCanReachEndpoint,
   resolveCredentialDetailed,
@@ -44,7 +45,7 @@ async function apiGet<T>(path: string, cacheKey?: string): Promise<T> {
     return cached.data as T;
   }
 
-  const res = await fetch(`${apiBase.value}${path}`, {
+  const res = await fetchConfiguredEndpoint(apiBase.value, path, {
     headers: {
       Authorization: `Bearer ${token.value}`,
       "Content-Type": "application/json",
@@ -187,7 +188,7 @@ export async function queryDatasource(
   const apiBase = await getApiBase();
   const token = await getToken();
   assertCredentialCanReachEndpoint(apiBase, token, "GRAFANA_API_TOKEN");
-  const res = await fetch(`${apiBase.value}/api/ds/query`, {
+  const res = await fetchConfiguredEndpoint(apiBase.value, "/api/ds/query", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token.value}`,

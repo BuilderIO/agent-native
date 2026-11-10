@@ -305,6 +305,38 @@ describe("Content database navigation query invalidation", () => {
     expect(queryClient.getQueryState(otherKey)?.isInvalidated).toBe(false);
     expect(queryClient.getQueryState(tableKey)?.isInvalidated).toBe(false);
   });
+
+  it("refreshes the paths with a page in the collection, whose arrows follow its view", () => {
+    const queryClient = new QueryClient();
+    const pathKey = (id: string) => [
+      "action",
+      "get-content-navigation-context",
+      { id },
+    ];
+    queryClient.setQueryData(pathKey("in-files"), {
+      path: [{ id: "in-files", databaseId: "files" }],
+    });
+    queryClient.setQueryData(pathKey("elsewhere"), {
+      path: [{ id: "elsewhere", databaseId: "tracker" }],
+    });
+
+    invalidateContentDatabaseNavigationQueries(queryClient, {
+      parentId: null,
+    });
+    expect(queryClient.getQueryState(pathKey("in-files"))?.isInvalidated).toBe(
+      false,
+    );
+
+    invalidateContentDatabaseNavigationQueries(queryClient, {
+      databaseId: "files",
+    });
+    expect(queryClient.getQueryState(pathKey("in-files"))?.isInvalidated).toBe(
+      true,
+    );
+    expect(queryClient.getQueryState(pathKey("elsewhere"))?.isInvalidated).toBe(
+      false,
+    );
+  });
 });
 
 describe("isContentDatabaseByIdQueryEnabled", () => {

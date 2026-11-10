@@ -11,6 +11,8 @@ export interface SaveApiKeyValueInput {
   registered: boolean;
   /** Ad-hoc keys only: save for everyone in the organization. */
   shared?: boolean;
+  /** Exact outbound origins for a custom key. Omit when rotating to retain the policy. */
+  urlAllowlist?: string[];
 }
 
 async function readError(res: Response): Promise<string | null> {
@@ -41,6 +43,7 @@ export async function saveApiKeyValue({
   value,
   registered,
   shared,
+  urlAllowlist,
 }: SaveApiKeyValueInput): Promise<void> {
   const res = registered
     ? await fetch(`${secretsEndpoint()}/${encodeURIComponent(name)}`, {
@@ -55,11 +58,53 @@ export async function saveApiKeyValue({
           name,
           value,
           scope: shared ? "workspace" : "user",
+          ...(urlAllowlist === undefined ? {} : { urlAllowlist }),
         }),
       });
   if (!res.ok) {
     throw new Error(
       (await readError(res)) ?? `Could not save ${name} (${res.status})`,
+    );
+  }
+  notifyKeysChanged();
+}
+
+/** Edit a saved custom key's outbound policy without sending its value. */
+export async function updateApiKeyOrigins(input: {
+  name: string;
+  scope: "user" | "org" | "workspace";
+  owner: "user" | "org";
+  urlAllowlist: string[];
+}): Promise<void> {
+  const res = await fetch(
+    `${secretsEndpoint()}/adhoc/${encodeURIComponent(input.name)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scope: input.scope,
+        owner: input.owner,
+        urlAllowlist: input.urlAllowlist,
+      }),
+    },
+  );
+  if (!res.ok) {
+    throw new Error(
+      (await readError(res)) ??
+        `Could not update ${input.name} (${res.status})`,
+    );
+  }
+  notifyKeysChanged();
+}
+
+/** Remove a registered key's saved value. Throws the server's message. */
+export async function removeApiKeyValue(name: string): Promise<void> {
+  const res = await fetch(`${secretsEndpoint()}/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(
+      (await readError(res)) ?? `Could not remove ${name} (${res.status})`,
     );
   }
   notifyKeysChanged();
