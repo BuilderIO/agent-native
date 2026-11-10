@@ -2223,7 +2223,7 @@ export function createAgentChatPlugin(
                   requireCurrentRunOwner("validate URL allowlist"),
                   { getKeyAllowlist, getResolvedKeyAllowlist },
                 );
-                if (allowlist && !validateUrlAllowlist(url, allowlist)) {
+                if (!validateUrlAllowlist(url, allowlist)) {
                   return false;
                 }
               }
@@ -7651,13 +7651,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               getAgentTeamBackgroundRun,
               listAgentTeamBackgroundTranscriptEvents,
             } = await import("./agent-teams.js");
-            const run = await runWithRequestContext({ userEmail: owner }, () =>
-              getAgentTeamBackgroundRun(runId),
+            const scope = { ownerEmail: owner, orgId: orgId ?? null };
+            const requestScope = {
+              userEmail: owner,
+              ...(orgId !== undefined ? { orgId } : {}),
+            };
+            const run = await runWithRequestContext(requestScope, () =>
+              getAgentTeamBackgroundRun(runId, scope),
             );
-            if (run) {
-              const events = await runWithRequestContext(
-                { userEmail: owner },
-                () => listAgentTeamBackgroundTranscriptEvents(runId),
+            if (run && (await canViewThread(run.sourceRecord.threadId))) {
+              const events = await runWithRequestContext(requestScope, () =>
+                listAgentTeamBackgroundTranscriptEvents(runId, scope),
               );
               return { status: "ok", runId, events };
             }

@@ -847,7 +847,10 @@ export function getDuplicateSourceSlides(deck: Deck): Slide[] {
 const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
 const inFlightSaves = new Set<string>();
 const inFlightSaveChains = new Map<string, Promise<void>>();
-const inFlightKeepaliveSaves = new Map<string, Promise<void>>();
+const inFlightKeepaliveSaves = new Map<string, Promise<void | boolean>>();
+// A plain request started when the tab hides can be cancelled by unload, so a
+// pagehide keepalive replay must still be allowed to supersede it.
+const plainHiddenSaves = new WeakSet<Promise<void | boolean>>();
 const inFlightSaveControllers = new Map<string, AbortController>();
 const deckSaveGenerations = new Map<string, number>();
 const immediateFlushRequests = new Map<string, boolean>();
@@ -1038,6 +1041,9 @@ const pendingPersistedResultHandlers = new Map<
 const deckClientWriteId = nanoid(12);
 const deckClientWriteSequences = new Map<string, number>();
 const deckKeepaliveSuccessGenerations = new Map<string, number>();
+// Plain parallel requests carry only queued ops, so they must not read as a
+// keepalive replay of the active save.
+const deckPlainParallelSuccessGenerations = new Map<string, number>();
 const deckServerRevisions = new Map<string, string | null>();
 const slideLocalWriteSequences = new Map<string, Map<string, number>>();
 const sentSlideContent = new Map<
@@ -2295,13 +2301,22 @@ function drainPendingDeckOps(
     );
     const activeOps = inFlightOpSlides.get(deckId);
     const controller = inFlightSaveControllers.get(deckId);
+    const keepalive = options?.keepalive === true;
+    const parallelSave = inFlightKeepaliveSaves.get(deckId);
+    const queuedOps = pendingOpsQueue.get(deckId) ?? [];
+    // Mostly a tab switch, where the active save still lands. A close can cancel
+    // this plain request and a body over the 64 KB keepalive cap has no later
+    // fallback, so the editor's beforeunload prompt is what protects it.
+    const opsBehindActive =
+      options?.keepalive === false && activeOps
+        ? opsThatOnlyApplyAfter(activeOps, queuedOps)
+        : null;
     if (
-      options?.keepalive &&
+      (keepalive || opsBehindActive) &&
       !keepaliveAlreadyRequested &&
-      !inFlightKeepaliveSaves.has(deckId) &&
+      (!parallelSave || (keepalive && plainHiddenSaves.has(parallelSave))) &&
       activeOps?.length
     ) {
-      const queuedOps = pendingOpsQueue.get(deckId) ?? [];
       const replacementIndex = queuedOps.findIndex(
         (op) => op.op === "full-replace",
       );
@@ -2310,15 +2325,20 @@ function drainPendingDeckOps(
         (op) => op.op === "full-replace" && !verifiedFullReplaceOps.has(op),
       );
       if (unverifiedReplacement?.op === "full-replace") {
-        const draft = deckWithQueuedFullReplaceOps(keepaliveCandidates);
-        if (draft) holdStaleFullReplace(deckId, draft, null);
+        if (keepalive) {
+          const draft = deckWithQueuedFullReplaceOps(keepaliveCandidates);
+          if (draft) holdStaleFullReplace(deckId, draft, null);
+        }
       } else {
         const keepaliveOps =
-          replacementIndex >= 0
+          opsBehindActive ??
+          (replacementIndex >= 0
             ? queuedOps.slice(replacementIndex)
-            : collapseKeepaliveSlidePatches([...activeOps, ...queuedOps]);
+            : collapseKeepaliveSlidePatches([...activeOps, ...queuedOps]));
         const coveredQueuedOps =
-          replacementIndex >= 0 ? queuedOps.slice(replacementIndex) : queuedOps;
+          replacementIndex >= 0 && !opsBehindActive
+            ? queuedOps.slice(replacementIndex)
+            : queuedOps;
         const coveredSlideSequences = new Map(
           slideLocalWriteSequences.get(deckId) ?? [],
         );
@@ -2327,13 +2347,22 @@ function drainPendingDeckOps(
           deckId,
           keepaliveOps,
           controller?.signal,
-          { keepalive: true },
+          { keepalive },
         ).then(
           (results) => {
             if (
               (deckSaveGenerations.get(deckId) ?? 0) !== keepaliveGeneration
             ) {
               return;
+            }
+            if (!keepalive) {
+              deckPlainParallelSuccessGenerations.set(
+                deckId,
+                (deckPlainParallelSuccessGenerations.get(deckId) ?? 0) + 1,
+              );
+              // This only applies after the active save, whose success handler
+              // now skips confirming its ops.
+              rememberPersistedSlideContent(deckId, activeOps);
             }
             acknowledgeKeepaliveDeckOps(
               deckId,
@@ -2344,20 +2373,39 @@ function drainPendingDeckOps(
             );
           },
           (err) => {
+            // Landing before the active save is expected. Resolving rather than
+            // rejecting keeps flushes waiting on this request from failing.
+            const landedFirst =
+              opsBehindActive !== null &&
+              Boolean(
+                err &&
+                typeof err === "object" &&
+                "errorCode" in err &&
+                err.errorCode === "slide_content_stale",
+              );
+            if (landedFirst) return false;
             if (!controller?.signal.aborted) {
               console.error(`Failed to keepalive save deck ${deckId}:`, err);
             }
             throw err;
           },
         );
-        inFlightKeepaliveSaves.set(deckId, keepaliveSave);
+        // A superseded plain request is still in flight; flushing the queue
+        // before it settles would resend the edits it carries.
+        const trackedSave = parallelSave
+          ? Promise.allSettled([parallelSave, keepaliveSave]).then(
+              () => keepaliveSave,
+            )
+          : keepaliveSave;
+        inFlightKeepaliveSaves.set(deckId, trackedSave);
+        if (!keepalive) plainHiddenSaves.add(trackedSave);
         const clearKeepaliveSave = () => {
-          if (inFlightKeepaliveSaves.get(deckId) === keepaliveSave) {
+          if (inFlightKeepaliveSaves.get(deckId) === trackedSave) {
             inFlightKeepaliveSaves.delete(deckId);
             notifySaveListeners();
           }
         };
-        void keepaliveSave.then(clearKeepaliveSave, clearKeepaliveSave);
+        void trackedSave.then(clearKeepaliveSave, clearKeepaliveSave);
       }
     }
     notifySaveListeners();
@@ -2407,6 +2455,8 @@ function drainPendingDeckOps(
   const generation = deckSaveGenerations.get(deckId) ?? 0;
   const keepaliveSuccessGenerationAtStart =
     deckKeepaliveSuccessGenerations.get(deckId) ?? 0;
+  const plainParallelSuccessGenerationAtStart =
+    deckPlainParallelSuccessGenerations.get(deckId) ?? 0;
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
   if (controller) inFlightSaveControllers.set(deckId, controller);
@@ -2419,7 +2469,9 @@ function drainPendingDeckOps(
       if (!isCurrentGeneration()) return;
       if (
         (deckKeepaliveSuccessGenerations.get(deckId) ?? 0) <=
-        keepaliveSuccessGenerationAtStart
+          keepaliveSuccessGenerationAtStart &&
+        (deckPlainParallelSuccessGenerations.get(deckId) ?? 0) <=
+          plainParallelSuccessGenerationAtStart
       ) {
         rememberPersistedSlideContent(deckId, ops);
       }
@@ -2450,12 +2502,20 @@ function drainPendingDeckOps(
     .catch(async (err) => {
       if (!isCurrentGeneration()) return;
       const keepaliveSave = inFlightKeepaliveSaves.get(deckId);
+      // A plain parallel request carries only the ops queued behind this one,
+      // so its success says nothing about whether these ops were persisted.
       let replayedByKeepalive =
         (deckKeepaliveSuccessGenerations.get(deckId) ?? 0) >
         keepaliveSuccessGenerationAtStart;
-      if (!replayedByKeepalive && keepaliveSave) {
+      if (
+        !replayedByKeepalive &&
+        keepaliveSave &&
+        !plainHiddenSaves.has(keepaliveSave)
+      ) {
         const [keepaliveResult] = await Promise.allSettled([keepaliveSave]);
-        replayedByKeepalive = keepaliveResult?.status === "fulfilled";
+        replayedByKeepalive =
+          keepaliveResult.status === "fulfilled" &&
+          keepaliveResult.value !== false;
       }
       if (!isCurrentGeneration()) return;
       const refusedSlideId = slideAnimationRefusalSlideId(err);
@@ -3243,6 +3303,36 @@ function acknowledgeKeepaliveDeckOps(
   } else {
     pendingPersistedResultHandlers.delete(deckId);
   }
+}
+
+// A parallel save that applied before the active one would make the server
+// reject the active save's older sequence and drop its edits. Content patches
+// based on what the active save writes stay stale until it lands, so only those
+// may go out alongside it.
+function opsThatOnlyApplyAfter(
+  activeOps: GranularOp[],
+  queuedOps: GranularOp[],
+): GranularOp[] | null {
+  const activeBases = new Map<string, string>();
+  for (const op of collapseKeepaliveSlidePatches(activeOps)) {
+    if (
+      op.op === "patch-slide" &&
+      typeof op.fields.content === "string" &&
+      op.baseContentHash
+    ) {
+      activeBases.set(op.slideId, op.baseContentHash);
+    }
+  }
+  const queued = collapseKeepaliveSlidePatches(queuedOps);
+  const onlyAfter = queued.every(
+    (op) =>
+      op.op === "patch-slide" &&
+      typeof op.fields.content === "string" &&
+      op.baseContentHash !== undefined &&
+      activeBases.has(op.slideId) &&
+      activeBases.get(op.slideId) !== op.baseContentHash,
+  );
+  return queued.length > 0 && onlyAfter ? queued : null;
 }
 
 function collapseKeepaliveSlidePatches(ops: GranularOp[]): GranularOp[] {
@@ -4906,6 +4996,7 @@ async function deleteDeckFromAPI(id: string): Promise<void> {
     deckServerRevisions.delete(id);
     deckClientWriteSequences.delete(id);
     deckKeepaliveSuccessGenerations.delete(id);
+    deckPlainParallelSuccessGenerations.delete(id);
   } catch (error) {
     if (
       !(
@@ -4920,6 +5011,7 @@ async function deleteDeckFromAPI(id: string): Promise<void> {
     deckServerRevisions.delete(id);
     deckClientWriteSequences.delete(id);
     deckKeepaliveSuccessGenerations.delete(id);
+    deckPlainParallelSuccessGenerations.delete(id);
   }
 }
 
@@ -6890,6 +6982,7 @@ export function DeckProvider({
       deckLocalWriteSeq.delete(deckId);
       deckClientWriteSequences.delete(deckId);
       deckKeepaliveSuccessGenerations.delete(deckId);
+      deckPlainParallelSuccessGenerations.delete(deckId);
       deckServerRevisions.delete(deckId);
       slideLocalWriteSequences.delete(deckId);
       sentSlideContent.delete(deckId);
@@ -7567,11 +7660,16 @@ export function DeckProvider({
       }
     };
     const onPageHide = () => flushPendingSaves();
+    // Bodies over the 64 KB keepalive cap only survive as plain requests, and
+    // beforeunload is the earliest point a close gives us to start one.
+    const onBeforeUnload = () => flushPendingSaves({ keepalive: false });
     document.addEventListener("visibilitychange", onHidden);
     window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("beforeunload", onBeforeUnload);
     return () => {
       document.removeEventListener("visibilitychange", onHidden);
       window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("beforeunload", onBeforeUnload);
     };
   }, []);
 

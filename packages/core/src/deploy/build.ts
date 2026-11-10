@@ -4780,6 +4780,36 @@ export function bundleYjsRuntimeForServerlessOutput(
   return bareImports;
 }
 
+export function prepareVercelFunctionOutputs(
+  outputDir: string,
+  projectCwd: string,
+): void {
+  const functionsDir = path.join(outputDir, "functions");
+  if (!fs.existsSync(functionsDir)) return;
+  const visit = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.name.endsWith(".func")) {
+        if (entry.isSymbolicLink()) {
+          const target = fs.realpathSync(entryPath);
+          const relative = path.relative(fs.realpathSync(functionsDir), target);
+          if (relative.startsWith("..") || path.isAbsolute(relative)) {
+            throw new Error(
+              `[deploy] Vercel function link leaves output: ${entryPath}`,
+            );
+          }
+          fs.unlinkSync(entryPath);
+          fs.cpSync(target, entryPath, { recursive: true });
+        }
+        bundleYjsRuntimeForServerlessOutput(entryPath, projectCwd);
+      } else if (entry.isDirectory()) {
+        visit(entryPath);
+      }
+    }
+  };
+  visit(functionsDir);
+}
+
 export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
   return (
     targetPreset === "netlify" ||
@@ -6408,7 +6438,9 @@ export default bundle;
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
   }
 
-  if (shouldBundleYjsRuntimeForPreset(preset)) {
+  if (preset === "vercel") {
+    prepareVercelFunctionOutputs(nitro.options.output.dir, cwd);
+  } else if (shouldBundleYjsRuntimeForPreset(preset)) {
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 

@@ -634,20 +634,5 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
       }
     });
   }
-});
-
-describe("extension chat submission policy (CI guard)", () => {
-  const HOST_SUBMISSION_GUARDS = [
-    ["ExtensionViewer.tsx", "submit: message.submit === true"],
-    ["EmbeddedExtension.tsx", "submit: (message as any).submit === true"],
-    ["InlineExtensionFrame.tsx", "submit: (message as any).submit === true"],
-  ] as const;
-
-  for (const [file, guard] of HOST_SUBMISSION_GUARDS) {
-    it(`${file} requires explicit submission opt-in`, () => {
-      const text = readFileSync(join(EXTENSION_HOST_DIR, file), "utf8");
-      expect(text).toContain(guard);
-      expect(text).not.toContain(guard.replace("=== true", "!== false"));
-    });
-  }
+  // oracle-change: Rendered Toolkit hosts now cover shared chat confirmation.
 });

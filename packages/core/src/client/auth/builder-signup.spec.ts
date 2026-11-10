@@ -26,6 +26,18 @@ afterEach(() => {
 });
 
 describe("Builder signup client contract", () => {
+  it.each([
+    { status: "pending" },
+    { status: "disabled", code: "activation_in_progress" },
+  ])("keeps activation pending for server response %j", async (body) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response(body)),
+    );
+    expect(await startBuilderSignupActivation()).toBe("eligible");
+    expect(await getBuilderSignupActivationStatus()).toBe("eligible");
+  });
+
   it("starts setup in a navigation-safe request and only covers a confirmed pending activation", async () => {
     const fetch = vi.fn(async () => response({ status: "pending" }));
     vi.stubGlobal("fetch", fetch);

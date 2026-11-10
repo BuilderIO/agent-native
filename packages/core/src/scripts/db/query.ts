@@ -173,6 +173,9 @@ Options:
       format: parsed.format,
       userEmail: getRequestUserEmail(),
       orgId: getRequestOrgId() ?? undefined,
+      // The CLI already resolved this call's org; with none, it is personal,
+      // so the dev server must not look one up again.
+      ...(getRequestOrgId() ? {} : { orgScope: "personal" as const }),
       print: printTable,
     });
     if (forwarded) return;
