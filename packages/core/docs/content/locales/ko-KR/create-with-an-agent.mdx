@@ -34,7 +34,7 @@ my-app이라는 새 폴더에 새 Agent-Native 앱을 만들고 실행해 줘.
     --standalone --template chat
 3. 새로 만들어진 APP_NAME 폴더에서 `pnpm install`을 실행해 줘.
 4. 앱 구조를 파악할 수 있도록 APP_NAME/AGENTS.md를 읽어 줘.
-5. `pnpm dev`로 앱을 시작하고 백그라운드에서 계속 실행해 줘.
+5. `pnpm dev --no-open`로 앱을 시작하고 백그라운드에서 계속 실행해 줘.
 6. `pnpm dev`가 출력하는 로컬 URL을 읽어 줘. 응답하는지 예를
    들어 `curl -I <url>`로 확인해 줘. 브라우저를 열지 말고
    헤드리스 브라우저 도구도 쓰지 마. 앱은 내가 직접 열게.
