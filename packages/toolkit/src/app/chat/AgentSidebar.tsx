@@ -1486,7 +1486,9 @@ export function AgentSidebar({
   useEffect(() => {
     if (!enabled) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!panelHost && isAgentSidebarToggleShortcut(e)) {
+      // A host's element that isn't on the page yet, such as one a loading
+      // page's skeleton holds, has no panel to answer ⌘\, so the shell does.
+      if (!panelHost?.isConnected && isAgentSidebarToggleShortcut(e)) {
         e.preventDefault();
         window.dispatchEvent(
           new CustomEvent("agent-panel:toggle", { detail: { focus: true } }),

@@ -2303,9 +2303,9 @@ describe("AgentSidebar panel", () => {
   });
 
   describe("in a host's element", () => {
-    function renderHosted() {
+    function renderHosted(attached = true) {
       const host = document.createElement("div");
-      document.body.appendChild(host);
+      if (attached) document.body.appendChild(host);
       renderSidebar(
         true,
         undefined,
@@ -2382,6 +2382,25 @@ describe("AgentSidebar panel", () => {
         host.querySelector("[data-agent-sidebar-state='open']"),
       ).toBeTruthy();
       host.remove();
+    });
+
+    it("answers ⌘\\ itself while the host's element isn't on the page", async () => {
+      mockPanel.resolveImport();
+      const host = renderHosted(false);
+      await act(async () => {});
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-panel:close"));
+      });
+
+      await press({ key: "i", metaKey: true, shiftKey: true });
+      expect(
+        host.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeNull();
+
+      await press({ code: "Backslash", key: "\\", ctrlKey: true });
+      expect(
+        host.querySelector("[data-agent-sidebar-state='open']"),
+      ).toBeTruthy();
     });
   });
 
