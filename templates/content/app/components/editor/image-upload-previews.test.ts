@@ -16,6 +16,7 @@ import {
   releaseImageUploadPreviewsFor,
   retryImageUpload,
   startImageUploadPreview,
+  useFinishedImageUpload,
   useImageUploadPreview,
   waitForImageUploadsToSettle,
   wasImageUploadBlockRemoved,
@@ -41,22 +42,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function watchPreview(uploadId: string) {
-  const seen: Array<ImageUploadPreview | null> = [];
+async function watch<T>(useValue: () => T, initial: T) {
+  const seen: T[] = [];
   function Probe() {
-    seen.push(useImageUploadPreview(uploadId));
+    seen.push(useValue());
     return null;
   }
   const container = document.createElement("div");
   const root = createRoot(container);
   await act(async () => root.render(createElement(Probe)));
   return {
-    latest: () => seen[seen.length - 1] ?? null,
+    latest: () => (seen.length > 0 ? seen[seen.length - 1] : initial),
     async unmount() {
       await act(async () => root.unmount());
     },
   };
 }
+
+const watchPreview = (uploadId: string) =>
+  watch<ImageUploadPreview | null>(() => useImageUploadPreview(uploadId), null);
 
 describe("image upload previews", () => {
   it("keeps a block's preview as its upload fails and is retried", async () => {
@@ -96,13 +100,26 @@ describe("image upload previews", () => {
   it("revokes the file's URL once the block lets go of it", async () => {
     holdImageUploadPreview("image-upload-1", file, owner);
     const preview = await watchPreview("image-upload-1");
+    const finished = await watch(
+      () => useFinishedImageUpload("image-failed-1"),
+      false,
+    );
     try {
+      expect(finished.latest()).toBe(false);
       await act(async () => releaseImageUploadPreview("image-upload-1"));
       expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
       expect(preview.latest()).toBeNull();
       expect(hasImageUploadPreview("image-upload-1")).toBe(false);
+      // A block that comes back with the upload's id waits for nothing.
+      expect(finished.latest()).toBe(true);
+
+      await act(async () =>
+        holdImageUploadPreview("image-upload-1", file, owner),
+      );
+      expect(finished.latest()).toBe(false);
     } finally {
       await preview.unmount();
+      await finished.unmount();
     }
   });
 
@@ -130,7 +147,7 @@ describe("image upload previews", () => {
     expect(URL.revokeObjectURL).not.toHaveBeenCalled();
   });
 
-  it("marks a deleted block, keeping a failed one's preview and Retry for undo", () => {
+  it("marks a running or queued upload's deleted block, and drops a failed one's preview", () => {
     holdImageUploadPreview("image-upload-1", file, owner);
     startImageUploadPreview("image-upload-1");
     noteImageUploadBlockRemoved("image-upload-1");
@@ -142,15 +159,9 @@ describe("image upload previews", () => {
     expect(wasImageUploadBlockRemoved("image-upload-2")).toBe(true);
     expect(hasImageUploadPreview("image-upload-2")).toBe(true);
 
-    const retry = vi.fn();
-    failImageUploadPreview("image-upload-1", "upload", retry);
+    failImageUploadPreview("image-upload-1", "upload", vi.fn());
     noteImageUploadBlockRemoved("image-failed-1");
-    expect(hasImageUploadPreview("image-failed-1")).toBe(true);
-    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
-    retryImageUpload("image-failed-1");
-    expect(retry).toHaveBeenCalledTimes(1);
-
-    releaseImageUploadPreviewsFor(owner);
+    expect(hasImageUploadPreview("image-upload-1")).toBe(false);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
   });
 

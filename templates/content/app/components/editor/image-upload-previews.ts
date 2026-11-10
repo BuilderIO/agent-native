@@ -25,7 +25,7 @@ interface HeldPreview {
   running: boolean;
   /** Its uploaded copy is in the page; only the page's save is left. */
   committed: boolean;
-  /** Its block was deleted, so its upload mustn't put it back. */
+  /** Its block was deleted while it uploaded, so it mustn't come back. */
   removed: boolean;
   retry: (() => void) | null;
 }
@@ -34,6 +34,9 @@ const UPLOAD_PREFIX = "image-upload-";
 const FAILED_PREFIX = "image-failed-";
 
 const held = new Map<string, HeldPreview>();
+// Uploads this tab has let go of. A block can come back carrying one, such as
+// through undo, with nothing left to finish it.
+const finished = new Set<string>();
 const listeners = new Set<() => void>();
 
 function subscribe(listener: () => void) {
@@ -85,6 +88,7 @@ export function holdImageUploadPreview(
 ) {
   const key = previewKey(uploadId);
   if (!key || held.has(key)) return;
+  finished.delete(key);
   let url: string | null = null;
   try {
     url = URL.createObjectURL(file);
@@ -179,6 +183,7 @@ export function releaseImageUploadPreview(uploadId: unknown) {
   const entry = key ? held.get(key) : undefined;
   if (!key || !entry) return;
   held.delete(key);
+  finished.add(key);
   if (entry.preview.url) URL.revokeObjectURL(entry.preview.url);
   notify();
 }
@@ -188,6 +193,7 @@ export function releaseImageUploadPreviewsFor(owner: object) {
   for (const [key, entry] of [...held]) {
     if (entry.owner !== owner) continue;
     held.delete(key);
+    finished.add(key);
     if (entry.preview.url) URL.revokeObjectURL(entry.preview.url);
   }
   notify();
@@ -195,15 +201,17 @@ export function releaseImageUploadPreviewsFor(owner: object) {
 
 /**
  * The user deleted the block for `uploadId`. A running or queued upload then
- * ends without putting the block back. A failed one keeps its preview and
- * Retry, since undo can bring its block back; Remove or closing the editor
- * lets it go.
+ * ends without putting the block back; a failed one has nothing left to show.
  */
 export function noteImageUploadBlockRemoved(uploadId: unknown) {
   const key = previewKey(uploadId);
   const entry = key ? held.get(key) : undefined;
   if (!key || !entry) return;
-  entry.removed = true;
+  if (entry.running || entry.preview.failure === null) {
+    entry.removed = true;
+    return;
+  }
+  releaseImageUploadPreview(uploadId);
 }
 
 export function wasImageUploadBlockRemoved(uploadId: string): boolean {
@@ -224,5 +232,18 @@ export function useImageUploadPreview(
     subscribe,
     () => (key ? (held.get(key)?.preview ?? null) : null),
     () => null,
+  );
+}
+
+/**
+ * Whether this tab ran the upload for `uploadId` and has let it go, so a block
+ * carrying it waits for nothing.
+ */
+export function useFinishedImageUpload(uploadId: unknown): boolean {
+  const key = previewKey(uploadId);
+  return useSyncExternalStore(
+    subscribe,
+    () => key !== null && finished.has(key),
+    () => false,
   );
 }

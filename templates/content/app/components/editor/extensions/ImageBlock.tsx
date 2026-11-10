@@ -60,6 +60,7 @@ import { createImagePickerId } from "../image-upload";
 import {
   releaseImageUploadPreview,
   retryImageUpload,
+  useFinishedImageUpload,
   useImageUploadPreview,
 } from "../image-upload-previews";
 import { imageDisplaySrc } from "../private-media-src";
@@ -546,6 +547,20 @@ export function ImageBlock({
   // block as the page has it.
   const uploadPreview = useImageUploadPreview(node.attrs.uploadId);
   const uploadFailure = uploadPreview?.failure ?? null;
+  // A block can come back carrying an upload this tab has let go of, such as
+  // through undo. Nothing will finish it, so it drops the id and shows what
+  // the page holds; leaving undo history alone, so undo can't bring it back.
+  const uploadFinished = useFinishedImageUpload(node.attrs.uploadId);
+  useEffect(() => {
+    if (!uploadFinished || !isEditable || typeof getPos !== "function") return;
+    const position = getPos();
+    if (typeof position !== "number") return;
+    editor.view.dispatch(
+      editor.state.tr
+        .setNodeAttribute(position, "uploadId", null)
+        .setMeta("addToHistory", false),
+    );
+  }, [editor, getPos, isEditable, uploadFinished]);
   // A file this browser can't draw, such as HEIC outside Safari, leaves the
   // block in its plain uploading state.
   const [undrawablePreview, setUndrawablePreview] = useState<string | null>(
@@ -1036,9 +1051,11 @@ export function ImageBlock({
     releaseImageUploadPreview(uploadId);
   }
 
-  function renderUploadFailure(onPreview: boolean) {
+  function renderUploadFailure(onPreview: boolean, overPageImage = false) {
+    // Over the image the page still holds, a broken upload reads as a failed
+    // one, since the image on show is fine.
     const message =
-      uploadFailure === "render"
+      uploadFailure === "render" && !overPageImage
         ? t("editor.media.imageBroken")
         : t("editor.media.imageUploadFailed");
     const handleRetry = () => {
@@ -1165,7 +1182,7 @@ export function ImageBlock({
               className="media-block__content"
               draggable={false}
             />
-            {renderUploadFailure(true)}
+            {renderUploadFailure(true, true)}
           </div>
         ) : (
           <div className="media-empty-block">{renderUploadFailure(false)}</div>

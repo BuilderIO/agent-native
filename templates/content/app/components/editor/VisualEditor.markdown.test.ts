@@ -4109,55 +4109,85 @@ describe("image upload previews", () => {
     });
   });
 
-  it("brings back a failed block's pick and Retry when its delete is undone", async () => {
+  // A later delete, which undo takes back on its own.
+  function deleteFirstBlockAsUser(editor: Editor) {
+    const { state } = editor.view;
+    const image = state.doc.firstChild;
+    expect(image?.type.name).toBe("image");
+    editor.view.dispatch(
+      closeHistory(state.tr.delete(0, image?.nodeSize ?? 0)),
+    );
+  }
+
+  it("brings a deleted failed block back as the page holds it on undo", async () => {
     await withMountedEditor(async (editor) => {
-      const attempts: Array<ReturnType<typeof deferred<string>>> = [];
-      const upload = vi.fn(() => {
-        const attempt = deferred<string>();
-        attempts.push(attempt);
-        return attempt.promise;
-      });
+      const upload = deferred<string>();
       let done!: Promise<void>;
       await act(async () => {
-        done = uploadAndInsertImageFiles(editor.view, [file], 0, upload);
-      });
-      await act(async () => {
-        attempts[0]?.reject(new Error("Network down"));
-        await done;
-      });
-      await act(async () => {
-        const { state } = editor.view;
-        const image = state.doc.firstChild;
-        expect(image?.type.name).toBe("image");
-        // A later delete, which undo takes back on its own.
-        editor.view.dispatch(
-          closeHistory(state.tr.delete(0, image?.nodeSize ?? 0)),
+        done = uploadAndInsertImageFiles(
+          editor.view,
+          [file],
+          0,
+          () => upload.promise,
         );
       });
-      expect(images(editor)).toHaveLength(0);
-      expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+      await act(async () => {
+        upload.reject(new Error("Network down"));
+        await done;
+      });
+      await act(async () => deleteFirstBlockAsUser(editor));
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
 
       await act(async () => {
         expect(editor.commands.undo()).toBe(true);
       });
-      expect(images(editor)[0]?.attrs?.uploadId).toMatch(/^image-failed-/);
-      const dom = editor.view.dom;
-      expect(
-        dom.querySelector("img[data-upload-preview]")?.getAttribute("src"),
-      ).toBe("blob:preview-1");
-      const retry = dom.querySelector<HTMLButtonElement>(
-        ".media-block__upload-failure button",
-      );
-
-      await act(async () => retry?.click());
-      expect(upload).toHaveBeenCalledTimes(2);
-      await act(async () => attempts[1]?.resolve(uploadedSrc));
       await vi.waitFor(() =>
         expect(images(editor)[0]?.attrs).toMatchObject({
-          src: uploadedSrc,
+          src: null,
           uploadId: null,
         }),
       );
+      expect(editor.view.dom.querySelector("img[data-upload-preview]")).toBe(
+        null,
+      );
+    });
+  });
+
+  it("doesn't let a block deleted mid-upload come back holding the page's saves", async () => {
+    await withMountedEditor(async (editor) => {
+      const upload = deferred<string>();
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(
+          editor.view,
+          [file],
+          0,
+          () => upload.promise,
+        );
+      });
+      await act(async () => deleteFirstBlockAsUser(editor));
+      await act(async () => {
+        upload.resolve(uploadedSrc);
+        await done;
+      });
+      expect(images(editor)).toHaveLength(0);
+
+      // Undo brings back the block as it was deleted, mid-upload.
+      await act(async () => {
+        expect(editor.commands.undo()).toBe(true);
+      });
+      await vi.waitFor(() =>
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: null,
+          uploadId: null,
+        }),
+      );
+      expect(serializeEditorDraftForPersistence(editor)).not.toBeNull();
+      // Dropping the id left undo history alone, so undo goes on past it.
+      await act(async () => {
+        expect(editor.commands.undo()).toBe(true);
+      });
+      expect(images(editor)).toHaveLength(0);
     });
   });
 

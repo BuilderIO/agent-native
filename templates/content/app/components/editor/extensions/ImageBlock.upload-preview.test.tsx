@@ -42,6 +42,7 @@ import {
   failImageUploadPreview,
   hasImageUploadPreview,
   holdImageUploadPreview,
+  releaseImageUploadPreview,
   releaseImageUploadPreviewsFor,
   startImageUploadPreview,
 } from "../image-upload-previews";
@@ -57,16 +58,29 @@ function imageProps(attrs: Record<string, unknown>) {
     run: vi.fn(() => true),
   };
   const updateAttributes = vi.fn();
+  const tr = {
+    setNodeAttribute: vi.fn(() => tr),
+    setMeta: vi.fn(() => tr),
+  };
+  const dispatch = vi.fn();
   return {
     chain,
     updateAttributes,
+    tr,
+    dispatch,
     props: {
       node: {
         attrs: { src: null, alt: "", uploadId: null, ...attrs },
         type: { name: "image" },
         nodeSize: 1,
       },
-      editor: { isEditable: true, isDestroyed: false, chain: () => chain },
+      editor: {
+        isEditable: true,
+        isDestroyed: false,
+        chain: () => chain,
+        state: { tr },
+        view: { dispatch },
+      },
       selected: false,
       updateAttributes,
       extension: { options: {} },
@@ -157,12 +171,12 @@ describe("image upload previews in the block", () => {
   });
 
   it("shows another tab's upload as the page has it", () => {
-    const uploading = imageProps({ uploadId: "image-upload-1" });
+    const uploading = imageProps({ uploadId: "image-upload-other-tab" });
     act(() => root.render(block(uploading.props)));
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toContain("editor.media.uploadingImage");
 
-    const failed = imageProps({ uploadId: "image-failed-1" });
+    const failed = imageProps({ uploadId: "image-failed-other-tab" });
     act(() => root.render(block(failed.props)));
     expect(container.textContent).toContain("editor.media.addImage");
     expect(buttonNamed(container, "editor.media.retryImageUpload")).toBe(
@@ -228,7 +242,7 @@ describe("image upload previews in the block", () => {
       throw new Error("Not supported");
     });
     holdImageUploadPreview("image-upload-1", file, owner);
-    failImageUploadPreview("image-upload-1", "upload", vi.fn());
+    failImageUploadPreview("image-upload-1", "render", vi.fn());
     const { props } = imageProps({
       uploadId: "image-failed-1",
       src: "https://cdn.example.com/old.png",
@@ -238,9 +252,27 @@ describe("image upload previews in the block", () => {
     expect(container.querySelector("img")?.getAttribute("src")).toContain(
       "old.png",
     );
+    // The image on show is fine; it's the new one that didn't go through.
     expect(container.textContent).toContain("editor.media.imageUploadFailed");
+    expect(container.textContent).not.toContain("editor.media.imageBroken");
     expect(
       buttonNamed(container, "editor.media.retryImageUpload"),
     ).toBeDefined();
+  });
+
+  it("drops an upload this tab let go of, leaving undo history alone", () => {
+    holdImageUploadPreview("image-upload-1", file, owner);
+    releaseImageUploadPreview("image-upload-1");
+    // Undo brings the block back as it was mid-upload.
+    const restored = imageProps({ uploadId: "image-upload-1" });
+    act(() => root.render(block(restored.props)));
+
+    expect(restored.tr.setNodeAttribute).toHaveBeenCalledWith(
+      4,
+      "uploadId",
+      null,
+    );
+    expect(restored.tr.setMeta).toHaveBeenCalledWith("addToHistory", false);
+    expect(restored.dispatch).toHaveBeenCalledWith(restored.tr);
   });
 });
