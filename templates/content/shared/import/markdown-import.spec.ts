@@ -705,6 +705,7 @@ describe("Markdown import", () => {
   it.each([
     ['{asset="asset-1"}', {}],
     ['{color="red" asset="asset-1"}', { color: "red" }],
+    ['{asset="asset-1" color="red"}', { color: "red" }],
   ])("reads an image saved with %s as saved Markdown", (suffix, color) => {
     const page = importMarkdown(
       `![Hero](https://example.com/hero.png) ${suffix}`,
