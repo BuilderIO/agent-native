@@ -795,7 +795,6 @@ const editor = {
     image: "صورة",
     imageAdded: "تمت إضافة الصورة",
     imageBroken: "تعذّر تحميل الصورة",
-    imageCommentWithAlt: "الصورة: {{alt}}",
     imageCopied: "تم نسخ الصورة.",
     imageDownloadStarted: "بدأ تنزيل الصورة.",
     imageLinkHint: "يعمل مع أي صورة من الويب",

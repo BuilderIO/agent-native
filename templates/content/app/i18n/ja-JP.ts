@@ -819,7 +819,6 @@ const editor = {
     image: "画像",
     imageAdded: "画像追加",
     imageBroken: "画像を読み込めませんでした",
-    imageCommentWithAlt: "画像: {{alt}}",
     imageCopied: "画像をコピーしました。",
     imageDownloadStarted: "画像のダウンロードが始まりました。",
     imageLinkHint: "ウェブ上のあらゆる画像を扱うことができます",

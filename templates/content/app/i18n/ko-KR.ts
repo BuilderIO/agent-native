@@ -811,7 +811,6 @@ const editor = {
     image: "이미지",
     imageAdded: "이미지가 추가됨",
     imageBroken: "이미지를 불러올 수 없습니다",
-    imageCommentWithAlt: "이미지: {{alt}}",
     imageCopied: "이미지가 복사되었습니다.",
     imageDownloadStarted: "이미지 다운로드가 시작되었습니다.",
     imageLinkHint: "웹의 모든 이미지와 함께 작동합니다.",
