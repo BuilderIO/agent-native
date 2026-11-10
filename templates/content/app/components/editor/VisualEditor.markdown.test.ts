@@ -4190,6 +4190,41 @@ describe("image upload previews", () => {
     });
   });
 
+  it("saves a dropped batch once its last upload settles", async () => {
+    await withMountedEditor(async (editor) => {
+      const first = deferred<string>();
+      const second = deferred<string>();
+      const upload = vi
+        .fn<(file: File) => Promise<string>>()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+      const persist = vi.fn(() => true);
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file, file], 0, upload, {
+          persist,
+        });
+      });
+
+      await act(async () => {
+        first.resolve(uploadedSrc);
+        await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
+      });
+      expect(images(editor)[0]?.attrs?.src).toBe(uploadedSrc);
+      expect(persist).not.toHaveBeenCalled();
+
+      await act(async () => {
+        second.resolve("https://cdn.example.com/second.png");
+        await done;
+      });
+      expect(persist).toHaveBeenCalledTimes(1);
+      expect(images(editor).map((image) => image.attrs?.uploadId)).toEqual([
+        null,
+        null,
+      ]);
+    });
+  });
+
   it("keeps the page's image when a replacement fails to upload", async () => {
     const oldSrc = "https://cdn.example.com/old.png";
     const request = {

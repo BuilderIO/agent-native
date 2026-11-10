@@ -204,6 +204,7 @@ import {
   audioUploadErrorMessage,
   completeImageFileUpload,
   createMediaUploadId,
+  ImagePersistenceError,
   ImageRenderError,
   imageUploadErrorMessage,
   uploadAudioFile,
@@ -2938,6 +2939,11 @@ export async function uploadAndInsertImageFiles(
   let added = 0;
   let failed = 0;
   let firstError: unknown = null;
+  // A save skips the page while any of its blocks still waits for an upload,
+  // so the batch saves once its last upload has settled. A Retry after that
+  // saves for itself.
+  let settled = false;
+  const persistOnceSettled = () => (settled ? persist() : true);
 
   for (const pending of pendingUploads) {
     if (!view.dom.isConnected) return;
@@ -2951,7 +2957,7 @@ export async function uploadAndInsertImageFiles(
         attrs: { src: null, alt: "", uploadId: pending.uploadId },
       },
       upload,
-      persist,
+      persist: persistOnceSettled,
       isBlocked,
       messages,
     });
@@ -2961,7 +2967,14 @@ export async function uploadAndInsertImageFiles(
       firstError ??= outcome.error;
     }
   }
+  settled = true;
   if (!view.dom.isConnected) return;
+  if (added > 0 && !(await persist())) {
+    toast.error(
+      imageUploadFailureMessage(new ImagePersistenceError(), messages),
+    );
+    return;
+  }
 
   if (failed === 0) {
     if (added > 0) {
