@@ -16,7 +16,6 @@ import {
   IconEyeOff,
   IconFileText,
   IconKey,
-  IconPin,
   IconShare3,
   IconSettings,
   IconTrash,
@@ -44,7 +43,8 @@ import { ActionQueryError } from "./action-query-error";
 import { AppIcon } from "./app-icon";
 import { AppKeysPanel } from "./app-keys-popover";
 import { AppListRow } from "./app-list-row";
-import { AppOpenActions } from "./app-open-actions";
+import { AppOpenActions, appOpenActionLabels } from "./app-open-actions";
+import { AppPinButton } from "./app-pin-button";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import {
@@ -178,38 +178,28 @@ export function WorkspaceAppCard({
   }, [app.description, app.name, app.whenToUse, editOpen]);
 
   const archive = useActionMutation("archive-workspace-app", {
-    onError: (err) =>
-      toast.error(`Could not hide ${app.name}: ${stringifyError(err)}`),
+    onSuccess: () => toast.success(`Hid ${app.name} from the Apps list`),
+    errorLabel: `Could not hide ${app.name}`,
   });
   const unarchive = useActionMutation("unarchive-workspace-app", {
-    onError: (err) =>
-      toast.error(`Could not restore ${app.name}: ${stringifyError(err)}`),
+    onSuccess: () => toast.success(`Restored ${app.name} to the Apps list`),
+    errorLabel: `Could not restore ${app.name}`,
   });
   const removePending = useActionMutation("remove-pending-workspace-app", {
-    onError: (err) =>
-      toast.error(`Could not remove ${app.name}: ${stringifyError(err)}`),
+    onSuccess: () => toast.success(`Removed pending ${app.name}`),
+    errorLabel: `Could not remove ${app.name}`,
   });
   const updateMetadata = useActionMutation("update-workspace-app-metadata", {
     onSuccess: () => {
       toast.success(`Updated ${draftName.trim() || app.name}`);
       setEditOpen(false);
     },
-    onError: (err) =>
-      toast.error(`Could not update ${app.name}: ${stringifyError(err)}`),
+    errorLabel: `Could not update ${app.name}`,
   });
 
-  const handleArchive = () => {
-    archive.mutate({ appId: app.id });
-    toast.success(`Hid ${app.name} from the Apps list`);
-  };
-  const handleUnarchive = () => {
-    unarchive.mutate({ appId: app.id });
-    toast.success(`Restored ${app.name} to the Apps list`);
-  };
-  const handleRemovePending = () => {
-    removePending.mutate({ appId: app.id });
-    toast.success(`Removed pending ${app.name}`);
-  };
+  const handleArchive = () => archive.mutate({ appId: app.id });
+  const handleUnarchive = () => unarchive.mutate({ appId: app.id });
+  const handleRemovePending = () => removePending.mutate({ appId: app.id });
   const handleMetadataSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = draftName.trim();
@@ -248,13 +238,6 @@ export function WorkspaceAppCard({
       ...(whenToUseChanged ? { whenToUse: draftWhenToUseValues } : {}),
     });
   };
-  const pinLabel = t(
-    isPinned ? "dispatch.pages.unpinApp" : "dispatch.pages.pinApp",
-    {
-      name: app.name,
-      defaultValue: isPinned ? "Unpin this app" : "Pin this app",
-    },
-  );
 
   return (
     <>
@@ -297,16 +280,21 @@ export function WorkspaceAppCard({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {onTogglePinned ? (
+            <AppPinButton
+              appId={app.id}
+              name={app.name}
+              pinned={isPinned}
+              onToggle={onTogglePinned}
+            />
+          ) : null}
           <WorkspaceAppOpenActions
             app={app}
             href={directHref ?? href}
             openDirectly={Boolean(
               directHref && shouldOpenWorkspaceAppInTopWindow(),
             )}
-            isPinned={isPinned}
-            pinLabel={pinLabel}
             pendingOpenLabel={pendingOpenLabel}
-            onTogglePinned={onTogglePinned}
           />
           <WorkspaceAppSettings
             app={app}
@@ -432,19 +420,14 @@ function WorkspaceAppOpenActions({
   app,
   href,
   openDirectly,
-  isPinned,
-  pinLabel,
   pendingOpenLabel,
-  onTogglePinned,
 }: {
   app: WorkspaceAppSummary;
   href: string | null;
   openDirectly: boolean;
-  isPinned: boolean;
-  pinLabel: string;
   pendingOpenLabel: string;
-  onTogglePinned?: () => void;
 }) {
+  const t = useT();
   const navigate = useNavigate();
   const appRoute = workspaceAppRoute(app.id);
   const isPending = app.status === "pending";
@@ -466,7 +449,7 @@ function WorkspaceAppOpenActions({
   if (!href) {
     return (
       <Button size="sm" variant="outline" disabled>
-        Open app
+        {t("dispatch.pages.openApp", { defaultValue: "Open" })}
       </Button>
     );
   }
@@ -476,22 +459,11 @@ function WorkspaceAppOpenActions({
       name={app.name}
       href={href}
       showNewTabOption
+      labels={appOpenActionLabels(t, app.name)}
       onOpen={() => {
         if (openDirectly && navigateToWorkspaceApp(href)) return;
         void navigate(appRoute);
       }}
-      menuItems={
-        onTogglePinned
-          ? [
-              {
-                id: "pin",
-                label: pinLabel,
-                icon: <IconPin size={14} strokeWidth={isPinned ? 2.2 : 1.7} />,
-                onSelect: onTogglePinned,
-              },
-            ]
-          : undefined
-      }
     />
   );
 }
@@ -888,9 +860,4 @@ function AppResourcesDialog({
       </DialogContent>
     </Dialog>
   );
-}
-
-function stringifyError(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
 }

@@ -1660,6 +1660,19 @@ export const runContentMigrations = runMigrations(
     },
     {
       version: 135,
+      name: "content-private-media-references",
+      sql: `CREATE TABLE IF NOT EXISTS content_private_media_references (
+        media_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_private_media_reference_unique
+        ON content_private_media_references (document_id, media_id);
+      CREATE INDEX IF NOT EXISTS content_private_media_reference_media_idx
+        ON content_private_media_references (media_id)`,
+    },
+    {
+      version: 136,
       name: "content-document-agent-text-locked",
       sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS agent_text_locked INTEGER NOT NULL DEFAULT 0`,
     },

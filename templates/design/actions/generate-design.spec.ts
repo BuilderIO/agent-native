@@ -4,8 +4,14 @@ const mocks = vi.hoisted(() => {
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
       limit: (n: number) => Promise<unknown[]>;
+      for: (strength: string) => Promise<unknown[]>;
+      orderBy: (...columns: unknown[]) => {
+        limit: (n: number) => Promise<unknown[]>;
+      };
     };
     promise.limit = vi.fn().mockResolvedValue(rows);
+    promise.for = vi.fn().mockResolvedValue(rows);
+    promise.orderBy = vi.fn().mockReturnValue(promise);
     return promise;
   }
 
@@ -112,7 +118,14 @@ const mocks = vi.hoisted(() => {
     getDesignData: () => designData,
     mutateDesignData: vi.fn(),
     snapshotDesignBeforeAgentEdit: vi.fn().mockResolvedValue(null),
-    assertAccess: vi.fn().mockResolvedValue(undefined),
+    designAccess: async () => ({
+      role: "editor",
+      resource: { id: "design-1", data: JSON.stringify(designData) },
+    }),
+    assertAccess: vi.fn(async () => ({
+      role: "editor",
+      resource: { id: "design-1", data: JSON.stringify(designData) },
+    })),
     and: vi.fn((...conditions) => ({ conditions })),
     inArray: vi.fn((column, values) => ({ column, values })),
     eq: vi.fn((left, right) => ({ left, right })),
@@ -120,6 +133,7 @@ const mocks = vi.hoisted(() => {
     readAppState: vi.fn().mockResolvedValue(null),
     writeAppState: vi.fn().mockResolvedValue(undefined),
     getGenerationCreativeContext: vi.fn().mockResolvedValue(null),
+    isCreativeContextOffForUser: vi.fn().mockResolvedValue(false),
     recordGenerationCreativeContext: vi.fn().mockResolvedValue(undefined),
     resolveGenerationCreativeContext: vi.fn().mockResolvedValue({
       contextMode: "auto",
@@ -161,6 +175,7 @@ vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   eq: mocks.eq,
   inArray: mocks.inArray,
+  gt: vi.fn((left, right) => ({ left, right })),
   isNull: mocks.isNull,
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
@@ -254,6 +269,7 @@ vi.mock("../server/lib/design-versions.js", () => ({
 
 vi.mock("@agent-native/creative-context/server", () => ({
   getGenerationCreativeContext: mocks.getGenerationCreativeContext,
+  isCreativeContextOffForUser: mocks.isCreativeContextOffForUser,
   recordGenerationCreativeContext: mocks.recordGenerationCreativeContext,
   resolveGenerationCreativeContext: mocks.resolveGenerationCreativeContext,
   validateGenerationCreativeContext: mocks.validateGenerationCreativeContext,
@@ -276,6 +292,10 @@ vi.mock("@agent-native/creative-context/server", () => ({
   },
 }));
 
+import {
+  executeAgentToolCall,
+  type ActionEntry,
+} from "../../../packages/core/src/agent/production-agent.js";
 import { MAX_SANE_FRAME_DIMENSION_PX } from "../shared/responsive-frame-layout.js";
 import action from "./generate-design.js";
 
@@ -347,15 +367,73 @@ describe("generate-design action tool schema", () => {
     expect(parameters.properties.tweaks?.items?.properties?.type?.enum).toEqual(
       ["color-swatch", "color-swatches", "segment", "slider", "toggle"],
     );
-    expect(JSON.stringify(parameters.properties.designSystemId)).toContain(
+    // oracle-change: the agent no longer unlinks a design system through generate-design (update-design does), so a padded null is a dropped placeholder, not an unlink.
+    expect(JSON.stringify(parameters.properties.designSystemId)).not.toContain(
       "null",
+    );
+    expect(parameters.properties.designSystemId?.description).toContain(
+      "cannot unlink",
+    );
+    expect(JSON.stringify(parameters.properties.tweaks)).toContain(
+      '"minItems":1',
     );
     expect(JSON.stringify(parameters.properties.contextModeOverride)).toContain(
       '"off"',
     );
   });
 
-  it("offers the model only filename, content, and fileType per file", () => {
+  it("runs a call whose unused fields are padded with null and empty lists", async () => {
+    const run = vi.fn(async (input: unknown) => input);
+    const padded = {
+      ...validInput(),
+      designSystemId: null,
+      projectType: "prototype",
+      tweaks: [],
+      canvasFrames: [
+        {
+          filename: "index.html",
+          fileId: null,
+          x: 0,
+          y: 0,
+          width: 1440,
+          height: 900,
+          z: null,
+          rotation: null,
+        },
+      ],
+      contextPackId: null,
+      reuseLabels: [],
+      primaryViewport: null,
+      devices: [],
+    };
+
+    const result = await executeAgentToolCall({
+      actions: {
+        "generate-design": { ...action, run } as unknown as ActionEntry,
+      },
+      name: "generate-design",
+      callId: "padded-by-model",
+      input: padded,
+    });
+
+    expect(result.status).toBe("completed");
+    const received = run.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(received).toMatchObject({ devices: [], reuseLabels: [] });
+    for (const dropped of [
+      "designSystemId",
+      "tweaks",
+      "contextPackId",
+    ] as const) {
+      expect(received[dropped], dropped).toBeUndefined();
+    }
+    expect(received.canvasFrames).toEqual([
+      { filename: "index.html", x: 0, y: 0, width: 1440, height: 900 },
+    ]);
+  });
+
+  // oracle-change: frameType is back as stored screen metadata. It no longer
+  // requires an HTML marker, so setting it can no longer fail a save.
+  it("offers the model filename, content, fileType, and frameType per file", () => {
     const fileProps = (
       parameters.properties.files?.items as {
         properties?: Record<string, unknown>;
@@ -365,9 +443,9 @@ describe("generate-design action tool schema", () => {
       "content",
       "fileType",
       "filename",
+      "frameType",
     ]);
   });
-  // oracle-change: generate-design no longer accepts frameType, so the hidden-field parse and requested-email rejection checks are gone.
 
   it("keeps the placement and routing guidance in the field descriptions", () => {
     const { files, devices } = parameters.properties;
@@ -511,10 +589,45 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     mocks.setDesignRows([
       { id: "design-1", title: "Untitled Design", data: null },
     ]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
+  });
+
+  it("stores an existing file's requested frame type in its source write", async () => {
+    setExistingFile("<html><body>old</body></html>");
+    mocks.designUpdateChain.set.mockClear();
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Convert to a HubSpot email",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          frameType: "hubspot-email",
+          content:
+            '<!doctype html><html><head></head><body><table role="presentation"><tr><td>Hello</td></tr></table></body></html>',
+        },
+      ],
+    });
+
+    const sourceWriteData = mocks.designUpdateChain.set.mock.calls
+      .map(([values]) => values as { data?: string; updatedAt?: string })
+      .filter((values) => typeof values.data === "string")
+      .map((values) => JSON.parse(values.data!) as Record<string, unknown>);
+    expect(sourceWriteData).toContainEqual(
+      expect.objectContaining({
+        screenMetadata: {
+          "file-1": expect.objectContaining({
+            frameType: "hubspot-email",
+            width: 600,
+            breakpointWidths: [],
+          }),
+        },
+      }),
+    );
   });
 
   it("updates an existing file's content via the hash-guarded write path", async () => {
@@ -770,7 +883,7 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     setExistingFile("<html><body>old</body></html>");
 
     mocks.assertAccess
-      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(mocks.designAccess)
       .mockRejectedValueOnce(new Error("ECONNREFUSED: connection lost"));
 
     await expect(
@@ -797,7 +910,7 @@ describe("generate-design: generation-session lock guards concurrent fan-out", (
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -894,7 +1007,7 @@ describe("generate-design: new-file creation path", () => {
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -923,10 +1036,74 @@ describe("generate-design: new-file creation path", () => {
           heightMode: "hug",
           heightPinned: false,
           breakpointWidths: [],
+          frameType: "hubspot-email",
         },
       },
     });
     expect(mocks.getDesignData().breakpointSet).toBeUndefined();
+  });
+
+  it("stores the email frame type passed as frameType and sizes the frame for email", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a HubSpot email template",
+      files: [
+        {
+          filename: "email.html",
+          fileType: "html",
+          frameType: "hubspot-email",
+          content:
+            '<!doctype html><html><head></head><body><table role="presentation"><tr><td>Hello</td></tr></table></body></html>',
+        },
+      ],
+    });
+    const fileId = result.savedFiles[0]!.id;
+    expect(mocks.getDesignData()).toMatchObject({
+      canvasFrames: { [fileId]: { width: 600, height: 800 } },
+      screenMetadata: {
+        [fileId]: {
+          width: 600,
+          breakpointWidths: [],
+          frameType: "hubspot-email",
+        },
+      },
+    });
+    expect(mocks.getDesignData().breakpointSet).toBeUndefined();
+  });
+
+  it("stores a new email file's type in its insert transaction", async () => {
+    mocks.designUpdateChain.set.mockClear();
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a HubSpot email template",
+      files: [
+        {
+          filename: "email.html",
+          fileType: "html",
+          frameType: "hubspot-email",
+          content:
+            '<!doctype html><html><head></head><body><table role="presentation"><tr><td>Hello</td></tr></table></body></html>',
+        },
+      ],
+    });
+    const fileId = result.savedFiles[0]!.id;
+    const insertWrites = mocks.designUpdateChain.set.mock.calls
+      .map(([values]) => (values as { data?: string }).data)
+      .filter((data): data is string => typeof data === "string")
+      .map((data) => JSON.parse(data) as Record<string, unknown>);
+    expect(insertWrites).toContainEqual(
+      expect.objectContaining({
+        screenMetadata: {
+          [fileId]: {
+            frameType: "hubspot-email",
+            width: 600,
+            breakpointWidths: [],
+            heightMode: "hug",
+            heightPinned: false,
+          },
+        },
+      }),
+    );
   });
 
   it("creates a brand-new file via insert + seedFromText, with no pre-existing base to race against", async () => {
@@ -2163,6 +2340,277 @@ describe("generate-design: new-file creation path", () => {
       }),
     );
   });
+
+  it("saves the design and names the labels it could not record", async () => {
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "figma-frame",
+      label: "Pricing hero",
+      dataRole: "untrusted-reference" as const,
+    };
+    const generated = {
+      kind: "design-file",
+      label: "Net-new hero",
+      dataRole: "untrusted-reference" as const,
+      influence: "generated" as const,
+    };
+    const attachedPhoto = {
+      kind: "image",
+      label: "User's attached photo",
+      dataRole: "untrusted-reference" as const,
+    };
+    const halfLabel = {
+      itemId: "item-2",
+      kind: "figma-frame",
+      label: "Half a label",
+      dataRole: "untrusted-reference" as const,
+    };
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Pricing from the attached photos",
+      reuseLabels: [evidence, generated, attachedPhoto, halfLabel],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Pricing</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({ reuseLabels: [evidence, generated] }),
+    );
+    expect(result).toMatchObject({
+      renderable: true,
+      ignoredReuseLabels: [
+        {
+          kind: "image",
+          label: "User's attached photo",
+          reason: "missing-item-ids",
+        },
+        {
+          kind: "figma-frame",
+          label: "Half a label",
+          reason: "partial-item-ids",
+        },
+      ],
+    });
+  });
+
+  it("ignores every non-generated label while the one-generation override is off", async () => {
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "figma-frame",
+      label: "Pricing hero",
+      dataRole: "untrusted-reference" as const,
+    };
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Unbranded concept",
+      contextModeOverride: "off",
+      reuseLabels: [evidence],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Concept</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({ contextModeOverride: "off", reuseLabels: [] }),
+    );
+    expect(result).toMatchObject({
+      ignoredReuseLabels: [
+        { kind: "figma-frame", label: "Pricing hero", reason: "context-off" },
+      ],
+    });
+  });
+
+  it("ignores item-backed labels when Creative Context is off by preference or lab availability", async () => {
+    mocks.isCreativeContextOffForUser.mockResolvedValueOnce(true);
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "figma-frame",
+      label: "Pricing hero",
+      dataRole: "untrusted-reference" as const,
+    };
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Pricing",
+      reuseLabels: [evidence],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Pricing</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({ reuseLabels: [] }),
+    );
+    expect(result).toMatchObject({
+      renderable: true,
+      ignoredReuseLabels: [
+        { kind: "figma-frame", label: "Pricing hero", reason: "context-off" },
+      ],
+    });
+  });
+
+  it("treats a generation session without a pack as Creative Context off for labels", async () => {
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "generating",
+      prompt: "Pricing",
+      contextRefs: [],
+      creativeContext: {
+        contextMode: "auto",
+        contextPackId: null,
+        reuseLabels: [],
+      },
+      frames: [],
+      startedAt: "2026-11-09T00:00:00.000Z",
+    });
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "figma-frame",
+      label: "Pricing hero",
+      dataRole: "untrusted-reference" as const,
+    };
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Pricing",
+      reuseLabels: [evidence],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Pricing</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.isCreativeContextOffForUser).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ignoredReuseLabels: [
+        { kind: "figma-frame", label: "Pricing hero", reason: "context-off" },
+      ],
+    });
+  });
+
+  it("keeps the session's evidence when every label the model sent was ignored", async () => {
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "figma-frame",
+      label: "Pricing hero",
+      dataRole: "untrusted-reference" as const,
+    };
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "generating",
+      prompt: "Pricing",
+      contextRefs: [],
+      creativeContext: {
+        contextMode: "pinned",
+        contextPackId: "pack-1",
+        reuseLabels: [evidence],
+      },
+      frames: [],
+      startedAt: "2026-11-09T00:00:00.000Z",
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Pricing from the attached photos",
+      reuseLabels: [
+        {
+          kind: "image",
+          label: "User's attached photo",
+          dataRole: "untrusted-reference",
+        },
+      ],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Pricing</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith({
+      contextPackId: "pack-1",
+      contextPackSource: "inherited",
+      reuseLabels: [evidence],
+      reuseLabelsSource: "inherited",
+    });
+    expect(result).toMatchObject({
+      ignoredReuseLabels: [
+        {
+          kind: "image",
+          label: "User's attached photo",
+          reason: "missing-item-ids",
+        },
+      ],
+    });
+  });
+
+  it("reports no ignored labels when every label is recordable", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Plain page",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Plain</body></html>",
+        },
+      ],
+    });
+
+    expect(result).not.toHaveProperty("ignoredReuseLabels");
+  });
+
+  it("does not refuse the call at input validation when a reference label has no item ids", async () => {
+    const run = vi.fn(async (input: unknown) => input);
+    const result = await executeAgentToolCall({
+      actions: {
+        "generate-design": { ...action, run } as unknown as ActionEntry,
+      },
+      name: "generate-design",
+      callId: "label-without-ids",
+      input: {
+        designId: "design-1",
+        prompt: "From the attached photos",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>Photos</body></html>",
+          },
+        ],
+        reuseLabels: [{ kind: "image", label: "User's attached photo" }],
+      },
+    });
+
+    expect(result.status).toBe("completed");
+    expect(run).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("generate-design: new screens never stack on existing frames", () => {
@@ -2171,7 +2619,7 @@ describe("generate-design: new screens never stack on existing frames", () => {
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -2475,7 +2923,7 @@ describe("generate-design: single-device regen clears stale breakpoints", () => 
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -2557,7 +3005,7 @@ describe("generate-design: placement clears rotated existing frames", () => {
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -2605,7 +3053,7 @@ describe("generate-design: explicit device requests reconcile breakpoints & rota
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -2727,7 +3175,7 @@ describe("generate-design: explicit device request resizes an existing frame", (
     mocks.seededCollabText.clear();
     mocks.setFileRows([]);
     mocks.setDesignRows([{ id: "design-1", data: null }]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
@@ -2793,7 +3241,7 @@ describe("generate-design: generation attempt tracking", () => {
     mocks.setDesignRows([
       { id: "design-1", title: "Untitled Design", data: null },
     ]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.readAppState.mockResolvedValue(null);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
@@ -2873,7 +3321,7 @@ describe("generate-design: generation attempt tracking", () => {
   it("records a failure when the design-system access check fails after start", async () => {
     const denied = Object.assign(new Error("Forbidden"), { statusCode: 403 });
     mocks.assertAccess
-      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(mocks.designAccess)
       .mockRejectedValueOnce(denied);
 
     await expect(
@@ -3019,7 +3467,7 @@ describe("generate-design: rejected input in the agent loop", () => {
     mocks.setDesignRows([
       { id: "design-1", title: "Untitled Design", data: null },
     ]);
-    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
     mocks.readAppState.mockResolvedValue(null);
     mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
     mocks.designUpdateChain.where.mockResolvedValue(undefined);

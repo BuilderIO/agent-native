@@ -76,8 +76,8 @@ npx --yes @agent-native/core@latest create my-app --template 'https://github.com
 省略 `?app` 可从源工作区进行交互式选择；包含它则可用于脚本化安装：
 
 ```bash
-npx @agent-native/core@latest add-app my-app --template community:owner/repo#v1.2.0
-npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+pnpm exec agent-native add-app my-app --template community:owner/repo#v1.2.0
+pnpm exec agent-native add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
 ```
 
 只接受公开 GitHub 仓库。不支持私有仓库、非 GitHub 主机、GitHub tree 或

@@ -44,7 +44,7 @@ import {
   readNotionPageAsDocument,
 } from "./notion.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
 } from "./private-icon-references.js";
 
@@ -131,7 +131,7 @@ async function replaceDocumentFromExternal(args: {
       );
     }
     if (args.content !== args.document.content) {
-      await syncPrivateCalloutReferences(
+      await syncPrivateBodyReferences(
         tx as unknown as ReturnType<typeof getDb>,
         {
           documentId: args.document.id,

@@ -922,6 +922,7 @@ const editor = {
       video: "비디오",
     },
     fromSource: "{{name}}에서",
+    hiddenInThisView: "이 보기에서 숨김",
     hiddenProperties: "숨겨진 속성",
     imageUploaded_zero: "업로드된 이미지",
     imageUploaded_one: "이미지 업로드됨",
@@ -1100,9 +1101,28 @@ const editor = {
     hideInSearch: "검색에서 숨기기",
     hideInSearchDescription:
       "조직에서 숨기고 검색해 보세요. 링크가 있는 사용자는 계속 볼 수 있습니다.",
-    agentTextLock: "에이전트는 이 페이지의 텍스트를 편집할 수 없음",
-    agentTextLockDescription:
-      "에이전트는 계속 댓글을 달고 수정을 제안할 수 있습니다. 제안은 사람만 수락할 수 있습니다.",
+    sharePeopleTab: "사람",
+    shareAgentsTab: "에이전트",
+    agentLevelHeading: "이 페이지의 에이전트",
+    agentLevelMenuLabel: "이 페이지에서 에이전트가 할 수 있는 일",
+    agentLevelDefault: "(기본값)",
+    agentLevelCommentDescription:
+      "읽기, 댓글 달기, 수정 제안을 할 수 있습니다. 제안은 사람만 수락할 수 있습니다.",
+    agentLevelEditDescription:
+      "읽기, 댓글 달기, 제안, 텍스트·제목·탭 편집, 페이지를 휴지통으로 이동할 수 있습니다.",
+    agentLevelCommentConfirm:
+      "이제 에이전트는 이 페이지에서 댓글을 달고 수정을 제안할 수 있지만 편집할 수는 없습니다.",
+    agentLevelEditConfirm: "에이전트가 이 페이지를 다시 편집할 수 있습니다.",
+    agentLevelLimit:
+      "에이전트는 자신이 대신 일하는 사람보다 더 많은 권한을 갖지 않습니다.",
+    agentLevelManagersOnly: "이 페이지를 관리하는 사람만 변경할 수 있습니다.",
+    agentLevelUpdateFailed:
+      "여기서 에이전트가 할 수 있는 일을 변경하지 못했습니다.",
+    agentLevelNote: "에이전트 댓글 가능",
+    agentLevelNoteHint:
+      "에이전트는 이 페이지에 댓글을 달 수 있습니다. 공유에서 변경하세요.",
+    sendPageToAgent: "이 페이지를 에이전트에게 보내기",
+    connectAgentOverMcp: "MCP로 에이전트 연결",
     importingFromNotion: "Notion에서 가져오는 중...",
     lastSynced: "마지막 동기화",
     linkedToNotion: "노션과 연결됨",
@@ -1175,7 +1195,8 @@ const rawLiterals = {
     previewDraftUseSaved: "저장된 버전 사용",
     previewDraftSaveSeparately: "내 버전을 별도 페이지로 저장",
     previewDraftSavedToHistory: "편집 내용이 버전 기록에 저장되었습니다",
-    previewDraftSavedSeparately: "편집 내용이 별도 페이지로 저장되었습니다",
+    previewDraftSavedSeparately:
+      "편집 내용이 내 스페이스에 비공개 페이지로 저장되었습니다",
     previewDraftOpenSavedPage: "페이지 열기",
     previewDraftMoreOptions: "추가 옵션",
     previewDraftViewFullVersions: "전체 버전 보기",
@@ -1255,6 +1276,23 @@ const rawLiterals = {
     restoreDatabase: "복원",
     restoreDatabaseNamed: "{{title}} 복원",
     trash: "휴지통",
+  },
+  publicDocument: {
+    chat: "채팅",
+    freeAndOpenSource: "무료 오픈 소스(GitHub)",
+    pagePath: "페이지 경로",
+    privateDescription:
+      "이 링크를 열기 전에 소유자에게 내 계정이나 워크스페이스와 공유해 달라고 요청하세요.",
+    privateTitle: "이 문서는 비공개입니다",
+    signIn: "로그인",
+    signUp: "가입하기",
+    signUpFree: "무료로 가입하기",
+    subPages: "하위 페이지",
+    tryContentFree: "Content 무료로 사용해 보기",
+    updated: "{{date}} 업데이트됨",
+    writtenIn: "Agent-Native Content로 작성되었습니다.",
+    writtenInDescription:
+      "문서 안에서 일하는 AI 에이전트와 함께 나만의 페이지를 작성하고 게시하세요.",
   },
 };
 
@@ -1770,6 +1808,27 @@ const overrides = {
     discardEditDescription: "댓글은 원래대로 유지됩니다.",
     discard: "버리기",
     keepEditing: "계속 편집",
+    deleteComment: "댓글 삭제",
+    deleteThread: "스레드 삭제",
+    deleteCommentQuestion: "댓글을 삭제할까요?",
+    deleteCommentDescription: "모든 사람에게서 삭제되며 되돌릴 수 없습니다.",
+    deleteThreadQuestion: "스레드를 삭제할까요?",
+    deleteThreadDescription:
+      "스레드와 답글이 모든 사람에게서 삭제되며 되돌릴 수 없습니다.",
+    deleteThreadAiChangeDescription:
+      "스레드와 답글이 모든 사람에게서 삭제되며 되돌릴 수 없습니다. AI가 페이지에 적용한 변경 사항은 남지만, 스레드에서 실행 취소할 수는 없게 됩니다.",
+    delete: "삭제",
+    deleting: "삭제 중…",
+    deleteRefusedReplied:
+      "다른 사람이 답글을 달아 이 스레드는 편집자만 삭제할 수 있습니다.",
+    deleteRefusedNotion:
+      "이 댓글은 Notion과 동기화되어 있습니다. Notion에서 삭제하세요.",
+    deleteRefusedAiWorking:
+      "AI가 이 스레드에서 작업 중입니다. 스레드를 삭제하기 전에 중지하세요.",
+    deleteRefusedAiSuggestion:
+      "이 스레드의 AI 제안이 검토를 기다리고 있습니다. 스레드를 삭제하기 전에 제안을 수락하거나 거절하세요.",
+    deleteRefusedBusy:
+      "이 스레드가 지금 변경되고 있습니다. 잠시 후 다시 삭제해 보세요.",
     submit: "댓글",
     askAi: "AI에게 묻기",
     aiBadge: "AI",
@@ -1780,8 +1839,10 @@ const overrides = {
     mentionPeopleLoadFailed: "사람 목록을 불러오지 못했습니다.",
     mentionAgents: "에이전트",
     identityPerson: "사용자",
-    identityModel: "모델",
     identityEffort: "추론 강도",
+    acceptAllAndResolve: "모두 수락하고 해결",
+    acceptAndResolve: "수락하고 해결",
+    suggestionLoadFailed: "이 제안을 불러오지 못했습니다",
     identityRan: "실행 시각",
     identityNotRecorded: "기록 없음",
     identityOpenRun: "실행 열기",
@@ -1814,7 +1875,6 @@ const overrides = {
     aiPromptApplyResolve: "이 댓글의 변경 사항을 적용하고 해결해 주세요.",
     aiWorking: "AI가 작업 중…",
     aiReplied: "AI가 답글을 남겼습니다",
-    aiSuggestionReady: "제안 검토",
     aiChangesApplied: "변경 사항 적용됨",
     aiAppliedAndResolved: "적용 후 해결됨",
     aiChangeUndone: "변경 취소됨",

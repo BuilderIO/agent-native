@@ -11,6 +11,7 @@ import {
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
+import type { ShareButtonActionHandle } from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
@@ -61,6 +62,9 @@ import { toast } from "sonner";
 
 import { ContentIcon } from "../icons/ContentIcon";
 
+const AgentsShareTab = lazy(() =>
+  import("./AgentsShareTab").then((m) => ({ default: m.AgentsShareTab })),
+);
 const ShareButton = lazy(() =>
   import("@agent-native/toolkit/app/sharing").then((m) => ({
     default: m.ShareButton,
@@ -109,6 +113,8 @@ import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
 import { useElementWidthValue } from "@/hooks/use-element-width-value";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
+  resolveNotionSetupTarget,
+  isDocumentSyncStatusCurrent,
   useNotionConnection,
   useDocumentSyncStatus,
   useLinkDocumentToNotion,
@@ -128,7 +134,7 @@ import {
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
 
-import { AgentTextLockSetting } from "./AgentTextLockSetting";
+import { AgentLevelNote, useAgentLevel } from "./AgentLevel";
 import {
   DatabaseExportDialog,
   type DatabaseExportContext,
@@ -1035,14 +1041,35 @@ export function DocumentToolbar({
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
   const [shareRequested, setShareRequested] = useState(false);
+  const [shareInitialTab, setShareInitialTab] = useState("share");
+  const shareActionRef = useRef<ShareButtonActionHandle>(null);
+  const agentLevel = useAgentLevel(documentId, agentTextLocked);
   const [autoSync, setAutoSync] = useLocalStorage(
     `notion-auto-sync:${documentId}`,
     false,
   );
-  const { data: connection } = useNotionConnection();
-  const { data: syncStatus } = useDocumentSyncStatus(
-    !inWidget && canEdit && !isLocalFileDocument ? documentId : null,
-  );
+  const {
+    data: connection,
+    status: connectionStatus,
+    isError: connectionFailed,
+    isFetching: connectionFetching,
+    refetch: refetchConnection,
+  } = useNotionConnection();
+  // The sync status loads after the page settles, or as soon as the page
+  // actions open, since the Notion item there depends on it.
+  const [pageActionsOpened, setPageActionsOpened] = useState(false);
+  const notionStatusApplies = !inWidget && canEdit && !isLocalFileDocument;
+  const {
+    data: syncStatus,
+    isError: syncStatusFailed,
+    isFetching: syncStatusFetching,
+    isFetchedAfterMount: syncStatusReadSinceMount,
+    status: syncStatusState,
+    dataUpdatedAt: syncStatusAnsweredAt,
+    refetch: refetchSyncStatus,
+  } = useDocumentSyncStatus(notionStatusApplies ? documentId : null, {
+    now: pageActionsOpened,
+  });
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
   const pullDocument = usePullDocumentFromNotion(documentId);
@@ -1111,6 +1138,29 @@ export function DocumentToolbar({
 
   const isConnected = connection?.connected ?? false;
   const isLinked = !!syncStatus?.pageId;
+  // Until the connection and sync reads succeed the toolbar can't tell a
+  // linked page from an unlinked one, so it waits instead of offering setup or a link. A
+  // failed read counts as waiting too, even with an earlier answer cached:
+  // linking a page that's already linked pulls Notion over local edits. So
+  // does an old answer cached by an earlier visit (see
+  // isDocumentSyncStatusCurrent).
+  const notionStatusPending =
+    notionStatusApplies &&
+    (connectionStatus !== "success" ||
+      typeof connection.connected !== "boolean" ||
+      (isConnected &&
+        !isDocumentSyncStatusCurrent({
+          status: syncStatusState,
+          isFetchedAfterMount: syncStatusReadSinceMount,
+          dataUpdatedAt: syncStatusAnsweredAt,
+        })));
+  const notionStatusChecking =
+    notionStatusPending && (connectionFetching || syncStatusFetching);
+  // A read that fails while the Notion popover is open closes it, so its link
+  // form can't act on the stale answer (and it doesn't reopen on a retry).
+  useEffect(() => {
+    if (notionStatusPending) setOpen(false);
+  }, [notionStatusPending]);
   const hasConflict = syncStatus?.hasConflict ?? false;
   const isWorking =
     linkDocument.isPending ||
@@ -1343,6 +1393,7 @@ export function DocumentToolbar({
     (nextOpen: boolean) => {
       if (nextOpen) return;
       setShareRequested(false);
+      setShareInitialTab("share");
       if (shareInMenu && shareRequested) {
         if (shareFocusFrameRef.current != null) {
           cancelAnimationFrame(shareFocusFrameRef.current);
@@ -1372,6 +1423,15 @@ export function DocumentToolbar({
       shareRequested,
     ],
   );
+
+  const handleOpenAgentsTab = useCallback(() => {
+    if (shareActionRef.current) {
+      shareActionRef.current.open("agents");
+      return;
+    }
+    setShareInitialTab("agents");
+    setShareRequested(true);
+  }, []);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -1467,8 +1527,28 @@ export function DocumentToolbar({
     [createAndLink, documentId, t],
   );
 
-  const handleSetup = () => {
+  const handleSetup = async () => {
     setOpen(false);
+    try {
+      const target = await resolveNotionSetupTarget(
+        connectionStatus === "success" ? connection : undefined,
+      );
+      if (target.kind === "unavailable") {
+        toast.error(t("empty.genericError"));
+        return;
+      }
+      if (target.kind === "oauth") {
+        window.location.href = target.url;
+        return;
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("editor.toolbar.setUpNotionFirst"),
+      );
+      return;
+    }
     void navigate(`${buildSettingsRoute("integrations")}?q=Notion`);
   };
 
@@ -1603,6 +1683,15 @@ export function DocumentToolbar({
               className="mr-1"
             />
           )}
+          {shareAvailable &&
+          !isLocalFileDocument &&
+          !shareInMenu &&
+          !inWidget ? (
+            <AgentLevelNote
+              level={agentLevel.level}
+              onOpen={handleOpenAgentsTab}
+            />
+          ) : null}
           {shareAvailable ? (
             isLocalFileDocument ? (
               shareInMenu ? null : (
@@ -1645,6 +1734,7 @@ export function DocumentToolbar({
                     resourceType="document"
                     resourceId={documentId}
                     resourceTitle={documentTitle}
+                    actionRef={shareActionRef}
                     hideTrigger={shareInMenu}
                     shareUrl={shareUrl}
                     mobileSheet
@@ -1661,15 +1751,7 @@ export function DocumentToolbar({
                     }}
                     basicSharingOnly={inWidget}
                     peopleAccessLabel={t("editor.toolbar.whoHasAccess")}
-                    sendTo={
-                      inWidget
-                        ? undefined
-                        : {
-                            openInAgent: handleOpenAgentDestination,
-                            copyAgentPrompt: handleCopyAgentPrompt,
-                            openMcpSettings: handleOpenMcpSettings,
-                          }
-                    }
+                    hideSendTo
                     defaultOpen={shareRequested || openShareOnLoad}
                     onOpenChange={handleDbShareOpenChange}
                     visibilityCopy={{
@@ -1698,44 +1780,63 @@ export function DocumentToolbar({
                             onCheckedChange: handleHideFromSearchChange,
                           }
                     }
-                    shareFooterContent={
-                      inWidget ? undefined : (
-                        <AgentTextLockSetting
-                          documentId={documentId}
-                          locked={agentTextLocked}
-                          canManage={canManageAgentTextLock}
-                        />
-                      )
-                    }
                     variant="compact"
                     shareTabs={
-                      creativeContextEnabled && !inWidget
-                        ? {
+                      inWidget
+                        ? undefined
+                        : {
+                            shareLabel: t("editor.toolbar.sharePeopleTab"),
+                            defaultValue: shareInitialTab,
                             tabs: [
                               {
-                                value: "context",
-                                label: t("creativeContext.share.tabLabel"),
+                                value: "agents",
+                                label: t("editor.toolbar.shareAgentsTab"),
                                 content: (
-                                  <CreativeContextShareTab
-                                    resource={{
-                                      appId: "content",
-                                      resourceType: "document",
-                                      resourceId: documentId,
-                                      title: documentTitle || "Untitled",
-                                      updatedAt: documentUpdatedAt ?? undefined,
-                                      preview: {
-                                        kind: "document",
-                                        label: t(
-                                          "root.commandDocumentsHeading",
-                                        ),
-                                      },
-                                    }}
-                                  />
+                                  <Suspense fallback={null}>
+                                    <AgentsShareTab
+                                      documentId={documentId}
+                                      level={agentLevel.level}
+                                      onLevelChange={agentLevel.setLevel}
+                                      pending={agentLevel.pending}
+                                      canManage={canManageAgentTextLock}
+                                      onCopyPrompt={handleCopyAgentPrompt}
+                                      onOpenAgent={handleOpenAgentDestination}
+                                      onOpenMcpSettings={handleOpenMcpSettings}
+                                    />
+                                  </Suspense>
                                 ),
                               },
+                              ...(creativeContextEnabled
+                                ? [
+                                    {
+                                      value: "context",
+                                      label: t(
+                                        "creativeContext.share.tabLabel",
+                                      ),
+                                      content: (
+                                        <CreativeContextShareTab
+                                          resource={{
+                                            appId: "content",
+                                            resourceType: "document",
+                                            resourceId: documentId,
+                                            title: documentTitle || "Untitled",
+                                            ...(documentUpdatedAt
+                                              ? { updatedAt: documentUpdatedAt }
+                                              : {}),
+                                            preview: {
+                                              kind: "document",
+                                              label: t(
+                                                "root.commandDocumentsHeading",
+                                              ),
+                                            },
+                                          }}
+                                        />
+                                      ),
+                                    },
+                                  ]
+                                : []),
                             ],
                           }
-                        : undefined
                     }
                   />
                 ) : shareInMenu ? null : (
@@ -1844,6 +1945,10 @@ export function DocumentToolbar({
             onOpenChange={(nextOpen) => {
               pageActionsOpenRef.current = nextOpen;
               if (nextOpen) {
+                setPageActionsOpened(true);
+                // Reopening the menu retries a status read that failed.
+                if (connectionFailed) void refetchConnection();
+                if (syncStatusFailed) void refetchSyncStatus();
                 flushPendingPageActionsRestore();
                 pageActionsPreservationFrameRef.current = requestAnimationFrame(
                   () => {
@@ -2126,20 +2231,30 @@ export function DocumentToolbar({
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
                 {canEdit && !isLocalFileDocument ? (
-                  <Popover open={open} onOpenChange={setOpen}>
+                  <Popover
+                    open={open && !notionStatusPending}
+                    onOpenChange={setOpen}
+                  >
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        className="flex min-h-7 w-full items-center gap-2 rounded-[8px] px-2 py-1 text-sm leading-5 text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                        disabled={notionStatusPending}
+                        aria-busy={notionStatusChecking || undefined}
+                        className="flex min-h-7 w-full items-center gap-2 rounded-[8px] px-2 py-1 text-sm leading-5 text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                       >
                         <span className="min-w-0 flex-1 truncate text-start">
-                          {isLinked
+                          {isLinked || notionStatusPending
                             ? t("editor.toolbar.notionSync")
                             : isConnected
                               ? t("editor.toolbar.linkToNotion")
                               : t("editor.toolbar.connectNotion")}
                         </span>
-                        {hasConflict ? (
+                        {notionStatusChecking ? (
+                          <IconLoader2
+                            size={14}
+                            className="shrink-0 animate-spin text-muted-foreground"
+                          />
+                        ) : hasConflict ? (
                           <IconAlertTriangle
                             size={16}
                             className="shrink-0 text-destructive"
@@ -2465,6 +2580,16 @@ export function DocumentToolbar({
                       )}
                     </PopoverContent>
                   </Popover>
+                ) : null}
+                {notionStatusApplies && connectionFailed ? (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void refetchConnection();
+                    }}
+                  >
+                    {t("database.retry")}
+                  </DropdownMenuItem>
                 ) : null}
               </DropdownMenuGroup>
               {canDelete && onDelete ? (

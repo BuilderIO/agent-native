@@ -446,7 +446,7 @@ describe("who counts as an agent", () => {
   });
 });
 
-describe("Agents can't edit the text of this", () => {
+describe("Agents set to Can comment on a page", () => {
   it("is off until a person turns it on, and agents can't change it", async () => {
     await asOwner(async () => {
       const { id } = (await createDocument.run(
@@ -883,16 +883,25 @@ describe("Agents can't edit the text of this", () => {
     });
   });
 
-  it("refuses an agent's new description when it turns a locked page into a collection", async () => {
+  it("refuses an agent turning a locked page into a collection, with or without a new description", async () => {
     await asOwner(async () => {
       const page = await lockedPage("The body");
+      const collectionsOnPage = () =>
+        getDb()
+          .select({ id: schema.contentDatabases.id })
+          .from(schema.contentDatabases)
+          .where(eq(schema.contentDatabases.documentId, page.id));
 
+      await expect(
+        createDatabase.run({ documentId: page.id }, ownAgent),
+      ).rejects.toMatchObject(locked);
       await expect(
         createDatabase.run(
           { documentId: page.id, description: "Agent's description" },
           ownAgent,
         ),
       ).rejects.toMatchObject(locked);
+      expect(await collectionsOnPage()).toHaveLength(0);
       expect((await readPage(page.id)).description).toBe(page.description);
 
       await createDatabase.run(
@@ -1033,6 +1042,120 @@ describe("Agents can't edit the text of this", () => {
         configureProperty.run(change, { caller: "http", userEmail: OWNER }),
       ).rejects.toMatchObject(locked);
       await configureProperty.run(change, person);
+    });
+  });
+
+  it("refuses an agent adding a Blocks tab to locked rows, new or converted, and lets a person", async () => {
+    await asOwner(async () => {
+      const row = await collectionRow();
+      const discovered = await contract(row.databaseId);
+      const documentId = discovered.target.databaseDocumentId;
+      const agentCall = { caller: "http", userEmail: OWNER } as const;
+      type Configured = {
+        properties: Array<{
+          definition: { id: string; name: string; type: string };
+        }>;
+      };
+      const named = (configured: Configured, name: string) =>
+        configured.properties.filter(
+          (property) => property.definition.name === name,
+        );
+      const newTab = {
+        documentId,
+        databaseId: row.databaseId,
+        name: "Agent notes",
+        type: "blocks" as const,
+      };
+      const summary = (
+        (await configureProperty.run(
+          {
+            documentId,
+            databaseId: row.databaseId,
+            name: "Summary",
+            type: "text",
+          },
+          person,
+        )) as Configured
+      ).properties.find((property) => property.definition.name === "Summary");
+      if (!summary) throw new Error("Fixture has no text field.");
+      const toTab = {
+        documentId,
+        databaseId: row.databaseId,
+        id: summary.definition.id,
+        name: "Summary",
+        type: "blocks" as const,
+      };
+
+      await expect(
+        configureProperty.run(newTab, agentCall),
+      ).rejects.toMatchObject(locked);
+      await expect(
+        configureProperty.run(toTab, agentCall),
+      ).rejects.toMatchObject(locked);
+
+      const converted = (await configureProperty.run(
+        toTab,
+        person,
+      )) as Configured;
+      expect(
+        named(converted, "Summary").map((property) => property.definition.type),
+      ).toEqual(["blocks"]);
+      const added = (await configureProperty.run(newTab, person)) as Configured;
+      expect(named(added, "Agent notes")).toHaveLength(1);
+    });
+  });
+
+  it("refuses an agent renaming or hiding a Blocks tab on locked rows, not another column", async () => {
+    await asOwner(async () => {
+      const row = await collectionRow();
+      const discovered = await contract(row.databaseId);
+      const documentId = discovered.target.databaseDocumentId;
+      const agentCall = { caller: "http", userEmail: OWNER } as const;
+      const field = async (name: string, type: "blocks" | "text") => {
+        const configured = (await configureProperty.run(
+          { documentId, databaseId: row.databaseId, name, type },
+          person,
+        )) as {
+          properties: Array<{ definition: { id: string; name: string } }>;
+        };
+        const property = configured.properties.find(
+          (candidate) => candidate.definition.name === name,
+        );
+        if (!property) throw new Error(`Fixture has no ${name} field.`);
+        return property.definition.id;
+      };
+      const notes = {
+        documentId,
+        databaseId: row.databaseId,
+        id: await field("Notes", "blocks"),
+        type: "blocks" as const,
+      };
+      const status = await field("Status", "text");
+
+      await expect(
+        configureProperty.run({ ...notes, name: "Agent's notes" }, agentCall),
+      ).rejects.toMatchObject(locked);
+      await expect(
+        configureProperty.run(
+          { ...notes, name: "Notes", visibility: "always_hide" },
+          agentCall,
+        ),
+      ).rejects.toMatchObject(locked);
+      await configureProperty.run(
+        {
+          documentId,
+          databaseId: row.databaseId,
+          id: status,
+          name: "State",
+          type: "text",
+        },
+        agentCall,
+      );
+
+      await configureProperty.run(
+        { ...notes, name: "Renamed notes", visibility: "always_hide" },
+        person,
+      );
     });
   });
 
@@ -1358,6 +1481,62 @@ describe("a lock turned on while a write is under way", () => {
         expect((await readPage(page.id)).content).toBe(base);
         await write(person, "Person text");
         expect((await readPage(page.id)).content).toContain("Person text");
+      } finally {
+        await liveCopyPage.turnLiveCopyFlagsOff();
+      }
+    });
+  });
+
+  it("stops an agent's block edit through the live copy, and a person's lands", async () => {
+    await asOwner(async () => {
+      const row = await collectionRow();
+      await liveCopyPage.putPageOnLiveCopy(row.documentId, { seeded: true });
+      try {
+        const write = async (
+          ctx: typeof agent | typeof person,
+          idempotencyKey: string,
+          nfm: string,
+        ) => {
+          const { discovered, listed } = await rowRevision(
+            row.databaseId,
+            row.blocksId,
+            row,
+          );
+          return mutateBlock.run(
+            {
+              target: {
+                ...discovered.target,
+                itemId: row.itemId,
+                rowDocumentId: row.documentId,
+                propertyId: row.blocksId,
+              },
+              expectedSchemaRevision: discovered.schemaRevision,
+              expectedRowRevision: listed.rowRevision,
+              expectedFieldRevision: listed.fieldRevision,
+              idempotencyKey,
+              operation: "insert",
+              block: { kind: "paragraph", nfm },
+              position: { placement: "end" },
+            } as never,
+            ctx,
+          );
+        };
+        const version = await liveCopyPage.liveCopyVersionOf(row.documentId);
+
+        await expect(
+          write(agent, "live-block-agent", "Agent block"),
+        ).rejects.toMatchObject(locked);
+        expect((await readPage(row.documentId)).content).not.toContain(
+          "Agent block",
+        );
+
+        await write(person, "live-block-person", "Person block");
+        expect((await readPage(row.documentId)).content).toContain(
+          "Person block",
+        );
+        expect(
+          await liveCopyPage.liveCopyVersionOf(row.documentId),
+        ).toBeGreaterThan(version ?? 0);
       } finally {
         await liveCopyPage.turnLiveCopyFlagsOff();
       }
@@ -1906,6 +2085,25 @@ describe("an agent's Builder push to an entry a locked page follows", () => {
         check("builder-entry-shared", "frontend"),
       ).resolves.toBeUndefined();
     });
+  });
+
+  it("finds the page by its exact entry ID, characters LIKE treats as wildcards included", async () => {
+    const entryId = String.raw`builder_entry%with\odd`;
+    await lockedFollowingPage(entryId);
+    const push = (pushed: string) =>
+      asOwner(async () => {
+        const { assertAgentMayPushBuilderEntry } =
+          await import("./_builder-docs-client.js");
+        return assertAgentMayPushBuilderEntry({
+          model,
+          entryId: pushed,
+          ctx: { caller: "mcp", userEmail: OWNER },
+        });
+      });
+
+    await expect(push(entryId)).rejects.toMatchObject(locked);
+    await expect(push("builder_entry")).resolves.toBeUndefined();
+    await expect(push("builder%")).resolves.toBeUndefined();
   });
 
   it("isn't stopped by a locked page the caller can't reach", async () => {

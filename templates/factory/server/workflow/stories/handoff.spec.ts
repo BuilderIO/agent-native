@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { NormalizedItem } from "../items.js";
 import { runScenario, type StoryFixtures } from "../testing/story-data.js";
-import { scenarioRun } from "./proof-kit.js";
+import { effectsOf, scenarioRun } from "./proof-kit.js";
 import { STORIES } from "./registry.js";
 
 // Stories 1 and 8 hand work to Builder and story 2 follows it. These specs run
@@ -11,8 +11,8 @@ import { STORIES } from "./registry.js";
 // link here instead of in a deployment.
 //
 // The handed-off End of each story records the Builder task on the item
-// (`builderTaskId`, `projectId`, `branchName`, `repository`), and story 2's
-// status Source reads those four fields from the row. The rows below carry
+// (`builderTaskId`, `projectId`, `branchName`, `builderUrl`, `repository`), and
+// story 2's status Source reads those five fields from the row. The rows below carry
 // what the first story's End really recorded, nothing written by hand.
 
 function offeredItems(
@@ -77,12 +77,17 @@ describe("a task handed to Builder is followed by story 2", () => {
       }));
     expect(started).toHaveLength(2);
 
-    // Which branch each report went to: the group the model put it in.
+    // Which branch each report went to: the group the model put it in, named after the first report of that group.
     const group = STORIES["bug-report-to-builder"].fixtures.ai.group?.related;
-    const groups =
-      group !== undefined && "wholeList" in group
-        ? (group.wholeList.groups as { id: string; groupId: string }[])
-        : [];
+    const groupNames =
+      group !== undefined && "perItem" in group
+        ? Object.fromEntries(
+            Object.entries(group.perItem).map(([id, answer]) => [
+              id,
+              "groupName" in answer ? String(answer.groupName) : undefined,
+            ]),
+          )
+        : {};
     const reports = offeredItems(
       STORIES["bug-report-to-builder"].fixtures.inbox.feedback,
     );
@@ -92,13 +97,16 @@ describe("a task handed to Builder is followed by story 2", () => {
     expect(handedOff.sort()).toEqual(["m1", "m2", "m3"]);
     const rows = handedOff.map((id) => {
       const report = reports.find((candidate) => candidate.id === id);
-      const groupId = groups.find((entry) => entry.id === id)?.groupId;
-      if (report === undefined || groupId === undefined) {
+      const groupName = groupNames[id];
+      const leader = reports.find(
+        (candidate) => groupNames[candidate.id] === groupName,
+      );
+      if (report === undefined || leader === undefined) {
         throw new Error(`Report ${id} has no recorded group.`);
       }
       const recorded = summary.recorded?.[id];
-      // The End wrote the branch of the group the report was put in.
-      expect(recorded?.branchName).toBe(`factory-${groupId}`);
+      // The End wrote the branch of the group the report was put in, which is its first report's, never the model's label.
+      expect(recorded?.branchName).toBe(`factory-${leader.id}`);
       return handedOffRow(report, recorded);
     });
 
@@ -152,5 +160,123 @@ describe("a task handed to Builder is followed by story 2", () => {
         branchName: start?.fields.branchName,
       },
     ]);
+  });
+
+  // Builder keeps a branch name of its own, so what story 2 checks is the name the start returned, never the one asked for.
+  it("checks the branch Builder returned for story 1's report, not the one story 1 asked for", async () => {
+    const { summary } = await scenarioRun(
+      "bug-report-to-builder",
+      "a-start-on-a-branch-builder-renamed-is-announced-and-tracked-under-the-returned-name",
+    );
+    const start = summary.ticks
+      .flatMap((tick) => tick.effects)
+      .find((effect) => effect.operation === "builder.start");
+    const returned = start?.receipt?.externalRef;
+    expect(returned).toBeDefined();
+    expect(returned).not.toBe(start?.fields.branchName);
+
+    const report = offeredItems(
+      STORIES["bug-report-to-builder"].fixtures.inbox.feedback,
+    ).find((candidate) => candidate.id === "m1");
+    if (report === undefined) throw new Error("m1 is not in the fixtures.");
+
+    expect(
+      await storyTwoChecks([handedOffRow(report, summary.recorded?.m1)]),
+    ).toEqual([{ projectId: "project-1", branchName: returned }]);
+  });
+
+  it("checks the branch Builder returned for story 8's alert, not the one story 8 asked for", async () => {
+    const story = STORIES["security-alert-to-safe-fix"];
+    const returned = "calm-harbor-x7k2q9";
+    const scenario =
+      story.script.scenarios["each-alert-lands-where-the-story-says"];
+    if (scenario === undefined) throw new Error("Story 8 lost its scenario.");
+    const { summary } = await runScenario(
+      "security-alert-to-safe-fix",
+      scenario,
+      {
+        ...story.fixtures,
+        provider: {
+          ...story.fixtures.provider,
+          "builder.start": {
+            ...story.fixtures.provider["builder.start"],
+            // Builder's own name for the branch, as it answers every real start.
+            accepted: {
+              ok: true,
+              output: {
+                accepted: true,
+                branchName: returned,
+                projectId: "{fields.projectId}",
+                url: `https://builder.example.test/p/{fields.projectId}/${returned}`,
+              },
+              externalRef: returned,
+            },
+          },
+        },
+      },
+    );
+    const start = summary.ticks
+      .flatMap((tick) => tick.effects)
+      .find((effect) => effect.operation === "builder.start");
+    expect(start?.fields.branchName).not.toBe(returned);
+
+    const alert = offeredItems(
+      story.fixtures.provider["github.listSecurityAlerts"],
+    ).find((candidate) => candidate.id === "alert-101");
+    if (alert === undefined)
+      throw new Error("alert-101 is not in the fixtures.");
+
+    expect(
+      await storyTwoChecks([
+        handedOffRow(alert, summary.recorded?.["alert-101"]),
+      ]),
+    ).toEqual([{ projectId: start?.fields.projectId, branchName: returned }]);
+  });
+  it("tells the triage owner which report a stuck task is for, and links the task story 1 started", async () => {
+    const { summary } = await scenarioRun(
+      "bug-report-to-builder",
+      "the-task-carries-the-reports-own-words-whatever-the-model-wrote",
+    );
+    const report = offeredItems(
+      STORIES["bug-report-to-builder"].fixtures.inbox.feedback,
+    ).find((candidate) => candidate.id === "d1");
+    if (report === undefined) throw new Error("d1 is not in the fixtures.");
+    const row = handedOffRow(report, summary.recorded?.d1);
+
+    const story = STORIES["builder-to-merge"];
+    const { summary: followed } = await runScenario(
+      "builder-to-merge",
+      {
+        description:
+          "A task story 1 handed off sits stuck until it is escalated.",
+        steps: [
+          {
+            kind: "serve",
+            operation: "slack.postMessage",
+            recording: "posted",
+          },
+          {
+            kind: "serve",
+            operation: "builder.followUp",
+            recording: "accepted",
+          },
+          { kind: "serve", operation: "builder.check", recording: "stuck" },
+          { kind: "offer", source: "inFlight", recording: "handedOff" },
+          { kind: "tick", label: "first nudge", at: "+0m" },
+          { kind: "tick", label: "second nudge", at: "+5m" },
+          { kind: "tick", label: "escalated", at: "+10m" },
+        ],
+      },
+      {
+        ...story.fixtures,
+        inbox: { inFlight: { handedOff: { items: [row] } } },
+      },
+    );
+
+    const [notice] = effectsOf(followed, "slack.postMessage");
+    // The headline story 1 named the report by, and the address its start recorded.
+    expect(notice?.fields.text).toBe(
+      `Builder is stuck on "${report.title}" (agent_waiting_for_input). Task: https://builder.example.test/branches/factory-d1`,
+    );
   });
 });

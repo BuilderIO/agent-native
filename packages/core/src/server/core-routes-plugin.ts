@@ -48,6 +48,12 @@ import {
   validateMaxIterationsInput,
   writeAgentLoopSettings,
 } from "../agent/loop-settings.js";
+import {
+  createBuilderSignupExperiment,
+  setBuilderSignupVerifiedStarter,
+  getBuilderSignupConnectError,
+  getBuilderSignupTrackingIdentity,
+} from "./builder-signup-experiment.js";
 export {
   normalizeAgentEngineStatusModel,
   resolveAgentEngineStatus,
@@ -64,9 +70,11 @@ import {
   listComposeDrafts,
   getComposeDraft,
   putComposeDraft,
+  saveComposeDraft,
   deleteComposeDraft,
   deleteAllComposeDrafts,
   getStateMany,
+  putStateMany,
   APP_STATE_ANONYMOUS_OWNER_CONTEXT_KEY,
   type AppStateAnonymousOwnerResolver,
 } from "../application-state/handlers.js";
@@ -290,6 +298,7 @@ import {
   CredentialStoreUnavailableError,
   builderCreditsRefusalStatus,
   getBuilderKeyConnections,
+  hasCompletedAutomaticBuilderSignup,
   prefetchSecrets,
   resolveSecret,
   resolveSecretDetailed,
@@ -1331,8 +1340,8 @@ export async function runDbHealthProbe(
       identity.app !== runningApp;
   }
   const database = getDatabaseRuntimeFingerprint();
-  // Measured on the connection `SELECT 1` just warmed, so the number reflects
-  // the database's own load rather than a serverless cold start.
+  // Reuse the liveness timing, which can include connection acquisition and
+  // network latency as well as database execution.
   let pressure: DbPressure | undefined;
   if (options.pressure) {
     pressure = db
@@ -2508,7 +2517,7 @@ async function authorizeBuilderConnectScope(
 }
 
 export type BuilderAccountActivationResult =
-  | { ok: true; scope: "user" | "org" }
+  | { ok: true; scope: "user" | "org"; code?: string }
   | {
       ok: false;
       status: number;
@@ -2520,6 +2529,8 @@ export type BuilderAccountActivationResult =
     };
 
 interface BuilderAccountActivationInput {
+  newAccountOnly?: boolean;
+  signupActivationReceipt?: string;
   ownerEmail: string;
   session: AuthSession | null;
   provisioningToken: string | null | undefined;
@@ -2528,6 +2539,27 @@ interface BuilderAccountActivationInput {
   member: BuilderConnectMember | null;
   connectAttemptId: string | null;
   tracking: BuilderConnectTrackingParams;
+}
+
+/** Read the exact automatic-write receipt using the same membership policy as activation. */
+export async function reconcileBuilderSignupActivation(
+  event: H3Event,
+  session: AuthSession,
+  owner: { experimentId: string; attempt: string; startedAt: number },
+): Promise<boolean> {
+  const member = await resolveBuilderOrgMutation(event, {
+    allowMemberInitiation: true,
+  });
+  // Activation permits solo users at personal scope; only an unreadable
+  // membership prevents determining custody. Do not refuse an existing org
+  // connection here: that completed write is precisely what we are recovering.
+  if (member.deny === BUILDER_ORG_MEMBERSHIP_UNREADABLE) return false;
+  return hasCompletedAutomaticBuilderSignup(
+    session.email,
+    `${owner.experimentId}:${owner.attempt}`,
+    owner.startedAt,
+    member,
+  );
 }
 
 /**
@@ -2598,6 +2630,7 @@ export async function activateBuilderAccount(
     }
     const activationOrg = activation.write;
     const credentials = await provisionBuilderAccount({
+      ...(input.newAccountOnly ? { newAccountOnly: true } : {}),
       email: ownerEmail,
       name: session.name,
       agentNativeApp: input.tracking.agentNativeApp,
@@ -2605,50 +2638,79 @@ export async function activateBuilderAccount(
     });
     const { writeBuilderCredentials } =
       await import("./credential-provider.js");
-    const written = await writeBuilderCredentials(
-      ownerEmail,
-      credentials,
-      activationOrg ?? undefined,
-    );
-    await Promise.all([
-      deleteSetting("builder-disconnected").catch(
-        () => false, // coercion-ok: best-effort cleanup after successful provisioning
-      ),
-      ...getBuilderConnectErrorCleanupKeys(ownerEmail, connectAttemptId).map(
-        (key) =>
-          deleteSetting(key).catch(
-            () => false, // coercion-ok: best-effort cleanup after successful provisioning
-          ),
-      ),
-    ]);
-    await trackBuilderLifecycle(
-      event,
-      "builder connect succeeded",
-      ownerEmail,
-      {
-        ...builderConnectTrackingProperties(input.tracking),
-        stage: "provision",
-        credential_scope: written.scope,
-        account_provisioned: true,
-      },
-    );
-    track(
-      "llm_credential_changed",
-      {
-        change_type: "connected",
-        provider: "builder",
+    let written: Awaited<ReturnType<typeof writeBuilderCredentials>>;
+    try {
+      const writeOptions = input.signupActivationReceipt
+        ? {
+            ...activationOrg,
+            automaticSignupReceipt: input.signupActivationReceipt,
+          }
+        : (activationOrg ?? undefined);
+      written = await writeBuilderCredentials(
+        ownerEmail,
+        credentials,
+        writeOptions,
+      );
+    } catch (error) {
+      captureError(error, { route: "builder.provision.credential-write" });
+      return fail(
+        409,
+        "A Builder.io account already exists for this email. Sign in to Builder.io to use it.",
+        "credential_write_failed",
+        "account_exists",
+      );
+    }
+    try {
+      await Promise.all([
+        deleteSetting("builder-disconnected").catch(
+          () => false, // coercion-ok: best-effort cleanup after successful provisioning
+        ),
+        ...getBuilderConnectErrorCleanupKeys(ownerEmail, connectAttemptId).map(
+          (key) =>
+            deleteSetting(key).catch(
+              () => false, // coercion-ok: best-effort cleanup after successful provisioning
+            ),
+        ),
+      ]);
+      await trackBuilderLifecycle(
+        event,
+        "builder connect succeeded",
+        ownerEmail,
+        {
+          ...builderConnectTrackingProperties(input.tracking),
+          stage: "provision",
+          credential_scope: written.scope,
+          account_provisioned: true,
+        },
+      );
+      track(
+        "llm_credential_changed",
+        {
+          change_type: "connected",
+          provider: "builder",
+          scope: written.scope,
+          credential_kind: "builder",
+        },
+        { userId: ownerEmail },
+      );
+      await recordBuilderConnectionAudit({
+        connected: true,
+        ownerEmail,
+        orgId: activationOrg?.orgId ?? null,
         scope: written.scope,
-        credential_kind: "builder",
-      },
-      { userId: ownerEmail },
-    );
-    await recordBuilderConnectionAudit({
-      connected: true,
-      ownerEmail,
-      orgId: activationOrg?.orgId ?? null,
-      scope: written.scope,
-      attribution: routeAuditAttribution(event),
-    });
+        attribution: routeAuditAttribution(event),
+      });
+    } catch (error) {
+      captureError(error, {
+        route: "builder.provision.post-write",
+        tags: { credential_write: "completed" },
+      });
+      return {
+        ok: true,
+        scope: written.scope,
+        code: "post_write_reporting_failed",
+      };
+    }
     return { ok: true, scope: written.scope };
   } catch (error) {
     const provisioningError =
@@ -2803,6 +2865,7 @@ export function createBuilderProvisionHandler(
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
  *   POST   /_agent-native/env-vars                      — compatibility route that saves keys to scoped DB secrets
  *   GET    /_agent-native/application-state?keys=a,b,c  — batched read of many keys
+ *   POST   /_agent-native/application-state            — batched write of many keys
  *   GET    /_agent-native/application-state/:key        — read application state
  *   PUT    /_agent-native/application-state/:key        — write application state
  *   DELETE /_agent-native/application-state/:key        — delete application state
@@ -2810,6 +2873,7 @@ export function createBuilderProvisionHandler(
  *   DELETE /_agent-native/application-state/compose     — delete all compose drafts
  *   GET    /_agent-native/application-state/compose/:id — get compose draft
  *   PUT    /_agent-native/application-state/compose/:id — upsert compose draft
+ *   PATCH  /_agent-native/application-state/compose/:id — save a compose draft only if it's unchanged
  *   DELETE /_agent-native/application-state/compose/:id — delete compose draft
  */
 /**
@@ -3291,6 +3355,7 @@ export function mountApplicationStateRoutes(
       } else {
         if (method === "GET") return getComposeDraft(event);
         if (method === "PUT") return putComposeDraft(event);
+        if (method === "PATCH") return saveComposeDraft(event);
         if (method === "DELETE") return deleteComposeDraft(event);
       }
       setResponseStatus(event, 405);
@@ -3307,6 +3372,7 @@ export function mountApplicationStateRoutes(
       withAnonymousOwner(event);
       if (key === "") {
         if (getMethod(event) === "GET") return getStateMany(event);
+        if (getMethod(event) === "POST") return putStateMany(event);
         return;
       }
       if (event.context) {
@@ -4294,6 +4360,9 @@ export function createCoreRoutesPlugin(
         const envStatus = getBuilderBrowserStatusForEvent(event);
         const ownerContext = await resolveBuilderOwnerContext(event);
         const userEmail = ownerContext.email;
+        const signupConnectError = await getBuilderSignupConnectError(
+          ownerContext.session?.userId,
+        );
         const provisioningToken =
           userEmail &&
           ownerContext.session?.token &&
@@ -4313,6 +4382,7 @@ export function createCoreRoutesPlugin(
         const withConnectToken = <
           T extends {
             connectUrl: string;
+            configured?: boolean;
             agentNativeProvisioningEnabled?: boolean;
           },
         >(
@@ -4322,7 +4392,14 @@ export function createCoreRoutesPlugin(
           BuilderConnectionsStatus & {
             effective: BuilderEffectiveConnection | null;
           } => {
-          const withConnections = { ...status, ...connections, effective };
+          const withConnections = {
+            ...status,
+            ...connections,
+            effective,
+            ...(signupConnectError && status.configured !== true
+              ? { connectError: signupConnectError }
+              : {}),
+          };
           if (!userEmail) return withConnections;
           return {
             ...withConnections,
@@ -5046,6 +5123,43 @@ export function createCoreRoutesPlugin(
           setResponseHeader(event, "Location", authorizationUrl);
           return "";
         }),
+      );
+
+      const builderSignupExperiment = createBuilderSignupExperiment({
+        getSession,
+        sameOrigin: isSameOriginConnect,
+        activate: async (event, session, owner) => {
+          const authorization = await authorizeBuilderConnectScope(
+            event,
+            session.email,
+            null,
+          );
+          if ("deny" in authorization)
+            return { ok: false, code: authorization.deny.reason };
+          return activateBuilderAccount(event, {
+            ownerEmail: session.email,
+            session,
+            provisioningToken: signBuilderProvisioningToken(
+              session.email,
+              session.token ?? "",
+            ),
+            requestedScope: null,
+            member: authorization.member,
+            connectAttemptId: null,
+            tracking: getBuilderSignupTrackingIdentity(),
+            newAccountOnly: true,
+            signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
+          });
+        },
+
+        reconcile: reconcileBuilderSignupActivation,
+      });
+      setBuilderSignupVerifiedStarter(
+        builderSignupExperiment.startVerifiedSignup,
+      );
+      getH3App(nitroApp).use(
+        `${P}/auth/builder-signup-experiment`,
+        builderSignupExperiment.handler,
       );
 
       getH3App(nitroApp).use(

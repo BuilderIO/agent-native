@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
+  statSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -17,6 +20,10 @@ const SCRIPT = resolve(import.meta.dirname, "fix-proof.ts");
 const root = mkdtempSync(join(tmpdir(), "fix-proof-"));
 const repo = join(root, "repo");
 const outside = join(root, "outside.txt");
+const shim = join(root, "bin");
+const realGit = spawnSync("sh", ["-c", "command -v git"], {
+  encoding: "utf8",
+}).stdout.trim();
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const sh = (...args: string[]) =>
@@ -35,6 +42,8 @@ write("feature.mjs", "export const value = 'broken';\n");
 write("old.txt", "renamed later\n");
 write("gone.txt", "deleted later\n");
 write("link.txt", "regular file\n");
+write("tool.sh", "echo broken\n");
+chmodSync(join(repo, "tool.sh"), 0o755);
 sh("git", "add", "-A");
 sh("git", "commit", "-qm", "base");
 sh("git", "tag", "base");
@@ -63,6 +72,9 @@ write(
   `import assert from "node:assert/strict";\nimport test from "node:test";\nimport { value } from "./new-feature.mjs";\ntest("new feature is present", () => assert.equal(value, "fixed"));\n`,
 );
 write("input.txt", "fixed\n");
+write("tool.sh", "echo fixed\n");
+mkdirSync(join(repo, "nested/dir"), { recursive: true });
+write("nested/dir/added.txt", "fixed\n");
 write("app.test.ts", "check\n");
 sh("git", "add", "-A");
 sh("git", "commit", "-qm", "fix");
@@ -83,20 +95,29 @@ function assertBackAtHead() {
   assert.equal(existsSync(join(repo, "old.txt")), false);
   assert.equal(existsSync(join(repo, "gone.txt")), false);
   assert.equal(readFileSync(outside, "utf8"), "outside\n");
+  assert.equal(statSync(join(repo, "tool.sh")).mode & 0o111, 0o111);
 }
 
+mkdirSync(shim);
+writeFileSync(
+  join(shim, "git"),
+  `#!/bin/sh\ncase "$1" in checkout|rm|restore|reset) echo "blocked: git $1" >&2; exit 1;; esac\nexec "${realGit}" "$@"\n`,
+);
+chmodSync(join(shim, "git"), 0o755);
+
 describe("fix-proof", () => {
-  it("proves a check that is green on HEAD and red without the fix", () => {
+  it("proves a non-test check locally without a line the feedback gate would re-run", () => {
     const r = proof("grep", "-q", "fixed", "app.txt");
     assert.equal(r.status, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /proven, red at/);
+    assert.match(r.stdout, /^fix-proof: proven locally only \(/);
+    assert.doesNotMatch(r.stdout, /fix-proof: proven, red at/);
     assertBackAtHead();
   });
 
   it("accepts an actual failing Node test as red proof", () => {
     const r = proof("node", "--test", "assertion.test.js");
     assert.equal(r.status, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /proven, red at/);
+    assert.match(r.stdout, /^fix-proof: proven, red at/);
     assertBackAtHead();
   });
 
@@ -115,6 +136,35 @@ describe("fix-proof", () => {
 
   it("replaces a changed symlink instead of writing through it", () => {
     assert.equal(proof("test", "-L", "link.txt").status, 0);
+    assertBackAtHead();
+  });
+
+  it("never runs git checkout, rm, restore, or reset", () => {
+    const r = spawnSync(
+      "node",
+      [SCRIPT, "--base", "base", "--", "grep", "-q", "fixed", "app.txt"],
+      {
+        cwd: repo,
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${shim}:${process.env.PATH}` },
+      },
+    );
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assertBackAtHead();
+  });
+
+  it("puts back the base content and executable bit of a changed script", () => {
+    const r = proof("test", "-x", "tool.sh");
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /also passes without the fix/);
+    assert.equal(proof("grep", "-q", "fixed", "tool.sh").status, 0);
+    assertBackAtHead();
+  });
+
+  it("removes an added file and its emptied directories on the red run", () => {
+    const r = proof("test", "-d", "nested");
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(existsSync(join(repo, "nested/dir/added.txt")), true);
     assertBackAtHead();
   });
 
@@ -200,5 +250,19 @@ describe("fix-proof", () => {
     const r = proof("true");
     write("app.txt", "fixed\n");
     assert.equal(r.status, 2);
+  });
+
+  it("cannot run on a test-only commit and says it needs no proof", () => {
+    write(
+      "feature.test.js",
+      `${readFileSync(join(repo, "feature.test.js"), "utf8")}// deflaked\n`,
+    );
+    sh("git", "commit", "-qam", "test-only");
+    const r = sh("node", SCRIPT, "--fix", "HEAD", "--", "true");
+    assert.equal(r.status, 2);
+    assert.match(
+      r.stderr,
+      /no non-test changes[^\n]*test-only change needs no fix proof/,
+    );
   });
 });

@@ -9,7 +9,7 @@ import { isAgentCall } from "./_document-agent-lock.js";
 
 export default defineAction({
   description:
-    "Switch \"Agents can't edit the text of this\" on or off for one page. Only a person can change it, from the page's Share panel.",
+    "Set what agents can do on one page: locked is Can comment, unlocked is Can edit. Only a person can change it, from the Agents tab of the page's Share panel.",
   schema: z.object({
     id: z.string().describe("Document ID"),
     locked: z.boolean().describe("true stops agents editing the page's text"),

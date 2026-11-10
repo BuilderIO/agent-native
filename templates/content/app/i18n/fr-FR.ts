@@ -951,6 +951,7 @@ const editor = {
       video: "Vidéo",
     },
     fromSource: "À partir de {{name}}",
+    hiddenInThisView: "Masquées dans cette vue",
     hiddenProperties: "Propriétés cachées",
     imageUploaded_zero: "Images téléchargées",
     imageUploaded_one: "Image téléchargée",
@@ -1129,9 +1130,29 @@ const editor = {
     hideInSearch: "Masquer dans la recherche",
     hideInSearchDescription:
       "Masquer de l’organisation et effectuer la recherche. Les personnes disposant du lien peuvent toujours consulter.",
-    agentTextLock: "Les agents ne peuvent pas modifier le texte de cette page",
-    agentTextLockDescription:
-      "Les agents peuvent toujours commenter et suggérer des modifications. Seules les personnes peuvent les accepter.",
+    sharePeopleTab: "Personnes",
+    shareAgentsTab: "Agents",
+    agentLevelHeading: "Agents sur cette page",
+    agentLevelMenuLabel: "Ce que les agents peuvent faire sur cette page",
+    agentLevelDefault: "(par défaut)",
+    agentLevelCommentDescription:
+      "Peuvent lire, commenter et suggérer des modifications. Seules les personnes peuvent les accepter.",
+    agentLevelEditDescription:
+      "Peuvent lire, commenter, suggérer, modifier le texte, le titre et les onglets, et placer la page dans la corbeille.",
+    agentLevelCommentConfirm:
+      "Les agents peuvent maintenant commenter et suggérer des modifications sur cette page, mais pas la modifier.",
+    agentLevelEditConfirm: "Les agents peuvent de nouveau modifier cette page.",
+    agentLevelLimit:
+      "Un agent n'obtient jamais plus de droits que la personne pour laquelle il travaille.",
+    agentLevelManagersOnly:
+      "Seules les personnes qui gèrent cette page peuvent modifier ce réglage.",
+    agentLevelUpdateFailed:
+      "Impossible de modifier ce que les agents peuvent faire ici.",
+    agentLevelNote: "Les agents peuvent commenter",
+    agentLevelNoteHint:
+      "Les agents peuvent commenter sur cette page. Modifiez cela dans Partager.",
+    sendPageToAgent: "Envoyer cette page à un agent",
+    connectAgentOverMcp: "Connecter un agent via MCP",
     importingFromNotion: "Importation depuis Notion...",
     lastSynced: "Dernière synchronisation",
     linkedToNotion: "Lié à Notion",
@@ -1208,7 +1229,7 @@ const rawLiterals = {
     previewDraftSavedToHistory:
       "Vos modifications ont été enregistrées dans l’historique",
     previewDraftSavedSeparately:
-      "Vos modifications ont été enregistrées dans une autre page",
+      "Vos modifications ont été enregistrées dans une page privée de votre espace",
     previewDraftOpenSavedPage: "Ouvrir la page",
     previewDraftMoreOptions: "Plus d’options",
     previewDraftViewFullVersions: "Afficher les versions complètes",
@@ -1292,6 +1313,23 @@ const rawLiterals = {
     restoreDatabase: "Restaurer",
     restoreDatabaseNamed: "Restaurer {{title}}",
     trash: "Corbeille",
+  },
+  publicDocument: {
+    chat: "Chat",
+    freeAndOpenSource: "Gratuit et open source sur GitHub",
+    pagePath: "Chemin de la page",
+    privateDescription:
+      "Demandez au propriétaire de le partager avec votre compte ou votre espace de travail avant d’ouvrir ce lien.",
+    privateTitle: "Ce document est privé",
+    signIn: "Connexion",
+    signUp: "S’inscrire",
+    signUpFree: "Inscription gratuite",
+    subPages: "Sous-pages",
+    tryContentFree: "Essayer Content gratuitement",
+    updated: "Mis à jour le {{date}}",
+    writtenIn: "Rédigé dans Agent-Native Content.",
+    writtenInDescription:
+      "Rédigez et publiez vos propres pages, avec un agent IA qui travaille dans vos documents.",
   },
 };
 
@@ -1837,6 +1875,28 @@ const overrides = {
     discardEditDescription: "Votre commentaire restera tel quel.",
     discard: "Abandonner",
     keepEditing: "Continuer à modifier",
+    deleteComment: "Supprimer le commentaire",
+    deleteThread: "Supprimer le fil",
+    deleteCommentQuestion: "Supprimer le commentaire ?",
+    deleteCommentDescription:
+      "Il sera supprimé pour tout le monde. Cette action est irréversible.",
+    deleteThreadQuestion: "Supprimer le fil ?",
+    deleteThreadDescription:
+      "Le fil et ses réponses seront supprimés pour tout le monde. Cette action est irréversible.",
+    deleteThreadAiChangeDescription:
+      "Le fil et ses réponses seront supprimés pour tout le monde. Cette action est irréversible. La modification de l'IA reste dans la page, mais vous ne pourrez pas l'annuler depuis le fil.",
+    delete: "Supprimer",
+    deleting: "Suppression…",
+    deleteRefusedReplied:
+      "Quelqu'un d'autre a répondu : seul un éditeur peut supprimer ce fil.",
+    deleteRefusedNotion:
+      "Ce commentaire est synchronisé avec Notion. Supprimez-le dans Notion.",
+    deleteRefusedAiWorking:
+      "L'IA travaille sur ce fil. Arrêtez-la avant de supprimer le fil.",
+    deleteRefusedAiSuggestion:
+      "La suggestion de l'IA dans ce fil attend votre examen. Acceptez-la ou refusez-la avant de supprimer le fil.",
+    deleteRefusedBusy:
+      "Ce fil est en cours de modification. Réessayez de le supprimer dans un instant.",
     submit: "Commenter",
     askAi: "Demander à l'IA",
     aiBadge: "IA",
@@ -1847,8 +1907,10 @@ const overrides = {
     mentionPeopleLoadFailed: "Impossible de charger les personnes.",
     mentionAgents: "Agents",
     identityPerson: "Personne",
-    identityModel: "Modèle",
     identityEffort: "Effort",
+    acceptAllAndResolve: "Tout accepter et résoudre",
+    acceptAndResolve: "Accepter et résoudre",
+    suggestionLoadFailed: "Impossible de charger cette suggestion",
     identityRan: "Exécuté",
     identityNotRecorded: "Non enregistré",
     identityOpenRun: "Ouvrir l’exécution",
@@ -1882,7 +1944,6 @@ const overrides = {
       "Applique les modifications de ce commentaire et résous-le.",
     aiWorking: "L’IA travaille…",
     aiReplied: "L’IA a répondu",
-    aiSuggestionReady: "Examiner la suggestion",
     aiChangesApplied: "Modifications appliquées",
     aiAppliedAndResolved: "Appliqué et résolu",
     aiChangeUndone: "Modification annulée",

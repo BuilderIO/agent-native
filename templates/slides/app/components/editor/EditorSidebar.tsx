@@ -8,6 +8,7 @@ import {
   writeClientAppState,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { LazyChunkErrorBoundary } from "@agent-native/toolkit/app/shared";
 import { DEFAULT_AGENT_IDENTITY } from "@agent-native/toolkit/collab-ui";
 import {
@@ -28,7 +29,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { toast } from "sonner";
 
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
@@ -55,6 +55,7 @@ import {
   DeferredAddSlidePopover,
   preloadAddSlidePopover,
 } from "@/lib/deferred-editor-surfaces";
+import type { PromptChatSubmissionOptions } from "@/lib/prompt-chat-attachments";
 import { TAB_ID } from "@/lib/tab-id";
 import { shortcutLabel } from "@/lib/utils";
 
@@ -97,7 +98,11 @@ interface EditorSidebarProps {
    *  persistence. */
   onAwaitAddSlidePersisted?: () => Promise<void>;
   onRemoveFailedSlide?: (slideId: string) => void;
-  addSlideAgentSubmit: (message: string, context: string) => void;
+  addSlideAgentSubmit: (
+    message: string,
+    context: string,
+    options: PromptChatSubmissionOptions,
+  ) => void;
   hasSlideClipboard?: boolean;
   onCutSlide?: (slideIds: string[]) => void;
   onCopySlide?: (slideIds: string[]) => void;
@@ -1263,7 +1268,7 @@ export default function EditorSidebar({
               activeSlideIndex={describeSlideIndex}
               slideCount={slides.length}
               targetSlideId={describeSlideId}
-              agentSubmit={async (message, context) => {
+              agentSubmit={async (message, context, options) => {
                 onAddSlideGeneratingChange?.(true, describeSlideId);
                 try {
                   await onAwaitAddSlidePersisted?.();
@@ -1277,10 +1282,12 @@ export default function EditorSidebar({
                   ) {
                     onRemoveFailedSlide?.(describeSlideId);
                   }
-                  toast.error(t("editorSidebar.newSlideSaveFailed"));
+                  reportWriteFailure(error, {
+                    label: t("editorSidebar.newSlideSaveFailed"),
+                  });
                   return false;
                 }
-                addSlideAgentSubmit(message, context);
+                addSlideAgentSubmit(message, context, options);
                 return true;
               }}
             />

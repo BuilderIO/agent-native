@@ -42,4 +42,22 @@ describe("collaboration caret styles", () => {
     expect(getComputedStyle(selection).display).toBe("inline");
     expect(getComputedStyle(selection).borderRadius).toBe("2px");
   });
+
+  it("tints a collaborator's selection in their colour without fading its text", () => {
+    const style = document.createElement("style");
+    style.textContent = readFileSync("app/global.css", "utf8");
+    document.head.append(style);
+
+    const selection = document.createElement("span");
+    selection.className = "ProseMirror-yjs-selection";
+    selection.setAttribute("style", "--collaboration-color: #db70ae");
+    selection.textContent = "selected words";
+    const editor = document.createElement("div");
+    editor.className = "content-editor";
+    editor.append(selection);
+    document.body.append(editor);
+
+    const computed = getComputedStyle(selection);
+    expect(computed.opacity).not.toBe("0.16");
+  });
 });

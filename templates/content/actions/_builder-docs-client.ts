@@ -10,7 +10,7 @@ import {
   ROLE_RANK,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -1105,6 +1105,10 @@ export async function checkBuilderDocsSource(args: {
   };
 }
 
+function escapeLike(s: string): string {
+  return s.replace(/([\\%_])/g, "\\$1");
+}
+
 /**
  * An agent's push can carry whatever text it supplies, and the page's next pull
  * would bring that back, so a locked page's Builder entry is out of its reach.
@@ -1127,6 +1131,8 @@ export async function assertAgentMayPushBuilderEntry(args: {
       and(
         eq(schema.documents.sourceMode, BUILDER_DOCS_MDX_SOURCE_MODE),
         eq(schema.documents.sourceKind, builderSourceKindForModel(args.model)),
+        // Only this entry's pages; the exact match on its ID follows.
+        sql`${schema.documents.sourceRootPath} like ${`${escapeLike(args.entryId)}#%`} escape '\\'`,
         accessFilter(schema.documents, schema.documentShares),
       ),
     );

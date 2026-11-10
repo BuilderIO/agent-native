@@ -208,7 +208,15 @@ import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import action from "./create-file.js";
 
-function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
+function loadOptimisticCreatedFileInsertion(
+  queryClient: QueryClient,
+  historyFilesRef: { current: Array<{ id: string; content: string }> } = {
+    current: [],
+  },
+  sourceLoader: {
+    prime: (id: string, file: { content: string; updatedAt: string }) => void;
+  } = { prime: () => {} },
+) {
   const source = readDesignEditorSource();
   const start = source.indexOf(
     "const optimisticallyInsertCreatedFile = useCallback(",
@@ -228,6 +236,8 @@ function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
     "annotateScreenHtmlForPersist",
     "insertAtFileOrderIndex",
     "historyFilesRef",
+    "designMetadataQueryKey",
+    "sourceLoader",
     `${callback}\nreturn optimisticallyInsertCreatedFile;`,
   );
   return create(
@@ -236,7 +246,9 @@ function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
     queryClient,
     annotateScreenHtmlForPersist,
     insertAtFileOrderIndex,
-    { current: [] },
+    historyFilesRef,
+    (id: string) => ["action", "get-design", { id, includeFileContent: false }],
+    sourceLoader,
   ) as (args: {
     fileId: string;
     filename: string;
@@ -333,6 +345,72 @@ describe("create-file: node-id annotation", () => {
         },
       },
     });
+  });
+
+  it("gives a web copy of an email source the design's breakpoints again", async () => {
+    mocks.setExistingRows([
+      {
+        id: "source",
+        designId: "design-1",
+        filename: "email.html",
+        fileType: "html",
+      },
+    ]);
+    mocks.setDesignData({
+      screenMetadata: {
+        source: {
+          width: 600,
+          breakpointWidths: [],
+          heightMode: "hug",
+          frameType: "hubspot-email",
+        },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "email copy.html",
+      content: "<main>Copy</main>",
+      fileType: "html",
+      duplicateSourceFileId: "source",
+      frameType: "web",
+    });
+
+    expect(result.frameType).toBeNull();
+    const copied = (
+      mocks.getDesignData().screenMetadata as Record<string, unknown>
+    )[result.id];
+    expect(copied).toMatchObject({ frameType: "web" });
+    expect(copied).not.toHaveProperty("breakpointWidths");
+  });
+
+  it("keeps a duplicate's copied web type over a leftover marker", async () => {
+    mocks.setExistingRows([
+      {
+        id: "source",
+        designId: "design-1",
+        filename: "former-email.html",
+        fileType: "html",
+      },
+    ]);
+    mocks.setDesignData({
+      screenMetadata: { source: { width: 600, frameType: "web" } },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "former-email copy.html",
+      content: createHubSpotEmailHtml({ title: "Former email" }),
+      fileType: "html",
+      duplicateSourceFileId: "source",
+    });
+
+    expect(result.frameType).toBeNull();
+    expect(
+      (mocks.getDesignData().screenMetadata as Record<string, unknown>)[
+        result.id
+      ],
+    ).toMatchObject({ frameType: "web" });
   });
 
   it("rejects a duplicate source from a different design", async () => {
@@ -778,12 +856,22 @@ describe("create-file: node-id annotation", () => {
       content: string;
     };
     const queryClient = new QueryClient();
-    const queryKey = ["action", "get-design", { id: "design-1" }] as const;
+    const queryKey = [
+      "action",
+      "get-design",
+      { id: "design-1", includeFileContent: false },
+    ] as const;
     queryClient.setQueryData(queryKey, {
       files: [] as Array<Record<string, unknown>>,
     });
-    const insertOptimistically =
-      loadOptimisticCreatedFileInsertion(queryClient);
+    const historyFilesRef: { current: Array<{ id: string; content: string }> } =
+      { current: [] };
+    const sourceLoader = { prime: vi.fn() };
+    const insertOptimistically = loadOptimisticCreatedFileInsertion(
+      queryClient,
+      historyFilesRef,
+      sourceLoader,
+    );
 
     try {
       insertOptimistically({
@@ -796,14 +884,24 @@ describe("create-file: node-id annotation", () => {
       const optimistic = queryClient
         .getQueryData<{ files: Array<Record<string, unknown>> }>(queryKey)
         ?.files.find((file) => file.id === result.id);
-      expect(optimistic?.content).toBe(persisted.content);
+      expect(optimistic).not.toHaveProperty("content");
+      expect(
+        historyFilesRef.current.find((file) => file.id === result.id)?.content,
+      ).toBe(persisted.content);
+      expect(sourceLoader.prime).toHaveBeenCalledWith(
+        result.id,
+        expect.objectContaining({ content: persisted.content }),
+      );
       expect(mocks.seedFromText).toHaveBeenCalledWith(
         result.id,
         persisted.content,
       );
 
       const preparedForSourceIdentity = ensureCodeLayerNodeIdsInHtml(
-        String(optimistic?.content),
+        String(
+          historyFilesRef.current.find((file) => file.id === result.id)
+            ?.content,
+        ),
         { source: { kind: "design-file", fileId: result.id } },
       );
       expect(preparedForSourceIdentity).toEqual({
@@ -828,7 +926,11 @@ describe("create-file: node-id annotation", () => {
         queries: { retry: false, gcTime: Infinity, staleTime: 0 },
       },
     });
-    const queryKey = ["action", "get-design", { id: "design-1" }] as const;
+    const queryKey = [
+      "action",
+      "get-design",
+      { id: "design-1", includeFileContent: false },
+    ] as const;
     const staleResult = {
       id: "design-1",
       files: [{ id: "old-file", filename: "index.html", content: "old" }],
@@ -994,6 +1096,106 @@ describe("create-file: canvas placement and landing URL", () => {
     expect(mocks.insertValues.mock.calls[0]![0].content).toContain(
       "{{ unsubscribe_link }}",
     );
+  });
+
+  it("stores the email frame type passed as frameType on HTML without a marker", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "promo-email.html",
+      content:
+        '<!doctype html><html><head></head><body><table role="presentation"><tr><td>Sale</td></tr></table></body></html>',
+      fileType: "html",
+      frameType: "hubspot-email",
+    });
+    expect(result.frameType).toBe("hubspot-email");
+    expect(mocks.getDesignData()).toMatchObject({
+      canvasFrames: { [result.id]: { width: 600, height: 800 } },
+      screenMetadata: {
+        [result.id]: {
+          width: 600,
+          breakpointWidths: [],
+          frameType: "hubspot-email",
+        },
+      },
+    });
+  });
+
+  it("backfills the frame type of legacy HTML that carries the email marker", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "legacy-email.html",
+      content: createHubSpotEmailHtml({ title: "Legacy" }),
+      fileType: "html",
+    });
+    expect(mocks.getDesignData().screenMetadata).toMatchObject({
+      [result.id]: { frameType: "hubspot-email" },
+    });
+  });
+
+  it("keeps the frame type of a created screen when its placement fails", async () => {
+    mocks.mutateDesignData.mockRejectedValueOnce(new Error("placement failed"));
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        filename: "promo-email.html",
+        content: "<main>Sale</main>",
+        fileType: "html",
+        frameType: "hubspot-email",
+      }),
+    ).rejects.toThrow("placement failed");
+    expect(
+      Object.values(
+        mocks.getDesignData().screenMetadata as Record<string, unknown>,
+      ),
+    ).toEqual([
+      {
+        frameType: "hubspot-email",
+        width: 600,
+        breakpointWidths: [],
+        heightMode: "hug",
+        heightPinned: false,
+      },
+    ]);
+  });
+
+  it("keeps a copy ordinary when frameType is web despite a legacy marker", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "former-email.html",
+      content: createHubSpotEmailHtml({ title: "Former email" }),
+      fileType: "html",
+      frameType: "web",
+    });
+    expect(result.frameType).toBeNull();
+    expect(mocks.getDesignData()).toMatchObject({
+      canvasFrames: { [result.id]: { width: 1440 } },
+      screenMetadata: { [result.id]: { frameType: "web" } },
+    });
+  });
+
+  it("leaves an ordinary screen without a stored frame type", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "landing.html",
+      content: "<main>Landing</main>",
+      fileType: "html",
+    });
+    expect(result.frameType).toBeNull();
+    expect(mocks.getDesignData().screenMetadata).toBeUndefined();
+  });
+
+  it("rejects an email frame type on a file that is not HTML", async () => {
+    await expect(
+      action.run({
+        designId: "design-1",
+        filename: "email.jsx",
+        content: "export default function Email() { return null; }",
+        fileType: "jsx",
+        frameType: "hubspot-email",
+      }),
+    ).rejects.toMatchObject({ errorCode: "hubspot_email_html_required" });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
   });
 
   // oracle-change: create-file no longer accepts frameType, so there is no requested-email marker check to reject.
@@ -1256,6 +1458,35 @@ describe("create-file: canvas placement and landing URL", () => {
       "opaque asset bytes",
     );
     expect(mocks.track).not.toHaveBeenCalled();
+  });
+
+  it("stores the requested frame type of an empty screen it does not place", async () => {
+    mocks.assertAccess.mockImplementation(async () => ({
+      role: "editor",
+      resource: { data: JSON.stringify(mocks.getDesignData()) },
+    }));
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "email.html",
+      content: "   ",
+      fileType: "html",
+      frameType: "hubspot-email",
+    });
+
+    expect(result.renderable).toBe(false);
+    expect(result.frameType).toBe("hubspot-email");
+    expect(mocks.getDesignData()).toEqual({
+      screenMetadata: {
+        [result.id]: {
+          frameType: "hubspot-email",
+          width: 600,
+          breakpointWidths: [],
+          heightMode: "hug",
+          heightPinned: false,
+        },
+      },
+    });
   });
 
   it("does not place or focus renderable content that is empty", async () => {

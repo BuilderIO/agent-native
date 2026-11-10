@@ -474,14 +474,10 @@ export async function createContentDatabaseRecord(
       return existing.id;
     }
 
+    // Turning the page into a collection changes the page itself, title or not.
+    assertAgentsMayEditPageText(document, options.ctx);
     const fillsTitle =
       title && title !== document.title && !document.title.trim();
-    if (
-      fillsTitle ||
-      (args.description !== undefined &&
-        args.description.trim() !== (document.description ?? ""))
-    )
-      assertAgentsMayEditPageText(document, options.ctx);
     if (fillsTitle) {
       await db
         .update(schema.documents)
