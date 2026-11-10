@@ -94,11 +94,11 @@ export default defineAction({
   requiresAuth: false,
   // Comment text and names are the reader's private view of the Clip.
   persistInBrowser: false,
-  run: async ({
-    documentId,
-    recordingId,
-  }): Promise<{ threads: ClipCommentThread[]; truncated: boolean }> => {
-    const reader = await authorizeClipReader(documentId);
+  run: async (
+    { documentId, recordingId },
+    ctx,
+  ): Promise<{ threads: ClipCommentThread[]; truncated: boolean }> => {
+    const reader = await authorizeClipReader(documentId, ctx?.requestHeaders);
     const result = await requestClips({
       reader,
       documentId,

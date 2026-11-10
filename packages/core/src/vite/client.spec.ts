@@ -1683,6 +1683,41 @@ describe("route warmup config", () => {
     }
   });
 
+  it("defines the build's commit apart from its deploy id", () => {
+    const commit = "A".repeat(40);
+    vi.stubEnv("DEPLOY_ID", "665f1c2e9b1d4a0008a1b2c3");
+    vi.stubEnv("AGENT_NATIVE_BUILD_ID", commit);
+
+    try {
+      const config = defineConfig();
+      expect(config.define?.__AGENT_NATIVE_BUILD_ID__).toBe(
+        JSON.stringify("665f1c2e9b1d4a0008a1b2c3"),
+      );
+      expect(config.define?.__AGENT_NATIVE_COMMIT_SHA__).toBe(
+        JSON.stringify(commit.toLowerCase()),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("defines no commit when the build id is not a full commit", () => {
+    vi.stubEnv("AGENT_NATIVE_BUILD_SHA", "");
+    vi.stubEnv("AGENT_NATIVE_BUILD_ID", "665f1c2e9b1d4a0008a1b2c3");
+    vi.stubEnv("COMMIT_REF", "");
+    vi.stubEnv("NETLIFY_COMMIT_REF", "");
+    vi.stubEnv("VERCEL_GIT_COMMIT_SHA", "");
+    vi.stubEnv("CF_PAGES_COMMIT_SHA", "");
+
+    try {
+      expect(defineConfig().define?.__AGENT_NATIVE_COMMIT_SHA__).toBe(
+        JSON.stringify(""),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("uses the shared build id precedence for the client bundle", () => {
     vi.stubEnv("DEPLOY_ID", "");
     vi.stubEnv("AGENT_NATIVE_BUILD_ID", " agent-build-123 ");

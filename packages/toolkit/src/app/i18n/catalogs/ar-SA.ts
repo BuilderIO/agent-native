@@ -497,7 +497,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "استخدم أدوات {{integration}}",
   "composer.menu.scheduleTask": "جدولة مهمة",
   "composer.menu.scheduleTaskDescription": "تشغيل مهمة وفق جدول زمني",
-  "composer.menu.uploadFile": "رفع ملف",
+  "composer.menu.uploadFile": "الملفات والصور",
+  "composer.menu.searchWorkspace": "البحث في مساحة العمل…",
+  "composer.menu.references": "المراجع",
+  "composer.menu.referenceFile": "الإشارة إلى ملف",
+  "composer.menu.attachToMessage": "إضافة سياق",
+  "composer.menu.commands": "الأوامر",
   "composer.menu.uploadFileDescription":
     "صور وPDFs ونصوص/تعليمات برمجية وJSON وCSV",
   "composer.messageAgent": "مراسلة الوكيل...",
@@ -1337,6 +1342,7 @@ const messages: ToolkitAgentChatTranslation = {
     "يتضمن Builder.io أرصدة مجانية، أو يمكنك استخدام مفتاح API الخاص بك.",
   "setup.builderOrOwnKeys":
     "استخدم Builder.io (بأرصدة مجانية)، أو أضف مفاتيح مزوّديك الخاصة.",
+  "setup.reconnectBuilder": "إعادة الاتصال بـ Builder.io",
   "setup.connectAi": "اتصال بالذكاء الاصطناعي",
   "setup.connectBuilder": "استخدم Builder.io",
   "setup.connectionsDescription":
@@ -2593,6 +2599,9 @@ const messages: ToolkitAgentChatTranslation = {
     "يستخدم الوكيل رمز الوصول الذي تضيفه، لذلك يرى ما يمكن لهذا الرمز رؤيته.",
   "settingsShell.integrationDetail.accessToken": "رمز الوصول",
   "settingsShell.integrationDetail.addAccessToken": "إضافة رمز وصول",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "تعذّر التحقق من رمز الوصول المحفوظ.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "إعادة المحاولة",
   "settingsShell.integrationDetail.callout.adminNeeded": "يجب أن يُعدّ مسؤول هذا",
   "settingsShell.integrationDetail.callout.adminNeededBody":
     "اطلب من مالك أو مسؤول في {{org}} إضافة معرّف العميل والسر الخاصين بـ {{name}}. بعد ذلك يمكنك ربط حسابك.",
@@ -3550,6 +3559,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "إزالة التطبيق من مساحة العمل",
   "chatFirst.showMore": "عرض المزيد",
   "chatFirst.showLess": "عرض أقل",
+  "chatFirst.showMoreCount": "عرض {{count}} أخرى",
   "chatFirst.appOrderUnavailable": "تعذّر حفظ ترتيب التطبيقات على هذا الجهاز.",
   "chatFirst.openSideSurfaces": "فتح اللوحات الجانبية",
   "chatFirst.sideSurfaces": "اللوحات الجانبية",

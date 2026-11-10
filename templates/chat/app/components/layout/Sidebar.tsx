@@ -403,7 +403,7 @@ export function Sidebar({
       <nav
         aria-label={t("navigation.navigation")}
         className={cn(
-          "flex min-h-0 flex-1 flex-col",
+          "flex min-h-0 flex-1 flex-col overflow-y-auto",
           collapsed ? "items-center gap-1 px-1 py-2" : "pt-1",
         )}
       >

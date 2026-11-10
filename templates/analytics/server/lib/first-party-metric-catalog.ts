@@ -1,6 +1,10 @@
 import { testIdentityEmailSql } from "@agent-native/core/shared";
 
 import {
+  designBuilderSignupQueries,
+  DESIGN_BUILDER_SIGNUP_EVENT_SOURCE,
+} from "./design-builder-signup-metrics.js";
+import {
   JOURNEY_COHORT_EVENT_NAMES,
   JOURNEY_COHORT_PARTITION_EVENT_NAMES,
   JOURNEY_INTEGRATION_EVENT_NAMES,
@@ -1108,10 +1112,13 @@ function buildOnboardingEventsCte(
     includeIdentityBridge?: boolean;
     excludeHttpResponses?: boolean;
     excludeNonProductionHosts?: boolean;
+    emailFilterSql?: string;
+    eventSource?: "analytics_events" | "builder_signup_source";
   } = {},
 ): string {
   const dateRangeFilter =
     options.dateRangeFilter ?? DASHBOARD_TIME_RANGE_FILTER;
+  const eventSource = options.eventSource ?? "analytics_events";
   const includeIdentityBridge = options.includeIdentityBridge !== false;
   const observationCutoffFilter = options.observationCutoffSql
     ? `\n      AND e.timestamp::timestamptz < ${options.observationCutoffSql}`
@@ -1134,7 +1141,7 @@ function buildOnboardingEventsCte(
       CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END
     )) AS linked_email,
     NULLIF(e.properties::jsonb ->> 'auth_user_id', '') AS auth_user_id
-    FROM analytics_events e
+    FROM ${eventSource} e
     WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}
       AND ${DASHBOARD_APP_FILTER}
       AND ${FIRST_PARTY_TEMPLATE_FILTER}
@@ -1168,19 +1175,22 @@ function buildOnboardingEventsCte(
       CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
       CASE WHEN NULLIF(e.properties::jsonb ->> 'auth_user_id', '') LIKE '%@%.%' THEN e.properties::jsonb ->> 'auth_user_id' END
     ) AS funnel_user_email
-  FROM analytics_events e
+  FROM ${eventSource} e
   ${identityBridgeJoin}
   WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}${excludeHttpResponsesFilter}${excludeNonProductionHostsFilter}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
 ), onboarding_events AS (
   SELECT * FROM scoped_onboarding_events
-  WHERE ${FUNNEL_EMAIL_FILTER}
+  WHERE ${options.emailFilterSql ?? FUNNEL_EMAIL_FILTER}
     AND NOT ${testIdentityEmailSql("funnel_user_email")}
 )`;
 }
 
 const ONBOARDING_EVENTS_CTE = buildOnboardingEventsCte();
+const BUILDER_SIGNUP_QUERIES = designBuilderSignupQueries(
+  `${DESIGN_BUILDER_SIGNUP_EVENT_SOURCE}, ${buildOnboardingEventsCte({ emailFilterSql: "TRUE", eventSource: "builder_signup_source" }).slice(5)}`,
+);
 const SIGNIFICANT_ACTION_FILTER = `((event_name IN ('action_completed', 'core_action_completed') AND COALESCE(properties::jsonb ->> 'success', 'true') = 'true') OR event_name = 'app.first_action' OR (event_name = 'action.response' AND COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE(upper(properties::jsonb ->> 'method'), '') <> 'GET'))`;
 const ACTION_RESPONSE_WEIGHT_SQL = `CASE WHEN NULLIF(properties::jsonb ->> 'sample_weight', '') IS NOT NULL THEN (properties::jsonb ->> 'sample_weight')::numeric WHEN COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE((properties::jsonb ->> 'duration_ms')::numeric, 1000) < 1000 AND COALESCE((properties::jsonb ->> 'status_code')::int, 200) < 400 AND NULLIF(properties::jsonb ->> 'framework_ready_wait_ms', '') IS NULL AND NULLIF(properties::jsonb ->> 'startup_db_operation_wall_ms', '') IS NULL THEN 10 ELSE 1 END`;
 const ACTION_RESPONSE_OUTCOME_CLASS_SQL = `CASE WHEN COALESCE(properties::jsonb ->> 'outcome', '') = 'cancelled' THEN 'cancelled' WHEN COALESCE(properties::jsonb ->> 'outcome', '') = 'timeout' AND COALESCE(properties::jsonb ->> 'page_hidden', '') = 'true' THEN 'suspended' WHEN COALESCE(properties::jsonb ->> 'success', '') = 'true' THEN 'success' ELSE 'failure' END`;
@@ -3230,6 +3240,96 @@ const ENTRIES: FirstPartyMetric[] = [
           label: "Settings handoffs",
           format: "number",
         },
+      ],
+    },
+  },
+  {
+    key: "design-builder-signup-ab",
+    title: "Design Builder signup A/B",
+    chartType: "table",
+    source: "first-party",
+    width: 6,
+    windowed: false,
+    buildSql: fixed(BUILDER_SIGNUP_QUERIES.comparison),
+    config: {
+      description:
+        "Visitor-assignment cohorts include signup abandoners. Signup, Builder connection, prompt, and first design are measured within 24 hours of first exposure. Milestones are independent; custom keys can produce a design without connecting Builder. Use the mature first-design rate for comparisons; D1 and D7 use fully observed 24–48h and day 7–8 windows. Null rates mean no eligible denominator. Historical outcome events can supply signup links before enrollment tracking was added.",
+      columns: [
+        { key: "environment", label: "Environment" },
+        { key: "variant", label: "Variant" },
+        { key: "exposed_visitors", label: "Exposed", format: "number" },
+        { key: "signed_up_24h", label: "Signed up", format: "number" },
+        {
+          key: "builder_connected_24h",
+          label: "Builder connected",
+          format: "number",
+        },
+        { key: "first_prompt_24h", label: "First prompt", format: "number" },
+        { key: "first_design_24h", label: "First design", format: "number" },
+        {
+          key: "first_design_rate",
+          label: "First design rate",
+          format: "percent",
+        },
+        {
+          key: "mature_24h_visitors",
+          label: "24h mature visitors",
+          format: "number",
+        },
+        {
+          key: "mature_first_design_rate",
+          label: "Mature first design rate",
+          format: "percent",
+        },
+        { key: "d1_eligible", label: "D1 eligible", format: "number" },
+        {
+          key: "d1_return_rate",
+          label: "D1 return / exposed",
+          format: "percent",
+        },
+        { key: "d7_eligible", label: "D7 eligible", format: "number" },
+        {
+          key: "d7_return_rate",
+          label: "D7 return / exposed",
+          format: "percent",
+        },
+      ],
+    },
+  },
+  {
+    key: "design-builder-signup-outcomes",
+    title: "Design Builder signup outcomes",
+    chartType: "table",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(BUILDER_SIGNUP_QUERIES.outcomes),
+    config: {
+      description:
+        "Latest recorded outcome per exposed assignment. Replayed responses count once; not_recorded includes signup abandoners and unfinished activations. Missing assignment requests appear separately in tracking health.",
+      columns: [
+        { key: "environment", label: "Environment" },
+        { key: "variant", label: "Variant" },
+        { key: "status", label: "Status" },
+        { key: "code", label: "Reason" },
+        { key: "visitors", label: "Visitors", format: "number" },
+      ],
+    },
+  },
+  {
+    key: "design-builder-signup-tracking-health",
+    title: "Design Builder signup tracking health",
+    chartType: "table",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(BUILDER_SIGNUP_QUERIES.quality),
+    config: {
+      description:
+        "Tracking completeness within the selected window. No signup link can mean abandonment. Cohort counts honor the employee filter; operational error counters cover all observed Design traffic across environments. Unattributed requests are not assigned to either experiment arm.",
+      columns: [
+        { key: "metric", label: "Metric" },
+        { key: "count", label: "Count", format: "number" },
       ],
     },
   },

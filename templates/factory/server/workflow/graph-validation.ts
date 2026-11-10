@@ -16,13 +16,19 @@ import {
   type ParsedPath,
 } from "./expressions.js";
 import {
+  STATUS_WITH_PAGING_REFUSAL,
+  checkFreeFormValue,
+  freeFormRoleOf,
+} from "./free-form-request.js";
+import {
+  isModelToolAllowed,
   isWriteAllowedForNode,
   operationOutputs,
   type OperationCatalog,
   type OperationDefinition,
   type OperationNodeKind,
 } from "./operations.js";
-import { portsFor, portsWithLimit } from "./ports.js";
+import { ERROR_PORT, portsFor, portsWithLimit } from "./ports.js";
 
 export const ISSUE_CODES = [
   "trigger_count",
@@ -372,6 +378,10 @@ function fieldIssues(
   });
   const fields = new Map(def.fields.map((field) => [field.name, field]));
   const found: WorkflowIssue[] = [];
+  const freeForm =
+    def.implementation.type === "provider-request"
+      ? def.implementation.freeForm
+      : undefined;
 
   for (const [name, binding] of Object.entries(args)) {
     const field = fields.get(name);
@@ -379,13 +389,15 @@ function fieldIssues(
       found.push(issue("unknown_field", `${def.id} has no field "${name}"`));
       continue;
     }
-    if (field.target && !field.modelMayWrite) {
+    // The typed path of a free-form request decides which endpoint it reads, so a model may not write it either.
+    const typedPath = freeForm?.path === name;
+    if ((field.target || typedPath) && !field.modelMayWrite) {
       const reason = modelWrittenReason(binding, aiScopeKeys);
       if (reason) {
         found.push(
           issue(
             "model_written_target",
-            `args.${name} decides who or where ${def.id} lands, and ${reason}. Type it in, or read it from a setting, an item field or a lookup.`,
+            `args.${name} decides ${typedPath ? `which endpoint ${def.id} reads` : `who or where ${def.id} lands`}, and ${reason}. Type it in, or read it from a setting, an item field or a lookup.`,
           ),
         );
       }
@@ -393,6 +405,21 @@ function fieldIssues(
     if (binding.mode !== "fixed") continue;
     const { value } = binding;
     if (typeof value === "string" && hasHole(value)) continue;
+    // What a free-form request would refuse is refused here too, unless the value holds a `{{ }}` hole that only a run can fill.
+    const role = freeForm ? freeFormRoleOf(freeForm, name) : undefined;
+    if (freeForm && role && !stringsIn(value).some((text) => hasHole(text))) {
+      const refusal = checkFreeFormValue(freeForm, role, value);
+      if (refusal) {
+        // The typed code a run would give ends the detail, so a reader can tell refusals apart.
+        found.push(
+          issue(
+            "field_type_mismatch",
+            `args.${name}: ${refusal.message} (${refusal.code})`,
+          ),
+        );
+        continue;
+      }
+    }
     const mismatch = (expected: string) =>
       found.push(
         issue(
@@ -427,6 +454,29 @@ function fieldIssues(
       case "json":
         break;
     }
+  }
+
+  // Two typed-in values that cannot go together are refused here, as a run would.
+  const status =
+    freeForm?.includeStatus === undefined
+      ? undefined
+      : args[freeForm.includeStatus];
+  const paging =
+    freeForm?.pagination === undefined ? undefined : args[freeForm.pagination];
+  if (
+    freeForm?.includeStatus !== undefined &&
+    status?.mode === "fixed" &&
+    status.value === true &&
+    paging?.mode === "fixed" &&
+    paging.value !== undefined &&
+    paging.value !== null
+  ) {
+    found.push(
+      issue(
+        "field_type_mismatch",
+        `args.${freeForm.includeStatus}: ${STATUS_WITH_PAGING_REFUSAL.message} (${STATUS_WITH_PAGING_REFUSAL.code})`,
+      ),
+    );
   }
 
   for (const field of def.fields) {
@@ -545,7 +595,17 @@ export function validateWorkflowGraph(
   for (const node of graph.nodes) {
     for (const port of portsWithLimit(graph, node)) {
       if (!connected.has(`${node.id}\n${port}`)) {
-        add({ code: "port_leads_nowhere", nodeId: node.id, port });
+        add({
+          code: "port_leads_nowhere",
+          nodeId: node.id,
+          port,
+          // An error output nobody listens to would drop the very items it exists to catch.
+          ...(port === ERROR_PORT
+            ? {
+                detail: `"${node.name}" is set to send failed items to its error output, so that output must lead to a node (or set On error back to stop)`,
+              }
+            : {}),
+        });
       }
     }
   }
@@ -684,6 +744,12 @@ export function validateWorkflowGraph(
           code: "unknown_tool",
           nodeId: node.id,
           detail: `${tool} writes, and a model may only be given reads`,
+        });
+      } else if (!isModelToolAllowed(def)) {
+        add({
+          code: "unknown_tool",
+          nodeId: node.id,
+          detail: `${tool} reads a path someone types, and a model may only be given reads whose endpoint is fixed`,
         });
       }
     }

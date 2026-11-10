@@ -33,6 +33,7 @@ const outputSchema = z.discriminatedUnion("status", [
     clipEmbedTag: z.string(),
     method: z.literal("POST"),
     chunkUrl: z.string(),
+    headers: z.object({ "Content-Type": z.string() }),
     cancelUrl: z.string(),
     chunkSizeBytes: z.number().int().positive(),
     totalChunks: z.number().int().positive(),
@@ -125,11 +126,14 @@ export default defineAction({
           clipEmbedTag: clipEmbedTag(blockId, answer.recordingId),
           method: "POST" as const,
           chunkUrl: answer.chunkUrl,
+          // Without a video type, a tool such as curl labels the body as
+          // form data, and the host hands Clips form data as text.
+          headers: { "Content-Type": args.mimeType },
           cancelUrl: answer.cancelUrl,
           chunkSizeBytes: answer.chunkSizeBytes,
           totalChunks: answer.totalChunks,
           expiresAt: answer.expiresAt,
-          next: `Split the file into ${answer.totalChunks} chunk(s) of chunkSizeBytes (the last may be shorter). POST them one at a time, in order, each as the raw request body with no other headers, to chunkUrl + "&index=N&isFinal=0", N counting from 0. Send the last chunk with "&isFinal=1": it finishes the upload, and Clips then makes the Clip. If its answer has waitingForStorage true, Clips holds the file but has nowhere to save it yet: tell the user to connect video storage in Clips. Send a chunk again, with the same index, when it gets no answer, times out, or answers 429 or 5xx. If the last chunk answers 409 with outcome "upload_finishing", Clips is still taking an earlier send of it: send it again every few seconds, for up to two minutes. Sending the last chunk again after Clips took it is safe; it answers with the same success. The upload URL expires at expiresAt. To give the upload up before the last chunk is taken, POST to cancelUrl. Then: ${PLACE_TAG}`,
+          next: `Split the file into ${answer.totalChunks} chunk(s) of chunkSizeBytes (the last may be shorter). POST them one at a time, in order, each as the raw request body with the returned headers and no others, to chunkUrl + "&index=N&isFinal=0", N counting from 0. Send the last chunk with "&isFinal=1": it finishes the upload, and Clips then makes the Clip. If its answer has waitingForStorage true, Clips holds the file but has nowhere to save it yet: tell the user to connect video storage in Clips. Send a chunk again, with the same index, when it gets no answer, times out, or answers 429 or 5xx. If the last chunk answers 409 with outcome "upload_finishing", Clips is still taking an earlier send of it: send it again every few seconds, for up to two minutes. Sending the last chunk again after Clips took it is safe; it answers with the same success. The upload URL expires at expiresAt. To give the upload up before the last chunk is taken, POST to cancelUrl. Then: ${PLACE_TAG}`,
         };
       case "already_finished":
         return {

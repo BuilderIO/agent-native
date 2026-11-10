@@ -518,7 +518,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.useIntegrationTools": "{{integration}}のツールを使用",
   "composer.menu.scheduleTask": "タスクをスケジュール",
   "composer.menu.scheduleTaskDescription": "スケジュールに沿って実行",
-  "composer.menu.uploadFile": "ファイルをアップロード",
+  "composer.menu.uploadFile": "ファイルと画像",
+  "composer.menu.searchWorkspace": "ワークスペースを検索…",
+  "composer.menu.references": "参照",
+  "composer.menu.referenceFile": "ファイルを参照",
+  "composer.menu.attachToMessage": "コンテキストを追加",
+  "composer.menu.commands": "コマンド",
   "composer.menu.uploadFileDescription":
     "画像、PDF、テキスト／コード、JSON、CSV",
   "composer.messageAgent": "エージェントにメッセージを送信...",
@@ -1347,6 +1352,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io には無料クレジットが含まれています。独自の API キーを使用することもできます。",
   "setup.builderOrOwnKeys":
     "Builder.io（無料クレジット付き）を使用するか、独自のプロバイダーキーを追加します。",
+  "setup.reconnectBuilder": "Builder.io に再接続",
   "setup.connectAi": "AI に接続",
   "setup.connectBuilder": "Builder.io を使用",
   "setup.connectionsDescription":
@@ -2456,6 +2462,9 @@ const messages: ToolkitAgentChatTranslation = {
     "エージェントは追加されたアクセストークンを使うため、そのトークンで参照できるものを参照します。",
   "settingsShell.integrationDetail.accessToken": "アクセストークン",
   "settingsShell.integrationDetail.addAccessToken": "アクセストークンを追加",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "保存済みのアクセストークンを確認できませんでした。",
+  "settingsShell.integrationDetail.tokenCheckRetry": "再試行",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "管理者による設定が必要です",
   "settingsShell.integrationDetail.callout.adminNeededBody":
@@ -3412,6 +3421,7 @@ const messages: ToolkitAgentChatTranslation = {
   "chatFirst.removeApp": "ワークスペースからアプリを削除",
   "chatFirst.showMore": "さらに表示",
   "chatFirst.showLess": "表示を減らす",
+  "chatFirst.showMoreCount": "さらに {{count}} 件表示",
   "chatFirst.appOrderUnavailable":
     "このデバイスではアプリの並び順を保存できませんでした。",
   "chatFirst.openSideSurfaces": "サイドパネルを開く",

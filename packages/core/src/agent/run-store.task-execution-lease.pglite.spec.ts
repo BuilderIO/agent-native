@@ -105,6 +105,7 @@ const {
   reapUnclaimedBackgroundRun,
   reapIfStale,
   renewTaskExecutionLease,
+  renewTurnExecutionLease,
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   updateRunTerminalStateIfRunning,
   writeLedgerEntry,
@@ -788,6 +789,84 @@ describe("task execution leases", () => {
       ["run-fenced-slot-stale-child"],
     );
     expect(staleInsert.rows).toHaveLength(0);
+  });
+
+  it("keeps a worker whose lease lapsed while nobody replaced it", async () => {
+    const threadId = "thread-lapsed-lease";
+    const turnId = "turn-lapsed-lease";
+    const runId = "run-lapsed-lease";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 second',
+              updated_at = clock_timestamp() - INTERVAL '16 seconds'
+        WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+
+    await expect(
+      withExecutionFence(fence, () =>
+        insertRunEvent(runId, 0, JSON.stringify({ type: "text", text: "x" })),
+      ),
+    ).resolves.toBeUndefined();
+    await expect(renewTurnExecutionLease(fence)).resolves.toBeUndefined();
+    const lease = await pglite.query<{ live: boolean }>(
+      `SELECT lease_expires_at > clock_timestamp() AS live
+         FROM agent_execution_leases WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    expect(lease.rows[0]?.live).toBe(true);
+  });
+
+  it("fences a lapsed lease out once it was revoked, its run ended, or a worker replaced it", async () => {
+    const threadId = "thread-lapsed-lease-ended";
+    const turnId = "turn-lapsed-lease-ended";
+    const runId = "run-lapsed-lease-ended";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    const expire = () =>
+      pglite.query(
+        `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp() - INTERVAL '1 second',
+                updated_at = clock_timestamp() - INTERVAL '16 seconds'
+          WHERE thread_id = ? AND turn_id = ?`,
+        [threadId, turnId],
+      );
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
+        WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    await expect(renewTurnExecutionLease(fence)).rejects.toMatchObject({
+      code: "stale_execution_fence",
+    });
+
+    await expire();
+    await pglite.query(
+      "UPDATE agent_runs SET status = 'errored' WHERE id = ?",
+      [runId],
+    );
+    await expect(renewTurnExecutionLease(fence)).rejects.toMatchObject({
+      code: "stale_execution_fence",
+    });
+    await expect(
+      withExecutionFence(fence, () =>
+        insertRunEvent(runId, 0, JSON.stringify({ type: "text", text: "x" })),
+      ),
+    ).rejects.toMatchObject({ cause: { code: "stale_execution_fence" } });
+
+    await pglite.query(
+      "UPDATE agent_runs SET status = 'running' WHERE id = ?",
+      [runId],
+    );
+    const replacement = await claimTurnExecutionLease(threadId, turnId, runId);
+    await expire();
+    await expect(renewTurnExecutionLease(fence)).rejects.toMatchObject({
+      code: "stale_execution_fence",
+    });
+    await expect(renewTurnExecutionLease(replacement)).resolves.toBeUndefined();
   });
 
   it("does not clear a run dispatch payload from a stale generation", async () => {

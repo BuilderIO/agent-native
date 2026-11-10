@@ -21,7 +21,7 @@ stay where they are. Never move a branch that another worktree has checked out
 
 ## Name
 
-`<login>/changes-N`, for example `steve8708/changes-545`.
+`<login>/changes-N`, for example `octocat/changes-545`.
 
 ```bash
 login=$(gh api user --jq .login)

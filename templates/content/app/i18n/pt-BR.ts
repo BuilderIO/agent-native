@@ -1122,6 +1122,29 @@ const editor = {
     hideInSearch: "Ocultar na pesquisa",
     hideInSearchDescription:
       "Ocultar da organização e pesquisar. Pessoas com o link ainda poderão visualizar.",
+    sharePeopleTab: "Pessoas",
+    shareAgentsTab: "Agentes",
+    agentLevelHeading: "Agentes nesta página",
+    agentLevelMenuLabel: "O que os agentes podem fazer nesta página",
+    agentLevelDefault: "(padrão)",
+    agentLevelCommentDescription:
+      "Podem ler, comentar e sugerir edições. Somente pessoas podem aceitá-las.",
+    agentLevelEditDescription:
+      "Podem ler, comentar, sugerir, editar o texto, o título e as abas, e mover a página para a lixeira.",
+    agentLevelCommentConfirm:
+      "Agora os agentes podem comentar e sugerir edições nesta página, mas não editá-la.",
+    agentLevelEditConfirm: "Os agentes podem editar esta página novamente.",
+    agentLevelLimit:
+      "Um agente nunca tem mais permissões do que a pessoa para quem trabalha.",
+    agentLevelManagersOnly:
+      "Somente quem gerencia esta página pode alterar isso.",
+    agentLevelUpdateFailed:
+      "Não foi possível alterar o que os agentes podem fazer aqui.",
+    agentLevelNote: "Agentes podem comentar",
+    agentLevelNoteHint:
+      "Agentes podem comentar nesta página. Altere isso em Compartilhar.",
+    sendPageToAgent: "Enviar esta página para um agente",
+    connectAgentOverMcp: "Conectar um agente por MCP",
     importingFromNotion: "Importando do Notion...",
     lastSynced: "Última sincronização",
     linkedToNotion: "Vinculado à noção",
@@ -1197,7 +1220,7 @@ const rawLiterals = {
     previewDraftSaveSeparately: "Salvar a minha como página separada",
     previewDraftSavedToHistory: "Suas edições foram salvas no histórico",
     previewDraftSavedSeparately:
-      "Suas edições foram salvas como página separada",
+      "Suas edições foram salvas como página privada no seu espaço",
     previewDraftOpenSavedPage: "Abrir página",
     previewDraftMoreOptions: "Mais opções",
     previewDraftViewFullVersions: "Ver versões completas",
@@ -1827,6 +1850,28 @@ const overrides = {
     discardEditDescription: "Seu comentário vai continuar como estava.",
     discard: "Descartar",
     keepEditing: "Continuar editando",
+    deleteComment: "Excluir comentário",
+    deleteThread: "Excluir conversa",
+    deleteCommentQuestion: "Excluir comentário?",
+    deleteCommentDescription:
+      "Ele será excluído para todos, e isso não pode ser desfeito.",
+    deleteThreadQuestion: "Excluir conversa?",
+    deleteThreadDescription:
+      "A conversa e as respostas serão excluídas para todos, e isso não pode ser desfeito.",
+    deleteThreadAiChangeDescription:
+      "A conversa e as respostas serão excluídas para todos, e isso não pode ser desfeito. A alteração da IA na página continua, mas você não poderá desfazê-la pela conversa.",
+    delete: "Excluir",
+    deleting: "Excluindo…",
+    deleteRefusedReplied:
+      "Outra pessoa respondeu, então só um editor pode excluir esta conversa.",
+    deleteRefusedNotion:
+      "Este comentário está sincronizado com o Notion. Exclua-o no Notion.",
+    deleteRefusedAiWorking:
+      "A IA está trabalhando nesta conversa. Pare-a antes de excluir a conversa.",
+    deleteRefusedAiSuggestion:
+      "A sugestão da IA nesta conversa está aguardando revisão. Aceite-a ou rejeite-a antes de excluir a conversa.",
+    deleteRefusedBusy:
+      "Esta conversa está sendo alterada agora. Tente excluí-la novamente em instantes.",
     submit: "Comentar",
     askAi: "Perguntar à IA",
     aiBadge: "IA",
@@ -1837,8 +1882,10 @@ const overrides = {
     mentionPeopleLoadFailed: "Não foi possível carregar as pessoas.",
     mentionAgents: "Agentes",
     identityPerson: "Pessoa",
-    identityModel: "Modelo",
     identityEffort: "Esforço",
+    acceptAllAndResolve: "Aceitar tudo e resolver",
+    acceptAndResolve: "Aceitar e resolver",
+    suggestionLoadFailed: "Não foi possível carregar esta sugestão",
     identityRan: "Executado",
     identityNotRecorded: "Não registrado",
     identityOpenRun: "Abrir execução",
@@ -1871,7 +1918,6 @@ const overrides = {
     aiPromptApplyResolve: "Aplique as alterações deste comentário e resolva-o.",
     aiWorking: "A IA está trabalhando…",
     aiReplied: "A IA respondeu",
-    aiSuggestionReady: "Revisar sugestão",
     aiChangesApplied: "Alterações aplicadas",
     aiAppliedAndResolved: "Aplicado e resolvido",
     aiChangeUndone: "Alteração desfeita",
