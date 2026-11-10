@@ -123,6 +123,28 @@ describe("bake-off model client", () => {
     );
   });
 
+  it("embeds through OpenRouter when asked for, even with Builder's keys", async () => {
+    fetchMock.mockResolvedValueOnce(shuffledEmbeddings(1));
+    const router = models({
+      ...BUILDER_ENV,
+      SEARCH_BAKEOFF_PROVIDER: "openrouter",
+      OPENROUTER_API_KEY: "test-router",
+    });
+    await router.embed(["a"], "query", emptyUsage());
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://openrouter.ai/api/v1/embeddings",
+    );
+  });
+
+  it("fails when OpenRouter is asked for without its key", () => {
+    expect(() =>
+      bakeoffModelsFromEnv({
+        ...OPENAI_ENV,
+        SEARCH_BAKEOFF_PROVIDER: "openrouter",
+      }),
+    ).toThrow("OPENROUTER_API_KEY");
+  });
+
   it("counts each Builder gateway request as a call", async () => {
     fetchMock
       .mockResolvedValueOnce(builderEmbeddings(32))

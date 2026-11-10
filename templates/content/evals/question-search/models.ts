@@ -62,7 +62,11 @@ interface ChatProvider {
 function chatProviderFromEnv(env: NodeJS.ProcessEnv): ChatProvider | null {
   if (env.SEARCH_BAKEOFF_PROVIDER?.trim() === "openrouter") {
     const key = env.OPENROUTER_API_KEY?.trim();
-    if (!key) return null;
+    // Without it the run would skip every model method and look complete.
+    if (!key)
+      throw new Error(
+        "SEARCH_BAKEOFF_PROVIDER=openrouter needs OPENROUTER_API_KEY.",
+      );
     return {
       name: "openrouter",
       url: "https://openrouter.ai/api/v1",
@@ -165,8 +169,8 @@ async function timed<T>(usage: ModelUsage, run: () => Promise<T>) {
 
 /**
  * Embeddings through Builder's gateway when its key pair is set (what hosted
- * Agent-Native ships), else the chat provider's. Chat goes to OpenAI, or to
- * OpenRouter when asked for.
+ * Agent-Native ships), else the chat provider's. Chat goes to OpenAI. Asking
+ * for OpenRouter sends both there, Builder's keys or not.
  */
 export function bakeoffModelsFromEnv(
   env: NodeJS.ProcessEnv = process.env,
@@ -180,7 +184,7 @@ export function bakeoffModelsFromEnv(
 
   let embeddingLabel: string;
   let embed: BakeoffModels["embed"];
-  if (builderKey && builderSpace) {
+  if (builderKey && builderSpace && provider?.name !== "openrouter") {
     const family = createBuilderEmbeddingFamily({
       authorization: `Bearer ${builderKey}`,
       spaceId: builderSpace,
