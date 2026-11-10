@@ -18,6 +18,7 @@ import {
   parseBlocksFieldSuggestionRevision,
   suggestionBlocksFieldId,
 } from "@shared/blocks-field-suggestions";
+import { mergeBlocksFieldEdits } from "@shared/document-intent-merge";
 import { applyMarkdownSuggestionOperation } from "@shared/suggestion-apply";
 import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
 import { useQueryClient } from "@tanstack/react-query";
@@ -33,7 +34,10 @@ import {
 } from "react";
 import { toast } from "sonner";
 
-import { peekBlockFieldSaveController } from "./blockFieldSaveRegistry";
+import {
+  blockFieldRevision,
+  peekBlockFieldSaveController,
+} from "./blockFieldSaveRegistry";
 import { moveLoadedThreadQuote } from "./comment-quote-cache";
 import {
   nextSuggestionAutosaveRetryDelay,
@@ -59,7 +63,6 @@ import {
 } from "./suggestions/draft-session";
 import {
   createObservedSuggestionPresentationTransition,
-  retainCommittedSuggestionPresentationTransitions,
   type SuggestionPresentationTransitions,
 } from "./suggestions/presentation-rebase";
 import { suggestionSourceThreadId } from "./thread-suggestions";
@@ -147,8 +150,6 @@ type FieldPreview = {
   text: string;
   /** The suggestions the text has in it, which the tab no longer highlights. */
   accepted: ReadonlySet<string>;
-  /** Places the tab's other suggestions on the text. */
-  transitions: SuggestionPresentationTransitions;
 };
 
 /**
@@ -327,10 +328,14 @@ function acceptedText(
     }
     if (next !== null) return next;
     // Members of one proposal are each made on the same text, so placing one
-    // can move the context the next was anchored to.
-    const together = createObservedSuggestionPresentationTransition([
-      ...accepted,
-    ]);
+    // can move the context the next was anchored to. Placing them together
+    // reads the tab's text as a page's body.
+    const together = createObservedSuggestionPresentationTransition(
+      accepted.map((suggestion) => ({
+        ...suggestion,
+        operations: operationsOnField(suggestion.operations, "body"),
+      })),
+    );
     return together?.before === text ? together.after : null;
   } catch {
     // coercion-ok: a suggestion that can't be read here shows accepted once
@@ -469,6 +474,8 @@ export function useBlocksFieldSuggestions({
   );
   const [landed, setLanded] =
     useState<ReadonlyMap<string, LandedPreview>>(NO_LANDED);
+  const landedRef = useRef(landed);
+  landedRef.current = landed;
   /** Stops the waits for decided tabs' text that hold their views. */
   const waitingReadsRef = useRef(new Set<() => void>());
   /** Counts the pages this one has left, so a late decision waits on none. */
@@ -1004,7 +1011,7 @@ export function useBlocksFieldSuggestions({
           currentMarkdown: markdown,
           editingSuggestionId: null,
           pendingSuggestionId: null,
-          transitions: preview.transitions,
+          transitions: NO_TRANSITIONS,
         });
       }
       const shown = derived.visuals.get(fieldId) ?? [];
@@ -1130,18 +1137,14 @@ export function useBlocksFieldSuggestions({
 
   /**
    * Reads the tabs' text afresh, trying again while that fails for as long
-   * as one of `sessions` is still its tab's. Reports whether it was read.
+   * as `keepTrying` says. Reports whether it was read.
    * With `comments`, the page's comments are asked for in the same run, so
    * the two reads share a batch and land together: a tab never shows its
    * new text with a thread's old quote. It waits for both. Comments that
    * fail to load are asked for once more, and don't fail the read.
    */
   const reread = useCallback(
-    async (sessions: FieldSession[], comments: boolean) => {
-      const current = () =>
-        sessions.some(
-          (session) => sessionsRef.current.get(session.fieldId) === session,
-        );
+    async (keepTrying: () => boolean, comments: boolean) => {
       const commentsKey = ["action", "list-comments", { documentId }];
       let delay = 0;
       for (;;) {
@@ -1162,7 +1165,7 @@ export function useBlocksFieldSuggestions({
           await quotes;
           return true;
         } catch (error) {
-          if (!current()) return false;
+          if (!keepTrying()) return false;
           if (delay === 0) {
             toast.error(tRef.current("empty.genericError"), {
               description: actionErrorMessage(error) ?? undefined,
@@ -1171,7 +1174,7 @@ export function useBlocksFieldSuggestions({
           delay = nextSuggestionAutosaveRetryDelay(delay);
           await new Promise((resolve) => setTimeout(resolve, delay));
           // Suggesting mode ended, or the page closed, meanwhile.
-          if (!current()) return false;
+          if (!keepTrying()) return false;
         }
       }
     },
@@ -1236,10 +1239,10 @@ export function useBlocksFieldSuggestions({
   );
 
   /**
-   * The revisions of a tab's text that the page shows: one for each read of
-   * its properties on screen that has the tab.
+   * The reads of a tab's text that the page shows, with their revisions: one
+   * for each read of its properties on screen that has the tab.
    */
-  const shownRevisions = useCallback(
+  const shownReads = useCallback(
     (fieldId: string) =>
       queryClient
         .getQueryCache()
@@ -1251,12 +1254,25 @@ export function useBlocksFieldSuggestions({
           const read = query.state.data as
             | DocumentPropertiesResponse
             | undefined;
-          const revision = read?.properties.find(
-            (property) => property.definition.id === fieldId,
-          )?.blocksField?.revision;
-          return revision === undefined ? [] : [revision];
+          const property = read?.properties.find(
+            (candidate) => candidate.definition.id === fieldId,
+          );
+          const revision = property?.blocksField?.revision;
+          return revision === undefined
+            ? []
+            : [
+                {
+                  revision,
+                  text:
+                    typeof property?.value === "string" ? property.value : null,
+                },
+              ];
         }),
     [documentId, queryClient],
+  );
+  const shownRevisions = useCallback(
+    (fieldId: string) => shownReads(fieldId).map((read) => read.revision),
+    [shownReads],
   );
 
   /**
@@ -1289,14 +1305,23 @@ export function useBlocksFieldSuggestions({
   /**
    * The text a tab holds now, which its preview starts from: an earlier
    * preview it still shows, else its own copy, which has any typing not
-   * saved yet, else the page's newest read of it.
+   * saved yet, unless that copy hasn't taken in the text an earlier accept
+   * wrote, else the page's newest read of it.
    */
   const heldText = useCallback(
     (fieldId: string) => {
       const earlier = previewsRef.current.get(fieldId);
       if (earlier) return earlier.text;
-      const own = peekBlockFieldSaveController(`${documentId}:${fieldId}`);
-      if (own) return own.pending;
+      const key = `${documentId}:${fieldId}`;
+      const own = peekBlockFieldSaveController(key);
+      if (own) {
+        const landedText = landedRef.current.get(fieldId);
+        return landedText &&
+          blockFieldRevision(key, landedText.revision).base <
+            landedText.revision
+          ? landedText.text
+          : own.pending;
+      }
       let text: string | null = null;
       let newest = -1;
       for (const query of queryClient.getQueryCache().findAll({
@@ -1336,7 +1361,7 @@ export function useBlocksFieldSuggestions({
     ) => {
       const shown = new Map<string, FieldPreview>();
       let movedQuotes = false;
-      for (const [fieldId, view] of held) {
+      for (const fieldId of held.keys()) {
         const onField = accepting.filter(
           (suggestion) => suggestionBlocksFieldId(suggestion) === fieldId,
         );
@@ -1362,14 +1387,6 @@ export function useBlocksFieldSuggestions({
           key: String(previewCountRef.current),
           text,
           accepted,
-          transitions: retainCommittedSuggestionPresentationTransitions(
-            NO_TRANSITIONS,
-            view.filter((suggestion) => !accepted.has(suggestion.id)),
-            onField.map((suggestion) => ({
-              ...suggestion,
-              status: "accepted" as const,
-            })),
-          ),
         });
         for (const suggestion of onField) {
           const threadId =
@@ -1405,25 +1422,52 @@ export function useBlocksFieldSuggestions({
           return kept.size > 0 ? kept : NO_PREVIEWS;
         });
       };
-      // The tabs of `fieldIds` still showing this preview keep its text once
-      // it goes, until each holds the text read, at the page's revision now.
+      const showing = (fieldIds: Iterable<string>) =>
+        [...fieldIds].some(
+          (fieldId) =>
+            shown.has(fieldId) &&
+            previewsRef.current.get(fieldId) === shown.get(fieldId),
+        );
+      // Once the page has read what accepting wrote, the tabs of `fieldIds`
+      // still showing this preview show the text they take in from that read
+      // until each holds it. Saving a tab's draft first can have changed a
+      // suggestion since its preview, so this is the text read, not the
+      // preview's.
       const land = (fieldIds: Iterable<string>) => {
         const entries = [...new Set(fieldIds)].flatMap((fieldId) => {
           const preview = shown.get(fieldId);
-          const revisions = shownRevisions(fieldId);
+          const read = shownReads(fieldId).reduce<{
+            revision: number;
+            text: string | null;
+          } | null>(
+            (oldest, each) =>
+              oldest && oldest.revision <= each.revision ? oldest : each,
+            null,
+          );
           if (
             !preview ||
             previewsRef.current.get(fieldId) !== preview ||
-            revisions.length === 0
+            read?.text == null
           )
             return [];
+          // The tab merges the text read with any typing of its own not saved
+          // yet, as it does when it takes the text in.
+          const own = peekBlockFieldSaveController(`${documentId}:${fieldId}`);
+          const text = own
+            ? mergeBlocksFieldEdits(own.lastSaved, own.pending, read.text)
+                .content
+            : read.text;
+          if (text !== preview.text) previewCountRef.current += 1;
           return [
             [
               fieldId,
               {
-                key: preview.key,
-                text: preview.text,
-                revision: Math.min(...revisions),
+                key:
+                  text === preview.text
+                    ? preview.key
+                    : String(previewCountRef.current),
+                text,
+                revision: read.revision,
               },
             ] as const,
           ];
@@ -1431,9 +1475,9 @@ export function useBlocksFieldSuggestions({
         if (entries.length > 0)
           setLanded((current) => new Map([...current, ...entries]));
       };
-      return { fields: [...shown.keys()], movedQuotes, release, land };
+      return { fields: [...shown.keys()], movedQuotes, release, land, showing };
     },
-    [changePreviews, documentId, heldText, queryClient, shownRevisions],
+    [changePreviews, documentId, heldText, queryClient, shownReads],
   );
 
   /**
@@ -1548,8 +1592,14 @@ export function useBlocksFieldSuggestions({
         );
         // A tab restarted on its cached text would miss an accepted edit and
         // save its next draft on an old base. Until the text is read, the
-        // tabs keep their old drafts, which have nothing unsaved.
-        if (!(await reread(decided, movedQuotes))) return;
+        // tabs keep their old drafts, which have nothing unsaved. A tab showing
+        // what accepting wrote takes no typing until then, so it keeps trying
+        // too, in Suggesting mode or not.
+        const keepTrying = () =>
+          decided.some(
+            (session) => sessionsRef.current.get(session.fieldId) === session,
+          ) || !!preview?.showing(confirmed);
+        if (!(await reread(keepTrying, movedQuotes))) return;
         unread = [];
         let restarted = false;
         for (const session of decided) {

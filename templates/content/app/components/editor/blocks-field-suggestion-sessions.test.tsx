@@ -1014,6 +1014,140 @@ describe("useBlocksFieldSuggestions", () => {
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: commentsKey });
   });
 
+  it("lands the text the server wrote when saving the tab's draft changed the suggestion it previewed", async () => {
+    await render(true, []);
+    await draftInTab();
+    await act(async () => {
+      await latest.flushAll();
+    });
+    const created = first(firstSaved());
+    await render(true, [created]);
+    await act(async () => {
+      showNotes(3, undefined, "Original notes.");
+      // Typing more amends the saved suggestion when the draft is saved.
+      latest.provider.change("notes", "Original notes, revised again.");
+    });
+    mocks.updateSuggestion.mockImplementation(
+      async (request: { operations: unknown }) => ({
+        ...created,
+        operations: request.operations,
+        revision: 2,
+      }),
+    );
+    mocks.decideSuggestion.mockImplementation(async () => ({
+      suggestion: { ...created, revision: 2, status: "accepted" },
+    }));
+    vi.spyOn(queryClient, "refetchQueries").mockImplementation(async () => {
+      showNotes(4, undefined, "Original notes, revised again.");
+    });
+
+    await act(async () => {
+      await latest.decide(created, "accepted");
+    });
+    expect(mocks.decideSuggestion).toHaveBeenCalledWith(
+      expect.objectContaining({ observedRevision: 2 }),
+    );
+    expect(latest.provider.landed.get("notes")).toMatchObject({
+      text: "Original notes, revised again.",
+      revision: 4,
+    });
+  });
+
+  it("keeps reading a tab's text after accepting outside Suggesting mode until the read works, showing the new words meanwhile", async () => {
+    vi.useFakeTimers();
+    try {
+      await render(true, []);
+      await draftInTab();
+      await act(async () => {
+        await latest.flushAll();
+      });
+      const created = first(firstSaved());
+      await render(false, [created]);
+      await act(async () => {
+        showNotes(3, undefined, "Original notes.");
+      });
+      mocks.decideSuggestion.mockResolvedValueOnce({
+        suggestion: { ...created, status: "accepted" },
+      });
+      const refetchQueries = vi
+        .spyOn(queryClient, "refetchQueries")
+        .mockRejectedValueOnce(new Error("Network down"))
+        .mockImplementation(async () => {
+          showNotes(4, undefined, "Original notes, revised.");
+        });
+
+      let decision = Promise.resolve();
+      await act(async () => {
+        decision = latest.decide(created, "accepted");
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // The read failed once. The tab keeps the new words and takes no typing
+      // while it tries again.
+      expect(mocks.toastError).toHaveBeenCalledTimes(1);
+      expect(latest.provider.previews.get("notes")?.text).toBe(
+        "Original notes, revised.",
+      );
+      expect(latest.deciding).toBe(true);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+        await decision;
+      });
+      expect(refetchQueries).toHaveBeenCalledTimes(2);
+      expect(latest.deciding).toBe(false);
+      expect(latest.provider.previews.size).toBe(0);
+      expect(latest.provider.landed.get("notes")).toMatchObject({
+        text: "Original notes, revised.",
+        revision: 4,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops reading a tab's text it can't read once its page is left", async () => {
+    vi.useFakeTimers();
+    try {
+      await render(true, []);
+      await draftInTab();
+      await act(async () => {
+        await latest.flushAll();
+      });
+      const created = first(firstSaved());
+      await render(false, [created]);
+      await act(async () => {
+        showNotes(3, undefined, "Original notes.");
+      });
+      mocks.decideSuggestion.mockResolvedValueOnce({
+        suggestion: { ...created, status: "accepted" },
+      });
+      const refetchQueries = vi
+        .spyOn(queryClient, "refetchQueries")
+        .mockRejectedValue(new Error("Network down"));
+
+      let decision = Promise.resolve();
+      await act(async () => {
+        decision = latest.decide(created, "accepted");
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(latest.deciding).toBe(true);
+      await render(false, [created], { documentId: "doc-2" });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+        await decision;
+      });
+      const reads = refetchQueries.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+      });
+      expect(refetchQueries.mock.calls.length).toBe(reads);
+      expect(latest.provider.previews.size).toBe(0);
+      expect(latest.provider.landed.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("stops highlighting a rejected tab suggestion at once", async () => {
     let finish: ((value: unknown) => void) | undefined;
     mocks.decideSuggestion.mockImplementation(
