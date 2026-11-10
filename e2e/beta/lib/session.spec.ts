@@ -29,6 +29,18 @@ test("scopes QA identity overrides to one app and refuses personal or empty over
       process.env.BETA_E2E_EMAILS = JSON.stringify({ slides: invalid });
       assert.throws(() => expectedEmail("slides"), /BETA_E2E_EMAILS/);
     }
+    process.env.BETA_E2E_EMAILS = JSON.stringify({
+      slide: "qa+autoz@example.org",
+    });
+    assert.throws(() => expectedEmail("slides"), /unknown app ID: slide/);
+    process.env.BETA_E2E_EMAILS = JSON.stringify({
+      slides: "qa+autoz@example.org",
+      analytics: "personal@example.org",
+    });
+    assert.throws(
+      () => expectedEmail("slides"),
+      /BETA_E2E_EMAILS entry for analytics/,
+    );
     for (const invalidMap of [[], null, 42, "qa+autoz@example.org"]) {
       process.env.BETA_E2E_EMAILS = JSON.stringify(invalidMap);
       assert.throws(() => expectedEmail("slides"));

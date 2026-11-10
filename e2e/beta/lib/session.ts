@@ -12,7 +12,7 @@ import type { Browser, BrowserContext } from "@playwright/test";
 
 import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
 import type { SetupStep } from "./deadline";
-import { type BetaSite, originFor } from "./fleet";
+import { ALL_SITES, type BetaSite, originFor } from "./fleet";
 import {
   BETA_E2E_TEST_TRAFFIC_HEADERS,
   installBetaE2ETrafficMarker,
@@ -104,41 +104,42 @@ export function authedLaneReady(): boolean {
   return existsSync(laneMarkerPath());
 }
 
-export function expectedEmail(appId?: string): string {
-  const overrides = parseJsonEnv<unknown>("BETA_E2E_EMAILS");
-  if (
-    overrides !== undefined &&
-    (!overrides || typeof overrides !== "object" || Array.isArray(overrides))
-  ) {
-    throw new Error("BETA_E2E_EMAILS must be an app-to-QA-email object.");
+function dedicatedQaEmail(value: unknown, setting: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${setting} is not set to a dedicated QA email string.`);
   }
-  const override = appId
-    ? (overrides as Record<string, unknown> | undefined)?.[appId]
-    : undefined;
-  if (override !== undefined && typeof override !== "string") {
-    throw new Error(
-      "BETA_E2E_EMAILS entries must be dedicated QA email strings.",
-    );
-  }
-  const identitySetting =
-    override !== undefined
-      ? `BETA_E2E_EMAILS entry for ${appId}`
-      : "BETA_E2E_EMAIL";
-  const email =
-    typeof override === "string"
-      ? override.trim()
-      : process.env.BETA_E2E_EMAIL?.trim();
-  if (!email) {
-    throw new Error(
-      `${identitySetting} is not set. Authenticated beta specs must assert which identity they are running as; without it a bootstrap that silently lands as the wrong user would pass.`,
-    );
-  }
+  const email = value.trim();
   if (!isAutozQaEmail(email)) {
     throw new Error(
-      `${identitySetting} must be a dedicated QA account whose email contains +autoz.`,
+      `${setting} must be a dedicated QA account whose email contains +autoz.`,
     );
   }
   return email;
+}
+
+export function expectedEmail(appId?: string): string {
+  const parsed = parseJsonEnv<unknown>("BETA_E2E_EMAILS");
+  if (
+    parsed !== undefined &&
+    (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+  ) {
+    throw new Error("BETA_E2E_EMAILS must be an app-to-QA-email object.");
+  }
+  const overrides = parsed as Record<string, unknown> | undefined;
+  const knownAppIds = new Set(ALL_SITES.map((site) => site.id));
+  for (const [id, value] of Object.entries(overrides ?? {})) {
+    if (!knownAppIds.has(id)) {
+      throw new Error(`BETA_E2E_EMAILS contains unknown app ID: ${id}.`);
+    }
+    dedicatedQaEmail(value, `BETA_E2E_EMAILS entry for ${id}`);
+  }
+  if (appId && overrides && Object.hasOwn(overrides, appId)) {
+    return dedicatedQaEmail(
+      overrides[appId],
+      `BETA_E2E_EMAILS entry for ${appId}`,
+    );
+  }
+  return dedicatedQaEmail(process.env.BETA_E2E_EMAIL, "BETA_E2E_EMAIL");
 }
 
 function parseJsonEnv<T>(name: string): T | undefined {
