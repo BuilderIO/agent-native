@@ -21,9 +21,10 @@ import {
 /**
  * Authenticated-session bootstrap for the beta fleet.
  *
- * Beta hosts accept exactly one interactive sign-in: Google OAuth. CI must
- * never drive a credential form, so an authenticated run replays an identity a
- * human established once, supplied through one of two secrets:
+ * CI replays a dedicated QA identity established through the host’s normal
+ * verified sign-in flow. BETA_E2E_EMAIL is the fallback expected identity;
+ * BETA_E2E_EMAILS overrides that expectation only for its listed apps. Every
+ * identity must contain +autoz. Session credentials come from these secrets:
  *
  *   BETA_E2E_SESSION_TOKENS  a JSON map of app id -> framework session token,
  *                            replayed through `?_session=`, which the framework

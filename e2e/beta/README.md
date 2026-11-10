@@ -245,7 +245,7 @@ change the default for everyone in the org.
 
 | Secret                        | Purpose                                                                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `BETA_E2E_EMAIL`              | The dedicated `+autoz` identity every authenticated spec asserts it is running as                                                    |
+| `BETA_E2E_EMAIL`              | Fallback dedicated `+autoz` identity for apps without a `BETA_E2E_EMAILS` override                                                   |
 | `BETA_E2E_EMAILS`             | Optional per-app dedicated `+autoz` identity map. Only listed apps override the default; session tokens must match those identities. |
 | `BETA_E2E_SESSION_TOKENS`     | Per-app map from `e2e:beta:capture`, e.g. `{"slides": "…", "chat": "…"}`                                                             |
 | `BETA_E2E_SESSION_TOKEN_CRM`  | Optional beta CRM override when its isolated database needs a fresh session                                                          |
