@@ -49,7 +49,9 @@ describe("verifyAuth — static-token caller identity", () => {
   });
 
   it("dev-open derives identity from the forwarded owner-email header", async () => {
-    const res = await verifyAuth(undefined, "hdr@example.com");
+    const res = await verifyAuth(undefined, "hdr@example.com", {
+      allowLocalOwnerHint: true,
+    });
     expect(res.identity?.userEmail).toBe("hdr@example.com");
   });
 
@@ -80,9 +82,18 @@ describe("verifyAuth — static-token caller identity", () => {
   it("forwarded header is used only as a fallback when the owner env is unset", async () => {
     process.env.ACCESS_TOKEN = "tok-123";
     delete process.env.AGENT_NATIVE_OWNER_EMAIL;
-    const res = await verifyAuth("Bearer tok-123", "header-owner@example.com");
+    const res = await verifyAuth("Bearer tok-123", "header-owner@example.com", {
+      allowLocalOwnerHint: true,
+    });
     expect(res.authed).toBe(true);
     expect(res.identity?.userEmail).toBe("header-owner@example.com");
+  });
+
+  it("rejects a shared static bearer with no server pin or trusted local hint", async () => {
+    process.env.ACCESS_TOKEN = "tok-123";
+    const res = await verifyAuth("Bearer tok-123", "victim@example.com");
+    expect(res.authed).toBe(false);
+    expect(res.identity).toBeUndefined();
   });
 
   it("rejects an unknown token regardless of owner hint", async () => {

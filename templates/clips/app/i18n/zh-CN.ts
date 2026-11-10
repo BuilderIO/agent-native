@@ -658,6 +658,8 @@ const messages = {
     noMatches: "没有匹配项。",
     noTranscript: "还没有文字记录。",
     noTranscriptCaptured: "没有捕获任何文字记录。",
+    unreadableDescription:
+      "已保存的转录文本已损坏。重新生成会根据片段的音频创建新的转录文本。",
     partialTranscript: "部分文字记录：录制被截断，部分内容可能缺失。",
     backupFailed:
       "本地未捕获任何语音，备份转录未完成。重试或检查麦克风和语音权限。",
@@ -1924,6 +1926,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "还剩 {{count}} 个免费片段",
     freeClipsLeft_other: "还剩 {{count}} 个免费片段",
+    activateBuilder: "激活 Builder.io",
     hostedClipsExhaustedTitle: "免费连接 Builder.io，继续录制",
     hostedClipsExhaustedDescription:
       "免费托管录制次数已用完。连接 Builder.io 存储，即可继续将片段保存到资料库。",
@@ -2118,6 +2121,11 @@ const messages = {
     flowOriginalTranscript: "显示原始转写文本",
     flowCleanupSkipped: "未整理文本，已保留原始文本",
     flowBacktrackSkipped: "未应用文本编辑，已保留识别结果",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet 未下载",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Parakeet 下载中",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet 加载中",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet 正忙",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet 加载失败",
     flowCancelDictation: "取消听写",
     flowCopying: "正在复制转写文本…",
     aiProcessed: "AI 已处理",

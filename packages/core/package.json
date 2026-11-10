@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.226.0",
+  "version": "0.227.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -245,6 +245,7 @@
     "./client/setup-connections": "./dist/client/setup-connections/index.js",
     "./client/setup-connections/runtime": "./dist/client/setup-connections/runtime.js",
     "./client/i18n": "./dist/client/i18n.js",
+    "./client/write-failure": "./dist/client/write-failure.js",
     "./embedding": "./dist/embedding/index.js",
     "./embedding/agent": "./dist/embedding/agent.js",
     "./embedding/bridge": "./dist/embedding/bridge.js",
@@ -653,6 +654,7 @@
     "./server/agent-chat/mcp-glue": "./dist/server/agent-chat/mcp-glue.js",
     "./server/deploy-environment": "./dist/server/deploy-environment.js",
     "./server/infrastructure-status": "./dist/server/infrastructure-status.js",
+    "./server/auth-guard-path": "./dist/server/auth-guard-path.js",
     "./server/onboarding-html": "./dist/server/onboarding-html.js",
     "./server/personal-provider-key-holders": "./dist/server/personal-provider-key-holders.js",
     "./shared/analytics-events": "./dist/shared/analytics-events.js",
@@ -670,6 +672,7 @@
     "./shared/framework-route-prefix": "./dist/shared/framework-route-prefix.js",
     "./shared/loading-labels": "./dist/shared/loading-labels.js",
     "./shared/mcp-app-widget-embed": "./dist/shared/mcp-app-widget-embed.js",
+    "./shared/mcp-client-connections": "./dist/shared/mcp-client-connections.js",
     "./shared/mcp-connect-content": "./dist/shared/mcp-connect-content.js",
     "./shared/motion-easing": "./dist/shared/motion-easing.js",
     "./shared/motion-source-node-id": "./dist/shared/motion-source-node-id.js",

@@ -8,7 +8,8 @@
  * insert-design-native-asset and insert-asset.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { designOutputWriteReceipt } from "../shared/generation-output-receipt.js";
 
@@ -177,12 +178,35 @@ function lastSavedContent(): string {
   return content as string;
 }
 
+function setTwoScreens() {
+  mocks.setRows([
+    {
+      id: "file-1",
+      designId: "design-1",
+      filename: "index.html",
+      fileType: "html",
+      content: "<html><body></body></html>",
+    },
+    {
+      id: "file-2",
+      designId: "design-1",
+      filename: "details.html",
+      fileType: "html",
+      content: "<html><body></body></html>",
+    },
+  ]);
+}
+
 describe("insert-figma-library-asset", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.seededCollabText.clear();
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.updateChain.where.mockResolvedValue({ rowsAffected: 1 });
+  });
+
+  afterEach(() => {
+    vi.mocked(readAppStateForCurrentTab).mockResolvedValue(null);
   });
 
   it("inserts a rendered Figma component with provenance data attributes", async () => {
@@ -262,5 +286,43 @@ describe("insert-figma-library-asset", () => {
     expect(result.inserted).toBe(true);
     const content = lastSavedContent();
     expect(content).toContain("data-agent-native-figma-asset");
+  });
+
+  it("refuses to insert when editor state is unreadable and the design has several screens", async () => {
+    setTwoScreens();
+    vi.mocked(readAppStateForCurrentTab).mockRejectedValue(
+      new Error("db down"),
+    );
+
+    await expect(
+      action.run({
+        renderUrl: "https://figma-renders.example.com/asset.png",
+        fileKey: "abc123",
+        kind: "component",
+        designId: "design-1",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "asset_target_state_unreadable",
+      statusCode: 503,
+    });
+    expect(mocks.db.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses an explicit fileId that is not an HTML screen of the design", async () => {
+    setTwoScreens();
+
+    await expect(
+      action.run({
+        renderUrl: "https://figma-renders.example.com/asset.png",
+        fileKey: "abc123",
+        kind: "component",
+        designId: "design-1",
+        fileId: "does-not-exist",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "asset_target_screen_invalid",
+      statusCode: 404,
+    });
+    expect(mocks.db.update).not.toHaveBeenCalled();
   });
 });
