@@ -175,11 +175,10 @@ describe("date property editor", () => {
     });
   });
 
-  it("picks a range in the calendar and saves it in order", async () => {
+  it("starts a new range in the calendar after a full one", async () => {
     render({ start: "2026-10-09", end: "2026-10-12", includeTime: false });
     await open();
 
-    await act(async () => calendarDay(2026, 10, 9)?.click());
     await act(async () => calendarDay(2026, 10, 5)?.click());
     await act(async () => calendarDay(2026, 10, 7)?.click());
     expect(setPropertyMutation.mutateAsync).not.toHaveBeenCalled();
@@ -190,6 +189,21 @@ describe("date property editor", () => {
       documentId: "document",
       propertyId: "date",
       value: { start: "2026-10-05", end: "2026-10-07", includeTime: false },
+    });
+  });
+
+  it("keeps both days when a calendar range is picked end first", async () => {
+    render({ start: "2026-10-09", end: "2026-10-12", includeTime: false });
+    await open();
+
+    await act(async () => calendarDay(2026, 10, 9)?.click());
+    await act(async () => calendarDay(2026, 10, 5)?.click());
+    await act(async () => buttonWithText("editor.properties.save")?.click());
+
+    expect(setPropertyMutation.mutateAsync).toHaveBeenCalledWith({
+      documentId: "document",
+      propertyId: "date",
+      value: { start: "2026-10-05", end: "2026-10-09", includeTime: false },
     });
   });
 

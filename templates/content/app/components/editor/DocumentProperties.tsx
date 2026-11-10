@@ -3675,24 +3675,27 @@ function DateValueEditor({
   function pickDay(day: Date | undefined) {
     if (!day || mutation.isPending) return;
     const dayKey = dateInputValueForOffset(day, 0);
-    const withTime = (current: string, fallbackTime: string) =>
-      includeTime
-        ? `${dayKey}T${current.slice(11, 16) || fallbackTime}`
-        : dayKey;
+    const withTime = (key: string, current: string, fallbackTime: string) =>
+      includeTime ? `${key}T${current.slice(11, 16) || fallbackTime}` : key;
     if (!showEnd) {
       if (!includeTime) {
         void save({ start: dayKey, includeTime: false });
         return;
       }
-      setStartValue(withTime(startValue, "09:00"));
+      setStartValue(withTime(dayKey, startValue, "09:00"));
       return;
     }
     const startKey = startValue.slice(0, 10);
-    if (!startKey || endValue || dayKey < startKey) {
-      setStartValue(withTime(startValue, "09:00"));
+    if (!startKey || endValue) {
+      setStartValue(withTime(dayKey, startValue, "09:00"));
       setEndValue("");
+    } else if (dayKey < startKey) {
+      // A second click before the start completes the range in order
+      // rather than dropping the first day.
+      setStartValue(withTime(dayKey, startValue, "09:00"));
+      setEndValue(withTime(startKey, endValue, "17:00"));
     } else {
-      setEndValue(withTime(endValue, "17:00"));
+      setEndValue(withTime(dayKey, endValue, "17:00"));
     }
   }
 
