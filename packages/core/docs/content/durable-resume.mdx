@@ -115,7 +115,7 @@ An action whose side effect must never repeat needs its own idempotency check. T
 A write's outcome is unknown when it started but no result was recorded, when it timed out, or when it failed after it began writing without saying whether anything was saved. Running it again could apply the change twice, so for the rest of the turn the loop holds back that tool:
 
 - **The same call again.** If the model repeats the call with the same arguments, the loop first checks whether that call's own result was recorded after all, and returns it if so. Otherwise the call doesn't run: the run stops with `write_tool_outcome_unknown` and asks you to check what was saved, then reply "continue".
-- **Any other call to that tool.** A call with different arguments, such as a reworded email, doesn't run either. The model is told that the earlier call may already have applied, and to check the current state with a read and tell you what it found. The turn goes on.
+- **Any other call to that tool.** A call with different arguments, such as a reworded email, doesn't run either. The model is told that the earlier call may already have applied, and to check the current state with a read and tell you what it found. The turn goes on, unless the earlier call can't be identified because it recorded no arguments to compare or was left out of the replayed history. Then any call to that tool could be a repeat, so it stops the run the way the same call does.
 
 An action marked `retrySafe` is exempt, because running it again can't duplicate or corrupt data: it validates before it writes, or it sets an end state, such as replacing a record by ID. The model can correct its arguments and try again. Read-only actions aren't held back unless a write ran inside one.
 
