@@ -301,7 +301,6 @@ export default defineAction({
         });
       }
     }
-    const processedIds = new Set(results.map((r) => r.recordingId));
     const unprocessedIds = targetIds.slice(stoppedAt);
 
     // Continue the sweep after the last swept clip this call reached: the
