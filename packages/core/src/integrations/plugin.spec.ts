@@ -347,7 +347,11 @@ async function dispatch(
     return middleware(event, next);
   };
   const responseBody = await next();
-  return { body: responseBody, status: event.res.status };
+  return {
+    body: responseBody,
+    status: event.res.status,
+    headers: event.res.headers,
+  };
 }
 
 const adapter: PlatformAdapter = {
@@ -1038,7 +1042,7 @@ describe("integrations plugin routes", () => {
     });
   });
 
-  it("surfaces Telegram 429 rate limits as retryable 429 responses with upstreamStatus and retryAfter", async () => {
+  it("surfaces Telegram 429 rate limits as retryable 429 responses with upstreamStatus, retryAfterSeconds, and Retry-After header", async () => {
     getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
     resolveSecretMock.mockImplementation((key: string) =>
       key === "TELEGRAM_BOT_TOKEN"
@@ -1077,10 +1081,11 @@ describe("integrations plugin routes", () => {
     );
 
     expect(result.status).toBe(429);
+    expect(result.headers.get("retry-after")).toBe("30");
     expect(result.body).toEqual({
       error: "Telegram setWebhook failed: Too Many Requests: retry after 30",
       upstreamStatus: 429,
-      retryAfter: 30,
+      retryAfterSeconds: 30,
     });
   });
 

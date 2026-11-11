@@ -15,7 +15,7 @@ export type ChannelWebhookRegistration =
       statusCode: number;
       error: string;
       upstreamStatus?: number;
-      retryAfter?: number;
+      retryAfterSeconds?: number;
     };
 
 export interface MountedChannels {

@@ -1030,8 +1030,10 @@ export function createIntegrationsPlugin(
                 : 422;
             const upstreamStatus =
               isRateLimit || isDependencyFailure ? res.status : undefined;
-            const retryAfter =
-              typeof data?.parameters?.retry_after === "number"
+            const retryAfterSeconds =
+              typeof data?.parameters?.retry_after === "number" &&
+              Number.isInteger(data.parameters.retry_after) &&
+              data.parameters.retry_after > 0
                 ? data.parameters.retry_after
                 : undefined;
             return {
@@ -1039,7 +1041,7 @@ export function createIntegrationsPlugin(
               statusCode,
               error: `Telegram setWebhook failed: ${data?.description ?? `HTTP ${res.status}`}`,
               ...(upstreamStatus !== undefined ? { upstreamStatus } : {}),
-              ...(retryAfter !== undefined ? { retryAfter } : {}),
+              ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
             };
           }
           return { ok: true, webhookUrl, result: data };
@@ -3646,13 +3648,25 @@ export function createIntegrationsPlugin(
           );
           if (registration.ok === false) {
             setResponseStatus(event, registration.statusCode);
+            if (
+              registration.statusCode === 429 &&
+              typeof registration.retryAfterSeconds === "number" &&
+              Number.isInteger(registration.retryAfterSeconds) &&
+              registration.retryAfterSeconds > 0
+            ) {
+              setResponseHeader(
+                event,
+                "Retry-After",
+                String(Math.min(registration.retryAfterSeconds, 300)),
+              );
+            }
             return {
               error: registration.error,
               ...(registration.upstreamStatus !== undefined
                 ? { upstreamStatus: registration.upstreamStatus }
                 : {}),
-              ...(registration.retryAfter !== undefined
-                ? { retryAfter: registration.retryAfter }
+              ...(registration.retryAfterSeconds !== undefined
+                ? { retryAfterSeconds: registration.retryAfterSeconds }
                 : {}),
             };
           }

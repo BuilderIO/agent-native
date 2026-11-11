@@ -946,8 +946,8 @@ export async function registerMessagingChannelWebhook(
       ...(registration.upstreamStatus !== undefined
         ? { upstreamStatus: registration.upstreamStatus }
         : {}),
-      ...(registration.retryAfter !== undefined
-        ? { retryAfter: registration.retryAfter }
+      ...(registration.retryAfterSeconds !== undefined
+        ? { retryAfterSeconds: registration.retryAfterSeconds }
         : {}),
     };
     fail(registration.error, {
