@@ -151,10 +151,12 @@ const VALUES_FROM_OTHER_PAGES: string[] = [
 
 /**
  * The text a page keeps outside its body that every reader of the page is
- * shown: its stored property values and Blocks fields, for properties that
- * still exist in a collection that hasn't been deleted. Relations and
- * computed values are left out, since a reader shared only the page doesn't
- * see them.
+ * shown: its stored property values and Blocks fields, for properties of a
+ * live collection the page belongs to (or is the page of). `get-document`
+ * shows any reader of the page those values for each such collection.
+ * Relations and computed values are left out, since a reader shared only the
+ * page doesn't see them, and so are values left from a collection the page
+ * has left.
  */
 export async function documentTextOutsideBody(
   db: Database,
@@ -171,6 +173,23 @@ export async function documentTextOutsideBody(
       VALUES_FROM_OTHER_PAGES,
     ),
     isNull(schema.contentDatabases.deletedAt),
+    or(
+      eq(schema.contentDatabases.documentId, documentId),
+      exists(
+        db
+          .select({ id: schema.contentDatabaseItems.id })
+          .from(schema.contentDatabaseItems)
+          .where(
+            and(
+              eq(
+                schema.contentDatabaseItems.databaseId,
+                schema.contentDatabases.id,
+              ),
+              eq(schema.contentDatabaseItems.documentId, documentId),
+            ),
+          ),
+      ),
+    ),
   );
   const values = await db
     .select({ text: schema.documentPropertyValues.valueJson })
@@ -182,7 +201,7 @@ export async function documentTextOutsideBody(
         schema.documentPropertyValues.propertyId,
       ),
     )
-    .leftJoin(
+    .innerJoin(
       schema.contentDatabases,
       eq(
         schema.contentDatabases.id,
@@ -206,7 +225,7 @@ export async function documentTextOutsideBody(
         schema.documentBlockFieldContents.propertyId,
       ),
     )
-    .leftJoin(
+    .innerJoin(
       schema.contentDatabases,
       eq(
         schema.contentDatabases.id,

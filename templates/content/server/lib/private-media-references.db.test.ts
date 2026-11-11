@@ -142,17 +142,35 @@ async function references(documentId: string, id: string) {
 }
 
 /** A Files & media value and a Blocks field kept apart from the body. */
-async function outsideBody(documentId: string, propertyId?: string) {
-  const id = propertyId ?? `private-media-property-${++count}`;
-  if (!propertyId) {
-    await db.insert(schema.documentPropertyDefinitions).values({
-      id,
-      ownerEmail: OWNER,
-      name: "Files",
-      type: "files_media",
-    });
-  }
+/** A property of a collection `documentId` belongs to, and its writers. */
+async function outsideBody(documentId: string, type = "files_media") {
+  const databaseId = `private-media-db-${++count}`;
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: await document(),
+  });
+  const membershipId = `private-media-item-${++count}`;
+  await db.insert(schema.contentDatabaseItems).values({
+    id: membershipId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+  });
+  const id = `private-media-property-${++count}`;
+  await db.insert(schema.documentPropertyDefinitions).values({
+    id,
+    ownerEmail: OWNER,
+    databaseId,
+    name: type,
+    type,
+  });
   return {
+    leaveCollection: async () => {
+      await db
+        .delete(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.id, membershipId));
+    },
     setValue: async (valueJson: string) => {
       await db
         .delete(schema.documentPropertyValues)
@@ -416,18 +434,27 @@ describe("private media references", () => {
     await uploaded(id, OWNER);
     const page = await document();
     await share(page);
-    const propertyId = `private-media-property-${++count}`;
-    await db.insert(schema.documentPropertyDefinitions).values({
-      id: propertyId,
-      ownerEmail: OWNER,
-      name: "Rolled up",
-      type: "rollup",
-    });
     const valueJson = JSON.stringify([`/api/private-media/${id}`]);
-    await (await outsideBody(page, propertyId)).setValue(valueJson);
+    await (await outsideBody(page, "rollup")).setValue(valueJson);
     await save(page, valueJson);
     expect(await references(page, id)).toHaveLength(1);
     // get-document holds rollups back from a reader shared only the page.
+    await expect(canRead(id, SHARED)).resolves.toBe(false);
+  });
+
+  it("stops serving a property image once its page leaves the collection", async () => {
+    const id = mediaId();
+    await uploaded(id, OWNER);
+    const page = await document();
+    await share(page);
+    const valueJson = JSON.stringify([`/api/private-media/${id}`]);
+    const files = await outsideBody(page);
+    await files.setValue(valueJson);
+    await save(page, valueJson);
+    await expect(canRead(id, SHARED)).resolves.toBe(true);
+
+    // get-document no longer shows the page that collection's values.
+    await files.leaveCollection();
     await expect(canRead(id, SHARED)).resolves.toBe(false);
   });
 
