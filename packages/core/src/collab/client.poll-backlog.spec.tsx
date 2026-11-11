@@ -4,23 +4,34 @@
  * The collab doc's own poll reads the same change feed as the shared
  * transport (see use-db-sync.backlog.spec.ts): while the server says more
  * is waiting past a page that moved the cursor, it reads the next page at
- * once. Presence still rides every page: a slow backlog must not let a still
- * user's 30-second presence row lapse.
+ * once, up to MAX_BACKLOG_PAGES in a row, and only while visible. Presence
+ * still rides every page: a slow backlog must not let a still user's
+ * 30-second presence row lapse.
  */
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as dbSync from "../client/use-db-sync.js";
-import { _resetSyncTransportRegistryForTests } from "../client/use-db-sync.js";
+import {
+  _resetSyncTransportRegistryForTests,
+  MAX_BACKLOG_PAGES,
+} from "../client/use-db-sync.js";
 import {
   _resetCollabDocRegistryForTests,
   useCollaborativeDoc,
 } from "./client.js";
 
 const PAGES = 6;
+// useCollaborativeDoc's default poll interval.
+const INTERVAL_MS = 2_000;
 
-function backlogFetch() {
+/**
+ * A change feed `pages` pages deep, one cursor step per page. `stuck`
+ * answers every poll with a limited page that doesn't move, as a read held
+ * at an access check does.
+ */
+function backlogFetch(pages = PAGES, { stuck = false } = {}) {
   const counts = { polls: 0, awareness: 0 };
   const mock = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input), "http://localhost");
@@ -35,7 +46,12 @@ function backlogFetch() {
       const from = cursor
         ? Number(cursor.split(".")[0])
         : Number(url.searchParams.get("since") ?? 0);
-      if (from >= PAGES) {
+      if (stuck) {
+        return new Response(
+          JSON.stringify({ version: from, events: [], cursorLimited: true }),
+        );
+      }
+      if (from >= pages) {
         return new Response(JSON.stringify({ version: from, events: [] }));
       }
       const page = from + 1;
@@ -44,7 +60,7 @@ function backlogFetch() {
           version: page,
           cursor: `${page}.r${page}`,
           events: [],
-          ...(page < PAGES ? { cursorLimited: true } : {}),
+          ...(page < pages ? { cursorLimited: true } : {}),
         }),
       );
     }
@@ -57,12 +73,26 @@ function backlogFetch() {
   return { mock, counts };
 }
 
-function Probe({ docId }: { docId: string }) {
+function Probe({
+  docId,
+  pauseWhenHidden,
+}: {
+  docId: string;
+  pauseWhenHidden?: boolean;
+}) {
   useCollaborativeDoc({
     docId,
     user: { name: "Ada", email: "ada@example.com", color: "#123456" },
+    pauseWhenHidden,
   });
   return null;
+}
+
+function setVisibility(state: "visible" | "hidden") {
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => state,
+  });
 }
 
 describe("collab poll reading a change-feed backlog", () => {
@@ -85,29 +115,84 @@ describe("collab poll reading a change-feed backlog", () => {
     container = null;
     _resetCollabDocRegistryForTests();
     _resetSyncTransportRegistryForTests();
+    delete (document as { visibilityState?: unknown }).visibilityState;
     vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
-  it("reads every page back to back and renews presence on each", async () => {
-    const { mock, counts } = backlogFetch();
+  function render(
+    mock: ReturnType<typeof backlogFetch>["mock"],
+    pauseWhenHidden?: boolean,
+  ) {
     vi.stubGlobal("fetch", mock);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    act(() => root!.render(<Probe docId="poll-backlog-doc" />));
+    act(() =>
+      root!.render(
+        <Probe docId="poll-backlog-doc" pauseWhenHidden={pauseWhenHidden} />,
+      ),
+    );
+  }
 
+  async function advance(ms: number) {
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(200);
+      await vi.advanceTimersByTimeAsync(ms);
     });
+  }
+
+  it("reads every page back to back and renews presence on each", async () => {
+    const { mock, counts } = backlogFetch();
+    render(mock);
+
+    await advance(200);
     expect(counts.polls).toBe(PAGES);
     expect(counts.awareness).toBe(PAGES);
 
     // Caught up: one page per interval again.
+    await advance(1_500);
+    expect(counts.polls).toBe(PAGES);
+  });
+
+  it("waits one interval after MAX_BACKLOG_PAGES pages", async () => {
+    const { mock, counts } = backlogFetch(Number.MAX_SAFE_INTEGER);
+    render(mock);
+    const run = MAX_BACKLOG_PAGES + 1;
+
+    await advance(200);
+    expect(counts.polls).toBe(run);
+    await advance(INTERVAL_MS - 400);
+    expect(counts.polls).toBe(run);
+    await advance(400);
+    expect(counts.polls).toBe(run * 2);
+  });
+
+  it("waits its interval when a limited page didn't move the cursor", async () => {
+    const { mock, counts } = backlogFetch(0, { stuck: true });
+    render(mock);
+
+    await advance(200);
+    expect(counts.polls).toBe(1);
+    await advance(INTERVAL_MS);
+    expect(counts.polls).toBe(2);
+  });
+
+  it("reads one page per interval while hidden and the rest once visible", async () => {
+    setVisibility("hidden");
+    const { mock, counts } = backlogFetch();
+    render(mock, false);
+
+    await advance(200);
+    expect(counts.polls).toBe(1);
+    await advance(INTERVAL_MS);
+    expect(counts.polls).toBe(2);
+
+    setVisibility("visible");
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_500);
+      document.dispatchEvent(new Event("visibilitychange"));
     });
+    await advance(200);
     expect(counts.polls).toBe(PAGES);
   });
 });
