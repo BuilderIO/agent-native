@@ -293,7 +293,11 @@ export function Layout({ children }: LayoutProps) {
     sidebar: { collapsed: userSidebarCollapsed, width: sidebarWidth },
   });
   const isCompactLayout = shellLayout.sidebar === "drawer";
-  const { host: agentPanelHost, panelHost } = useAgentPanelHost();
+  const {
+    host: agentPanelHost,
+    panelHost,
+    panelHeadHost,
+  } = useAgentPanelHost();
   const sidebarCollapsed = shellLayout.sidebar === "rail";
 
   const handleSidebarResize = useCallback(
@@ -479,6 +483,7 @@ export function Layout({ children }: LayoutProps) {
               position="right"
               forceOverlay={shellLayout.agentPanel === "overlay"}
               panelHost={panelHost}
+              panelHeadHost={panelHeadHost}
               defaultOpen={false}
               agentPageHref="/settings/agent"
               emptyStateText={t("chat.emptyState")}

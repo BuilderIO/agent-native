@@ -8844,6 +8844,7 @@ function PageEditorSessionBody({
   const pagePanelSpacerRef = useRef<HTMLDivElement>(null);
   const pagePanelHeadingRef = useRef<HTMLHeadingElement>(null);
   const agentSlotRef = useRef<HTMLDivElement>(null);
+  const agentHeadSlotRef = useRef<HTMLDivElement>(null);
   const pagePanelOpenRef = useRef(false);
   const pagePanelLastTabRef = useRef<DocumentPagePanelTab | null>(null);
   const pagePanelReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -9132,7 +9133,11 @@ function PageEditorSessionBody({
   // A row preview's sheet covers the page's panel, so the agent stays there
   // and the preview's own panel holds Discussion and Info.
   const agent = useAgentPanelState();
-  const showAgentTab = useAgentPanelSlot(agentSlotRef, host === "page");
+  const showAgentTab = useAgentPanelSlot(
+    agentSlotRef,
+    host === "page",
+    agentHeadSlotRef,
+  );
   const agentInPanel = showAgentTab && agent.inPanel;
   const utilityPanelTab = documentPagePanelTab({
     agentInPanel: false,
@@ -12423,6 +12428,7 @@ function PageEditorSessionBody({
           spacerRef={pagePanelSpacerRef}
           headingRef={pagePanelHeadingRef}
           agentSlotRef={host === "page" ? agentSlotRef : undefined}
+          agentHeadSlotRef={host === "page" ? agentHeadSlotRef : undefined}
           onClose={() => handlePagePanelChange(null)}
         >
           {pagePanelBody}

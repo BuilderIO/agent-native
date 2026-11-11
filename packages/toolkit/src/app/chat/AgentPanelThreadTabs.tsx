@@ -316,7 +316,10 @@ function AgentPanelThreadMenuContent({
   );
 }
 
-export function AgentPanelThreadSwitcher(props: AgentPanelThreadNavProps) {
+export function AgentPanelThreadSwitcher({
+  triggerClassName,
+  ...props
+}: AgentPanelThreadNavProps & { triggerClassName?: string }) {
   const active = props.items.find((item) => item.active) ?? props.items.at(0);
   return (
     <DropdownMenu>
@@ -324,7 +327,10 @@ export function AgentPanelThreadSwitcher(props: AgentPanelThreadNavProps) {
         <button
           type="button"
           data-agent-thread-switcher=""
-          className="agent-thread-switcher flex h-6 min-w-0 max-w-full items-center gap-1 rounded-md ps-2 pe-1 text-xs font-medium text-foreground hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent"
+          className={cn(
+            "agent-thread-switcher flex h-6 min-w-0 max-w-full items-center gap-1 rounded-md ps-2 pe-1 text-xs font-medium text-foreground hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent",
+            triggerClassName,
+          )}
         >
           <span className="truncate">{active?.label ?? props.newLabel}</span>
           {active?.running ? <RunningDot /> : null}
