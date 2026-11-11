@@ -638,6 +638,8 @@ const messages = {
     them: "Eles",
     me: "Meu",
     regeneratingNotes: "Regenerando resumo",
+    notesAlreadyGenerating:
+      "Um resumo já está sendo gerado. Ele aparecerá aqui quando estiver pronto.",
     meetingRemoved: "Reunião removida",
     couldNotRemoveMeeting: "Não foi possível remover a reunião",
     couldNotLoadMeeting: "Não foi possível carregar esta reunião.",
