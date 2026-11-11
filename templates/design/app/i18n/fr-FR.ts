@@ -1806,6 +1806,8 @@ export default {
         "Appliquez ou annulez vos modifications visuelles en attente avant de dupliquer.",
       allDesigns: "Tous les designs",
       rename: "Renommer",
+      builtFrom: "Créé à partir de {{title}}",
+      builtFromPage: "Créé à partir d'une page Content",
       duplicate: "Dupliquer",
       versionHistory: "Historique des versions",
       import: "Importer…",
@@ -2617,6 +2619,9 @@ export default {
     changesDiscarded:
       "Certaines modifications n’ont pas pu être enregistrées car le fichier n’existe plus et ont été ignorées.",
     offline: "Hors ligne",
+    unsaved: "Non enregistré",
+    saveRetrying:
+      "Impossible d’enregistrer vos modifications. Nouvelle tentative automatique en cours.",
     saving: "Enregistrement...",
     clearedAllAnnotations: "Toutes les annotations ont été effacées",
     annotationsDiscardedOnViewChange:
@@ -2685,6 +2690,7 @@ export default {
     searchSystems: "Rechercher des systèmes de design…",
     searchDesigns: "Rechercher des designs…",
     searchPresentations: "Rechercher des présentations…",
+    searchPages: "Rechercher des pages…",
     searchDesign: "Rechercher un design…",
     useDesignSystem: "Utiliser un système de design",
     notReady:
@@ -2697,6 +2703,7 @@ export default {
     design: "Références de design",
     slides: "Diapositives",
     referenceDesign: "Utiliser un design comme référence",
+    contentPage: "Page Content",
     connectFigma: "Connecter Figma",
     figmaReference: "Design Figma…",
     figmaDialogTitle: "Ajouter un design Figma",

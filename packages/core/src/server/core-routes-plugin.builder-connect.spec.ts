@@ -1,6 +1,8 @@
 import type { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
+
 const getOrgContextMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../org/context.js", () => ({
@@ -25,7 +27,6 @@ import {
   BUILDER_CONNECT_NEEDS_ORGANIZATION,
   BUILDER_CONNECT_SESSION_NOT_SHARED,
   BUILDER_ORG_ALREADY_CONNECTED,
-  BUILDER_ORG_MEMBERSHIP_UNREADABLE,
   BUILDER_ORG_RECONNECT_BY_LOGIN,
   decideBuilderActivation,
   disconnectBuilderConnectionAtScope,
@@ -125,20 +126,25 @@ describe("resolveBuilderOrgMutation", () => {
     });
   });
 
-  it("does not call an unreadable membership a non-member", async () => {
-    getOrgContextMock.mockRejectedValue(
-      Object.assign(new Error("Connection terminated"), { code: "08006" }),
-    );
-
-    for (const options of [{ allowMemberInitiation: true }, {}]) {
-      await expect(
-        resolveBuilderOrgMutation(createMockEvent(), options),
-      ).resolves.toMatchObject({
-        orgId: null,
-        deny: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
+  it.each([
+    { code: "57014", status: 503 },
+    { code: "42501", status: 500 },
+  ])(
+    "preserves classified org failure $code for connect and revoke",
+    async ({ code, status }) => {
+      const cause = Object.assign(new Error("Fake membership failure"), {
+        code,
       });
-    }
-  });
+      const error = sessionResolutionFailure(cause);
+      getOrgContextMock.mockRejectedValue(error);
+      for (const options of [{ allowMemberInitiation: true }, {}]) {
+        await expect(
+          resolveBuilderOrgMutation(createMockEvent(), options),
+        ).rejects.toBe(error);
+      }
+      expect(error).toMatchObject({ statusCode: status, cause });
+    },
+  );
 
   it("keeps shared Builder revocation owner/admin protected", async () => {
     getOrgContextMock.mockResolvedValue({
@@ -740,28 +746,27 @@ describe("decideBuilderActivation", () => {
     }
   }
 
-  it("refuses before provisioning when the membership cannot be read", async () => {
-    getOrgContextMock.mockRejectedValue(
-      Object.assign(new Error("Connection terminated"), { code: "08006" }),
-    );
-    const hasOrgConnection = vi.fn(async () => false);
-
-    const decision = await decideBuilderActivation(
-      createMockEvent(),
-      { ownerEmail: "user@example.com", requestedScope: null },
-      hasOrgConnection,
-    );
-
-    expect(decision).toEqual({
-      refuse: {
-        status: 503,
-        message: BUILDER_ORG_MEMBERSHIP_UNREADABLE,
-        reason: "membership_unreadable",
-        code: "membership_unreadable",
-      },
-    });
-    expect(hasOrgConnection).not.toHaveBeenCalled();
-  });
+  it.each([
+    { code: "57014", status: 503 },
+    { code: "42501", status: 500 },
+  ])(
+    "refuses activation without rewriting org failure $code",
+    async ({ code }) => {
+      const error = sessionResolutionFailure(
+        Object.assign(new Error("Fake membership failure"), { code }),
+      );
+      getOrgContextMock.mockRejectedValue(error);
+      const hasOrgConnection = vi.fn(async () => false);
+      await expect(
+        decideBuilderActivation(
+          createMockEvent(),
+          { ownerEmail: "user@example.com", requestedScope: null },
+          hasOrgConnection,
+        ),
+      ).rejects.toBe(error);
+      expect(hasOrgConnection).not.toHaveBeenCalled();
+    },
+  );
 
   it("still lets someone without an organization activate personally", async () => {
     getOrgContextMock.mockResolvedValue({

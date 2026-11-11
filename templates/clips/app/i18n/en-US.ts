@@ -554,6 +554,8 @@ const messages = {
     them: "Them",
     me: "Me",
     regeneratingNotes: "Regenerating summary",
+    notesAlreadyGenerating:
+      "A summary is already being generated. It'll show here when it's ready.",
     meetingRemoved: "Meeting removed",
     couldNotRemoveMeeting: "Couldn't remove meeting",
     couldNotLoadMeeting: "Couldn't load this meeting.",
@@ -636,6 +638,8 @@ const messages = {
     noMatches: "No matches.",
     noTranscript: "No transcript yet.",
     noTranscriptCaptured: "No transcript was captured.",
+    unreadableDescription:
+      "The saved transcript is damaged. Regenerating makes a new one from the clip's audio.",
     partialTranscript:
       "Partial transcript: this recording was cut off, so some of it may be missing.",
     backupFailed:
@@ -716,6 +720,10 @@ const messages = {
     saveThumbnail: "Save thumbnail",
   },
   shareDialog: {
+    enterPassword: "Enter a password",
+    showPassword: "Show password",
+    hidePassword: "Hide password",
+    copyPassword: "Copy password",
     redactionsPendingTitle: "Finish redactions before sharing",
     redactionsPendingBody:
       "Pending redactions: {{count}}. Apply them in the editor before sharing; the video still contains the original content.",

@@ -1,6 +1,10 @@
 import { withoutWriteObservation } from "../action-frame.js";
 import { getAppConfig } from "../app-config/index.js";
-import { getRequestContext } from "../server/request-context.js";
+import { platformWaitUntil } from "../server/background-work.js";
+import {
+  getRequestContext,
+  getRequestRunContext,
+} from "../server/request-context.js";
 import { isTestIdentity } from "../server/test-identity.js";
 import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
 import { reshapeTrackedExceptionProperties } from "./posthog-exception.js";
@@ -28,9 +32,11 @@ interface EnqueueOptions {
 
 const QUEUE_KEY = Symbol.for("@agent-native/core/tracking.queue");
 const TIMER_KEY = Symbol.for("@agent-native/core/tracking.timer");
+const IN_FLIGHT_KEY = Symbol.for("@agent-native/core/tracking.in-flight");
 
 interface GlobalWithQueue {
   [QUEUE_KEY]?: QueuedEvent[];
+  [IN_FLIGHT_KEY]?: Set<Promise<void>>;
   [TIMER_KEY]?: ReturnType<typeof setTimeout> | null;
 }
 
@@ -40,6 +46,11 @@ function getQueue(): QueuedEvent[] {
   return g[QUEUE_KEY]!;
 }
 
+function getInFlight(): Set<Promise<void>> {
+  const global = globalThis as unknown as GlobalWithQueue;
+  return (global[IN_FLIGHT_KEY] ??= new Set());
+}
+
 function getTimer(): ReturnType<typeof setTimeout> | null {
   const g = globalThis as unknown as GlobalWithQueue;
   return g[TIMER_KEY] ?? null;
@@ -47,6 +58,20 @@ function getTimer(): ReturnType<typeof setTimeout> | null {
 
 function setTimer(t: ReturnType<typeof setTimeout> | null): void {
   (globalThis as unknown as GlobalWithQueue)[TIMER_KEY] = t;
+}
+
+/**
+ * A serverless host can freeze the function once the reply is out, cutting
+ * off a send still under way. Inside a request, the host's waitUntil keeps the
+ * function up until the send ends. Actions reach it without the request event:
+ * Cloudflare's through the request's run context, Netlify's through its store.
+ */
+function keepAlive(sending: Promise<unknown>): void {
+  try {
+    (getRequestRunContext()?.waitUntil ?? platformWaitUntil())?.(sending);
+  } catch {
+    // coercion-ok: the send is already under way; a host refusing to wait for it only risks that event.
+  }
 }
 
 function enqueue(
@@ -59,7 +84,7 @@ function enqueue(
   queue.push({ url, body, headers });
   const flushImmediately = options?.flushImmediately ?? isServerlessRuntime();
   if (flushImmediately || queue.length >= MAX_BATCH_SIZE) {
-    void drainQueue();
+    keepAlive(drainQueue());
   } else if (!getTimer()) {
     const timer = setTimeout(() => {
       void drainQueue();
@@ -77,22 +102,44 @@ function drainQueue(): Promise<void[]> {
   }
   const queue = getQueue();
   const batch = queue.splice(0, queue.length);
-  return Promise.all(
-    batch.map((item) =>
-      // Whichever call's frame drains the queue, the events are not its writes.
-      withoutWriteObservation(() =>
-        fetch(item.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...item.headers },
-          body: item.body,
-          signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-        }),
-      ).then(
-        () => undefined,
-        () => undefined,
-      ),
-    ),
-  );
+  const inFlight = getInFlight();
+  for (const item of batch) {
+    // Whichever call's frame drains the queue, the events are not its writes.
+    const send = withoutWriteObservation(() =>
+      fetch(item.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...item.headers },
+        body: item.body,
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+      }),
+    ).then(
+      () => undefined,
+      () => undefined,
+    );
+    inFlight.add(send);
+    void send.finally(() => inFlight.delete(send));
+  }
+  // Serverless sends leave the queue immediately. A later flush must still
+  // hold the request's background lifetime until those sends settle.
+  return Promise.all([...inFlight]);
+}
+
+/**
+ * Sends what is queued, then waits for every send still under way, including
+ * the ones a serverless runtime started the moment their event was tracked.
+ */
+function flushSends(): Promise<void> {
+  return drainQueue().then(() => undefined);
+}
+
+/**
+ * The end-of-request flush. On serverless, the caller hands this to the
+ * host's waitUntil, so sends still under way outlive the reply. Long-running
+ * servers don't freeze, and a flush per request would end their 10-second
+ * batching, so there it resolves at once.
+ */
+export function flushTrackingSendsForResponse(): Promise<void> {
+  return isServerlessRuntime() ? flushSends() : Promise.resolve();
 }
 
 function isLocalhostUrl(value: string | undefined): boolean {
@@ -146,6 +193,7 @@ function isServerlessRuntime(): boolean {
   return Boolean(
     process.env.NETLIFY ||
     process.env.VERCEL ||
+    process.env.CF_PAGES ||
     process.env.AWS_LAMBDA_FUNCTION_NAME ||
     process.env.AWS_EXECUTION_ENV ||
     process.env.LAMBDA_TASK_ROOT ||
@@ -250,9 +298,7 @@ function createPostHogProvider(
         }),
       );
     },
-    flush: () => {
-      return drainQueue().then(() => undefined);
-    },
+    flush: flushSends,
   };
 }
 
@@ -319,9 +365,7 @@ function createMixpanelProvider(token: string): TrackingProvider {
       };
       enqueue("https://api.mixpanel.com/engage", JSON.stringify([data]));
     },
-    flush: () => {
-      return drainQueue().then(() => undefined);
-    },
+    flush: flushSends,
   };
 }
 
@@ -379,9 +423,7 @@ function createAmplitudeProvider(apiKey: string): TrackingProvider {
       };
       enqueue("https://api2.amplitude.com/2/httpapi", JSON.stringify(data));
     },
-    flush: () => {
-      return drainQueue().then(() => undefined);
-    },
+    flush: flushSends,
   };
 }
 
@@ -418,9 +460,7 @@ function createWebhookProvider(
         extra,
       );
     },
-    flush: () => {
-      return drainQueue().then(() => undefined);
-    },
+    flush: flushSends,
   };
 }
 
@@ -462,9 +502,7 @@ function createAgentNativeAnalyticsProvider(
         { flushImmediately },
       );
     },
-    flush: () => {
-      return drainQueue().then(() => undefined);
-    },
+    flush: flushSends,
   };
 }
 

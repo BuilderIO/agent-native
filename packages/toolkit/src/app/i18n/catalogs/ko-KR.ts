@@ -1,6 +1,20 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "승인된 출처",
+  "settingsApiKeys.originsHint":
+    "한 줄에 정확한 HTTPS 출처 하나씩 입력하세요. 비워 두면 전달이 차단됩니다. 로컬 HTTP는 허용됩니다.",
+  "settingsApiKeys.invalidOrigins":
+    "정확한 HTTPS 출처를 한 줄에 하나씩 입력하세요.",
+  "settingsApiKeys.editOrigins": "출처 편집",
+  "settingsApiKeys.originsSaved": "출처 저장됨",
+  "settingsApiKeys.originsCount_one": "승인된 출처 {{count}}개",
+  "settingsApiKeys.originsCount_other": "승인된 출처 {{count}}개",
+  "settingsApiKeys.noApprovedOrigins": "승인된 출처 없음",
+  "extensions.cancel": "취소",
+  "extensions.context": "컨텍스트",
+  "extensions.confirmAgentMessage": "확장 기능 메시지를 에이전트에게 보낼까요?",
+  "extensions.sendToAgent": "에이전트에게 보내기",
   "auth.logOutFailed": "로그아웃하지 못했습니다",
   "block.renderUnavailable": "이 블록은 일시적으로 사용할 수 없습니다.",
   "block.loading": "블록을 불러오는 중입니다.",
@@ -144,7 +158,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
   "onboarding.builderCredits": "Builder.io 무료 크레딧에 포함",
   "onboarding.builderIncludedFreeWithAccount": "Builder.io 계정에 무료로 포함",
-  "onboarding.builderMonthlyCredits": "매월 60 Agent Credits",
+  "onboarding.builderMonthlyCredits": "매일 무료 크레딧 15개, 매달 최대 60개",
   "onboarding.builderIncludedFree": "무료 포함",
   "onboarding.builderMoreServices": "+ 서비스 {{count}}개 더",
   "onboarding.builderLlmCredits": "LLM 크레딧",
@@ -176,9 +190,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
   "onboarding.builderExistingAccount": "Builder.io 계정이 있어요",
-  "onboarding.creditsTitle": "매달 무료 Agent Credits 60개로 사용해 보세요",
+  "onboarding.creditsTitle":
+    "매일 무료 크레딧 15개(매달 최대 60개)로 사용해 보세요",
   "onboarding.creditsTitleClips":
-    "무료 비디오 저장소와 매달 Agent Credits 60개로 사용해 보세요",
+    "무료 비디오 저장소와 매일 크레딧 15개(매달 최대 60개)로 사용해 보세요",
   "onboarding.creditsActivate": "무료 크레딧 활성화",
   "onboarding.creditsFinePrint":
     "이렇게 하면 무료 Builder.io 계정이 생성됩니다. 계속하면 당사의",
@@ -1608,6 +1623,29 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder 크레딧 추천",
   "featureFlags.builderCreditReferrals.description":
     "사용량에 연결된 Builder 워크스페이스의 추천 세부정보를 표시합니다.",
+  "featureFlags.scope.appliesTo": "적용 대상",
+  "featureFlags.scope.org": "이 조직",
+  "featureFlags.scope.global": "모든 조직",
+  "featureFlags.scope.setForOrg": "이 조직에 설정됨",
+  "featureFlags.scope.setForGlobal": "모든 조직에 설정됨",
+  "featureFlags.scope.overridesGlobal": "모든 조직 규칙을 재정의함",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "이 조직의 자체 규칙이 모든 조직 규칙을 대신합니다. 모든 조직 규칙: {{audience}}.",
+  "featureFlags.scope.unreadable": "읽을 수 없음",
+  "featureFlags.scope.enableForMeOrg": "이 조직의 규칙에 나를 추가합니다",
+  "featureFlags.scope.enableForMeGlobal": "모든 조직 규칙에 나를 추가합니다",
+  "featureFlags.scope.turnOffOrg": "이 조직에서 끄기",
+  "featureFlags.scope.turnOffGlobal": "모든 조직에서 끄기",
+  "featureFlags.scope.turnOffOrgTitle": "이 조직에서 {{name}}을(를) 끌까요?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "모든 조직에서 {{name}}을(를) 끌까요?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "이 조직의 모든 사용자 액세스가 즉시 제거됩니다. 나중에 새 롤아웃을 구성할 수 있습니다.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "자체 규칙이 없는 모든 조직에서 액세스가 즉시 제거됩니다. 나중에 새 롤아웃을 구성할 수 있습니다.",
+  "featureFlags.scope.summaryOrg": "이 조직: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "모든 조직: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule": "이 조직은 자체 규칙을 유지합니다.",
   "usage.inviteFriends": "친구 초대",
   "usage.inviteCredits":
     "친구가 구독하면 Builder 크레딧 {{amount}}개를 받을 수 있습니다.",
@@ -2823,6 +2861,65 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "스킬 파일 업로드",
   "settingsResources.skills.describePlaceholder":
     "풀 리퀘스트의 보안 문제를 검토하는 스킬",
+  "settingsResources.skills.personalHint": "나만 가진 스킬입니다.",
+  "settingsResources.skills.orgHint":
+    "{{org}}의 모든 사람과 공유됩니다. 스위치는 나에게만 적용됩니다.",
+  "settingsResources.skills.orgAdminHint":
+    "{{org}}의 모든 사람과 공유됩니다. 관리자이므로 각 스킬이 사람들에게 어떻게 시작될지 선택할 수 있습니다.",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch는 워크스페이스가 모든 앱이 공유하는 스킬을 보관하는 곳입니다. 여기서 끄면 {{app}}에서만 바뀝니다.",
+  "settingsResources.skills.thisApp": "이 앱",
+  "settingsResources.skills.forEveryone": "모두",
+  "settingsResources.skills.forYou": "나",
+  "settingsResources.skills.markRecommended": "권장",
+  "settingsResources.skills.markRecommendedHint":
+    "누군가 끄지 않으면 켜져 있습니다.",
+  "settingsResources.skills.markOptional": "선택",
+  "settingsResources.skills.markOptionalHint":
+    "누군가 켜지 않으면 꺼져 있습니다.",
+  "settingsResources.skills.markRequired": "필수",
+  "settingsResources.skills.markRequiredHint":
+    "모두에게 켜져 있습니다. 아무도 끄거나 자신의 버전을 사용할 수 없습니다.",
+  "settingsResources.skills.recommendedBy": "{{org}} 권장",
+  "settingsResources.skills.requiredBy": "{{org}} 필수",
+  "settingsResources.skills.requiredHidesOwn":
+    "사용되지 않음: {{org}}에서 모두가 공유 버전을 쓰도록 요구합니다",
+  "settingsResources.skills.optionalOff": "선택: 켤 때까지 꺼져 있음",
+  "settingsResources.skills.optionalOn": "선택: 내가 켰음",
+  "settingsResources.skills.switchedOffOn": "{{date}}에 내가 끔",
+  "settingsResources.skills.alwaysOn": "항상 켜짐",
+  "settingsResources.skills.requiredLockHint":
+    "{{org}}에서 필수로 지정해 항상 켜져 있습니다",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch에도 {{name}}이(가) 있습니다. 에이전트는 이 스킬을 사용하고 Dispatch의 스킬은 건너뜁니다. 둘 다 사용하려면 하나의 이름을 바꾸세요.",
+  "settingsResources.skills.dispatchClashRequired":
+    "Dispatch의 {{name}}이(가) 필수라서 에이전트는 그 스킬을 사용하고 이 스킬은 건너뜁니다. 둘 다 사용하려면 하나의 이름을 바꾸세요.",
+  "settingsResources.skills.choicesLoadFailed":
+    "어떤 스킬이 켜져 있는지 불러오지 못해 스위치를 숨겼습니다. 페이지를 새로고침해 다시 시도하세요.",
+  "settingsResources.skills.requireChecking":
+    "누구에게 영향이 있는지 확인하는 중…",
+  "settingsResources.skills.requireCountsFailed":
+    "누구에게 영향이 있는지 확인하지 못했습니다.",
+  "settingsResources.skills.requireTitle": "{{name}}을(를) 필수로 지정할까요?",
+  "settingsResources.skills.makeRequired": "필수로 지정",
+  "settingsResources.skills.switchFailed":
+    "{{name}}에 대한 선택을 저장하지 못했습니다.",
+  "settingsResources.skills.markFailed":
+    "{{name}}이(가) 사람들에게 시작되는 방식을 변경하지 못했습니다.",
+  "settingsResources.skills.addForMe": "나에게 추가",
+  "settingsResources.skills.addForEveryone": "모두에게 추가",
+  "settingsResources.skills.offFor_other": "{{count}}명 중 {{off}}명이 끔",
+  "settingsResources.skills.onFor_other": "{{count}}명 중 {{on}}명이 켬",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}}명이 자신의 버전을 사용 중",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "이 스킬을 끈 {{count}}명에게 다시 켜집니다.",
+  "settingsResources.skills.requireTurnsOn_other":
+    "이 스킬을 켜지 않은 {{count}}명에게 켜집니다.",
+  "settingsResources.skills.requireOwnVersions_other":
+    "자신의 버전이 있는 {{count}}명은 대신 {{org}}의 텍스트를 받습니다. 각자의 버전은 보관되며, 나중에 이 설정을 바꾸면 다시 돌아옵니다.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "자신의 버전이 있는 {{count}}명은 대신 Dispatch의 텍스트를 받습니다. 각자의 버전은 보관되며, 나중에 이 설정을 바꾸면 다시 돌아옵니다.",
   "settingsResources.files.empty":
     "파일을 추가해 에이전트에게 더 많은 컨텍스트를 제공하세요.",
   "settingsResources.files.emptyTitle": "아직 파일이 없습니다",

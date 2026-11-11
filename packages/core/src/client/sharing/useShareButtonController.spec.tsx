@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
     refetch: vi.fn(async () => undefined),
   },
   shareCalls: [] as PendingShare[],
+  queryOptions: [] as boolean[],
 }));
 
 // A real mutation hook, so overlapping saves behave as they do in the app:
@@ -31,7 +32,13 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../use-action.js", async () => {
   const { useMutation } = await import("@tanstack/react-query");
   return {
-    useActionQuery: vi.fn(() => mocks.query),
+    useActionQuery: vi.fn(
+      (_name: string, _params: unknown, options: { enabled: boolean }) => {
+        if (_name === "list-resource-shares")
+          mocks.queryOptions.push(options.enabled);
+        return mocks.query;
+      },
+    ),
     useActionMutation: (name: string) =>
       useMutation({
         mutationFn: (args: ShareCall) =>
@@ -62,10 +69,17 @@ describe("useShareButtonController agents", () => {
   let queryClient: QueryClient;
   let controller: ShareButtonController | undefined;
 
-  function Harness({ resourceId }: { resourceId: string }) {
+  function Harness({
+    resourceId,
+    linkOnly = false,
+  }: {
+    resourceId: string;
+    linkOnly?: boolean;
+  }) {
     controller = useShareButtonController({
       resourceType: "deck",
       resourceId,
+      linkOnly,
     });
     return null;
   }
@@ -127,10 +141,32 @@ describe("useShareButtonController agents", () => {
       agents: [reviewer, writer, sharedAgent],
     };
     mocks.shareCalls = [];
+    mocks.queryOptions = [];
     queryClient = new QueryClient();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+  });
+
+  it("loads permissions only while a full sharing panel is open", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness resourceId="deck-1" />
+        </QueryClientProvider>,
+      );
+    });
+    expect(mocks.queryOptions.at(-1)).toBe(false);
+    act(() => current().handleOpenChange(true));
+    expect(mocks.queryOptions.at(-1)).toBe(true);
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness resourceId="deck-1" linkOnly />
+        </QueryClientProvider>,
+      );
+    });
+    expect(mocks.queryOptions.at(-1)).toBe(false);
   });
 
   afterEach(() => {

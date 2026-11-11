@@ -105,7 +105,7 @@ Screenshots are saved in the app's `.tmp/ui-review/out/`, and the final report l
 
 ## Run and deploy {#run-deploy}
 
-For local review the skill sets `AUTH_DISABLED=1` in the app's ignored `.env`, because a fresh screenshot browser is not signed in. This is for loopback development only. It is removed before the final `pnpm build`, and it must never be committed or deployed. After that, the first browser to open the app is signed in automatically as the local dev account. Later fresh browsers show a "Continue as local dev" card.
+For local review the skill sets `AUTH_DISABLED=1` in the app's ignored `.env`, because a fresh screenshot browser is not signed in. This is for loopback development only. It is removed before the final `pnpm build`, and it must never be committed or deployed. After the build, when you ran the skill yourself on this machine, it starts the app once more and opens it in your default browser. A headless run opens nothing, and a remote session (SSH, a container) gets a forwarded URL when a port can be forwarded, or otherwise the folder and `pnpm dev` to run it on your own machine. On a new app, that signs you in automatically as the local dev account; when the database already has an account (a resumed app or a shared workspace database), you get the sign-in page instead. Later fresh browsers show a "Continue as local dev" card.
 
 To run the app yourself:
 
@@ -119,7 +119,7 @@ To use your own model provider locally, put a key such as `ANTHROPIC_API_KEY` in
 
 The skill deploys only when you ask or the provider is already configured. A healthy local build still prints a "production configuration errors" block with exit code 0. That is the deploy checklist: a stable `BETTER_AUTH_SECRET` and a persistent `DATABASE_URL`, plus `A2A_SECRET` for an app inside a workspace. The skill reports these as the pending step and does not create placeholder values. See [Deploy an app](/docs/deploy-an-app) and [Deploy a workspace](/docs/workspace-deployment).
 
-The final report labels evidence separately: locally running, locally verified, build-ready, deployed, and live-verified are different states, and the report never lets one stand in for another.
+The final report starts with your app: "Your app is open at …" when the skill opened a local build (otherwise where it is and how to open it). For a hosted app it is the Builder link when Dispatch started a build, or Dispatch's own message when it did not. Next it says how to change the app, what each control does, and what the app comes with, such as integrations, automations, and an MCP server. Details follow under their own heading, with evidence labelled separately: locally running, locally verified, build-ready, deployed, and live-verified are different states, and the report never lets one stand in for another.
 
 ## Known limits {#limits}
 

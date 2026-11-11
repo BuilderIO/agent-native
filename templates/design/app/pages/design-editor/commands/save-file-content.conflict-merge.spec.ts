@@ -273,6 +273,43 @@ describe("runSaveFileContent concurrent edit merge", () => {
     expect(onPersistedContent).not.toHaveBeenCalled();
   });
 
+  it("settles a save the server reports as already applied, without a conflict toast", async () => {
+    const { args, pending, mutateAsync, rollbackPendingLocalFileContent } =
+      setup({
+        mutate: async () => ({
+          updated: true,
+          skippedStaleOperation: true,
+          operationAlreadyApplied: true,
+          versionHash: sourceContentHash(THEIRS),
+        }),
+      });
+    const onPersistedContent = vi.fn();
+
+    await expect(
+      runSaveFileContent(args, pending, undefined, onPersistedContent),
+    ).resolves.toBe("persisted");
+
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(errorToast).not.toHaveBeenCalled();
+    expect(rollbackPendingLocalFileContent).toHaveBeenCalledWith(
+      pending.id,
+      pending.content,
+    );
+    expect(onPersistedContent).not.toHaveBeenCalled();
+    expect(args.latestFileSaveForUnloadRef.current[pending.id]).toBeUndefined();
+  });
+
+  it("does not take an already-applied flag from a response that did not confirm the save", async () => {
+    const { args, pending } = setup({
+      mutate: async () => ({
+        operationAlreadyApplied: true,
+        versionHash: sourceContentHash(THEIRS),
+      }),
+    });
+
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("failed");
+  });
+
   it("keeps the conflict loud when the base content is unknown", async () => {
     const { args, pending, mutateAsync, rollbackPendingLocalFileContent } =
       setup({
@@ -307,6 +344,37 @@ describe("runSaveFileContent concurrent edit merge", () => {
 
     expect(mutateAsync).toHaveBeenCalledTimes(1);
     expect(rollbackPendingLocalFileContent).toHaveBeenCalled();
+  });
+
+  it("keeps a save the server could not verify queued for retry, without a conflict toast", async () => {
+    const warningToast = vi
+      .spyOn(toast, "warning")
+      .mockImplementation(() => "test-toast");
+    const { args, pending, mutateAsync, rollbackPendingLocalFileContent } =
+      setup({
+        mutate: async () => {
+          throw Object.assign(
+            new Error(
+              "Could not verify a source file's live version. Re-read the design and retry.",
+            ),
+            { status: 409, errorCode: "source_version_unverifiable" },
+          );
+        },
+      });
+    const entry = { key: "outbox-entry" };
+    args.createFileSaveOutboxEntry = vi.fn(() => entry as never);
+
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("retryable");
+
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(rollbackPendingLocalFileContent).not.toHaveBeenCalled();
+    expect(args.acknowledgeOutboxEntry).not.toHaveBeenCalled();
+    expect(errorToast).not.toHaveBeenCalledWith(
+      "designEditor.toasts.saveConflict",
+      expect.anything(),
+    );
+    expect(warningToast).toHaveBeenCalled();
+    warningToast.mockRestore();
   });
 
   it("stops merging after bounded retries when the file keeps moving", async () => {
@@ -559,6 +627,19 @@ describe("runSaveFileContent outcome counts", () => {
     });
     await expect(runSaveFileContent(args, pending)).resolves.toBe("conflict");
     expect(saveOutcomes()).toEqual({ "save/failed/stale_mirror": 1 });
+  });
+
+  it("counts a save the server already applied as a success", async () => {
+    const { args, pending } = setup({
+      mutate: async () => ({
+        updated: true,
+        skippedStaleOperation: true,
+        operationAlreadyApplied: true,
+        versionHash: sourceContentHash(THEIRS),
+      }),
+    });
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("persisted");
+    expect(saveOutcomes()).toEqual({ "save/succeeded/none": 1 });
   });
 
   it("counts a save without edit rights as skipped, never sent", async () => {

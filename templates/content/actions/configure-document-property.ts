@@ -29,17 +29,14 @@ import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.j
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   configureDocumentPropertyAgentSchema,
+  lockRowsAndAssertAgentsMayEditTabs,
   runConfigureDocumentProperty,
 } from "./_database-property-setup.js";
 import {
   refreshAfterSetup,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
-import {
-  type CallProvenance,
-  isAgentCall,
-  lockPagesAndAssertAgentsMayEditText,
-} from "./_document-agent-lock.js";
+import { lockPagesAndAssertAgentsMayEditText } from "./_document-agent-lock.js";
 import {
   nextAppendPosition,
   propertyDefinitionsPositionScope,
@@ -133,7 +130,7 @@ const legacyConfigureDocumentPropertySchema = z
 export default defineAction({
   searchHints: ["add a column", "table column", "database field"],
   description:
-    "Create an ordinary Content collection property (a `blocks` property adds a tab to every row's page) or safely update its metadata, select options, and natural-key role using an exact target, fresh schema revision, and idempotency key.",
+    "Create an ordinary Content collection property (a `blocks` property adds an empty tab to every row's page) or safely update its metadata, select options (add, update, reorder, or remove one no row or saved view filter uses), and natural-key role using an exact target, fresh schema revision, and idempotency key.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: configureDocumentPropertyAgentSchema,
@@ -159,7 +156,7 @@ export default defineAction({
       configureDocumentPropertyAgentSchema.parse(args);
     }
     if ("operation" in args) {
-      const result = await runConfigureDocumentProperty(args);
+      const result = await runConfigureDocumentProperty(args, context);
       await refreshAfterSetup(result.receipt);
       return result;
     }
@@ -329,7 +326,11 @@ export default defineAction({
               normalizePropertyVisibility(args.visibility) !==
                 normalizePropertyVisibility(lockedDefinition.visibility)))
         )
-          await lockRowsAndAssertAgentsMayEditTabs(tx, database.id, context);
+          await lockRowsAndAssertAgentsMayEditTabs(
+            tx as unknown as ReturnType<typeof getDb>,
+            database.id,
+            context,
+          );
         if (lockedDefinition.type !== type) {
           const memberships = await tx
             .select({
@@ -480,7 +481,7 @@ export default defineAction({
             // A new Blocks field adds a tab to every row.
             if (isBlocksPropertyType(type))
               await lockRowsAndAssertAgentsMayEditTabs(
-                tx,
+                tx as unknown as ReturnType<typeof getDb>,
                 database.id,
                 context,
               );
@@ -574,31 +575,6 @@ export default defineAction({
     };
   },
 });
-
-/** Every row shows a Blocks field as a tab, so an agent's change to one waits for, and is held to, each row's lock. */
-async function lockRowsAndAssertAgentsMayEditTabs(
-  tx: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0],
-  databaseId: string,
-  context: CallProvenance | undefined,
-) {
-  if (!isAgentCall(context)) return;
-  const memberships = await tx
-    .select({
-      id: schema.contentDatabaseItems.id,
-      documentId: schema.contentDatabaseItems.documentId,
-    })
-    .from(schema.contentDatabaseItems)
-    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
-  await lockDatabaseMemberships(
-    tx,
-    memberships.map((membership) => membership.id),
-  );
-  await lockPagesAndAssertAgentsMayEditText(
-    tx as unknown as ReturnType<typeof getDb>,
-    memberships.map((membership) => membership.documentId),
-    context,
-  );
-}
 
 async function configureNaturalKey(
   tx: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0],

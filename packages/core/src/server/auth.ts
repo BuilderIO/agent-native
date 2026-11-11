@@ -49,6 +49,7 @@ import {
 } from "../shared/mcp-embed-headers.js";
 import {
   bindBuilderSignupAttempt,
+  startBuilderSignupForVerifiedSession,
   builderSignupAssignmentCookieName,
 } from "./builder-signup-experiment.js";
 import {
@@ -73,6 +74,10 @@ import {
   resolveEmbedSessionFromRequest,
   verifyEmbedSessionToken,
 } from "./embed-session.js";
+import {
+  getEmbeddedHostOrgScope,
+  preserveEmbeddedHostOrgScope,
+} from "./embedded-org-scope.js";
 import { createFirstTouchHandler } from "./first-touch-route.js";
 import { getPublicFrameworkPathname } from "./framework-request-context.js";
 import type { H3AppShim } from "./framework-request-handler.js";
@@ -83,6 +88,7 @@ import {
   publicFrameworkPath,
 } from "./framework-route-prefix.js";
 import { isHttpsRequest } from "./https-request.js";
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
 
 function toWebRequest(event: H3Event): Request {
   const req = (event as any).req as Request;
@@ -399,6 +405,7 @@ export async function recordBuilderSignupBinding(
   attemptId: unknown,
   method: "password" | "magic-link" | "google",
   email: string,
+  verifiedSession?: AuthSession,
 ): Promise<void> {
   if (
     typeof attemptId !== "string" &&
@@ -406,7 +413,31 @@ export async function recordBuilderSignupBinding(
   )
     return;
   try {
-    await bindBuilderSignupAttempt(event, attemptId, method, email);
+    const bound = await bindBuilderSignupAttempt(
+      event,
+      attemptId,
+      method,
+      email,
+    );
+    if (
+      bound &&
+      verifiedSession?.emailVerified === true &&
+      verifiedSession.token &&
+      verifiedSession.email.trim().toLowerCase() === email.trim().toLowerCase()
+    ) {
+      // The callback just issued this session; its cookie is in the response,
+      // not the incoming request. Org/credential checks must see that identity.
+      const signupSession = { ...verifiedSession, userId: bound.userId };
+      event.context.__anSessionCache = Promise.resolve(signupSession);
+      delete event.context.__anOrgContextCache;
+      markRequestIdentityAuthenticatedAtMs(
+        event,
+        verifiedSession.email,
+        Date.now(),
+        verifiedSession.token,
+      );
+      await startBuilderSignupForVerifiedSession(event, signupSession);
+    }
   } catch (error) {
     captureAuthError(error, { route: "signup", email });
   }
@@ -495,6 +526,8 @@ export interface AuthOptions {
    * fallback markup, which the auth client script replaces in the browser.
    */
   renderSignInPage?: (props: AuthPageProps) => string | undefined;
+  /** Trusted HTML appended to the sign-in document head. */
+  authHeadHtml?: string;
   renderResetPasswordPage?: (
     props: ResetPasswordPageProps,
   ) => string | undefined;
@@ -1370,6 +1403,7 @@ export async function getMcpOAuthBearerSession(
       identityVerificationUnavailableErrorClass &&
       e instanceof identityVerificationUnavailableErrorClass
     ) {
+      if (e.retryable === false) throw e;
       markCredentialMembershipUnavailable(event);
       return null;
     }
@@ -2607,6 +2641,7 @@ function getOnboardingHtmlOptions(
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     renderSignInPage: options.renderSignInPage,
+    authHeadHtml: options.authHeadHtml,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
     requestOrigin: event ? getOrigin(event) : undefined,
@@ -4967,13 +5002,22 @@ async function backfillSessionOrg(
   session: AuthSession,
   event: H3Event,
 ): Promise<AuthSession> {
-  if (session.orgId || hasExplicitPersonalOrgScope(event)) return session;
+  if (
+    session.orgId ||
+    hasExplicitPersonalOrgScope(event) ||
+    getEmbeddedHostOrgScope(event, session)
+  )
+    return session;
   const { resolveOrgIdForEmailViaEvent } = await import("../org/context.js");
-  const orgId = await resolveOrgIdForEmailViaEvent(event, session.email).catch(
-    () => null,
-  );
-  return orgId ? { ...session, orgId } : session;
+  try {
+    const orgId = await resolveOrgIdForEmailViaEvent(event, session.email);
+    return orgId ? { ...session, orgId } : session;
+  } catch (cause) {
+    throw sessionResolutionFailure(cause);
+  }
 }
+
+export { SessionResolutionUnavailableError } from "./session-resolution-errors.js";
 
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
   const ctx = event.context as {
@@ -5062,7 +5106,7 @@ async function resolveAdditionalSession(
   if (!resolve || customGetSession) return null;
   try {
     const session = await resolve(event);
-    return session ? normalizeCustomSession(session) : null;
+    return session ? normalizeCustomSession(session, event) : null;
   } catch (error) {
     markSessionResolutionUnavailable(event, "additional-session", error);
     return ADDITIONAL_SESSION_FAILED;
@@ -5094,7 +5138,7 @@ async function resolveBrowserCookieSession(
     }
     if (!getHeader(event, "cookie")) return null;
     const session = await customGetBrowserSession(event);
-    return session ? normalizeCustomSession(session) : null;
+    return session ? normalizeCustomSession(session, event) : null;
   }
   const cookie = getHeader(event, "cookie");
   if (cookie) {
@@ -5114,13 +5158,18 @@ async function resolveBrowserCookieSession(
   return getAuthDisabledSession(event);
 }
 
-function normalizeCustomSession(session: AuthSession): AuthSession {
+function normalizeCustomSession(
+  session: AuthSession,
+  event: H3Event,
+): AuthSession {
   const safeSession = { ...session };
   delete safeSession.authUserId;
-  if (trustCustomEmailVerification && session.emailVerified === undefined) {
-    return { ...safeSession, emailVerified: true };
-  }
-  return safeSession;
+  const normalized =
+    trustCustomEmailVerification && session.emailVerified === undefined
+      ? { ...safeSession, emailVerified: true }
+      : safeSession;
+  preserveEmbeddedHostOrgScope(event, session, normalized);
+  return normalized;
 }
 
 async function resolveSessionUncached(
@@ -5166,7 +5215,7 @@ async function resolveSessionUncached(
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) {
-      return normalizeCustomSession(session);
+      return normalizeCustomSession(session, event);
     }
 
     const bearerSession = await getBearerSession(event);
@@ -5922,15 +5971,16 @@ async function mountBetterAuthRoutes(
             });
           }
 
+          const signupUserId = isNewGoogleUser
+            ? await getBetterAuthUserIdForEmail(email)
+            : undefined;
           const { sessionToken } = await createOAuthSession(event, email, {
             hasProductionSession: false,
             desktop,
             mobile,
             trackSignup: {
               authProvider: "google",
-              canonicalAuthUserId: isNewGoogleUser
-                ? await getBetterAuthUserIdForEmail(email)
-                : undefined,
+              ...(signupUserId ? { canonicalAuthUserId: signupUserId } : {}),
               name: typeof user.name === "string" ? user.name : undefined,
               attribution: signupAttribution,
               signupAnonymousId,
@@ -5939,13 +5989,20 @@ async function mountBetterAuthRoutes(
               isNewUser: isNewGoogleUser,
             },
           });
-          if (isNewGoogleUser)
+          if (isNewGoogleUser) {
             await recordBuilderSignupBinding(
               event,
               builderSignupAttemptId,
               "google",
               email,
+              {
+                email,
+                ...(sessionToken ? { token: sessionToken } : {}),
+                ...(typeof user.name === "string" ? { name: user.name } : {}),
+                emailVerified: true,
+              },
             );
+          }
           logGoogleOAuthDebug(event, "callback-session-created", {
             flowId,
             desktop,
@@ -7171,6 +7228,7 @@ async function mountBetterAuthRoutes(
           query.builder_signup_attempt,
           "magic-link",
           signupSession.email,
+          signupSession,
         );
       setFirstRunOnboardingCookie(event);
       return queryEchoSafeRedirect(

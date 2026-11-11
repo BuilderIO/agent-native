@@ -1,54 +1,62 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { MouseEvent } from "react";
+import { useLocale } from "@agent-native/core/client/i18n";
+import {
+  getMcpConnectGuides,
+  resolveMcpConnectGuideId,
+} from "@agent-native/core/shared/mcp-connect-content";
+import { useEffect, useMemo } from "react";
 
-import { McpAccessSettings } from "../../../resources/index.js";
-import { useSettingsShell } from "../context.js";
+import { BreadcrumbTitle } from "../../../integrations/IntegrationDetailParts.js";
+import {
+  McpAccessSettings,
+  McpHostMark,
+} from "../../../resources/McpAccessSettings.js";
+import { useSettingsPageHeader, useSettingsShell } from "../context.js";
 import type { SettingsPageProps } from "../registry.js";
 import { settingsPageHref } from "../routing.js";
 
-// Splits the translated footnote around the link, whatever the word order.
-const LINK_TOKEN = "\u0000";
-
-export default function McpServerSettingsPage({ bridge }: SettingsPageProps) {
+export default function McpServerSettingsPage({
+  bridge,
+  sub,
+}: SettingsPageProps) {
   const t = useT();
+  const { locale } = useLocale();
   const { navigate } = useSettingsShell();
+  const guides = useMemo(() => getMcpConnectGuides(locale), [locale]);
+  const guide = sub
+    ? (guides.find((item) => item.id === sub) ??
+      guides.find((item) => item.id === "other"))
+    : null;
+  const header = useMemo(
+    () =>
+      guide
+        ? {
+            title: (
+              <BreadcrumbTitle
+                name={guide.label}
+                mark={<McpHostMark id={guide.id} className="size-4" />}
+              />
+            ),
+          }
+        : null,
+    [guide],
+  );
+  useSettingsPageHeader(header);
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search).get("guide");
+    if (!sub && query)
+      navigate("mcp", resolveMcpConnectGuideId(query), { replace: true });
+  }, [navigate, sub]);
   const appName =
     bridge.appName ?? t("agentChat.settingsShell.appFallbackName");
-  const [beforeLink, afterLink = ""] = t(
-    "agentChat.settingsShell.appGroup.mcpFootnote",
-    { integrations: LINK_TOKEN },
-  ).split(LINK_TOKEN);
-  const openIntegrations = (event: MouseEvent<HTMLAnchorElement>) => {
-    if (
-      event.button !== 0 ||
-      event.metaKey ||
-      event.ctrlKey ||
-      event.shiftKey ||
-      event.altKey
-    ) {
-      return;
-    }
-    event.preventDefault();
-    navigate("integrations");
-  };
   return (
-    <div className="flex flex-col gap-6">
-      <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-        {bridge.mcpAbout ??
-          t("agentChat.settingsShell.appGroup.mcpAbout", { app: appName })}
-      </p>
-      <McpAccessSettings appName={appName} hideHeader />
-      <p className="text-xs text-muted-foreground">
-        {beforeLink}
-        <a
-          href={settingsPageHref("integrations")}
-          onClick={openIntegrations}
-          className="font-medium text-foreground underline-offset-4 hover:underline"
-        >
-          {t("agentChat.settingsShell.page.integrations")}
-        </a>
-        {afterLink}
-      </p>
-    </div>
+    <McpAccessSettings
+      appName={appName}
+      hideHeader
+      {...(bridge.mcpAbout != null ? { helpText: bridge.mcpAbout } : {})}
+      guideId={guide?.id ?? null}
+      onSelectGuide={(id) => navigate("mcp", id)}
+      guideHref={(id) => settingsPageHref("mcp", id)}
+    />
   );
 }

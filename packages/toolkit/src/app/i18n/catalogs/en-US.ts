@@ -1,4 +1,17 @@
 const messages = {
+  "settingsApiKeys.approvedOrigins": "Approved origins",
+  "settingsApiKeys.originsHint":
+    "One exact HTTPS origin per line. Empty blocks forwarding. Local loopback HTTP is allowed.",
+  "settingsApiKeys.invalidOrigins": "Enter exact HTTPS origins, one per line.",
+  "settingsApiKeys.editOrigins": "Edit origins",
+  "settingsApiKeys.originsSaved": "Origins saved",
+  "settingsApiKeys.originsCount_one": "{{count}} approved origin",
+  "settingsApiKeys.originsCount_other": "{{count}} approved origins",
+  "settingsApiKeys.noApprovedOrigins": "No approved origins",
+  "extensions.cancel": "Cancel",
+  "extensions.context": "Context",
+  "extensions.confirmAgentMessage": "Send extension message to agent?",
+  "extensions.sendToAgent": "Send to agent",
   "auth.logOutFailed": "Log out failed",
   "block.renderUnavailable": "This block is temporarily unavailable.",
   "block.loading": "Loading block.",
@@ -144,7 +157,7 @@ const messages = {
   "onboarding.builderCredits": "Included with Builder.io free credits",
   "onboarding.builderIncludedFreeWithAccount":
     "Included free with a Builder.io account",
-  "onboarding.builderMonthlyCredits": "60 monthly Agent Credits",
+  "onboarding.builderMonthlyCredits": "15 free credits a day, up to 60 a month",
   "onboarding.builderIncludedFree": "Included free",
   "onboarding.builderMoreServices": "+ {{count}} more services",
   "onboarding.builderLlmCredits": "LLM credits",
@@ -178,9 +191,10 @@ const messages = {
   "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
   "onboarding.builderExistingAccount": "I have a Builder.io account",
-  "onboarding.creditsTitle": "Try it with 60 free Agent Credits a month",
+  "onboarding.creditsTitle":
+    "Try it with 15 free credits a day, up to 60 a month",
   "onboarding.creditsTitleClips":
-    "Try it with free video storage and 60 Agent Credits a month",
+    "Try it with free video storage and 15 credits a day, up to 60 a month",
   "onboarding.creditsActivate": "Activate free credits",
   "onboarding.creditsFinePrint":
     "This will create a free Builder.io account. By continuing, you agree to our",
@@ -1615,6 +1629,32 @@ const messages = {
   "featureFlags.builderCreditReferrals.name": "Builder credit referrals",
   "featureFlags.builderCreditReferrals.description":
     "Show connected Builder workspace referral details in Usage.",
+  "featureFlags.scope.appliesTo": "Applies to",
+  "featureFlags.scope.org": "This organization",
+  "featureFlags.scope.global": "All organizations",
+  "featureFlags.scope.setForOrg": "Set for this organization",
+  "featureFlags.scope.setForGlobal": "Set for all organizations",
+  "featureFlags.scope.overridesGlobal":
+    "Overrides the rule for all organizations",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "This organization's own rule replaces the rule for all organizations, which is: {{audience}}.",
+  "featureFlags.scope.unreadable": "Couldn't be read",
+  "featureFlags.scope.enableForMeOrg": "Adds you to this organization's rule",
+  "featureFlags.scope.enableForMeGlobal":
+    "Adds you to the rule for all organizations",
+  "featureFlags.scope.turnOffOrg": "Turn off for this organization",
+  "featureFlags.scope.turnOffGlobal": "Turn off for all organizations",
+  "featureFlags.scope.turnOffOrgTitle":
+    "Turn off {{name}} for this organization?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "Turn off {{name}} for all organizations?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "This immediately removes access for everyone in this organization. You can configure a new rollout later.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "This immediately removes access in every organization that doesn't have its own rule. You can configure a new rollout later.",
+  "featureFlags.scope.summaryOrg": "In this organization: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "In all organizations: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule": "This organization keeps its own rule.",
   "usage.inviteFriends": "Invite friends",
   "usage.inviteCredits":
     "Earn {{amount}} Builder credits when a friend subscribes.",
@@ -2877,6 +2917,77 @@ const messages = {
   "settingsResources.skills.upload": "Upload a skill file",
   "settingsResources.skills.describePlaceholder":
     "A skill that reviews pull requests for security issues",
+  "settingsResources.skills.personalHint": "Only you have these.",
+  "settingsResources.skills.orgHint":
+    "Shared with everyone at {{org}}. Your switches are just for you.",
+  "settingsResources.skills.orgAdminHint":
+    "Shared with everyone at {{org}}. You're an admin, so you choose how each one starts for people.",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch is where your workspace keeps skills that every app shares. Switching one off here only changes {{app}}.",
+  "settingsResources.skills.thisApp": "this app",
+  "settingsResources.skills.forEveryone": "For everyone",
+  "settingsResources.skills.forYou": "For you",
+  "settingsResources.skills.markRecommended": "Recommended",
+  "settingsResources.skills.markRecommendedHint":
+    "On unless someone switches it off.",
+  "settingsResources.skills.markOptional": "Optional",
+  "settingsResources.skills.markOptionalHint":
+    "Off unless someone switches it on.",
+  "settingsResources.skills.markRequired": "Required",
+  "settingsResources.skills.markRequiredHint":
+    "On for everyone. Nobody can switch it off or use their own version.",
+  "settingsResources.skills.recommendedBy": "Recommended by {{org}}",
+  "settingsResources.skills.requiredBy": "Required by {{org}}",
+  "settingsResources.skills.requiredHidesOwn":
+    "Not used: {{org}} requires everyone to use the shared one",
+  "settingsResources.skills.optionalOff":
+    "Optional: off until you switch it on",
+  "settingsResources.skills.optionalOn": "Optional: you switched it on",
+  "settingsResources.skills.switchedOffOn": "You switched it off on {{date}}",
+  "settingsResources.skills.alwaysOn": "Always on",
+  "settingsResources.skills.requiredLockHint":
+    "Required by {{org}}, so it's always on",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch also has a {{name}}. The agent uses this one and skips Dispatch's. Rename one to use both.",
+  "settingsResources.skills.dispatchClashRequired":
+    "Dispatch's {{name}} is Required, so the agent uses it and skips this one. Rename one to use both.",
+  "settingsResources.skills.choicesLoadFailed":
+    "Couldn't load which skills are on for you, so the switches are hidden. Reload the page to try again.",
+  "settingsResources.skills.requireChecking": "Checking who this changes…",
+  "settingsResources.skills.requireCountsFailed":
+    "Couldn't check who this changes.",
+  "settingsResources.skills.requireTitle": "Make {{name}} required?",
+  "settingsResources.skills.makeRequired": "Make required",
+  "settingsResources.skills.switchFailed":
+    "Couldn't save your choice for {{name}}.",
+  "settingsResources.skills.markFailed":
+    "Couldn't change how {{name}} starts for people.",
+  "settingsResources.skills.addForMe": "Add for me",
+  "settingsResources.skills.addForEveryone": "Add for everyone",
+  "settingsResources.skills.offFor_one": "Off for {{off}} of {{count}} person",
+  "settingsResources.skills.offFor_other":
+    "Off for {{off}} of {{count}} people",
+  "settingsResources.skills.onFor_one": "On for {{on}} of {{count}} person",
+  "settingsResources.skills.onFor_other": "On for {{on}} of {{count}} people",
+  "settingsResources.skills.ownVersions_one": "{{count}} has their own version",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}} have their own version",
+  "settingsResources.skills.requireTurnsBackOn_one":
+    "It turns back on for the {{count}} person who switched it off.",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "It turns back on for the {{count}} people who switched it off.",
+  "settingsResources.skills.requireTurnsOn_one":
+    "It turns on for the {{count}} person who hadn't switched it on.",
+  "settingsResources.skills.requireTurnsOn_other":
+    "It turns on for the {{count}} people who hadn't switched it on.",
+  "settingsResources.skills.requireOwnVersions_one":
+    "The {{count}} person with their own version gets {{org}}'s text instead. Their version is kept, and comes back if you change this later.",
+  "settingsResources.skills.requireOwnVersions_other":
+    "The {{count}} people with their own version get {{org}}'s text instead. Their versions are kept, and come back if you change this later.",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "The {{count}} person with their own version gets Dispatch's text instead. Their version is kept, and comes back if you change this later.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "The {{count}} people with their own version get Dispatch's text instead. Their versions are kept, and come back if you change this later.",
   "settingsResources.files.empty":
     "Add a file to give your agent more context.",
   "settingsResources.files.emptyTitle": "No files yet",
