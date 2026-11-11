@@ -1,4 +1,5 @@
 import { and, eq, ne, sql } from "drizzle-orm";
+import { createError } from "h3";
 
 import { getDb, schema } from "../db/index.js";
 import { nanoid, ownerEmailMatches } from "./recordings.js";
@@ -12,8 +13,31 @@ export type VocabularyScope = "personal" | "team";
 /** The organization roles that may add or remove team words. */
 export const TEAM_VOCABULARY_EDITOR_ROLES = ["admin"] as const;
 
-/** How many team words one organization's list returns. */
+/**
+ * How many team words one organization can have. Adding past it is refused,
+ * which keeps the team list (read without a limit) bounded.
+ */
 export const MAX_TEAM_VOCABULARY = 1000;
+
+function teamVocabularyFull(): Error {
+  return createError({
+    statusCode: 409,
+    statusMessage: `An organization can have at most ${MAX_TEAM_VOCABULARY} team words. Remove some first.`,
+  });
+}
+
+async function countTeamWords(orgId: string): Promise<number> {
+  const [row] = await getDb()
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.vocabulary)
+    .where(
+      and(
+        eq(schema.vocabulary.visibility, "org"),
+        eq(schema.vocabulary.orgId, orgId),
+      ),
+    );
+  return Number(row?.count ?? 0);
+}
 
 type VocabularyRow = typeof schema.vocabulary.$inferSelect;
 
@@ -106,8 +130,8 @@ function matchFor(input: UpsertVocabularyTermInput, term: string) {
  * scope. A personal word never matches a team word and the other way round,
  * so an admin's team word never swallows their own personal correction.
  *
- * Team words are unique per organization and lowercased term (the
- * team-vocabulary-unique-term migration). When two admins add the same team word at once, the losing insert
+ * Team words are unique per organization and lowercased term (see
+ * vocabulary-schema.ts). When two admins add the same team word at once, the losing insert
  * hits that index and updates the winner's row instead.
  */
 export async function upsertVocabularyTerm(
@@ -150,6 +174,12 @@ export async function upsertVocabularyTerm(
 
   const updated = await updateExisting();
   if (updated) return updated;
+  if (
+    input.scope === "team" &&
+    (await countTeamWords(input.orgId as string)) >= MAX_TEAM_VOCABULARY
+  ) {
+    throw teamVocabularyFull();
+  }
 
   const id = `vocab_${nanoid()}`;
   try {
@@ -223,6 +253,11 @@ export async function importTeamVocabulary(input: {
       ),
     );
   const existing = new Map(existingRows.map((row) => [termKey(row.term), row]));
+  let freshCount = 0;
+  for (const key of wanted.keys()) if (!existing.has(key)) freshCount += 1;
+  if (existingRows.length + freshCount > MAX_TEAM_VOCABULARY) {
+    throw teamVocabularyFull();
+  }
 
   const fresh: Array<{ term: string; replacement: string }> = [];
   for (const [key, entry] of wanted) {

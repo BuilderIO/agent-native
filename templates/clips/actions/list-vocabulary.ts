@@ -10,7 +10,6 @@ import {
   getOrganizationRoleForEmail,
 } from "../server/lib/recordings.js";
 import {
-  MAX_TEAM_VOCABULARY,
   TEAM_VOCABULARY_EDITOR_ROLES,
   mergeVocabulary,
 } from "../server/lib/vocabulary.js";
@@ -54,8 +53,9 @@ export default defineAction({
         .select()
         .from(schema.vocabulary)
         .where(and(visible, eq(schema.vocabulary.visibility, "org")))
-        .orderBy(desc(schema.vocabulary.usesCount))
-        .limit(MAX_TEAM_VOCABULARY),
+        // No limit: writes keep an organization at MAX_TEAM_VOCABULARY
+        // team words, so this is every team word.
+        .orderBy(desc(schema.vocabulary.usesCount)),
     ]);
     const rows = [...personal, ...teamRows];
     const team = teamRows

@@ -61,6 +61,8 @@ vi.mock("../server/lib/recordings.js", async () => {
   };
 });
 
+import { TEAM_VOCABULARY_UNIQUE_TERM_SQL } from "../server/lib/vocabulary-schema.js";
+import { MAX_TEAM_VOCABULARY } from "../server/lib/vocabulary.js";
 import addTerm from "./add-vocabulary-term.js";
 import importTeam from "./import-team-vocabulary.js";
 import listVocabulary from "./list-vocabulary.js";
@@ -103,10 +105,42 @@ describe("team vocabulary", () => {
       );
     }
   });
+  let keptAfterMigration: Array<{ id: string; replacement: string }> = [];
   beforeAll(async () => {
-    // Same index as the team-vocabulary-unique-term migration in server/plugins/db.ts.
-    await client.exec(
-      `create unique index clips_vocabulary_team_term_idx on clips_vocabulary (org_id, lower(term)) where visibility = 'org'`,
+    // Team-word duplicates from before the index, then the team-vocabulary-unique-term migration.
+    const row = (
+      id: string,
+      term: string,
+      replacement: string,
+      updatedAt: string,
+    ) => ({
+      id,
+      term,
+      replacement,
+      confidence: 1,
+      usesCount: 1,
+      createdAt: updatedAt,
+      updatedAt,
+      ownerEmail: "admin@acme.test",
+      orgId: "org-acme",
+      visibility: "org" as const,
+    });
+    await db
+      .insert(schema.vocabulary)
+      .values([
+        row("old", "Zoe", "Zoe", "2026-11-11T10:00:00.000Z"),
+        row("new", "zoe", "Zoë", "2026-11-11T11:00:00.000Z"),
+        {
+          ...row("other-org", "Zoe", "Zoe", "2026-11-11T09:00:00.000Z"),
+          orgId: "org-other",
+        },
+      ]);
+    await client.exec(TEAM_VOCABULARY_UNIQUE_TERM_SQL);
+    keptAfterMigration = (await db.select().from(schema.vocabulary)).map(
+      (r) => ({
+        id: r.id,
+        replacement: r.replacement,
+      }),
     );
   });
   beforeEach(async () => {
@@ -293,5 +327,45 @@ describe("team vocabulary", () => {
     ]);
     expect(new Set(results.map((result) => result.id)).size).toBe(1);
     expect(await db.select().from(schema.vocabulary)).toHaveLength(1);
+  });
+
+  it("the team-vocabulary-unique-term migration keeps the newest of duplicate team words per organization", () => {
+    expect(keptAfterMigration.map((r) => r.id).sort()).toEqual([
+      "new",
+      "other-org",
+    ]);
+  });
+
+  it("refuses team words past the organization's limit", async () => {
+    const entries = (from: number, count: number) =>
+      Array.from({ length: count }, (_, i) => ({ term: `word-${from + i}` }));
+    const half = MAX_TEAM_VOCABULARY / 2;
+    await as("admin@acme.test", () =>
+      importTeam.run({ entries: entries(0, half) }),
+    );
+    await as("admin@acme.test", () =>
+      importTeam.run({ entries: entries(half, half) }),
+    );
+    await expect(
+      add("admin@acme.test", {
+        term: "one-more",
+        replacement: "one-more",
+        scope: "team",
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    await expect(
+      as("admin@acme.test", () =>
+        importTeam.run({ entries: [{ term: "word-0" }, { term: "new-one" }] }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    // An existing word can still be updated at the limit.
+    await add("admin@acme.test", {
+      term: "word-1",
+      replacement: "Word 1",
+      scope: "team",
+    });
+    expect((await list("zoe@acme.test")).team).toHaveLength(
+      MAX_TEAM_VOCABULARY,
+    );
   });
 });

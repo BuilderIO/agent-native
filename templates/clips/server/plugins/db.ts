@@ -13,6 +13,7 @@ import { z } from "zod";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { orderMigrationsByVersion } from "../lib/migration-order.js";
+import { TEAM_VOCABULARY_UNIQUE_TERM_SQL } from "../lib/vocabulary-schema.js";
 import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import {
   uploadLeaseExpiry,
@@ -1419,12 +1420,7 @@ export const migrations = runMigrations(
     {
       version: 103,
       name: "team-vocabulary-unique-term",
-      // One team word per organization and lowercased term, so two admins
-      // adding the same word at once can't create two rows
-      // (server/lib/vocabulary.ts upserts on this).
-      sql: `CREATE UNIQUE INDEX IF NOT EXISTS clips_vocabulary_team_term_idx
-        ON clips_vocabulary (org_id, lower(term))
-        WHERE visibility = 'org'`,
+      sql: TEAM_VOCABULARY_UNIQUE_TERM_SQL,
     },
   ]),
   { table: "clips_migrations" },
