@@ -1660,7 +1660,6 @@ const overrides = {
     commandDatabasesHeading: "संग्रह",
     commandLocalFilesHeading: "स्थानीय फ़ाइलें",
     commandDatabaseResultDescription: "संग्रह पेज खोलें",
-    commandAppearance: "रूप",
     openAgent: "एजेंट खोलें",
     toggleTheme: "थीम बदलें",
     commandOnPage: "“{{title}}” में",

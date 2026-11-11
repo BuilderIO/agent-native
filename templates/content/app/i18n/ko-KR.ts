@@ -1686,7 +1686,6 @@ const overrides = {
     commandDatabasesHeading: "컬렉션",
     commandLocalFilesHeading: "로컬 파일",
     commandDatabaseResultDescription: "컬렉션 페이지 열기",
-    commandAppearance: "모양",
     openAgent: "에이전트 열기",
     toggleTheme: "테마 전환",
     commandOnPage: "“{{title}}”",

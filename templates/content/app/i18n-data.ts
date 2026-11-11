@@ -1423,7 +1423,6 @@ const enUS = {
     commandDatabasesHeading: "Collections",
     commandLocalFilesHeading: "Local files",
     commandDatabaseResultDescription: "Open collection page",
-    commandAppearance: "Appearance",
     openAgent: "Open Agent",
     toggleTheme: "Toggle theme",
     commandOnPage: "On “{{title}}”",

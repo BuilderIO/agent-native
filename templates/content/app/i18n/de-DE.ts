@@ -1738,7 +1738,6 @@ const overrides = {
     commandDatabasesHeading: "Sammlungen",
     commandLocalFilesHeading: "Lokale Dateien",
     commandDatabaseResultDescription: "Sammlungsseite öffnen",
-    commandAppearance: "Darstellung",
     openAgent: "Agent öffnen",
     toggleTheme: "Theme wechseln",
     commandOnPage: "In „{{title}}“",

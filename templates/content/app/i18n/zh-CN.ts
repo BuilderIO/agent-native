@@ -1735,7 +1735,6 @@ const overrides = {
     commandDatabasesHeading: "集合",
     commandLocalFilesHeading: "本地文件",
     commandDatabaseResultDescription: "打开集合页面",
-    commandAppearance: "外观",
     openAgent: "打开代理",
     toggleTheme: "切换主题",
     commandOnPage: "“{{title}}”",

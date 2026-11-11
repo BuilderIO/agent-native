@@ -1697,7 +1697,6 @@ const overrides = {
     commandDatabasesHeading: "コレクション",
     commandLocalFilesHeading: "ローカルファイル",
     commandDatabaseResultDescription: "コレクションページを開く",
-    commandAppearance: "外観",
     openAgent: "エージェントを開く",
     toggleTheme: "テーマを切り替え",
     commandOnPage: "「{{title}}」",

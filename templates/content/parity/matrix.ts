@@ -127,6 +127,7 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "app/components/ContentCommandMenu.test.tsx",
+      "app/components/sidebar/use-move-page-dialog.test.tsx",
       "actions/content-database-lifecycle.db.test.ts",
       "actions/database-setup.db.test.ts",
       "actions/database-setup-mcp.db.test.ts",

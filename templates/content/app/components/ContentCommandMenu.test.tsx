@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DocumentTitleEntry } from "@/lib/content-command-search";
 
 const pageDocument = vi.hoisted(() => ({
+  context: undefined as unknown,
   current: {
     id: "page-1",
     title: "Roadmap",
@@ -37,7 +38,10 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
 }));
 vi.mock("@/hooks/use-documents", () => ({
   prefetchDocumentTitles: vi.fn(),
-  useDocument: () => ({ data: pageDocument.current }),
+  useDocument: (_id: string | null, context: unknown) => {
+    pageDocument.context = context;
+    return { data: pageDocument.current };
+  },
   useDocuments: () => ({ data: undefined }),
   useDocumentTitles: () => ({
     data: {
@@ -82,6 +86,11 @@ import {
 
 const t = (key: string, options?: Record<string, unknown>) =>
   options ? `${key} ${JSON.stringify(options)}` : key;
+
+function required<T>(element: T | null): T {
+  if (!element) throw new Error("Expected the command menu to render it");
+  return element;
+}
 
 function recentEntry(documentId: string, title: string): ContentRecentResult {
   return {
@@ -288,8 +297,8 @@ describe("contentCommandGroups", () => {
 });
 
 describe("ContentCommandMenu", () => {
-  let container: HTMLDivElement;
-  let root: Root;
+  let container: HTMLDivElement | undefined;
+  let root: Root | undefined;
 
   afterEach(async () => {
     await act(async () => root?.unmount());
@@ -304,16 +313,18 @@ describe("ContentCommandMenu", () => {
     };
   });
 
-  async function renderMenu() {
+  async function renderMenu(path = "/page/page-1") {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const menuRoot = createRoot(host);
+    container = host;
+    root = menuRoot;
     const queryClient = new QueryClient();
     await act(async () =>
-      root.render(
+      menuRoot.render(
         <QueryClientProvider client={queryClient}>
-          <MemoryRouter initialEntries={["/page/page-1"]}>
+          <MemoryRouter initialEntries={[path]}>
             <ContentCommandMenu
               open
               onOpenChange={vi.fn()}
@@ -323,7 +334,7 @@ describe("ContentCommandMenu", () => {
         </QueryClientProvider>,
       ),
     );
-    return document.querySelector<HTMLInputElement>("[cmdk-input]")!;
+    return required(document.querySelector<HTMLInputElement>("[cmdk-input]"));
   }
 
   function press(input: HTMLInputElement, key: string) {
@@ -344,7 +355,7 @@ describe("ContentCommandMenu", () => {
     });
   }
 
-  const dialog = () => document.querySelector('[role="dialog"]')!;
+  const dialog = () => required(document.querySelector('[role="dialog"]'));
   const chip = () =>
     document.querySelector('[data-testid="content-command-scope"]');
 
@@ -399,5 +410,49 @@ describe("ContentCommandMenu", () => {
       .map((row) => row.getAttribute("data-value") ?? "")
       .filter((value) => value.startsWith("app-command:"));
     expect(appRows[appRows.length - 1]).toBe("app-command:agent:ask-agent");
+  });
+
+  it("clears the scope from the chip without opening the highlighted row", async () => {
+    const input = await renderMenu();
+    press(input, "Tab");
+    const clear = required(
+      document.querySelector<HTMLButtonElement>(
+        '[aria-label="root.commandClearScope"]',
+      ),
+    );
+
+    const enter = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      clear.dispatchEvent(enter);
+    });
+    expect(enter.defaultPrevented).toBe(false);
+    expect(chip()).not.toBeNull();
+
+    act(() => clear.click());
+    expect(chip()).toBeNull();
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("reads a page opened from a collection under that collection", async () => {
+    await renderMenu("/page/page-1?databaseId=db-1&databaseDocumentId=doc-db");
+    expect(pageDocument.context).toEqual({
+      databaseId: "db-1",
+      databaseDocumentId: "doc-db",
+    });
+  });
+
+  it("keeps the preview beside the list when no page matches", async () => {
+    const input = await renderMenu();
+    type(input, "zzqx");
+    const preview = document.querySelector(
+      '[data-testid="content-command-preview"]',
+    );
+    expect(preview?.textContent).toContain(
+      'root.commandAskAgent {"query":"zzqx"}',
+    );
   });
 });

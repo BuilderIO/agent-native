@@ -215,7 +215,8 @@ export function SearchEmptyOption() {
   );
 }
 
-function focusSearchInput(control: HTMLElement | null) {
+/** Moves focus back to the command menu's search field. */
+export function focusSearchInput(control: HTMLElement | null) {
   control
     ?.closest('[role="dialog"]')
     ?.querySelector<HTMLInputElement>('[role="combobox"]')
@@ -616,46 +617,13 @@ export function SearchPage({
     void activeResults.refetch();
   };
 
-  if (!hasResults) {
-    if (isFetchingActive || (!serverError && !activeResults.data)) {
-      return (
-        <>
-          {renderList(staticItems)}
-          <SearchLoading />
-        </>
-      );
-    }
-    if (serverError) {
-      return (
-        <>
-          {renderList(staticItems)}
-          <div role="alert" className="p-3 text-sm">
-            {t("root.commandSearchError")}
-            <Button variant="ghost" size="sm" onClick={retryActive}>
-              {t("root.searchRetry")}
-            </Button>
-          </div>
-        </>
-      );
-    }
-    return (
-      <>
-        {renderList(
-          <>
-            <SearchEmptyOption />
-            {staticItems}
-          </>,
-        )}
-      </>
-    );
-  }
-
   const pagination = serverIsCurrent
     ? activeResults.data?.pagination
     : undefined;
-  return (
-    <div className="flex min-h-0 flex-1">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+  let results: ReactNode;
+  if (hasResults) {
+    results = (
+      <>
         {renderList(
           <>
             <CommandMenu.Group heading={t("root.commandSearchHeading")}>
@@ -709,7 +677,41 @@ export function SearchPage({
             </Button>
           </div>
         ) : null}
-      </div>
+      </>
+    );
+  } else if (isFetchingActive || (!serverError && !activeResults.data)) {
+    results = (
+      <>
+        {renderList(staticItems)}
+        <SearchLoading />
+      </>
+    );
+  } else if (serverError) {
+    results = (
+      <>
+        {renderList(staticItems)}
+        <div role="alert" className="p-3 text-sm">
+          {t("root.commandSearchError")}
+          <Button variant="ghost" size="sm" onClick={retryActive}>
+            {t("root.searchRetry")}
+          </Button>
+        </div>
+      </>
+    );
+  } else {
+    results = renderList(
+      <>
+        <SearchEmptyOption />
+        {staticItems}
+      </>,
+    );
+  }
+
+  // The preview stays beside the list while results load or when none
+  // match, since the menu's own commands can still be highlighted.
+  return (
+    <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">{results}</div>
       <CommandPreviewPane
         selectedValue={selectedValue}
         documents={displayedDocuments}
@@ -751,7 +753,10 @@ export function ContentCommandSearchResults({
   );
   const [ownScope, setOwnScope] = useState<string | null>(null);
   const chosenScope = scope !== undefined ? scope : ownScope;
-  const setChosenScope = onScopeChange ?? setOwnScope;
+  const setChosenScope = (next: string | null) => {
+    if (scope === undefined) setOwnScope(next);
+    onScopeChange?.(next);
+  };
   const selectedSpace = contentSpaceForStoredSelection({
     spaces: spaces.data?.spaces ?? [],
     storedSpaceId,

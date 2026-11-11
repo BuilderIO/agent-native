@@ -1981,7 +1981,6 @@ const overrides = {
     commandDatabasesHeading: "Colecciones",
     commandLocalFilesHeading: "Archivos locales",
     commandDatabaseResultDescription: "Abrir página de colección",
-    commandAppearance: "Apariencia",
     openAgent: "Abrir agente",
     toggleTheme: "Cambiar tema",
     commandOnPage: "En «{{title}}»",

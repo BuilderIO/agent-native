@@ -42,6 +42,7 @@ import type { DocumentTitleEntry } from "@/lib/content-command-search";
 import changelog from "../../CHANGELOG.md?raw";
 import {
   ContentCommandSearchResults,
+  focusSearchInput,
   THIS_PAGE_SCOPE,
 } from "./ContentCommandSearch";
 import {
@@ -90,8 +91,9 @@ function writeStoredThemePreference(theme: ThemeOption) {
 
   try {
     window.localStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, theme);
+    // coercion-ok: blocked storage only loses the saved choice for next visit.
   } catch {
-    // Ignore storage failures and still let next-themes update the page.
+    // next-themes still updates the page.
   }
 }
 
@@ -354,7 +356,16 @@ function ScopeChip({
         title={clearLabel}
         className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onMouseDown={(event) => event.preventDefault()}
-        onClick={onClear}
+        // Enter would otherwise reach the menu and open the highlighted row.
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.stopPropagation();
+          }
+        }}
+        onClick={(event) => {
+          focusSearchInput(event.currentTarget);
+          onClear();
+        }}
       >
         <IconX size={12} />
       </button>
@@ -421,11 +432,17 @@ export function ContentCommandMenu({
     if (!open) setScope(null);
   }, [open]);
 
-  const currentPageId = contentDocumentIdFromPathname(useLocation().pathname);
-  // Reads the open page's record from the editor's cache, without a request.
+  const location = useLocation();
+  const currentPageId = contentDocumentIdFromPathname(location.pathname);
+  // Reads the open page's record from the editor's cache, without a
+  // request. A page opened from a collection is cached under that collection.
+  const routeParams = new URLSearchParams(location.search);
   const currentDocument = useDocument(
     currentPageId ?? null,
-    {},
+    {
+      databaseId: routeParams.get("databaseId"),
+      databaseDocumentId: routeParams.get("databaseDocumentId"),
+    },
     { enabled: false },
   ).data;
   const spaces = useContentSpaces();

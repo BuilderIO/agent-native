@@ -1682,7 +1682,6 @@ const overrides = {
     commandDatabasesHeading: "المجموعات",
     commandLocalFilesHeading: "الملفات المحلية",
     commandDatabaseResultDescription: "فتح صفحة المجموعة",
-    commandAppearance: "المظهر",
     openAgent: "فتح الوكيل",
     toggleTheme: "تبديل السمة",
     commandOnPage: "في «{{title}}»",

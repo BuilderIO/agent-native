@@ -269,7 +269,6 @@ const overrides = {
     commandDatabasesHeading: "集合",
     commandLocalFilesHeading: "本機檔案",
     commandDatabaseResultDescription: "開啟集合頁面",
-    commandAppearance: "外觀",
     openAgent: "開啟代理",
     toggleTheme: "切換主題",
     commandOnPage: "「{{title}}」",
