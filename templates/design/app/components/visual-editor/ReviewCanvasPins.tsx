@@ -10,7 +10,6 @@ import {
   useSetReviewThreadUnread,
   useUpdateReviewComment,
 } from "@agent-native/core/client/review";
-import { uploadEditorImage } from "@agent-native/core/client/uploads";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type {
   ReviewComment,
@@ -27,6 +26,11 @@ import {
   ReviewCommentMenu,
   ReviewThreadCardFrame,
   ReviewThreadMenu,
+  reviewCommentImageMetadata,
+  reviewCommentImages,
+  useReviewCommentDraft,
+  type ReviewCommentDraftScope,
+  type ReviewCommentImage,
   type ReviewComposerFormatLabels,
   type ReviewMentionOption,
   type ReviewThread,
@@ -41,7 +45,7 @@ import {
   resolveSourceEquivalentSelectorResult,
   type SourceEquivalentSelectorStatus,
 } from "@shared/source-equivalent-selector";
-import { IconMessageCircle, IconPhoto, IconX } from "@tabler/icons-react";
+import { IconMessageCircle } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -67,8 +71,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import {
   formatNodeRepromptSubmission,
@@ -193,20 +195,12 @@ interface ReviewSelectorBoxReply {
   selectorStatus: SourceEquivalentSelectorStatus;
 }
 
-interface ReviewImageAttachment {
-  url: string;
-  name: string;
-  contentType?: string;
-  provider?: string;
-}
-
 interface PendingReviewReaction {
   commentId: string;
   reaction: string;
   active: boolean;
 }
 
-const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
 const REVIEW_IDENTITY_SELECTOR =
   "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]";
 
@@ -900,18 +894,27 @@ function regionBetween(
   return { xPct: left, yPct: top, widthPct, heightPct };
 }
 
-function reviewAttachmentMetadata(
-  attachments: readonly ReviewImageAttachment[],
-): Record<string, unknown>[] {
-  return attachments.map(({ url, name, contentType, provider }) => ({
-    url,
-    name,
-    ...(contentType ? { contentType } : {}),
-    ...(provider ? { provider } : {}),
-  }));
+/** The pin a kept new-comment draft sits on, when Design wrote it. */
+function storedReviewDraftPin(
+  context: unknown,
+): Pick<ReviewDraftPin, "id" | "anchor" | "metadata"> | null {
+  if (!context || typeof context !== "object") return null;
+  const pin = (context as { pin?: unknown }).pin;
+  if (!pin || typeof pin !== "object") return null;
+  const { id, anchor, metadata } = pin as Record<string, unknown>;
+  const parsed = parseReviewAnchor(anchor);
+  if (typeof id !== "string" || !parsed) return null;
+  return {
+    id,
+    anchor: parsed,
+    metadata:
+      metadata && typeof metadata === "object" && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>)
+        : {},
+  };
 }
 
-function reviewAgentAttachments(attachments: readonly ReviewImageAttachment[]) {
+function reviewAgentAttachments(attachments: readonly ReviewCommentImage[]) {
   return attachments.map(({ url, name, contentType }) => ({
     type: "image",
     name,
@@ -1102,7 +1105,7 @@ export function ReviewCanvasPins({
   const [layoutTick, setLayoutTick] = useState(0);
   const [draftPin, setDraftPin] = useState<ReviewDraftPin | null>(null);
   const [draftAttachments, setDraftAttachments] = useState<
-    ReviewImageAttachment[]
+    ReviewCommentImage[]
   >([]);
   const [draftComposerOpen, setDraftComposerOpen] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -1120,17 +1123,52 @@ export function ReviewCanvasPins({
   const pinElementsRef = useRef(new Map<string, HTMLButtonElement>());
   const focusFallbackRef = useRef<HTMLSpanElement | null>(null);
   const focusReturnRef = useRef<ReviewFocusReturn | null>(null);
-  const [replyDraft, setReplyDraft] = useState("");
   const [draftMentions, setDraftMentions] = useState<ReviewMention[]>([]);
-  const [replyAttachments, setReplyAttachments] = useState<
-    ReviewImageAttachment[]
-  >([]);
-  const [replyMentions, setReplyMentions] = useState<ReviewMention[]>([]);
   const [editCandidate, setEditCandidate] = useState<ReviewComment | null>(
     null,
   );
-  const [editDraft, setEditDraft] = useState("");
-  const [editMentions, setEditMentions] = useState<ReviewMention[]>([]);
+  // Each box keeps its draft in the browser, so a reload doesn't lose it: a
+  // reply per thread, an edit per comment, and a new pin per screen.
+  const draftScope = useMemo<ReviewCommentDraftScope>(
+    () => ({ resourceType, resourceId, userEmail: currentUserEmail }),
+    [currentUserEmail, resourceId, resourceType],
+  );
+  const replyDraftState = useReviewCommentDraft(
+    draftScope,
+    activeThreadId ? `reply:${activeThreadId}` : null,
+  );
+  const {
+    text: replyDraft,
+    mentions: replyMentions,
+    images: replyAttachments,
+  } = replyDraftState.draft;
+  const editInitial = useMemo(
+    () =>
+      editCandidate
+        ? {
+            text: editCandidate.body,
+            mentions: [...editCandidate.mentions],
+            images: reviewCommentImages(editCandidate),
+          }
+        : undefined,
+    [editCandidate],
+  );
+  const editDraftState = useReviewCommentDraft(
+    draftScope,
+    editCandidate ? `edit:${editCandidate.id}` : null,
+    editInitial,
+  );
+  const {
+    text: editDraft,
+    mentions: editMentions,
+    images: editImages,
+  } = editDraftState.draft;
+  const newDraftState = useReviewCommentDraft(
+    draftScope,
+    `new:${JSON.stringify([targetId, screenAnchorId])}`,
+  );
+  const newDraftRef = useRef(newDraftState);
+  newDraftRef.current = newDraftState;
   const [deleteCandidate, setDeleteCandidate] = useState<ReviewComment | null>(
     null,
   );
@@ -1356,12 +1394,7 @@ export function ReviewCanvasPins({
   );
   const closeActiveThread = useCallback(() => {
     setActiveThreadId(null);
-    setReplyDraft("");
-    setReplyAttachments([]);
-    setReplyMentions([]);
     setEditCandidate(null);
-    setEditDraft("");
-    setEditMentions([]);
   }, []);
   const focusReturnTo = useCallback(
     (threadId: string | null): ReviewFocusReturn => ({
@@ -1380,8 +1413,10 @@ export function ReviewCanvasPins({
   }, [closeActiveThread, focusReturnTo]);
   const dismissDraft = useCallback(() => {
     focusReturnRef.current = focusReturnTo(null);
+    // Dismissing a new comment discards it; a reprompt never kept one.
+    if (draftMode === "comment") newDraftRef.current.clear();
     cancelDraft();
-  }, [cancelDraft, focusReturnTo]);
+  }, [cancelDraft, draftMode, focusReturnTo]);
   // The card or draft is unmounted by the time this runs, so focus is not
   // dropped to <body>. A deleted thread has no pin left and a draft never had
   // one: focus moves to the nearest pin, else the overlay's fallback target,
@@ -1471,7 +1506,14 @@ export function ReviewCanvasPins({
   const submitEdit = useCallback(() => {
     const comment = editCandidate;
     const body = editDraft.trim();
-    if (!comment || !body || updateComment.isPending) return;
+    if (!comment || (!body && !editImages.length) || updateComment.isPending)
+      return;
+    // Images go only when they changed, so an edit to the text alone leaves
+    // any the card doesn't show in place.
+    const imagesChanged =
+      JSON.stringify(editImages) !==
+      JSON.stringify(reviewCommentImages(comment));
+    const sentDraft = editDraftState;
     updateComment.mutate(
       {
         resourceType,
@@ -1479,12 +1521,14 @@ export function ReviewCanvasPins({
         commentId: comment.id,
         body,
         mentions: editMentions,
+        ...(imagesChanged
+          ? { attachments: reviewCommentImageMetadata(editImages) }
+          : {}),
       },
       {
         onSuccess: () => {
+          sentDraft.clear();
           setEditCandidate(null);
-          setEditDraft("");
-          setEditMentions([]);
         },
         onError: (error) =>
           reportWriteFailure(error, { label: t("review.postFailed") }),
@@ -1493,6 +1537,8 @@ export function ReviewCanvasPins({
   }, [
     editCandidate,
     editDraft,
+    editDraftState,
+    editImages,
     editMentions,
     resourceId,
     resourceType,
@@ -1974,9 +2020,6 @@ export function ReviewCanvasPins({
         ? nodePoint(canvas, nodeId, frameNodeGeometry[nodeId])
         : null) ?? { xPct: 50, yPct: 50 };
     setActiveThreadId(null);
-    setReplyDraft("");
-    setReplyAttachments([]);
-    setReplyMentions([]);
     setDraftAttachments([]);
     setDraftMentions([]);
     setPendingRepromptId(null);
@@ -2027,9 +2070,6 @@ export function ReviewCanvasPins({
       if (activeThreadId) {
         focusReturnRef.current = focusReturnTo(activeThreadId);
         setActiveThreadId(null);
-        setReplyDraft("");
-        setReplyAttachments([]);
-        setReplyMentions([]);
         return;
       }
       if (active) onClose();
@@ -2069,9 +2109,6 @@ export function ReviewCanvasPins({
   useEffect(() => {
     cancelDraft();
     setActiveThreadId(null);
-    setReplyDraft("");
-    setReplyAttachments([]);
-    setReplyMentions([]);
     setExpandedClusterKey(null);
     setFrameNodeGeometry({});
     setOptimisticAnchors({});
@@ -2085,19 +2122,50 @@ export function ReviewCanvasPins({
     if (!hidden) return;
     cancelDraft();
     setActiveThreadId(null);
-    setReplyDraft("");
-    setReplyAttachments([]);
-    setReplyMentions([]);
     setExpandedClusterKey(null);
     if (active) onCloseRef.current();
   }, [active, cancelDraft, hidden]);
+
+  // In comment mode, a new comment kept on this screen comes back on its pin,
+  // closed, as a pin left with text does. Leaving comment mode hides it and
+  // keeps it. It runs after the resets above.
+  useEffect(() => {
+    if (hidden || !active) return;
+    const { draft, saved } = newDraftRef.current;
+    const pin = saved ? storedReviewDraftPin(draft.context) : null;
+    if (!pin) return;
+    setDraftMode("comment");
+    setDraftPin({ ...pin, draft: draft.text, resolutionTarget: "human" });
+    setDraftMentions(draft.mentions);
+    setDraftAttachments(draft.images);
+  }, [active, currentUserEmail, hidden, resourceId, screenAnchorId, targetId]);
+
+  useEffect(() => {
+    if (draftMode !== "comment" || !draftPin) return;
+    const store = newDraftRef.current;
+    if (!draftPin.draft.trim() && !draftAttachments.length) {
+      store.clear();
+      return;
+    }
+    store.update({
+      text: draftPin.draft,
+      mentions: draftMentions,
+      images: draftAttachments,
+      context: {
+        pin: {
+          id: draftPin.id,
+          anchor: draftPin.anchor,
+          metadata: draftPin.metadata,
+        },
+      },
+    });
+  }, [draftAttachments, draftMentions, draftMode, draftPin]);
 
   const dropCanvasPin = useCallback(
     (canvasPoint: ReviewCanvasPoint) => {
       if (!canvas || !canPost) return;
       const next = canvasAnchorAtPoint(canvas, canvasPoint);
       setActiveThreadId(null);
-      setReplyDraft("");
       setDraftMode("comment");
       setPendingRepromptId(null);
       setDraftPin((current) =>
@@ -2150,9 +2218,6 @@ export function ReviewCanvasPins({
         : null;
       if (!next) return;
       setActiveThreadId(null);
-      setReplyDraft("");
-      setReplyAttachments([]);
-      setReplyMentions([]);
       setDraftMentions([]);
       setDraftMode("comment");
       setPendingRepromptId(null);
@@ -2514,11 +2579,12 @@ export function ReviewCanvasPins({
   const postDraft = useCallback(
     (
       pin: ReviewDraftPin,
-      attachments: readonly ReviewImageAttachment[],
+      attachments: readonly ReviewCommentImage[],
       mentions: readonly ReviewMention[],
     ) => {
       const body = pin.draft.trim();
-      if (!body || createComment.isPending) return;
+      if ((!body && !attachments.length) || createComment.isPending) return;
+      const sentDraft = newDraftRef.current;
       createComment.mutate(
         {
           resourceType,
@@ -2532,13 +2598,14 @@ export function ReviewCanvasPins({
           metadata: {
             ...pin.metadata,
             ...(attachments.length
-              ? { attachments: reviewAttachmentMetadata(attachments) }
+              ? { attachments: reviewCommentImageMetadata(attachments) }
               : {}),
           },
         },
         {
           onSuccess: (comment) => {
             cancelDraft();
+            sentDraft.clear();
             if (pin.resolutionTarget === "agent") {
               onDispatchCommentToAgent?.(comment);
             }
@@ -2562,10 +2629,7 @@ export function ReviewCanvasPins({
   );
 
   const submitReprompt = useCallback(
-    async (
-      pin: ReviewDraftPin,
-      attachments: readonly ReviewImageAttachment[],
-    ) => {
+    async (pin: ReviewDraftPin, attachments: readonly ReviewCommentImage[]) => {
       const instruction = pin.draft;
       const resolved = resolveReviewAnchor(pin.anchor, () => null);
       const nodeId = resolved?.anchor.nodeId;
@@ -3014,14 +3078,10 @@ export function ReviewCanvasPins({
                 }
               }}
               onClick={() => {
-                if (!draftPin?.draft.trim()) setDraftPin(null);
+                if (!draftPin?.draft.trim() && !draftAttachments.length)
+                  setDraftPin(null);
                 setDraftComposerOpen(false);
-                setReplyDraft("");
-                setReplyAttachments([]);
-                setReplyMentions([]);
                 setEditCandidate(null);
-                setEditDraft("");
-                setEditMentions([]);
                 if (threadIsUnread(thread.root.threadId)) {
                   setThreadUnread(thread, false);
                 }
@@ -3077,17 +3137,14 @@ export function ReviewCanvasPins({
                   editDraft={editDraft}
                   editMentions={editMentions}
                   updating={updateComment.isPending}
-                  onEdit={(comment) => {
-                    setEditCandidate(comment);
-                    setEditDraft(comment.body);
-                    setEditMentions([...comment.mentions]);
-                  }}
-                  onEditDraftChange={setEditDraft}
-                  onEditMentionsChange={setEditMentions}
+                  onEdit={(comment) => setEditCandidate(comment)}
+                  onEditDraftChange={editDraftState.setText}
+                  onEditMentionsChange={editDraftState.setMentions}
+                  editImages={editImages}
+                  onEditImagesChange={editDraftState.setImages}
                   onEditCancel={() => {
+                    editDraftState.clear();
                     setEditCandidate(null);
-                    setEditDraft("");
-                    setEditMentions([]);
                   }}
                   onEditSubmit={submitEdit}
                   unread={threadIsUnread(thread.root.threadId)}
@@ -3131,14 +3188,15 @@ export function ReviewCanvasPins({
                   mentionSearching={mentionSearching}
                   mentionFailed={mentionFailed}
                   replyAttachments={replyAttachments}
-                  onReplyAttachmentsChange={setReplyAttachments}
-                  onReplyDraftChange={setReplyDraft}
-                  onReplyMentionsChange={setReplyMentions}
+                  onReplyAttachmentsChange={replyDraftState.setImages}
+                  onReplyDraftChange={replyDraftState.setText}
+                  onReplyMentionsChange={replyDraftState.setMentions}
                   onClose={dismissActiveThread}
                   onReply={() => {
                     const body = replyDraft.trim();
-                    if (!body) return;
+                    if (!body && !replyAttachments.length) return;
                     const sentMentions = replyMentions;
+                    const sentDraft = replyDraftState;
                     replyComment.mutate(
                       {
                         resourceType,
@@ -3152,16 +3210,14 @@ export function ReviewCanvasPins({
                           ? {
                               metadata: {
                                 attachments:
-                                  reviewAttachmentMetadata(replyAttachments),
+                                  reviewCommentImageMetadata(replyAttachments),
                               },
                             }
                           : {}),
                       },
                       {
                         onSuccess: (comment) => {
-                          setReplyDraft("");
-                          setReplyAttachments([]);
-                          setReplyMentions([]);
+                          sentDraft.clear();
                           startAgentFromComment(comment, sentMentions);
                         },
                         onError: (error) =>
@@ -3240,8 +3296,6 @@ export function ReviewCanvasPins({
             onClick={() => {
               if (pendingRepromptId) return;
               setActiveThreadId(null);
-              setReplyDraft("");
-              setReplyAttachments([]);
               setDraftComposerOpen(true);
             }}
             active={draftComposerOpen}
@@ -3662,150 +3716,6 @@ function ReviewPinCluster({
   );
 }
 
-function useReviewImageAttachments({
-  attachments,
-  disabled = false,
-  onChange,
-}: {
-  attachments: ReviewImageAttachment[];
-  disabled?: boolean;
-  onChange: (attachments: ReviewImageAttachment[]) => void;
-}) {
-  const t = useT();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const attachmentsRef = useRef(attachments);
-  attachmentsRef.current = attachments;
-  const mountedRef = useRef(true);
-  const [uploading, setUploading] = useState(false);
-
-  useEffect(
-    () => () => {
-      mountedRef.current = false;
-    },
-    [],
-  );
-
-  const handleFiles = async (files: FileList | null) => {
-    const remaining =
-      MAX_REVIEW_IMAGE_ATTACHMENTS - attachmentsRef.current.length;
-    const selected = Array.from(files ?? [])
-      .filter((file) => file.type.startsWith("image/"))
-      .slice(0, Math.max(0, remaining));
-    if (!selected.length) return;
-
-    setUploading(true);
-    const results = await Promise.allSettled(
-      selected.map(async (file) => {
-        const uploaded = await uploadEditorImage(file);
-        const url = uploaded.src.trim();
-        if (!url || /^data:/i.test(url)) {
-          throw new Error("Image upload did not return a durable URL.");
-        }
-        return {
-          url,
-          name: file.name || "image",
-          contentType: file.type || undefined,
-          ...(uploaded.provider ? { provider: uploaded.provider } : {}),
-        } satisfies ReviewImageAttachment;
-      }),
-    );
-    const uploaded = results.flatMap((result) =>
-      result.status === "fulfilled" ? [result.value] : [],
-    );
-    if (!mountedRef.current) return;
-    if (uploaded.length) {
-      onChange(
-        [...attachmentsRef.current, ...uploaded].slice(
-          0,
-          MAX_REVIEW_IMAGE_ATTACHMENTS,
-        ),
-      );
-    }
-    if (results.some((result) => result.status === "rejected")) {
-      toast.error(t("review.postFailed"));
-    }
-    setUploading(false);
-    if (inputRef.current) inputRef.current.value = "";
-  };
-
-  const toolsEnd = (
-    <>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        data-review-attachment-button
-        className="size-7 rounded-full text-muted-foreground"
-        disabled={
-          disabled ||
-          uploading ||
-          attachments.length >= MAX_REVIEW_IMAGE_ATTACHMENTS
-        }
-        onClick={() => inputRef.current?.click()}
-        aria-label={t("review.attachImage")}
-      >
-        {uploading ? (
-          <Spinner className="size-4" />
-        ) : (
-          <IconPhoto className="size-4" />
-        )}
-      </Button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        data-review-attachment-input
-        // Out of the accessibility tree: the image button above is the one
-        // named, tabbable control, and it clicks this input.
-        tabIndex={-1}
-        className="hidden"
-        onChange={(event) => void handleFiles(event.currentTarget.files)}
-      />
-    </>
-  );
-
-  const strip = attachments.length ? (
-    <div
-      data-review-attachments
-      className="flex flex-wrap items-center gap-1.5"
-    >
-      {attachments.map((attachment, index) => (
-        <div
-          key={`${attachment.url}-${index}`}
-          data-review-attachment
-          className="group relative size-10 overflow-hidden rounded-md border border-border bg-muted"
-        >
-          <img
-            src={attachment.url}
-            alt={attachment.name}
-            className="size-full object-cover"
-          />
-          <Button
-            type="button"
-            variant="secondary"
-            size="icon"
-            className="absolute right-0.5 top-0.5 size-5 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-            disabled={disabled || uploading}
-            onClick={() =>
-              onChange(
-                attachments.filter(
-                  (_, attachmentIndex) => attachmentIndex !== index,
-                ),
-              )
-            }
-            aria-label={t("designEditor.close")}
-          >
-            <IconX className="size-3" />
-          </Button>
-        </div>
-      ))}
-    </div>
-  ) : undefined;
-
-  return { uploading, toolsEnd, strip };
-}
-
 // Placement depends on the popover's own height, which is only known once its
 // content has rendered, so the frame measures itself before the first paint.
 function ReviewPopoverFrame({
@@ -3882,8 +3792,8 @@ function DraftComposer({
   onMentionQueryChange: (query: string) => void;
   mentionSearching: boolean;
   mentionFailed: boolean;
-  attachments: ReviewImageAttachment[];
-  onAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
+  attachments: ReviewCommentImage[];
+  onAttachmentsChange: (attachments: ReviewCommentImage[]) => void;
   onChange: (value: string) => void;
   onCancel: () => void;
   onSubmit: () => void;
@@ -3893,12 +3803,6 @@ function DraftComposer({
   submitting: boolean;
 }) {
   const t = useT();
-  const images = useReviewImageAttachments({
-    attachments,
-    disabled: submitting,
-    onChange: onAttachmentsChange,
-  });
-  const busy = submitting || images.uploading;
   return (
     <ReviewPopoverFrame anchor={anchor}>
       <ReviewThreadCardFrame
@@ -3935,9 +3839,10 @@ function DraftComposer({
             mentionLabel={t("review.mention")}
             noMentionsLabel={t("review.noMentions")}
             formatLabels={reviewFormatLabels(t)}
-            commentToolsEnd={images.toolsEnd}
-            attachments={images.strip}
-            disabled={busy}
+            images={attachments}
+            onImagesChange={onAttachmentsChange}
+            {...reviewImageLabels(t)}
+            disabled={submitting}
             onChange={onChange}
             onSubmit={onSubmit}
             submittingTarget={submitting ? "human" : null}
@@ -3969,6 +3874,15 @@ function reviewFormatLabels(
     linkPlaceholder: t("review.format.linkPlaceholder"),
     applyLink: t("review.format.applyLink"),
     removeLink: t("review.format.removeLink"),
+  };
+}
+
+// The comment box's image controls, in the app's language.
+function reviewImageLabels(t: ReturnType<typeof useT>) {
+  return {
+    attachImageLabel: t("review.attachImage"),
+    removeImageLabel: t("review.removeImage"),
+    imageUploadFailedLabel: t("review.imageUploadFailed"),
   };
 }
 
@@ -4012,6 +3926,8 @@ function ReviewThreadPopover({
   editingCommentId,
   editDraft,
   editMentions,
+  editImages,
+  onEditImagesChange,
   updating,
   onEdit,
   onEditDraftChange,
@@ -4058,6 +3974,8 @@ function ReviewThreadPopover({
   editingCommentId: string | null;
   editDraft: string;
   editMentions: readonly ReviewMention[];
+  editImages: readonly ReviewCommentImage[];
+  onEditImagesChange: (images: ReviewCommentImage[]) => void;
   updating: boolean;
   onEdit: (comment: ReviewComment) => void;
   onEditDraftChange: (value: string) => void;
@@ -4088,8 +4006,8 @@ function ReviewThreadPopover({
   onMentionQueryChange: (query: string) => void;
   mentionSearching: boolean;
   mentionFailed: boolean;
-  replyAttachments: ReviewImageAttachment[];
-  onReplyAttachmentsChange: (attachments: ReviewImageAttachment[]) => void;
+  replyAttachments: readonly ReviewCommentImage[];
+  onReplyAttachmentsChange: (attachments: ReviewCommentImage[]) => void;
   onReplyDraftChange: (value: string) => void;
   onReplyMentionsChange: (mentions: ReviewMention[]) => void;
   onClose: () => void;
@@ -4104,11 +4022,6 @@ function ReviewThreadPopover({
     if (editingCommentId === null)
       cardRef.current?.focus({ preventScroll: true });
   }, [editingCommentId]);
-  const replyImages = useReviewImageAttachments({
-    attachments: replyAttachments,
-    disabled: replying || resolving,
-    onChange: onReplyAttachmentsChange,
-  });
   const resolvedStatus = thread.root.status === "resolved";
   const canToggleResolution =
     canResolve && (thread.root.status === "open" || resolvedStatus);
@@ -4186,6 +4099,9 @@ function ReviewThreadPopover({
             mentionLabel={t("review.mention")}
             noMentionsLabel={t("review.noMentions")}
             formatLabels={reviewFormatLabels(t)}
+            images={editImages}
+            onImagesChange={onEditImagesChange}
+            {...reviewImageLabels(t)}
             textareaProps={{ "aria-label": t("review.editComment") }}
             autoFocus
             disabled={updating}
@@ -4280,14 +4196,15 @@ function ReviewThreadPopover({
               mentionFailedLabel={t("review.mentionsFailed")}
               agentsLabel={t("review.agent.sectionLabel")}
               showCommentTools
-              commentToolsEnd={replyImages.toolsEnd}
-              attachments={replyImages.strip}
+              images={replyAttachments}
+              onImagesChange={onReplyAttachmentsChange}
+              {...reviewImageLabels(t)}
               emojiLabel={t("review.addEmoji")}
               mentionLabel={t("review.mention")}
               noMentionsLabel={t("review.noMentions")}
               formatLabels={reviewFormatLabels(t)}
               textareaProps={{ "data-review-reply-input": true }}
-              disabled={replying || resolving || replyImages.uploading}
+              disabled={replying || resolving}
               onChange={onReplyDraftChange}
               onSubmit={() => onReply()}
               submittingTarget={replying ? "human" : null}

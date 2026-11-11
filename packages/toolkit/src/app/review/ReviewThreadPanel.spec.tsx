@@ -107,7 +107,7 @@ vi.mock("@agent-native/core/client/review/use-review", () => ({
   useReactToReviewComment: () => ({ mutate, isPending: false }),
 }));
 
-import { isTrustedReviewAttachmentUrl } from "./ReviewCommentItem.js";
+import { isTrustedReviewAttachmentUrl } from "./review-comment-images.js";
 import { serializeReviewComposerDoc } from "./ReviewComposerText.js";
 import { ReviewThreadPanel } from "./ReviewThreadPanel.js";
 vi.mock("@agent-native/toolkit/clipboard", () => ({ writeClipboardText }));

@@ -3387,6 +3387,8 @@ export default {
     markedUnread: "تم وضع علامة كغير مقروء",
     markUnreadFailed: "تعذر وضع علامة كغير مقروء",
     attachImage: "إرفاق صورة",
+    removeImage: "إزالة الصورة",
+    imageUploadFailed: "تعذّر رفع الصورة",
     searching: "جارٍ البحث…",
     reactionFailed: "تعذر تحديث التفاعل",
     moveFailed: "تعذر نقل التعليق",

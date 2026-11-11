@@ -361,6 +361,8 @@ export default {
     markedUnread: "已標記為未讀",
     markUnreadFailed: "無法標記為未讀",
     attachImage: "附加圖片",
+    removeImage: "移除圖片",
+    imageUploadFailed: "無法上傳圖片",
     searching: "搜尋中…",
     reactionFailed: "無法更新反應",
     moveFailed: "無法移動評論",

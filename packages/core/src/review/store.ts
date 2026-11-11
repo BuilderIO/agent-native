@@ -67,6 +67,11 @@ export interface InsertReviewCommentResult {
 
 export interface UpdateReviewCommentInput {
   body?: string;
+  /**
+   * The comment's images, already checked, in place of the ones in its
+   * metadata. The rest of its metadata stays.
+   */
+  attachments?: Record<string, unknown>[];
   anchor?: unknown;
   /** With `anchor`: a new kind for it. Left out, the comment's kind stays. */
   anchorKind?: string | null;
@@ -1645,6 +1650,19 @@ async function writeReviewCommentChange(
       sql`mentions_json = ${sql.value(stringifyOptionalJson(input.mentions))}`,
     );
   }
+  if (input.attachments !== undefined) {
+    // From the locked row, so a change made since the caller read the comment
+    // keeps the rest of its metadata.
+    const { attachments: _previous, ...rest } = current.metadata ?? {};
+    const metadata = input.attachments.length
+      ? { ...rest, attachments: input.attachments }
+      : rest;
+    assignments.push(
+      sql`metadata_json = ${sql.value(
+        stringifyOptionalJson(Object.keys(metadata).length ? metadata : null),
+      )}`,
+    );
+  }
   if (input.anchor !== undefined) {
     // A moved anchor is written now, so at its kind's current version unless
     // the caller says otherwise.
@@ -1681,7 +1699,9 @@ async function writeReviewCommentChange(
   const updated = await getReviewCommentByIdWithClient(client, id);
   if (!updated) throw new Error("Review comment not found after update");
   const changesContent =
-    input.body !== undefined || input.mentions !== undefined;
+    input.body !== undefined ||
+    input.mentions !== undefined ||
+    input.attachments !== undefined;
   // An edit that also moves the anchor tells the hook both, so a hook keeping
   // anchor or surface state still hears of the move.
   const events = changesContent

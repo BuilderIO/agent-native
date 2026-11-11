@@ -39,6 +39,12 @@ vi.mock("../notifications.js", () => ({
   notifyReviewCommentWithReceipt,
 }));
 
+// No upload provider: Builder's image CDN is the one source images come from.
+vi.mock("../../file-upload/registry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../file-upload/registry.js")>()),
+  getActiveFileUploadProviderForRequest: vi.fn(async () => null),
+}));
+
 const createReviewCommentAction = (await import("./create-review-comment.js"))
   .default;
 const getReviewFeedbackAction = (await import("./get-review-feedback.js"))
@@ -568,6 +574,128 @@ describe("review actions", () => {
         { userEmail: "outsider@example.com" },
       ),
     ).rejects.toThrow();
+  });
+
+  it("takes a comment or reply that's only an image, and refuses one with nothing in it", async () => {
+    const image = {
+      url: "https://cdn.builder.io/api/v1/image/shot",
+      name: "shot.png",
+      contentType: "image/png",
+    };
+    const root = await createReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "public",
+        body: "",
+        metadata: { attachments: [image] },
+      },
+      { userEmail: COMMENTER_EMAIL },
+    );
+    expect(root.body).toBe("");
+    expect(root.metadata).toEqual({ attachments: [image] });
+    const reply = await replyReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "public",
+        commentId: root.id,
+        body: "  ",
+        metadata: { attachments: [image] },
+      },
+      { userEmail: COMMENTER_EMAIL },
+    );
+    expect(reply.metadata).toEqual({ attachments: [image] });
+
+    // An image the checks drop leaves nothing to send.
+    await expect(
+      createReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          body: " ",
+          metadata: {
+            attachments: [
+              {
+                url: "https://tracker.example/pixel.png",
+                name: "pixel.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+        },
+        { userEmail: COMMENTER_EMAIL },
+      ),
+    ).rejects.toMatchObject({ statusCode: 400, errorCode: "empty_comment" });
+    await expect(
+      replyReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          commentId: root.id,
+          body: "",
+        },
+        { userEmail: COMMENTER_EMAIL },
+      ),
+    ).rejects.toMatchObject({ errorCode: "empty_comment" });
+  });
+
+  it("lets an author change a comment's images, keeping the rest of its metadata", async () => {
+    const first = {
+      url: "https://cdn.builder.io/api/v1/image/first",
+      name: "first.png",
+      contentType: "image/png",
+    };
+    const second = {
+      url: "https://cdn.builder.io/api/v1/image/second",
+      name: "second.png",
+    };
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "public",
+      body: "Look",
+      authorEmail: COMMENTER_EMAIL,
+      visibility: "public",
+      metadata: { layerName: "Hero", attachments: [first] },
+    });
+    const edit = (
+      args: Partial<Parameters<typeof updateReviewCommentAction.run>[0]>,
+      userEmail = COMMENTER_EMAIL,
+    ) =>
+      updateReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          commentId: root.id,
+          ...args,
+        },
+        { userEmail },
+      );
+
+    const swapped = await edit({
+      attachments: [
+        second,
+        { url: "https://tracker.example/pixel.png", name: "pixel.png" },
+      ],
+    });
+    expect(swapped.body).toBe("Look");
+    expect(swapped.metadata).toEqual({
+      layerName: "Hero",
+      attachments: [second],
+    });
+
+    // With an image left, the text can go.
+    const imageOnly = await edit({ body: "" });
+    expect(imageOnly.body).toBe("");
+
+    await expect(edit({ attachments: [] })).rejects.toMatchObject({
+      errorCode: "empty_comment",
+    });
+    const textOnly = await edit({ body: "Look again", attachments: [] });
+    expect(textOnly.metadata).toEqual({ layerName: "Hero" });
+
+    // Images are the author's to change, as the text is.
+    await expect(edit({ attachments: [first] }, EDITOR_EMAIL)).rejects.toThrow(
+      /Not allowed/,
+    );
   });
 
   it("moves a pin at the revision its mover read", async () => {

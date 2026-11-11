@@ -3470,6 +3470,8 @@ export default {
     markedUnread: "Marcado como no leído",
     markUnreadFailed: "No se pudo marcar como no leído",
     attachImage: "Adjuntar imagen",
+    removeImage: "Quitar imagen",
+    imageUploadFailed: "No se pudo subir la imagen",
     searching: "Buscando…",
     reactionFailed: "No se pudo actualizar la reacción",
     moveFailed: "No se pudo mover el comentario",

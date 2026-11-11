@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { defineAction, fail } from "../../action.js";
-import { sanitizeReviewCommentMetadata } from "../attachments.js";
+import {
+  assertReviewCommentHasContent,
+  sanitizeReviewCommentMetadata,
+} from "../attachments.js";
 import { reviewAuthorNameFromContext } from "../identity.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
 import {
@@ -34,7 +37,9 @@ const schema = z.object({
   resourceType: z.string().min(1),
   resourceId: z.string().min(1),
   commentId: z.string().min(1),
-  body: z.string().min(1),
+  body: z
+    .string()
+    .describe("Inline Markdown; may be empty when the reply has an image"),
   authorName: z.string().nullable().optional(),
   resolutionTarget: z.enum(["agent", "human"]).nullable().optional(),
   mentions: z.array(mentionSchema).optional(),
@@ -111,6 +116,8 @@ export default defineAction({
         errorCode: "thread_not_open",
       });
     }
+    const metadata = await sanitizeReviewCommentMetadata(args.metadata);
+    assertReviewCommentHasContent(args.body, metadata);
     const mentions = normalizeReviewMentions([
       ...normalizeReviewMentions(args.mentions),
       ...extractReviewMentions(args.body),
@@ -149,7 +156,7 @@ export default defineAction({
       ownerEmail: access.ownerEmail ?? actionCtx?.userEmail ?? null,
       orgId: access.orgId ?? actionCtx?.orgId ?? null,
       visibility: normalizeReviewVisibility(access.visibility),
-      metadata: await sanitizeReviewCommentMetadata(args.metadata),
+      metadata,
     };
     const resource = {
       resourceType: args.resourceType,

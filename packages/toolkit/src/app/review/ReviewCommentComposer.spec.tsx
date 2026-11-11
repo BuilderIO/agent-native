@@ -6,6 +6,7 @@ import { act, useState, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ReviewCommentImage } from "./review-comment-images.js";
 import { ReviewCommentComposer } from "./ReviewCommentComposer.js";
 
 vi.mock("@agent-native/core/client/use-avatar", () => ({
@@ -407,6 +408,245 @@ describe("ReviewCommentComposer", () => {
       attachments!.compareDocumentPosition(tools!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  describe("images", () => {
+    function imageFile(name: string, type = "image/png") {
+      return new File(["x"], name, { type });
+    }
+
+    const uploaded = (file: File): ReviewCommentImage => ({
+      url: `https://cdn.builder.io/api/v1/image/${file.name}`,
+      name: file.name,
+      contentType: file.type,
+    });
+
+    function ImageHarness(
+      props: Partial<ComponentProps<typeof ReviewCommentComposer>> & {
+        initialImages?: ReviewCommentImage[];
+        initialValue?: string;
+        onImages?: (images: ReviewCommentImage[]) => void;
+      },
+    ) {
+      const {
+        initialImages = [],
+        initialValue = "",
+        onImages,
+        ...rest
+      } = props;
+      const [value, setValue] = useState(initialValue);
+      const [images, setImages] = useState(initialImages);
+      return (
+        <ReviewCommentComposer
+          value={value}
+          onChange={setValue}
+          images={images}
+          onImagesChange={(next) => {
+            setImages(next);
+            onImages?.(next);
+          }}
+          onSubmit={() => {}}
+          {...rest}
+        />
+      );
+    }
+
+    function paste(files: File[], text = "") {
+      const event = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "clipboardData", {
+        value: {
+          files,
+          types: [...(text ? ["text/plain"] : []), "Files"],
+          getData: (type: string) => (type === "text/plain" ? text : ""),
+        },
+      });
+      act(() => {
+        editorDom().dispatchEvent(event);
+      });
+      return event;
+    }
+
+    function drop(target: Element, files: File[]) {
+      const event = new Event("drop", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", {
+        value: { files, types: ["Files"] },
+      });
+      act(() => {
+        target.dispatchEvent(event);
+      });
+      return event;
+    }
+
+    function pick(files: File[]) {
+      const input = container.querySelector<HTMLInputElement>(
+        "[data-review-image-input]",
+      )!;
+      Object.defineProperty(input, "files", {
+        value: files,
+        configurable: true,
+      });
+      act(() => {
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    }
+
+    function shownImages() {
+      return Array.from(
+        container.querySelectorAll<HTMLImageElement>(
+          "[data-review-composer-image] img",
+        ),
+      ).map((img) => img.alt);
+    }
+
+    function sendButton() {
+      return container.querySelector<HTMLButtonElement>(
+        'button[type="submit"]',
+      )!;
+    }
+
+    it("takes a pasted image and sends it with no text", async () => {
+      const uploadImage = vi.fn(async (file: File) => uploaded(file));
+      const onSubmit = vi.fn();
+      await render(
+        <ImageHarness uploadImage={uploadImage} onSubmit={onSubmit} />,
+      );
+      expect(sendButton().disabled).toBe(true);
+
+      const event = paste([imageFile("shot.png")]);
+      expect(event.defaultPrevented).toBe(true);
+      await act(async () => {});
+      expect(uploadImage).toHaveBeenCalledTimes(1);
+      expect(shownImages()).toEqual(["shot.png"]);
+      expect(editorDom().textContent).toBe("");
+
+      expect(sendButton().disabled).toBe(false);
+      act(() => sendButton().click());
+      expect(onSubmit).toHaveBeenCalledWith("human");
+    });
+
+    it("pastes a spreadsheet's cells as text, not as the picture of them", async () => {
+      const uploadImage = vi.fn(async (file: File) => uploaded(file));
+      await render(<ImageHarness uploadImage={uploadImage} />);
+      const event = paste([imageFile("cells.png")], "a\tb");
+      await act(async () => {});
+      expect(event.defaultPrevented).toBe(true);
+      expect(uploadImage).not.toHaveBeenCalled();
+      expect(editorDom().textContent).toContain("a");
+    });
+
+    it("takes dropped and picked images, up to five, and ignores other files", async () => {
+      const uploadImage = vi.fn(async (file: File) => uploaded(file));
+      await render(<ImageHarness uploadImage={uploadImage} />);
+      const toolbar = container.querySelector("[data-review-comment-tools]")!;
+      const dropped = drop(toolbar, [
+        imageFile("one.png"),
+        new File(["x"], "notes.pdf", { type: "application/pdf" }),
+        imageFile("two.jpg", "image/jpeg"),
+      ]);
+      expect(dropped.defaultPrevented).toBe(true);
+      await act(async () => {});
+      pick([
+        imageFile("three.png"),
+        imageFile("four.png"),
+        imageFile("five.png"),
+        imageFile("six.png"),
+      ]);
+      await act(async () => {});
+      expect(shownImages()).toEqual([
+        "one.png",
+        "two.jpg",
+        "three.png",
+        "four.png",
+        "five.png",
+      ]);
+      expect(uploadImage).toHaveBeenCalledTimes(5);
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          "[data-review-image-button]",
+        )!.disabled,
+      ).toBe(true);
+
+      // A sixth pasted image is still the box's, so it doesn't paste as text.
+      expect(paste([imageFile("seven.png")]).defaultPrevented).toBe(true);
+      expect(uploadImage).toHaveBeenCalledTimes(5);
+    });
+
+    it("doesn't send while an image is uploading", async () => {
+      let finish: (image: ReviewCommentImage) => void = () => {};
+      const uploadImage = vi.fn(
+        () =>
+          new Promise<ReviewCommentImage>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      await render(
+        <ImageHarness initialValue="See this" uploadImage={uploadImage} />,
+      );
+      expect(sendButton().disabled).toBe(false);
+      paste([imageFile("slow.png")]);
+      expect(sendButton().disabled).toBe(true);
+      await act(async () => finish(uploaded(imageFile("slow.png"))));
+      expect(shownImages()).toEqual(["slow.png"]);
+      expect(sendButton().disabled).toBe(false);
+    });
+
+    it("removes an image, and adds the ones that uploaded when one fails", async () => {
+      const failure = new Error("storage is full");
+      const uploadImage = vi.fn(async (file: File) => {
+        if (file.name === "bad.png") throw failure;
+        return uploaded(file);
+      });
+      const onImageUploadError = vi.fn();
+      const onImages = vi.fn();
+      await render(
+        <ImageHarness
+          uploadImage={uploadImage}
+          onImageUploadError={onImageUploadError}
+          onImages={onImages}
+          initialImages={[uploaded(imageFile("kept.png"))]}
+        />,
+      );
+      pick([imageFile("bad.png"), imageFile("good.png")]);
+      await act(async () => {});
+      expect(onImageUploadError).toHaveBeenCalledWith(failure);
+      expect(shownImages()).toEqual(["kept.png", "good.png"]);
+
+      const remove = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Remove image: kept.png"]',
+      )!;
+      act(() => remove.click());
+      expect(shownImages()).toEqual(["good.png"]);
+      expect(onImages).toHaveBeenLastCalledWith([
+        uploaded(imageFile("good.png")),
+      ]);
+    });
+
+    it("names one image control, which opens a file input kept out of the tab order", async () => {
+      await render(<ImageHarness attachImageLabel="Bild anhängen" />);
+      const input = container.querySelector<HTMLInputElement>(
+        "[data-review-image-input]",
+      )!;
+      expect(input.type).toBe("file");
+      // `hidden` (display: none) leaves the accessibility tree, where an
+      // unnamed file input fails axe's `label` rule.
+      expect(input.classList.contains("hidden")).toBe(true);
+      expect(input.tabIndex).toBe(-1);
+      const named = container.querySelectorAll('[aria-label="Bild anhängen"]');
+      expect(named).toHaveLength(1);
+      const button = container.querySelector<HTMLButtonElement>(
+        "[data-review-image-button]",
+      )!;
+      expect(named[0]).toBe(button);
+      const pickFiles = vi.spyOn(input, "click");
+      act(() => button.click());
+      expect(pickFiles).toHaveBeenCalledTimes(1);
+    });
+
+    it("offers no image control, paste or drop unless the host takes images", async () => {
+      await render(<Harness />);
+      expect(container.querySelector("[data-review-image-button]")).toBeNull();
+      expect(paste([imageFile("shot.png")]).defaultPrevented).toBe(false);
+    });
   });
 
   it("inserts an emoji into the text", async () => {

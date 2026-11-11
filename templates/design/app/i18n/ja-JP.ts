@@ -3457,6 +3457,8 @@ export default {
     markedUnread: "未読にしました",
     markUnreadFailed: "未読にできませんでした",
     attachImage: "画像を添付",
+    removeImage: "画像を削除",
+    imageUploadFailed: "画像をアップロードできませんでした",
     searching: "検索中…",
     reactionFailed: "リアクションを更新できませんでした",
     moveFailed: "コメントを移動できませんでした",

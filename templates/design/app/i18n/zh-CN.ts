@@ -3312,6 +3312,8 @@ export default {
     markedUnread: "已标记为未读",
     markUnreadFailed: "无法标记为未读",
     attachImage: "附加图片",
+    removeImage: "移除图片",
+    imageUploadFailed: "无法上传图片",
     searching: "搜索中…",
     reactionFailed: "无法更新反应",
     moveFailed: "无法移动评论",

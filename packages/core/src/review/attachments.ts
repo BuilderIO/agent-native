@@ -1,3 +1,4 @@
+import { fail } from "../action.js";
 import { getActiveFileUploadProviderForRequest } from "../file-upload/registry.js";
 
 const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
@@ -55,6 +56,19 @@ export async function sanitizeReviewCommentMetadata(
   );
   if (attachments.length > 0) next.attachments = attachments;
   return next;
+}
+
+/**
+ * Refuses a comment with nothing in it: no text, and no image left once its
+ * attachments were checked. An image is a comment on its own.
+ */
+export function assertReviewCommentHasContent(
+  body: string,
+  metadata: Record<string, unknown> | null,
+): void {
+  const images = metadata?.attachments;
+  if (body.trim() || (Array.isArray(images) && images.length > 0)) return;
+  fail("A comment needs text or an image.", { errorCode: "empty_comment" });
 }
 
 function isReviewImageAttachmentContentType(

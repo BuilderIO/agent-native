@@ -3422,6 +3422,8 @@ export default {
     markedUnread: "읽지 않음으로 표시했습니다",
     markUnreadFailed: "읽지 않음으로 표시하지 못했습니다",
     attachImage: "이미지 첨부",
+    removeImage: "이미지 제거",
+    imageUploadFailed: "이미지를 업로드할 수 없습니다",
     searching: "검색 중…",
     reactionFailed: "리액션을 업데이트하지 못했습니다",
     moveFailed: "댓글을 이동하지 못했습니다",
