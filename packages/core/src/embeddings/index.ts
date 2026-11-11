@@ -34,6 +34,12 @@ export interface EmbeddingFamily {
   version: string;
   dimensions: number;
   supportedImageMimeTypes?: readonly EmbeddingImageInput["mimeType"][];
+  /**
+   * The cosine similarity below which a query and a passage are unrelated
+   * for this model, so search drops the match. Each model scores on its own
+   * scale; leave it unset until an eval has measured it.
+   */
+  minSimilarity?: number;
   embed(
     inputs: readonly MultimodalEmbeddingInput[],
     purpose: EmbeddingInputPurpose,
@@ -42,6 +48,12 @@ export interface EmbeddingFamily {
 }
 
 const DEFAULT_DIMENSIONS = 1024;
+/**
+ * voyage-multimodal-3.5's floor, which Builder's model also serves. On the
+ * question-search eval corpus every judged page scored 0.326 or more, and no
+ * off-topic question scored above 0.250.
+ */
+const VOYAGE_MULTIMODAL_MIN_SIMILARITY = 0.3;
 const BUILDER_EMBEDDING_MODEL = "builder-multimodal-embedding";
 const BUILDER_EMBEDDING_BATCH_LIMIT = 32;
 const BUILDER_EMBEDDING_INPUT_TEXT_LIMIT = 32_000;
@@ -278,6 +290,7 @@ export function createVoyageEmbeddingFamily(apiKey: string): EmbeddingFamily {
     model,
     version: "3.5",
     dimensions: 1024,
+    minSimilarity: VOYAGE_MULTIMODAL_MIN_SIMILARITY,
     supportedImageMimeTypes: [
       "image/png",
       "image/jpeg",
@@ -358,6 +371,7 @@ export function createBuilderEmbeddingFamily(
     model: BUILDER_EMBEDDING_MODEL,
     version: "3.5",
     dimensions: DEFAULT_DIMENSIONS,
+    minSimilarity: VOYAGE_MULTIMODAL_MIN_SIMILARITY,
     supportedImageMimeTypes: [
       "image/png",
       "image/jpeg",

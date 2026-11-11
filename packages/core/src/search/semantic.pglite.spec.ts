@@ -270,6 +270,36 @@ describe("the meaning lane", () => {
     expect(result.hits.map((hit) => hit.id)).not.toContain("other-org");
   });
 
+  it("drops matches below the model's similarity floor", async () => {
+    const reader = { userEmail: "reader@a.com", orgId: "org-a" };
+    const unfloored = await searchAs(reader, "how do I get my money back");
+    expect(
+      unfloored.status === "used" && unfloored.hits.map((hit) => hit.id),
+    ).toEqual(["refunds", "vacation"]);
+
+    search.configureSemanticSearch({
+      vectorStore: store,
+      resolveEmbeddingFamily: async () => ({ ...family, minSimilarity: 0.5 }),
+    });
+    try {
+      const close = await searchAs(reader, "how do I get my money back");
+      expect(
+        close.status === "used" && close.hits.map((hit) => hit.id),
+      ).toEqual(["refunds"]);
+      // A question no page answers finds nothing, not the nearest pages.
+      expect(await searchAs(reader, "what time is lunch")).toEqual({
+        status: "used",
+        hits: [],
+      });
+    } finally {
+      search.configureSemanticSearch({
+        vectorStore: store,
+        resolveEmbeddingFamily: async (identity) =>
+          identity?.orgId === "org-no-provider" ? null : family,
+      });
+    }
+  });
+
   it("matches a page with no organization only for its owner", async () => {
     const owner = await searchAs(
       { userEmail: "solo@example.com" },

@@ -1439,9 +1439,10 @@ export async function searchSemanticIndex(
       limit: QUERY_CHUNK_LIMIT,
     });
     const prefix = `${registration.app}/${registration.type}/`;
+    const floor = family.minSimilarity ?? -Infinity;
     const best = new Map<string, number>();
     for (const match of matches) {
-      if (!match.key.startsWith(prefix)) continue;
+      if (!match.key.startsWith(prefix) || match.score < floor) continue;
       const rest = match.key.slice(prefix.length);
       const id = rest.slice(0, rest.lastIndexOf("/"));
       if (!id || best.has(id)) continue;

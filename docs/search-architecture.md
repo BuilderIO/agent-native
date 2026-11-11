@@ -541,9 +541,16 @@ OpenAI's `text-embedding-3-small`.
   settings page offers Retry. Each change is audited.
 - **Querying.** `searchSemanticIndex()` embeds the query (cached for 10
   minutes, with a 4-second timeout) and asks the store for the 100 nearest
-  chunks in the searcher's audiences. It never throws. It returns `used` with
-  resource ids in order, `off`, or `unavailable` with a reason: `no-provider`,
+  chunks in the searcher's audiences. It drops chunks below the model's
+  `minSimilarity`, so a question no page answers finds nothing rather than the
+  nearest unrelated pages. It never throws. It returns `used` with resource
+  ids in order, `off`, or `unavailable` with a reason: `no-provider`,
   `no-vector-store` or `error`.
+- **The similarity floor.** Each model scores on its own scale, so each family
+  sets its own floor, from an eval run. Builder's model and
+  voyage-multimodal-3.5 use 0.30. On the question-search eval corpus, every
+  judged page scored 0.326 or more, and no off-topic question scored above
+  0.250. Gemini and Cohere have none yet and keep every match.
 
 ### Hybrid search in Content
 
@@ -566,9 +573,8 @@ command menu asks for words, since it searches as you type.
 
 ### Not settled yet
 
-- **A similarity floor.** Fusion keeps up to 20 meaning matches even when none
-  is close. Production uses Builder's 1024-dimension model, not the bake-off's,
-  so its own eval run should set the floor.
+- **Floors for Gemini and Cohere.** Without one, fusion keeps up to 20
+  meaning matches even when none is close.
 - **Pages shared from another audience** match by words only, since their
   vectors sit in their owner's audience.
 - **Snippets.** A page found only by meaning shows its opening, not the chunk
