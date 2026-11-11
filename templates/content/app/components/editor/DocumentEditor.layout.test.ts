@@ -5,6 +5,7 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import type { CommentThread } from "@/hooks/use-comments";
 import type { DocumentUpdateResult } from "@/hooks/use-documents";
 import { documentQueryKey } from "@/lib/document-query";
 import {
@@ -30,6 +31,7 @@ import {
   observeAcceptedCanonicalSettlement,
   documentEditorReservesInlineReviewSpace,
   documentEditorReviewReadsSettled,
+  documentEditorHasFreshAiResolution,
   documentEditorShowsInlineComments,
   documentPagePanelTab,
   dismissDocumentCommentFocus,
@@ -1350,6 +1352,59 @@ describe("document editor layout", () => {
         hasPendingComment: false,
       }),
     ).toBe(true);
+  });
+
+  it("keeps the margin for a thread AI just resolved, even the page's last", () => {
+    const resolved = {
+      threadId: "quoted",
+      resolved: true,
+      quotedText: "soft labels",
+    } as CommentThread;
+    const onPage = {
+      threadId: "page",
+      resolved: true,
+      quotedText: null,
+    } as CommentThread;
+    const fresh = new Map([
+      ["quoted", {}],
+      ["page", {}],
+    ]);
+    expect(documentEditorHasFreshAiResolution([resolved], null, fresh)).toBe(
+      true,
+    );
+    // Once its Resolved by AI mark fades, it no longer holds the margin.
+    expect(
+      documentEditorHasFreshAiResolution([resolved], null, new Map()),
+    ).toBe(false);
+    // A comment on the whole page lives in Discussion, not the margin.
+    expect(documentEditorHasFreshAiResolution([onPage], null, fresh)).toBe(
+      false,
+    );
+    expect(documentEditorHasFreshAiResolution(undefined, null, fresh)).toBe(
+      false,
+    );
+  });
+
+  it("holds the margin only for a thread AI just resolved in the open tab", () => {
+    const inNotes = {
+      threadId: "notes",
+      resolved: true,
+      quotedText: "soft labels",
+      field: { fieldId: "notes-field", fieldName: "Notes" },
+    } as CommentThread;
+    const inBody = {
+      threadId: "body",
+      resolved: true,
+      quotedText: "soft labels",
+    } as CommentThread;
+    const fresh = new Map([["body", {}]]);
+    const threads = [inNotes, inBody];
+    expect(documentEditorHasFreshAiResolution(threads, null, fresh)).toBe(true);
+    // In another tab its mark isn't on screen to fade, so it would hold an
+    // empty margin until the body's tab came back.
+    expect(
+      documentEditorHasFreshAiResolution(threads, "notes-field", fresh),
+    ).toBe(false);
   });
 
   it("does not clip a printed page at the root's screen height", () => {
