@@ -20,6 +20,7 @@ import { isServerlessRuntime } from "../db/client.js";
 import {
   getOrgContext,
   getOrgScopeResolutionError,
+  hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
 } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
@@ -51,6 +52,7 @@ import {
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import { sessionResolutionFailure } from "../server/session-resolution-errors.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { dispatchAutomationWebhookTask } from "../triggers/dispatcher.js";
 import {
   AUTOMATION_WEBHOOK_PLATFORM,
@@ -1096,6 +1098,7 @@ export function createIntegrationsPlugin(
     ) {
       try {
         const context = await getOrgContext(event);
+        if (hasForbiddenOrgScope(event)) throw new ForbiddenError();
         if (hasOrgScopeResolutionUnavailable(event)) {
           throw (
             getOrgScopeResolutionError(event) ??
@@ -1117,23 +1120,17 @@ export function createIntegrationsPlugin(
         return null;
       }
       const orgCtx = await getIntegrationOrgContext(event);
-      try {
-        return {
+      // The request's lookup already verified Personal scope; resolving it
+      // again by email can fail where this one did not.
+      return {
+        ownerEmail: session.email,
+        ...(await resolveIntegrationRequestScope({
           ownerEmail: session.email,
-          ...(await resolveIntegrationRequestScope({
-            ownerEmail: session.email,
-            orgId: orgCtx.orgId ?? null,
-            principalType: "user",
-          })),
-        };
-      } catch (error) {
-        console.error(
-          "[integrations] Could not resolve signed-in user's organization scope:",
-          error,
-        );
-        setResponseStatus(event, 503);
-        return null;
-      }
+          orgId: orgCtx.orgId,
+          ...(orgCtx.orgId ? {} : { orgScope: "personal" as const }),
+          principalType: "user",
+        })),
+      };
     }
 
     function toCredentialContext(

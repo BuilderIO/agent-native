@@ -22,11 +22,13 @@ import {
   SessionResolutionUnavailableError,
   sessionResolutionFailure,
 } from "../server/session-resolution-errors.js";
+import { ForbiddenError } from "../sharing/errors.js";
 
 async function getSecretOrgContext(event: H3Event) {
   const org = await import("../org/context.js");
   try {
     const context = await org.getOrgContext(event);
+    if (org.hasForbiddenOrgScope(event)) throw new ForbiddenError();
     if (org.hasOrgScopeResolutionUnavailable(event))
       throw (
         org.getOrgScopeResolutionError(event) ??

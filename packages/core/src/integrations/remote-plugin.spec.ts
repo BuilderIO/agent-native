@@ -44,6 +44,7 @@ vi.mock("../server/auth.js", async () => ({
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
+  hasForbiddenOrgScope: () => false,
   hasOrgScopeResolutionUnavailable: () => false,
 }));
 
