@@ -105,7 +105,7 @@ Screenshots are saved in the app's `.tmp/ui-review/out/`, and the final report l
 
 ## Run and deploy {#run-deploy}
 
-For local review the skill sets `AUTH_DISABLED=1` in the app's ignored `.env`, because a fresh screenshot browser is not signed in. This is for loopback development only. It is removed before the final `pnpm build`, and it must never be committed or deployed. After the build, when you ran the skill yourself on this machine, it starts the app once more and opens it in your default browser. A headless run opens nothing, and a remote session (SSH, a container) gets a forwarded URL instead. On a new app, that signs you in automatically as the local dev account; when the database already has an account (a resumed app or a shared workspace database), you get the sign-in page instead. Later fresh browsers show a "Continue as local dev" card.
+For local review the skill sets `AUTH_DISABLED=1` in the app's ignored `.env`, because a fresh screenshot browser is not signed in. This is for loopback development only. It is removed before the final `pnpm build`, and it must never be committed or deployed. After the build, when you ran the skill yourself on this machine, it starts the app once more and opens it in your default browser. A headless run opens nothing, and a remote session (SSH, a container) gets a forwarded URL when a port can be forwarded, or otherwise the folder and `pnpm dev` to run it on your own machine. On a new app, that signs you in automatically as the local dev account; when the database already has an account (a resumed app or a shared workspace database), you get the sign-in page instead. Later fresh browsers show a "Continue as local dev" card.
 
 To run the app yourself:
 

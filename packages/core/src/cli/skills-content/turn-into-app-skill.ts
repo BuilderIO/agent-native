@@ -298,7 +298,7 @@ headless run stops it.
 Lead with the app, plainly:
 
 1. Local: "Your app is open at <URL>" after an \`--open\` hand-off; else where
-   it is and how to open it. Hosted: Dispatch's Builder link or status.
+   it is and how to open it. Hosted: what Dispatch returned (per mode).
 2. How to change it: ask this agent, in this folder (hosted: in Builder).
 3. What each control does, what changed from the brief (assumptions, gaps,
    silent choices), and one precise pending step, if any.
@@ -365,7 +365,8 @@ On a browser host the host is an orchestrator, not the build environment:
    path. Any other mode started no Builder build (\`local-agent\` hands it to
    a local agent; \`builder-managed\` and unavailable or taken results start
    nothing): quote its \`message\`, with its link if it has one. Then
-   give the rest of the final report in SKILL.md. The browser host cannot run
+   give the rest of the final report in SKILL.md, describing the controls as
+   requested in the brief, not as verified. The browser host cannot run
    or inspect the app, and a returned path can 404 until the branch merges and
    deploys, so the report ends at pending or unverified unless a status or
    verification action is available to call.
@@ -2722,8 +2723,9 @@ so and offer two ways on:
 
 Never fall back to a local build without asking, and never claim the app
 exists. The report leads with what Dispatch returned, as the browser-host
-guide describes, then says that changes happen in Builder, where the app's
-code lives, not in this folder.
+guide describes. After a Builder build it says that changes happen in
+Builder, where the app's code lives, not in this folder; after \`local-agent\`,
+that the local agent in the workspace builds and changes it.
 `;
 
 export const TURN_INTO_APP_OPENAI_YAML = `interface:

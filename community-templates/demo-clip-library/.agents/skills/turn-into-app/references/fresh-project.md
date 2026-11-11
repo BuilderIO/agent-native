@@ -44,7 +44,8 @@ On a browser host the host is an orchestrator, not the build environment:
    path. Any other mode started no Builder build (`local-agent` hands it to
    a local agent; `builder-managed` and unavailable or taken results start
    nothing): quote its `message`, with its link if it has one. Then
-   give the rest of the final report in SKILL.md. The browser host cannot run
+   give the rest of the final report in SKILL.md, describing the controls as
+   requested in the brief, not as verified. The browser host cannot run
    or inspect the app, and a returned path can 404 until the branch merges and
    deploys, so the report ends at pending or unverified unless a status or
    verification action is available to call.

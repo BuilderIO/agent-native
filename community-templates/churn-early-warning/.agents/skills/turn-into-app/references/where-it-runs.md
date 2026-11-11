@@ -89,5 +89,6 @@ so and offer two ways on:
 
 Never fall back to a local build without asking, and never claim the app
 exists. The report leads with what Dispatch returned, as the browser-host
-guide describes, then says that changes happen in Builder, where the app's
-code lives, not in this folder.
+guide describes. After a Builder build it says that changes happen in
+Builder, where the app's code lives, not in this folder; after `local-agent`,
+that the local agent in the workspace builds and changes it.
