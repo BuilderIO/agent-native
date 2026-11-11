@@ -629,7 +629,7 @@ function createAskQuestionTool(): ActionEntry {
           questions: {
             type: "string",
             description:
-              'Instead of `question` and `options`: a JSON array of 2-4 `{ "question", "header"?, "options", "allowMultiple"?, "allowFreeText"? }`, each field as below.',
+              'Instead of `question` and `options`: a JSON array of up to 4 `{ "question", "header"?, "options", "allowMultiple"?, "allowFreeText"? }`, each field as below.',
           },
           header: {
             type: "string",

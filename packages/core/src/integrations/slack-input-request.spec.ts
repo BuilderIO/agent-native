@@ -86,6 +86,24 @@ describe("slackInputRequestText", () => {
     ).toMatch(/with your choices\.$/);
   });
 
+  it("asks for choices when one question allows several", () => {
+    expect(
+      slackInputRequestText({
+        question: "Which courses?",
+        options: options("Starter", "Main"),
+        allowMultiple: "true",
+        allowFreeText: "false",
+      }),
+    ).toMatch(/with your choices\.$/);
+    expect(
+      slackInputRequestText({
+        question: "Which course?",
+        options: options("Starter"),
+        allowMultiple: true,
+      }),
+    ).toMatch(/with your choices or a short answer\.$/);
+  });
+
   it("caps questions and options at four", () => {
     const text = slackInputRequestText({
       questions: Array.from({ length: 6 }, (_, index) => ({

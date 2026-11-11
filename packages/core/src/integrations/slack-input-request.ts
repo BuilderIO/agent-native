@@ -29,13 +29,15 @@ export function slackInputRequestText(
     (block): block is NonNullable<typeof block> => block !== null,
   );
   const allowFreeText = blocks.some((block) => block.allowFreeText);
+  const severalChoices =
+    blocks.length > 1 || blocks.some((block) => block.allowMultiple);
   return [
     ...blocks.flatMap((block, blockIndex) => [
       ...(blockIndex > 0 ? [""] : []),
       ...block.lines,
     ]),
     "",
-    `Reply in this thread with your choice${items.length > 1 ? "s" : ""}${allowFreeText ? " or a short answer" : ""}.`,
+    `Reply in this thread with your choice${severalChoices ? "s" : ""}${allowFreeText ? " or a short answer" : ""}.`,
   ].join("\n");
 }
 
@@ -45,7 +47,7 @@ function stringifyInboundValue(value: unknown): string {
 
 function slackQuestionBlock(
   input: Record<string, unknown> | null | undefined,
-): { lines: string[]; allowFreeText: boolean } | null {
+): { lines: string[]; allowFreeText: boolean; allowMultiple: boolean } | null {
   const question =
     typeof input?.question === "string" ? input.question.trim() : "";
   if (!question) return null;
@@ -89,6 +91,8 @@ function slackQuestionBlock(
   return {
     allowFreeText:
       stringifyInboundValue(input?.allowFreeText ?? "true") !== "false",
+    allowMultiple:
+      stringifyInboundValue(input?.allowMultiple ?? "false") === "true",
     lines: [
       ...(header ? [`*${header}*`] : []),
       question.slice(0, 1_500),
