@@ -170,6 +170,14 @@ describe("bake-off model client", () => {
     ).toThrow("OPENROUTER_API_KEY");
   });
 
+  it("fails when OpenAI is asked for without its key", () => {
+    expect(() =>
+      bakeoffModelsFromEnv({
+        SEARCH_BAKEOFF_PROVIDER: "openai",
+      }),
+    ).toThrow("OPENAI_API_KEY");
+  });
+
   it("fails on a provider it doesn't know instead of using OpenAI", () => {
     expect(() =>
       bakeoffModelsFromEnv({

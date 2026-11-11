@@ -66,22 +66,23 @@ function chatProviderFromEnv(env: NodeJS.ProcessEnv): ChatProvider | null {
     throw new Error(
       `SEARCH_BAKEOFF_PROVIDER must be "openai" or "openrouter", not "${asked}".`,
     );
-  if (asked === "openrouter") {
-    const key = env.OPENROUTER_API_KEY?.trim();
-    // Without it the run would skip every model method and look complete.
-    if (!key)
-      throw new Error(
-        "SEARCH_BAKEOFF_PROVIDER=openrouter needs OPENROUTER_API_KEY.",
-      );
+  const keyName =
+    asked === "openrouter" ? "OPENROUTER_API_KEY" : "OPENAI_API_KEY";
+  const key = env[keyName]?.trim();
+  if (!key) {
+    // A provider asked for by name runs or fails: without its key the run
+    // would skip every model method and look complete.
+    if (asked)
+      throw new Error(`SEARCH_BAKEOFF_PROVIDER=${asked} needs ${keyName}.`);
+    return null;
+  }
+  if (asked === "openrouter")
     return {
       name: "openrouter",
       url: "https://openrouter.ai/api/v1",
       headers: { Authorization: `Bearer ${key}` },
       model: (id) => (id.includes("/") ? id : `openai/${id}`),
     };
-  }
-  const key = env.OPENAI_API_KEY?.trim();
-  if (!key) return null;
   return {
     name: "openai",
     url: "https://api.openai.com/v1",
