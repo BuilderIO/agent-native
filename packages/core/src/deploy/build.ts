@@ -4829,7 +4829,9 @@ export function shouldCopyExternalSsrRuntimePackages(
     isAwsLambdaPreset(targetPreset) ||
     isAwsAmplifyPreset(targetPreset) ||
     targetPreset === "node" ||
-    targetPreset === "node-server"
+    targetPreset === "node-server" ||
+    targetPreset === "koyeb" ||
+    targetPreset === "render_com"
   );
 }
 

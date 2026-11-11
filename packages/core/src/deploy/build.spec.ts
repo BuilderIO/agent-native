@@ -8166,6 +8166,11 @@ describe("shouldCopyExternalSsrRuntimePackages", () => {
     expect(shouldCopyExternalSsrRuntimePackages("node-server")).toBe(true);
   });
 
+  it("covers the documented Node-derived deployment presets", () => {
+    expect(shouldCopyExternalSsrRuntimePackages("koyeb")).toBe(true);
+    expect(shouldCopyExternalSsrRuntimePackages("render_com")).toBe(true);
+  });
+
   it("keeps the serverless presets covered", () => {
     expect(shouldCopyExternalSsrRuntimePackages("netlify")).toBe(true);
     expect(shouldCopyExternalSsrRuntimePackages("vercel")).toBe(true);
