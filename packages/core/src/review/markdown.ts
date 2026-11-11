@@ -1294,7 +1294,7 @@ function shownEnd(node: CommentDocNode | undefined): string {
       stringAttr(node.attrs, "mailto"),
     ).slice(-2);
   }
-  return node && !linkedOrCode(node) ? (node.text ?? "").slice(-2) : "";
+  return (node?.text ?? "").slice(-2);
 }
 
 /** Text ending in a letter, number or `_`, which an `@` after continues. */

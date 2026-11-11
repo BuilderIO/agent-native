@@ -428,6 +428,14 @@ describe("comment Markdown and the box's document", () => {
       text("!", "italic"),
     );
     expect(roundTrip(email)).toBe(email);
+    // So can one right after a link, as the link shows its text.
+    const afterLink = commentDocToMarkdown(
+      inline(text("x@y.com@z.com"), text("!x", "bold")),
+    );
+    expect(
+      commentMarkdownToDoc(afterLink).content?.[0]?.content?.at(-1),
+    ).toEqual(text("!x", "bold"));
+    expect(roundTrip(afterLink)).toBe(afterLink);
     // Where a `_` runs on from it, it's no mention, and keeps its marks.
     const runOn = commentDocToMarkdown(
       inline(text("hi @Sam"), text("_x", "bold")),
