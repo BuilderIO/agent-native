@@ -11,6 +11,7 @@ import {
   CONTENT_WEBHOOK_SECRET_PREFIX,
   generateContentWebhookSecret,
 } from "../server/lib/content-webhook-signature.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
   CONTENT_WEBHOOK_EVENT_TYPES,
   contentWebhookOutputSchema,
@@ -197,6 +198,31 @@ export default defineAction({
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtextextended(${`content-webhook-scope:${scope.scopeType}:${scope.scopeId}`}, 0::bigint))`,
         );
+        if (scope.scopeType === "database") {
+          // A move to another workspace locks the collection and refuses one
+          // with webhooks, so hold the same lock and check the collection is
+          // still where its secret was stored.
+          await lockContentDatabaseMutation(
+            tx as unknown as ReturnType<typeof getDb>,
+            scope.scopeId,
+          );
+          const [database] = await tx
+            .select({
+              ownerEmail: schema.contentDatabases.ownerEmail,
+              orgId: schema.contentDatabases.orgId,
+            })
+            .from(schema.contentDatabases)
+            .where(eq(schema.contentDatabases.id, scope.scopeId));
+          if (
+            database.ownerEmail !== scope.ownerEmail ||
+            (database.orgId ?? null) !== scope.orgId
+          ) {
+            throw new ActionContractError(
+              "The collection moved to another workspace while the webhook was being added. Add it again.",
+              { errorCode: "WEBHOOK_SCOPE_MOVED", statusCode: 409 },
+            );
+          }
+        }
         const existing = await tx
           .select({ id: schema.contentWebhooks.id })
           .from(schema.contentWebhooks)

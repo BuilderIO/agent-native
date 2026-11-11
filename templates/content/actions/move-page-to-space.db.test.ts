@@ -254,6 +254,14 @@ describe("moving a page between Content spaces", () => {
       content: "Over to you",
       authorEmail: OWNER,
     });
+    await getDb().insert(schema.documentCommentReactions).values({
+      id: "reaction-handoff",
+      ownerEmail: OWNER,
+      documentId: page.id,
+      commentId: "comment-handoff",
+      actorEmail: EDITOR,
+      reaction: "👍",
+    });
     await getDb().insert(schema.documentVersions).values({
       id: "version-handoff",
       ownerEmail: OWNER,
@@ -309,6 +317,7 @@ describe("moving a page between Content spaces", () => {
       listComments.run({ documentId: page.id }),
     );
     expect(JSON.stringify(comments)).toContain("Over to you");
+    expect(JSON.stringify(comments)).toContain("👍");
     await expect(
       as(OWNER, () => listComments.run({ documentId: page.id })),
     ).rejects.toThrow();

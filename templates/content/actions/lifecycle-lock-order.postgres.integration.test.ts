@@ -38,6 +38,19 @@ vi.mock("../server/lib/private-icon-authority.js", async (importOriginal) => ({
   >()),
   assertPrivateIconOwner: vi.fn(async () => undefined),
 }));
+// A webhook URL is checked without a network: names resolve as public.
+vi.mock("@agent-native/core/extensions/url-safety", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/core/extensions/url-safety")
+    >();
+  return {
+    ...actual,
+    isBlockedExtensionUrlWithDns: vi.fn(async (url: string) =>
+      actual.isBlockedExtensionUrl(url),
+    ),
+  };
+});
 const builderRead = vi.hoisted(() => ({ entries: [] as unknown[] }));
 vi.mock("./_builder-cms-read-client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./_builder-cms-read-client.js")>()),
@@ -108,6 +121,8 @@ let disconnectLocalFolder: typeof import("./disconnect-local-folder-source.js").
 let resolveLocalFolderConflict: typeof import("./resolve-local-folder-conflict.js").default;
 let contentFilesItemId: typeof import("./_content-files.js").contentFilesItemId;
 let processBuilderBodyHydrationQueue: typeof import("./_database-source-utils.js").processBuilderBodyHydrationQueue;
+let configureDocumentProperty: typeof import("./configure-document-property.js").default;
+let createContentWebhook: typeof import("./create-content-webhook.js").default;
 
 beforeAll(async () => {
   if (!POSTGRES_URL) return;
@@ -120,6 +135,7 @@ beforeAll(async () => {
     throw new Error(`${POSTGRES_ENV} must name an isolated test database.`);
   }
   process.env.DATABASE_URL = POSTGRES_URL;
+  process.env.SECRETS_ENCRYPTION_KEY ??= "lock-order-test-key";
   const database = await import("../server/db/index.js");
   getDb = database.getDb;
   schema = database.schema;
@@ -176,6 +192,9 @@ beforeAll(async () => {
   ({ contentFilesItemId } = await import("./_content-files.js"));
   ({ processBuilderBodyHydrationQueue } =
     await import("./_database-source-utils.js"));
+  configureDocumentProperty = (await import("./configure-document-property.js"))
+    .default;
+  createContentWebhook = (await import("./create-content-webhook.js")).default;
   await (await import("../server/plugins/db.js")).default(undefined as any);
   // Content's migrations don't create core's organization tables.
   await getDb().execute(
@@ -4072,6 +4091,90 @@ parentId: "${seed.ids.moved}"
         .from(schema.contentDatabases)
         .where(eq(schema.contentDatabases.id, seed.ids.collection));
       expect(collection).toEqual({ spaceId: seed.ids.fromSpace });
+    });
+
+    it("refuses a relation to a collection that moved to another space while it waited", async () => {
+      const seed = await seedCollectionSpaceMove();
+      const linker = `${seed.key}_c2`;
+      const linkerPage = `${seed.key}_p5`;
+      await getDb()
+        .insert(schema.documents)
+        .values(
+          pageValues(linkerPage, null, "Linker", {
+            spaceId: seed.ids.fromSpace,
+          }),
+        );
+      await getDb().insert(schema.contentDatabases).values({
+        id: linker,
+        ownerEmail: OWNER,
+        spaceId: seed.ids.fromSpace,
+        documentId: linkerPage,
+        title: "Linker",
+        createdAt: STAMP,
+        updatedAt: STAMP,
+      });
+      const { action: related } = await raceAgainst(
+        async (tx) => {
+          // The move: lock the collection, then give it to the other space.
+          await tx
+            .update(schema.contentDatabases)
+            .set({ spaceId: seed.ids.toSpace })
+            .where(eq(schema.contentDatabases.id, seed.ids.collection));
+        },
+        () =>
+          asOwner(() =>
+            configureDocumentProperty.run({
+              documentId: linkerPage,
+              databaseId: linker,
+              name: "Linked",
+              type: "relation",
+              options: { relation: { databaseId: seed.ids.collection } },
+            } as Parameters<typeof configureDocumentProperty.run>[0]),
+          ),
+      );
+      await expect(related).rejects.toMatchObject({
+        errorCode: "RELATION_TARGET_OTHER_SPACE",
+      });
+      expect(
+        await getDb()
+          .select({ id: schema.documentPropertyDefinitions.id })
+          .from(schema.documentPropertyDefinitions)
+          .where(eq(schema.documentPropertyDefinitions.databaseId, linker)),
+      ).toEqual([]);
+    });
+
+    it("refuses a webhook on a collection that moved to another owner while it waited", async () => {
+      const seed = await seedCollectionSpaceMove();
+      const { action: created } = await raceAgainst(
+        async (tx) => {
+          // The move: lock the collection, then give it to its new owner.
+          await tx
+            .update(schema.contentDatabases)
+            .set({
+              spaceId: seed.ids.toSpace,
+              ownerEmail: "synthetic-lock-order-mover@example.test",
+            })
+            .where(eq(schema.contentDatabases.id, seed.ids.collection));
+        },
+        () =>
+          asOwner(() =>
+            createContentWebhook.run({
+              databaseId: seed.ids.collection,
+              url: "https://hooks.example.com/content",
+              events: ["property.changed"],
+            } as Parameters<typeof createContentWebhook.run>[0]),
+          ),
+      );
+      await expect(created).rejects.toMatchObject({
+        errorCode: "WEBHOOK_SCOPE_MOVED",
+        statusCode: 409,
+      });
+      expect(
+        await getDb()
+          .select({ id: schema.contentWebhooks.id })
+          .from(schema.contentWebhooks)
+          .where(eq(schema.contentWebhooks.scopeId, seed.ids.collection)),
+      ).toEqual([]);
     });
 
     it("appends a page moved to another space after a page another move appended while it waited", async () => {

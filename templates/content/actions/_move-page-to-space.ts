@@ -534,6 +534,7 @@ export async function movePageToSpace(args: {
             .where(inArray(schema.documentShares.resourceId, idGroup));
           for (const table of [
             schema.documentComments,
+            schema.documentCommentReactions,
             schema.documentVersions,
             schema.documentBodySteps,
             schema.documentBlockFields,
