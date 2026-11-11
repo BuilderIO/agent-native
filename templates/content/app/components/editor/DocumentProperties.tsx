@@ -1083,7 +1083,26 @@ export function DocumentProperties({
         (property) => property.definition.visibility === "always_hide",
       )
     : [];
-  const moreProperties = [...hiddenInViewProperties, ...emptyProperties];
+  // Someone who can't manage the schema still finds a hidden Property while a
+  // Comment on it is written or its threads are open, so it has a row there.
+  const comments = usePropertyComments();
+  const commentedIds = [
+    comments?.pendingPropertyId,
+    comments?.selectedPropertyId,
+    comments?.inline?.openPropertyId,
+  ];
+  const commentedHiddenProperties = canManageSchema
+    ? []
+    : orderedProperties.filter(
+        (property) =>
+          !isListable(property) &&
+          commentedIds.includes(property.definition.id),
+      );
+  const moreProperties = [
+    ...hiddenInViewProperties,
+    ...emptyProperties,
+    ...commentedHiddenProperties,
+  ];
   const collapsedCount = moreProperties.length + alwaysHiddenProperties.length;
   const propertyRow = (property: DocumentProperty) => (
     <PropertyRow

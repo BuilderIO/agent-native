@@ -2920,29 +2920,19 @@ export function infoPropertyCommentStart(
 
 /**
  * Whether the new Comment being written keeps its place when another starts:
- * it has words in it, and its Property, if any, is one Info still lists. One
- * whose Property was deleted, or hidden from someone who can't manage the
- * schema, can't be shown or posted, so another replaces it. Properties not yet
- * read keep it.
+ * it has words in it, and its Property, if any, is still on the Page. Info
+ * lists that Property even when it's hidden, but one that was deleted can't be
+ * shown or posted, so another Comment replaces it. Properties not yet read
+ * keep it.
  */
 export function pendingCommentHeld(
   pending: { propertyId?: string | undefined; written: boolean },
-  page:
-    | {
-        canManageSchema?: boolean | undefined;
-        properties: readonly {
-          definition: { id: string; visibility?: string | undefined };
-        }[];
-      }
-    | undefined,
+  properties: readonly { definition: { id: string } }[] | undefined,
 ): boolean {
   if (!pending.written) return false;
-  if (!pending.propertyId || !page) return true;
-  return page.properties.some(
-    ({ definition }) =>
-      definition.id === pending.propertyId &&
-      (definition.visibility !== "always_hide" ||
-        page.canManageSchema === true),
+  if (!pending.propertyId || !properties) return true;
+  return properties.some(
+    ({ definition }) => definition.id === pending.propertyId,
   );
 }
 
@@ -9094,7 +9084,7 @@ function PageEditorSessionBody({
   const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
   const pendingHeld = pendingCommentHeld(
     { propertyId: pendingPropertyId, written: pendingWritten },
-    pagePropertiesInScope,
+    pageProperties,
   );
   // A Property's new Comment with words in it, waiting in Info and out of
   // sight once Info closes.

@@ -1449,35 +1449,21 @@ describe("document editor layout", () => {
   });
 
   describe("pendingCommentHeld", () => {
-    const page = {
-      properties: [
-        { definition: { id: "a", visibility: "always_show" } },
-        { definition: { id: "hidden", visibility: "always_hide" } },
-      ],
-    };
+    const properties = [{ definition: { id: "a" } }];
 
-    it("holds words under a Property Info lists, or beside the Page's text", () => {
-      expect(pendingCommentHeld({ propertyId: "a", written: true }, page)).toBe(
-        true,
-      );
-      expect(pendingCommentHeld({ written: true }, page)).toBe(true);
+    it("holds words under a Property on the Page, or beside its text", () => {
       expect(
-        pendingCommentHeld(
-          { propertyId: "hidden", written: true },
-          { ...page, canManageSchema: true },
-        ),
+        pendingCommentHeld({ propertyId: "a", written: true }, properties),
       ).toBe(true);
+      expect(pendingCommentHeld({ written: true }, properties)).toBe(true);
     });
 
-    it("lets go of one with no words, or whose Property is gone from Info", () => {
+    it("lets go of one with no words, or whose Property was deleted", () => {
       expect(
-        pendingCommentHeld({ propertyId: "a", written: false }, page),
+        pendingCommentHeld({ propertyId: "a", written: false }, properties),
       ).toBe(false);
-      expect(pendingCommentHeld({ propertyId: "b", written: true }, page)).toBe(
-        false,
-      );
       expect(
-        pendingCommentHeld({ propertyId: "hidden", written: true }, page),
+        pendingCommentHeld({ propertyId: "b", written: true }, properties),
       ).toBe(false);
     });
 

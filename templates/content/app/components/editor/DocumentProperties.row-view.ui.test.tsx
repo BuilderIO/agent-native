@@ -524,6 +524,28 @@ describe("a row's Properties in its view", () => {
     expect(alwaysHiddenLine()).toBeUndefined();
   });
 
+  it("lists a hidden Property for them while a Comment on it is written or open", () => {
+    mocks.response.canManageSchema = false;
+    mocks.response.properties = [
+      property("always", "value", "always_hide"),
+      property("empty", "", "hide_when_empty"),
+      property("quiet", "", "hide_when_empty"),
+      property("shown"),
+    ];
+    renderProperties(null, {
+      comments: {
+        pendingPropertyId: "always",
+        inline: {
+          openPropertyId: "empty",
+          toggle: vi.fn(),
+          renderThreads: () => null,
+        },
+      },
+    });
+    expect(rowIds()).toEqual(["shown", "always", "empty"]);
+    expect(alwaysHiddenLine()).toBeUndefined();
+  });
+
   it("waits for the view instead of drawing the page's order first", () => {
     mocks.response.properties = [property("always", "value", "always_hide")];
     renderProperties(null, { rowViewPending: true });
