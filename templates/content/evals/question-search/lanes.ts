@@ -26,12 +26,19 @@ const STOPWORDS = new Set(
   ).split(" "),
 );
 
-function stem(word: string): string {
+function suffixless(word: string): string {
   if (word.length > 5 && word.endsWith("ing")) return word.slice(0, -3);
   if (word.length > 4 && word.endsWith("ed")) return word.slice(0, -2);
   if (word.length > 3 && word.endsWith("s") && !word.endsWith("ss"))
     return word.slice(0, -1);
   return word;
+}
+
+// Dropping a final "e" too keeps "charged" ("charg") matching "charges" and
+// "charge".
+function stem(word: string): string {
+  const base = suffixless(word);
+  return base.length > 3 && base.endsWith("e") ? base.slice(0, -1) : base;
 }
 
 export function keywordTokens(text: string): string[] {
