@@ -613,4 +613,38 @@ describe("the columns a rule uses", () => {
       );
     });
   });
+
+  it("keeps a value a rule names when an agent removes options", async () => {
+    await asOwner(async () => {
+      const row = await specRow();
+      await freezeAt(row);
+      const removeOption = async (optionId: string) => {
+        const current = await contract(row.databaseId);
+        return configureProperty.run(
+          {
+            operation: "update",
+            target: {
+              spaceId: current.target.spaceId,
+              databaseId: current.target.databaseId,
+              databaseDocumentId: current.target.databaseDocumentId,
+            },
+            expectedSchemaRevision: current.schemaRevision,
+            idempotencyKey: `remove-${row.databaseId}-${optionId}`,
+            propertyId: row.statusId,
+            patch: { optionEdits: [{ operation: "remove", optionId }] },
+          } as never,
+          agent,
+        );
+      };
+
+      // No row is Approved, so only the rule keeps the value.
+      await expect(removeOption("approved")).rejects.toMatchObject(inUse);
+      await removeOption("published");
+      expect(
+        (await definitionOptions(row.statusId)).options.options?.map(
+          (option) => option.id,
+        ),
+      ).toEqual(["draft", "approved"]);
+    });
+  });
 });
