@@ -95,7 +95,20 @@ async function renderExcalidrawSvg(
   return sanitizeSvgMarkup(svg.outerHTML);
 }
 
-let mermaidRenders: Promise<unknown> = Promise.resolve();
+// Mermaid's settings are global and both renderers change them, and the
+// Excalidraw converter only sets its own when they change. So diagrams draw
+// one at a time, and a fallback render puts back the settings it found.
+let mermaidRenders: Promise<void> | null = null;
+
+function inMermaidQueue(render: () => Promise<void>): void {
+  const settled = (
+    mermaidRenders ? mermaidRenders.then(render) : render()
+  ).catch(() => undefined);
+  mermaidRenders = settled;
+  void settled.then(() => {
+    if (mermaidRenders === settled) mermaidRenders = null;
+  });
+}
 
 async function renderMermaidSvg(
   source: string,
@@ -111,29 +124,21 @@ async function renderMermaidSvg(
       };
     }
   ).default;
-  // Mermaid's settings are global, and the Excalidraw converter only sets its
-  // own when they change, so each render puts back the settings it found.
-  // One render at a time, or two could put them back out of order.
-  const render = async () => {
-    const found = mermaid.mermaidAPI.getSiteConfig();
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      look: "handDrawn",
-      theme: isDark ? "dark" : "neutral",
-      // Throw on bad source instead of leaving an error drawing in <body>.
-      suppressErrorRendering: true,
-    });
-    try {
-      const { svg } = await mermaid.render(id, source);
-      return sanitizeSvgMarkup(svg);
-    } finally {
-      mermaid.initialize(found);
-    }
-  };
-  const result = mermaidRenders.then(render, render);
-  mermaidRenders = result.catch(() => undefined);
-  return result;
+  const found = mermaid.mermaidAPI.getSiteConfig();
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "strict",
+    look: "handDrawn",
+    theme: isDark ? "dark" : "neutral",
+    // Throw on bad source instead of leaving an error drawing in <body>.
+    suppressErrorRendering: true,
+  });
+  try {
+    const { svg } = await mermaid.render(id, source);
+    return sanitizeSvgMarkup(svg);
+  } finally {
+    mermaid.initialize(found);
+  }
 }
 
 function useIsDark(): boolean {
@@ -193,7 +198,8 @@ export function useMermaidRender(
       setState({});
       return;
     }
-    void (async () => {
+    inMermaidQueue(async () => {
+      if (cancelled) return;
       try {
         const svg = await renderExcalidrawSvg(trimmed, isDark);
         if (!cancelled) setState({ svg });
@@ -222,7 +228,7 @@ export function useMermaidRender(
           }
         }
       }
-    })();
+    });
     return () => {
       cancelled = true;
     };
