@@ -2196,6 +2196,7 @@ class CollabDocConnection {
     if (!this.syncActive) return;
     this.syncActive = false;
     this.pollGeneration++;
+    this.backlogPages = 0;
     this.pollRequested.clear();
     this.setCollabPollBoost(false);
     this.sseActive = false;
@@ -2500,7 +2501,6 @@ class CollabDocConnection {
       readNextPage =
         cursorLimited === true &&
         cursorMoved &&
-        !isDocumentHidden() &&
         this.backlogPages < MAX_BACKLOG_PAGES;
       if (typeof data.cursor === "string") this.pollCursor = data.cursor;
       this.pollVersion = version;
@@ -2567,6 +2567,8 @@ class CollabDocConnection {
         }
       }
     } catch {
+      // A failed page ends the run: the next one gets its full page count.
+      this.backlogPages = 0;
       if (!this.isPollCurrent(generation)) return;
       this.consecutiveErrors++;
       const backoff = calcBackoff(this.consecutiveErrors);
@@ -2576,7 +2578,9 @@ class CollabDocConnection {
       clearTimeout(pollTimeout);
     }
 
-    if (readNextPage) {
+    // Visibility is read here, after the awaits above, so a tab hidden
+    // mid-page doesn't read ahead.
+    if (readNextPage && !isDocumentHidden()) {
       this.backlogPages++;
       this.schedulePoll(generation, 0);
       return;

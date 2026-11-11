@@ -29,9 +29,10 @@ const INTERVAL_MS = 2_000;
 /**
  * A change feed `pages` pages deep, one cursor step per page. `stuck`
  * answers every poll with a limited page that doesn't move, as a read held
- * at an access check does.
+ * at an access check does. `failAt` makes that poll fail as a dropped
+ * request does.
  */
-function backlogFetch(pages = PAGES, { stuck = false } = {}) {
+function backlogFetch(pages = PAGES, { stuck = false, failAt = 0 } = {}) {
   const counts = { polls: 0, awareness: 0 };
   const mock = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input), "http://localhost");
@@ -42,6 +43,7 @@ function backlogFetch(pages = PAGES, { stuck = false } = {}) {
     }
     if (url.pathname.endsWith("/_agent-native/poll")) {
       counts.polls += 1;
+      if (counts.polls === failAt) throw new TypeError("Failed to fetch");
       const cursor = url.searchParams.get("cursor");
       const from = cursor
         ? Number(cursor.split(".")[0])
@@ -166,6 +168,20 @@ describe("collab poll reading a change-feed backlog", () => {
     expect(counts.polls).toBe(run);
     await advance(400);
     expect(counts.polls).toBe(run * 2);
+  });
+
+  it("starts a full run after a failed page", async () => {
+    const { mock, counts } = backlogFetch(Number.MAX_SAFE_INTEGER, {
+      failAt: 5,
+    });
+    render(mock);
+
+    await advance(200);
+    expect(counts.polls).toBe(5);
+    // The retry comes after the error backoff (at most 1,250ms) and reads a
+    // whole run, not the four pages the failed one had left.
+    await advance(1_500);
+    expect(counts.polls).toBe(5 + MAX_BACKLOG_PAGES + 1);
   });
 
   it("waits its interval when a limited page didn't move the cursor", async () => {
