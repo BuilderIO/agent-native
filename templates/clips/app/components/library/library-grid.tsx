@@ -53,6 +53,7 @@ import {
   type VideoStorageStatus,
 } from "@/hooks/use-video-storage-status";
 import { OPEN_CREATE_FOLDER_EVENT } from "@/lib/command-events";
+import { MAX_UPLOAD_BYTES } from "@/lib/compress";
 import {
   LocalCopyInUseError,
   retryRecordingUploadFromBackup,
@@ -659,11 +660,17 @@ export function LibraryGrid({
     event.preventDefault();
     dragDepthRef.current = 0;
     setIsDraggingFile(false);
-    const files = Array.from(event.dataTransfer.files).filter(
+    const videos = Array.from(event.dataTransfer.files).filter(
       (file) => resolveVideoMimeType(file) !== null,
     );
+    // Too-large files are refused before admission, so they can't take a
+    // free clip's place from a valid file later in the batch.
+    const files = videos.filter((file) => file.size <= MAX_UPLOAD_BYTES);
+    if (files.length < videos.length) {
+      toast.error(t("recordRoute.videoTooLarge"));
+    }
     if (files.length === 0) {
-      toast.error(t("recordRoute.uploadFailed"));
+      if (videos.length === 0) toast.error(t("recordRoute.uploadFailed"));
       return;
     }
     const uploadWithinFreeClips = async () => {
