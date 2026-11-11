@@ -1,6 +1,6 @@
 import type { ReviewMention } from "@agent-native/core/review/types";
 import Placeholder from "@tiptap/extension-placeholder";
-import type { NodeType } from "@tiptap/pm/model";
+import { Slice, type NodeType } from "@tiptap/pm/model";
 import { Selection, TextSelection } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -9,15 +9,21 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
+  useState,
   type Ref,
 } from "react";
 
+import { isComposingKey } from "./comment-send-key.js";
 import {
   parseReviewComposerText,
   REVIEW_MENTION_NODE_NAME,
   reviewMentionLeafText,
   serializeReviewComposerDoc,
 } from "./ReviewComposerText.js";
+import {
+  ReviewComposerToolbar,
+  type ReviewComposerFormatLabels,
+} from "./ReviewComposerToolbar.js";
 import { ReviewMentionNode } from "./ReviewMentionChip.js";
 
 const SILENT_META = "reviewComposerSilent";
@@ -44,7 +50,12 @@ export interface ReviewComposerEditorHandle {
   getMentionTrigger: () => ReviewComposerMentionTrigger | null;
   /** Everything before the caret as the body string, chips as `@label`. */
   getTextBeforeCaret: () => string;
+  /** Starts a new line, list item or code line, as Enter does in a document. */
   splitBlock: () => void;
+  /** Whether the caret is in a list or code block, where Enter goes on with it. */
+  enterContinuesBlock: () => boolean;
+  /** Whether the caret is in code, where `@` is only a character. */
+  isInCode: () => boolean;
 }
 
 /**
@@ -76,6 +87,7 @@ export interface ReviewComposerEditorProps {
   /** Omit when the field has no list; the editor is then a plain textbox. */
   combobox?: ReviewComposerEditorCombobox | undefined;
   className?: string;
+  formatLabels?: Partial<ReviewComposerFormatLabels> | undefined;
   /** User edits only; programmatic changes to `value` never call this. */
   onTextChange: (text: string) => void;
   onCaretChange?: () => void;
@@ -93,6 +105,7 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
     attributes,
     combobox,
     className,
+    formatLabels,
     onTextChange,
     onCaretChange,
     onKeyDown,
@@ -102,6 +115,7 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
 ) {
   const latest = useRef({
     placeholder,
+    mentions,
     onTextChange,
     onCaretChange,
     onKeyDown,
@@ -109,34 +123,62 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
   });
   latest.current = {
     placeholder,
+    mentions,
     onTextChange,
     onCaretChange,
     onKeyDown,
     onReady,
+  };
+  // The body the editor last said it holds, or was last given. A `value` equal
+  // to it is the editor's own, so it never resets the editor and its caret.
+  const lastValueRef = useRef(value);
+  // True while Shift+Enter replays Enter through the editor's own keymaps, so
+  // the host's Enter (send) stays out of it.
+  const replayingEnterRef = useRef(false);
+  // The link field's text while it's open.
+  const [linkDraft, setLinkDraft] = useState<string | null>(null);
+  const openLinkField = () => {
+    const instance = editorRef.current;
+    if (!instance || instance.isDestroyed || !instance.isEditable) return;
+    const href: unknown = instance.getAttributes("link").href;
+    setLinkDraft(typeof href === "string" ? href : "");
+  };
+  const pressEnter = () => {
+    const instance = editorRef.current;
+    if (!instance || instance.isDestroyed) return;
+    replayingEnterRef.current = true;
+    try {
+      instance.commands.keyboardShortcut("Enter");
+    } finally {
+      replayingEnterRef.current = false;
+    }
   };
 
   const editor = useEditor({
     immediatelyRender: false,
     editable: !disabled,
     content: parseReviewComposerText(value, mentions),
+    // Copied text keeps its lines, the way a paste of it reads them.
+    coreExtensionOptions: { clipboardTextSerializer: { blockSeparator: "\n" } },
+    // A paste reads Markdown once, below. Paste rules would also bold the
+    // asterisks in a page's text, or in text pasted as plain.
+    enablePasteRules: false,
     extensions: [
+      // What a comment can show: bold, italic, struck, code and links, with
+      // lists, quotes and code blocks. Markdown typed as you go formats.
       StarterKit.configure({
-        blockquote: false,
-        bold: false,
-        bulletList: false,
-        code: false,
-        codeBlock: false,
         dropcursor: false,
         gapcursor: false,
         hardBreak: false,
         heading: false,
         horizontalRule: false,
-        italic: false,
-        link: false,
-        listItem: false,
-        listKeymap: false,
-        orderedList: false,
-        strike: false,
+        link: {
+          openOnClick: false,
+          autolink: true,
+          linkOnPaste: true,
+          defaultProtocol: "https",
+          HTMLAttributes: { rel: "noopener noreferrer nofollow", target: null },
+        },
         trailingNode: false,
         underline: false,
       }),
@@ -152,30 +194,49 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
       attributes: {
         role: "textbox",
         "aria-multiline": "true",
+        // Cmd/Ctrl+K links here; the app's command menu leaves it alone.
+        "data-command-menu-shortcut": "own",
         ...attributes,
         ...(className ? { class: className } : {}),
       },
       handleKeyDown: (_view, event) => {
+        if (replayingEnterRef.current) return false;
         if (latest.current.onKeyDown?.(event)) return true;
-        if (
-          event.key === "Enter" &&
-          event.shiftKey &&
-          !event.isComposing &&
-          event.keyCode !== 229
-        ) {
+        if (isComposingKey(event)) return false;
+        if (event.key === "Enter" && event.shiftKey) {
           event.preventDefault();
-          editorRef.current?.commands.splitBlock();
+          pressEnter();
+          return true;
+        }
+        if (
+          (event.metaKey || event.ctrlKey) &&
+          !event.altKey &&
+          !event.shiftKey &&
+          event.key.toLowerCase() === "k"
+        ) {
+          // The box's own shortcut, not the page's.
+          event.preventDefault();
+          event.stopPropagation();
+          openLinkField();
           return true;
         }
         return false;
+      },
+      // Pasted text reads as the Markdown it shows as; Shift pastes it as
+      // plain lines. Rich text from a page comes as HTML and skips this.
+      clipboardTextParser: (text, _context, plain, view) => {
+        const doc = plain
+          ? plainLinesDoc(text)
+          : parseReviewComposerText(text, latest.current.mentions);
+        return Slice.maxOpen(view.state.schema.nodeFromJSON(doc).content);
       },
     },
     onCreate: () => latest.current.onReady?.(),
     onUpdate: ({ editor: instance, transaction }) => {
       if (transaction.getMeta(SILENT_META)) return;
-      latest.current.onTextChange(
-        serializeReviewComposerDoc(instance.state.doc),
-      );
+      const text = serializeReviewComposerDoc(instance.state.doc);
+      lastValueRef.current = text;
+      latest.current.onTextChange(text);
       latest.current.onCaretChange?.();
     },
     onSelectionUpdate: () => latest.current.onCaretChange?.(),
@@ -185,6 +246,8 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
+    if (value === lastValueRef.current) return;
+    lastValueRef.current = value;
     if (serializeReviewComposerDoc(editor.state.doc) === value) return;
     editor
       .chain()
@@ -285,7 +348,9 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
         tr.setMeta(SILENT_META, true);
         view.dispatch(tr);
         view.focus();
-        return serializeReviewComposerDoc(tr.doc);
+        const text = serializeReviewComposerDoc(tr.doc);
+        lastValueRef.current = text;
+        return text;
       },
       getMentionTrigger: () => {
         const instance = editorRef.current;
@@ -314,12 +379,45 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
           reviewMentionLeafText,
         );
       },
-      splitBlock: () => {
-        editorRef.current?.commands.splitBlock();
+      splitBlock: pressEnter,
+      enterContinuesBlock: () => {
+        const instance = editorRef.current;
+        if (!instance || instance.isDestroyed) return false;
+        return instance.isActive("listItem") || instance.isActive("codeBlock");
+      },
+      isInCode: () => {
+        const instance = editorRef.current;
+        if (!instance || instance.isDestroyed) return false;
+        return instance.isActive("codeBlock") || instance.isActive("code");
       },
     }),
     [],
   );
 
-  return <EditorContent editor={editor} />;
+  return (
+    <>
+      <EditorContent editor={editor} />
+      <ReviewComposerToolbar
+        editor={editor}
+        labels={formatLabels}
+        linkDraft={linkDraft}
+        onLinkDraftChange={setLinkDraft}
+        onOpenLink={openLinkField}
+      />
+    </>
+  );
 });
+
+/** Text as its lines, each kept as typed. */
+function plainLinesDoc(text: string) {
+  return {
+    type: "doc",
+    content: text
+      .split(/\r\n?|\n/)
+      .map((line) =>
+        line
+          ? { type: "paragraph", content: [{ type: "text", text: line }] }
+          : { type: "paragraph" },
+      ),
+  };
+}

@@ -34,6 +34,7 @@ import {
   ReviewComposerEditor,
   type ReviewComposerEditorHandle,
 } from "./ReviewComposerEditor.js";
+import type { ReviewComposerFormatLabels } from "./ReviewComposerToolbar.js";
 import {
   ReviewMentionPicker,
   reviewMentionOptionId,
@@ -43,8 +44,13 @@ import {
 const DEFAULT_COMPOSER_EMOJIS = ["👍", "❤️", "🎉", "👀"] as const;
 const EMAIL_LOCAL_PART_BOUNDARY = /(?:^|\s)[^\s@]*[\p{L}\p{N}][^\s@]*[+-]$/u;
 const NAME_CHAR = /[\p{L}\p{M}\p{N}_]/u;
+// Lists, quotes, code and links look and space out as the posted comment
+// draws them. Code sits on the page's background, as the field is the shade
+// a posted comment's code has. The placeholder shows on the box's only
+// paragraph while it's empty: TipTap's empty-editor class misses a change that
+// empties the box at once, such as sending.
 const EDITOR_CLASS =
-  "min-w-0 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-5 text-foreground outline-none [&>p]:m-0 [&>p.is-editor-empty:first-child]:before:pointer-events-none [&>p.is-editor-empty:first-child]:before:float-start [&>p.is-editor-empty:first-child]:before:h-0 [&>p.is-editor-empty:first-child]:before:text-muted-foreground [&>p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]";
+  "min-w-0 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-5 text-foreground outline-none [&_p]:m-0 [&_ul]:list-disc [&_ul]:ps-5 [&_ol]:list-decimal [&_ol]:ps-5 [&_blockquote]:border-s-2 [&_blockquote]:border-border [&_blockquote]:ps-2.5 [&_blockquote]:text-muted-foreground [&>ul]:my-2 [&>ol]:my-2 [&>blockquote]:my-2 [&>pre]:my-2 [&>:first-child]:mt-0 [&>:last-child]:mb-0 [&_code]:rounded [&_code]:bg-background [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.9em] [&_pre]:whitespace-pre-wrap [&_pre]:rounded [&_pre]:bg-background [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 [&>p.is-empty:only-child]:before:pointer-events-none [&>p.is-empty:only-child]:before:float-start [&>p.is-empty:only-child]:before:h-0 [&>p.is-empty:only-child]:before:text-muted-foreground [&>p.is-empty:only-child]:before:content-[attr(data-placeholder)]";
 
 export interface ReviewCommentComposerProps {
   value: string;
@@ -81,6 +87,8 @@ export interface ReviewCommentComposerProps {
   agentsLabel?: string | undefined;
   noMentionsLabel?: string | undefined;
   mentionFailedLabel?: string | undefined;
+  /** Names for the formatting bar over selected text and its link field. */
+  formatLabels?: Partial<ReviewComposerFormatLabels> | undefined;
   submittingTarget?: ReviewResolutionTarget | null | undefined;
   disabled?: boolean | undefined;
   showCommentAction?: boolean;
@@ -133,6 +141,7 @@ export function ReviewCommentComposer({
   agentsLabel = "Agents",
   noMentionsLabel = "No people found",
   mentionFailedLabel = "Couldn't load people",
+  formatLabels,
   submittingTarget = null,
   disabled = false,
   showCommentAction = true,
@@ -346,7 +355,8 @@ export function ReviewCommentComposer({
       event.key === "@" &&
       !event.metaKey &&
       !event.ctrlKey &&
-      !event.altKey
+      !event.altKey &&
+      !editorRef.current?.isInCode()
     ) {
       const textBefore = editorRef.current?.getTextBeforeCaret() ?? "";
       const previousCharacter = [...textBefore].pop();
@@ -360,6 +370,17 @@ export function ReviewCommentComposer({
         syncMention();
         return true;
       }
+    }
+    // In a list or code block, Enter goes on with it, as in a document. Enter
+    // on an empty list item ends the list, and the next Enter sends.
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      editorRef.current?.enterContinuesBlock()
+    ) {
+      return false;
     }
     if (
       isCommentSendKey(event) &&
@@ -480,6 +501,7 @@ export function ReviewCommentComposer({
                     : undefined
                 }
                 className={cn(EDITOR_CLASS, expanded && "min-h-10")}
+                formatLabels={formatLabels}
                 onTextChange={updateValue}
                 onCaretChange={syncMention}
                 onKeyDown={handleKeyDown}

@@ -1282,6 +1282,49 @@ describe("CommandMenu", () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
+  it("leaves Cmd+K to a field that takes it for itself", () => {
+    const fieldHandled = vi.fn();
+
+    function ShortcutHarness() {
+      const [open, setOpen] = React.useState(false);
+      useCommandMenuShortcut(() => setOpen(true), {
+        allowContentEditable: true,
+      });
+      return (
+        <>
+          <div
+            contentEditable
+            data-command-menu-shortcut="own"
+            onKeyDown={(event) => fieldHandled(event.defaultPrevented)}
+          >
+            Comment
+          </div>
+          <span>{open ? "open" : "closed"}</span>
+        </>
+      );
+    }
+
+    act(() => {
+      root.render(<ShortcutHarness />);
+    });
+
+    const field = document.querySelector("[contenteditable=true]");
+    expect(field).toBeTruthy();
+    const event = new KeyboardEvent("keydown", {
+      key: "k",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      field?.dispatchEvent(event);
+    });
+
+    expect(document.body.textContent).toContain("closed");
+    expect(fieldHandled).toHaveBeenCalledWith(false);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it("orders app groups and commands by their explicit positions", () => {
     renderAppCommands({
       groups: [
