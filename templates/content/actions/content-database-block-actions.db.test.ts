@@ -782,20 +782,24 @@ describe("exact Content database block actions", () => {
         createdAt: 0,
       });
     }
-    const addProperty = (name: string, type: "blocks" | "files_media") =>
-      asOwner(() =>
+    const addProperty = async (
+      name: string,
+      type: "blocks" | "files_media",
+    ) => {
+      const added = await asOwner(() =>
         configureProperty.run({
           documentId: state.databaseDocumentId,
           databaseId: state.databaseId,
           name,
           type,
         }),
-      ).then(
-        (added) =>
-          added.properties.find(
-            (property) => property.definition.name === name,
-          )!,
       );
+      const property = added.properties.find(
+        (candidate) => candidate.definition.name === name,
+      );
+      if (!property) throw new Error(`Property "${name}" was not added.`);
+      return property;
+    };
     const notes = await addProperty("Image notes", "blocks");
     const files = await addProperty("Attachments", "files_media");
 
