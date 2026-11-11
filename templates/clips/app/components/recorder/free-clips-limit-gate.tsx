@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   cloneElement,
   useEffect,
@@ -7,6 +8,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 
 import {
   Popover,
@@ -56,6 +58,7 @@ export function markLastClipPromptSeen(): void {
  * hold the control directly, render `root` outside it and `anchor` inside.
  */
 export function useFreeClipsGate(action: "record" | "upload") {
+  const t = useT();
   const storage = useVideoStorageStatus();
   const [open, setOpen] = useState(false);
   const [promptSeen, setPromptSeen] = useState(lastClipPromptSeen);
@@ -110,13 +113,18 @@ export function useFreeClipsGate(action: "record" | "upload") {
   const storageUsable = status?.configured === true;
   useEffect(() => {
     if (!open || promptApplies) return;
-    const pending =
-      storageUsable && resumableRef.current ? pendingRef.current : [];
+    const held = pendingRef.current;
     pendingRef.current = [];
     openRef.current = false;
     setOpen(false);
-    for (const proceed of pending) proceed();
-  }, [open, promptApplies, storageUsable]);
+    if (!storageUsable) return;
+    if (resumableRef.current) {
+      for (const proceed of held) proceed();
+    } else if (held.length > 0) {
+      // The click it held needs a fresh one; say storage is ready for it.
+      toast.success(t("storageSetup.builderConnected"));
+    }
+  }, [open, promptApplies, storageUsable, t]);
 
   const anchor = (control: ReactElement) => (
     <PopoverAnchor asChild>{control}</PopoverAnchor>
