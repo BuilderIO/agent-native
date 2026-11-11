@@ -5421,15 +5421,16 @@ function ThreadView({
   const replyBoxShown = isExpanded && canComment && !resolved;
   useEffect(() => {
     if (!isPanel || !replyBoxShown) return;
-    const frame = requestAnimationFrame(() =>
+    const frame = requestAnimationFrame(() => {
+      const reduceMotion =
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- the tests' jsdom has no matchMedia
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- nor this scroll
       replyBoxRef.current?.scrollIntoView?.({
         block: "nearest",
-        behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)")
-          .matches
-          ? "auto"
-          : "smooth",
-      }),
-    );
+        behavior: reduceMotion ? "auto" : "smooth",
+      });
+    });
     return () => cancelAnimationFrame(frame);
   }, [isPanel, replyBoxShown]);
 
@@ -5447,7 +5448,7 @@ function ThreadView({
       return;
     onCollapse();
     requestAnimationFrame(() =>
-      cardRef.current
+      cardRef.current // i18n-ignore selector, not copy
         ?.querySelector<HTMLElement>("[data-comment-reply-action]")
         ?.focus({ preventScroll: true }),
     );

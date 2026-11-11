@@ -9430,7 +9430,7 @@ function PageEditorSessionBody({
     if (!threadId) return;
     // Back where Show was pressed, on the thread's Show.
     requestAnimationFrame(() =>
-      pagePanelRef.current
+      pagePanelRef.current // i18n-ignore selector, not copy
         ?.querySelector<HTMLElement>(
           `[data-thread-card="${CSS.escape(threadId)}"] [data-discussion-subject]`,
         )

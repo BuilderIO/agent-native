@@ -99,7 +99,7 @@ export const DISCUSSION_SECTIONS: readonly DiscussionTarget[] = [
 ];
 export const DISCUSSION_SECTION_LABELS = {
   property: "comments.sectionProperties",
-  text: "comments.sectionText",
+  text: "comments.sectionText", // i18n-ignore message key
   page: "comments.sectionPage",
 } as const satisfies Record<DiscussionTarget, string>;
 
@@ -616,7 +616,7 @@ export function DiscussionPeekBar({
   const backRef = useRef<HTMLButtonElement>(null);
   // Show's button went with the panel, so the way back takes focus.
   useEffect(() => backRef.current?.focus({ preventScroll: true }), []);
-  const first = thread.comments[0];
+  const first = thread.comments.length ? thread.comments[0] : undefined;
   return (
     <div
       className={cn(
@@ -658,6 +658,7 @@ export function DiscussionPeekBar({
   );
 }
 
+// guard:allow-raw-color — the comment highlight's hue, as global.css spells it in both themes; each keyframe sets its own alpha.
 const SHOW_PULSE_COLOR = "hsl(45 93% 47%";
 const showPulses = new WeakMap<Element, Animation>();
 

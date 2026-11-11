@@ -764,8 +764,9 @@ describe("the Discussion panel", () => {
 
   it("puts the page composer above the threads, filed under where each points", () => {
     render();
-    const composer = container.querySelector("[data-discussion-composer]")!;
-    const feed = container.querySelector("[data-comments-feed]")!;
+    const composer = container.querySelector("[data-discussion-composer]");
+    const feed = container.querySelector("[data-comments-feed]");
+    if (!composer || !feed) throw new Error("Discussion didn't render");
     expect(
       composer.compareDocumentPosition(feed) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -792,7 +793,7 @@ describe("the Discussion panel", () => {
     expect(show?.querySelector("[data-comment-quote]")?.textContent).toBe(
       "Quoted line",
     );
-    await act(async () => show!.click());
+    await act(async () => show?.click());
     expect(showSubject).toHaveBeenCalledWith(
       expect.objectContaining({ threadId: "text-1" }),
     );
@@ -816,12 +817,14 @@ describe("the Discussion panel", () => {
     await click('[data-thread-card="text-1"] [data-comment-reply-action]');
     const box = () =>
       container.querySelector<HTMLElement>("[data-comment-reply-composer]");
-    expect(box()).not.toBeNull();
-    await setRichEditorValue(richEditor(box()!)!, "Agreed");
+    const opened = box();
+    const editor = opened ? richEditor(opened) : null;
+    if (!editor) throw new Error("The reply box didn't open");
+    await setRichEditorValue(editor, "Agreed");
     await act(async () =>
-      box()!
-        .querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')!
-        .click(),
+      box()
+        ?.querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')
+        ?.click(),
     );
     expect(actions.create).toHaveBeenCalledOnce();
     expect(box()).toBeNull();

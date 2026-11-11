@@ -273,7 +273,7 @@ describe("Property comments in the comments sidebar", () => {
       'comments.showPropertyInInfo:{"property":"Score"}',
     );
     expect(subject()?.textContent).toContain("Score · 5");
-    await act(async () => subject()!.click());
+    await act(async () => subject()?.click());
     expect(showSubject).toHaveBeenCalledWith(scoreThread);
 
     // A removed Property has nowhere to show.
