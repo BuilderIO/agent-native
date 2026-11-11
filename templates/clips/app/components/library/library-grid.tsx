@@ -8,6 +8,7 @@ import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import { sendRecordingBatches } from "@shared/recording-batch";
 import { IconAlertTriangle, IconPhoto } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   type DragEvent,
   type ReactElement,
@@ -50,6 +51,7 @@ import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
 import {
   fetchVideoStorageStatus,
   useVideoStorageStatus,
+  VIDEO_STORAGE_STATUS_KEY,
   type VideoStorageStatus,
 } from "@/hooks/use-video-storage-status";
 import { OPEN_CREATE_FOLDER_EVENT } from "@/lib/command-events";
@@ -418,6 +420,7 @@ export function LibraryGrid({
     setStorageGateIssue,
   );
   const dropGate = useFreeClipsGate("upload");
+  const queryClient = useQueryClient();
   // Drops are admitted one at a time against what's left. Files admitted
   // since the last render aren't in `uploads` yet, so they're counted here
   // until it catches up.
@@ -673,7 +676,7 @@ export function LibraryGrid({
       if (videos.length === 0) toast.error(t("recordRoute.uploadFailed"));
       return;
     }
-    const uploadWithinFreeClips = async () => {
+    const uploadWithinFreeClips = async (prompted: boolean) => {
       // Each upload uses a free clip, so a batch bigger than what's left
       // would queue files the server is about to refuse. Queued files that
       // haven't created their recording haven't reserved a clip yet; count
@@ -690,32 +693,48 @@ export function LibraryGrid({
         setStorageGateIssue("unavailable");
         return;
       }
+      // The sidebar and the gates read the same status, so they show what
+      // this read found; the prompt below decides on it too.
+      queryClient.setQueryData(VIDEO_STORAGE_STATUS_KEY, status);
+      if (
+        !prompted &&
+        dropGate.guard(() => admit(true), { queue: true, status })
+      ) {
+        return;
+      }
+      // Hosted clips can have a smaller size cap than uploads in general.
+      const fitting =
+        status.mode === "hosted" && status.maxClipBytes > 0
+          ? files.filter((file) => file.size <= status.maxClipBytes)
+          : files;
+      if (fitting.length < files.length) {
+        toast.error(t("recordRoute.videoTooLarge"));
+      }
       const capacity = freeClipsCapacity(status);
       const allowed =
         capacity === null
-          ? files
-          : files.slice(0, Math.max(0, capacity - queued));
+          ? fitting
+          : fitting.slice(0, Math.max(0, capacity - queued));
       admittedSinceRenderRef.current += allowed.length;
-      if (allowed.length < files.length) {
+      if (allowed.length < fitting.length) {
         toast(
           t("freeClips.dropOverLimit", {
             uploaded: allowed.length,
-            total: files.length,
+            total: fitting.length,
           }),
         );
       }
       if (allowed.length > 0) uploadFiles(allowed);
     };
-    const proceed = () => {
+    const admit = (prompted: boolean) => {
       dropAdmissionRef.current = dropAdmissionRef.current
-        .then(uploadWithinFreeClips)
+        .then(() => uploadWithinFreeClips(prompted))
         .catch((error: unknown) => {
           console.error("[clips] dropped video upload failed to start:", error);
           toast.error(t("recordRoute.uploadFailed"));
         });
     };
-    if (dropGate.guard(proceed, { queue: true })) return;
-    proceed();
+    admit(false);
   };
 
   const retryStorageStatus = async () => {

@@ -1920,10 +1920,9 @@ export default function RecordRoute() {
                   ? { status: cause.status }
                   : { message: cause.message }),
               });
-              if (
-                cause.kind === "http" &&
-                (cause.status === 503 || cause.storageSetupRequired)
-              ) {
+              // Any refusal can mean storage or the free clips moved, such
+              // as another device using the last one after this page read it.
+              if (cause.kind === "http") {
                 void queryClient.invalidateQueries({
                   queryKey: VIDEO_STORAGE_STATUS_KEY,
                 });

@@ -12,7 +12,10 @@ import {
   PopoverAnchor,
   PopoverContent,
 } from "@/components/ui/popover";
-import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
+import {
+  useVideoStorageStatus,
+  type VideoStorageStatus,
+} from "@/hooks/use-video-storage-status";
 
 import { FreeClipsLimitCard } from "./free-clips-limit-card";
 import { trackFreeClipsOffer } from "./use-builder-storage-activation";
@@ -61,14 +64,22 @@ export function useFreeClipsGate(action: "record" | "upload") {
   const openRef = useRef(false);
   const status = storage.data;
   const usedUp = status?.denyReason === "exhausted";
-  const lastClip =
-    !promptSeen && status?.mode === "hosted" && status.hostedRemaining === 1;
 
   const guard = (
     proceed: () => void,
-    { queue = false }: { queue?: boolean } = {},
+    {
+      queue = false,
+      status: fresh = status,
+    }: {
+      queue?: boolean;
+      /** A status read just now, in place of the cached one. */
+      status?: VideoStorageStatus;
+    } = {},
   ): boolean => {
-    if (!status || (!usedUp && !lastClip)) return false;
+    if (!fresh) return false;
+    const lastClip =
+      !promptSeen && fresh.mode === "hosted" && fresh.hostedRemaining === 1;
+    if (fresh.denyReason !== "exhausted" && !lastClip) return false;
     if (lastClip) markLastClipPromptSeen();
     pendingRef.current =
       queue && openRef.current ? [...pendingRef.current, proceed] : [proceed];
