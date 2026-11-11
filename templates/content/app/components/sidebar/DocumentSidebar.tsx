@@ -2779,6 +2779,7 @@ export function DocumentSidebar({
         tempDoc,
         contentSpaces.find((space) => space.id === rootSpaceId)
           ?.filesDatabaseId ?? null,
+        "database",
       );
       navigateToDocument(id);
       onNavigate?.();
