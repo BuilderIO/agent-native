@@ -621,8 +621,9 @@ async function runBackgroundProgram(
         `[data-programs] couldn't check background run ${active.id}:`,
         err,
       );
-      statusUnknown = true;
     }
+    // An execution this viewer can't find won't report back either.
+    statusUnknown = execution === null;
     if (
       execution &&
       execution.status !== "queued" &&
