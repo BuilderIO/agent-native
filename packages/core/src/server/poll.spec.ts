@@ -488,6 +488,87 @@ describe("AppSyncState read through other people's resources", () => {
     expect(resolveAccessMany).toHaveBeenCalledTimes(2);
   });
 
+  it("ignores a batch's answer that arrives after its deadline", async () => {
+    vi.useFakeTimers();
+    const rows = durableRows([{ resourceType: "document", resourceId: "a" }]);
+    let finishFirst!: (visible: Set<string>) => void;
+    const resolveAccessMany = vi
+      .fn<(type: string, ids: string[]) => Promise<Set<string>>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishFirst = resolve;
+          }),
+      )
+      // The reader lost access by the time the second check ran.
+      .mockImplementation(async () => new Set());
+    const state = stateReading(rows, {
+      resolveAccess: () => new Promise(() => {}),
+      resolveAccessMany,
+    });
+    const read = () =>
+      state.getDurableChangesSinceForUser(5, "reader@example.com", undefined, {
+        version: 5,
+        id: "",
+      });
+    const event = {
+      owner: "writer@example.com",
+      resourceType: "document",
+      resourceId: "a",
+    };
+
+    await read();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await read();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resolveAccessMany).toHaveBeenCalledTimes(2);
+    expect(
+      state.getChangeVisibilityForUser(event, "reader@example.com", undefined),
+    ).toBe("hidden");
+
+    finishFirst(new Set(["a"]));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(
+      state.getChangeVisibilityForUser(event, "reader@example.com", undefined),
+    ).toBe("hidden");
+  });
+
+  it("counts a batch past its deadline against the instance's limit until it ends", async () => {
+    vi.useFakeTimers();
+    const rows = durableRows(othersDocuments(300));
+    const finish: Array<(visible: Set<string>) => void> = [];
+    const resolveAccessMany = vi.fn(
+      () =>
+        new Promise<Set<string>>((resolve) => {
+          finish.push(resolve);
+        }),
+    );
+    const state = stateReading(rows, {
+      resolveAccess: () => new Promise(() => {}),
+      resolveAccessMany,
+    });
+    const read = (reader: number) =>
+      state.getDurableChangesSinceForUser(
+        5,
+        `reader-${reader}@example.com`,
+        undefined,
+        { version: 5, id: "" },
+      );
+
+    for (let reader = 0; reader < 4; reader++) await read(reader);
+    await vi.advanceTimersByTimeAsync(30_000);
+    // The four batches are past their deadline, but their resolvers still
+    // run, so a fifth reader starts none.
+    await read(4);
+    expect(resolveAccessMany).toHaveBeenCalledTimes(4);
+
+    finish[0]?.(new Set());
+    await vi.advanceTimersByTimeAsync(0);
+    await read(4);
+    expect(resolveAccessMany).toHaveBeenCalledTimes(5);
+  });
+
   it("loads whole rows for resource types a host resolver decides", async () => {
     vi.mocked(sharingAccess.resolveAccessMany).mockClear();
     // One type per read: of two dynamic imports of a mocked module started at

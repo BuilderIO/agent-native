@@ -103,8 +103,9 @@ const ACCESS_RETRY_LIMIT = 8;
 // How many resources with a host access resolver one batch query checks.
 const HOST_ACCESS_CHUNK = 8;
 // How many checks reads may have running at once on an instance, across all
-// readers: four reads' worth. Past it, a read starts no batch, and checks only
-// the change it stops at.
+// readers, counting batches past their deadline whose resolver still runs:
+// four reads' worth. Past it, a read starts no batch, and checks only the
+// change it stops at.
 const ACCESS_IN_FLIGHT_MAX = 1_000;
 // How long a batch check may run before the resources it hasn't answered go
 // back unchecked, for a later read to check again.
@@ -622,6 +623,9 @@ export class AppSyncState {
     { allowed: boolean; checkedAt: number }
   >();
   private readonly accessInFlight = new Map<string, Promise<void>>();
+  // Resources whose batch check passed its deadline while its resolver still
+  // runs. They count against ACCESS_IN_FLIGHT_MAX until it ends.
+  private accessChecksPastDeadline = 0;
   private readonly accessInvalidationEpoch = new Map<string, number>();
   private readonly accessAllowTtlMs: number;
 
@@ -1046,7 +1050,10 @@ export class AppSyncState {
     const checking = new Set<string>();
     // Every reader on the instance shares the running checks, so concurrent
     // reads together stay under ACCESS_IN_FLIGHT_MAX.
-    const room = ACCESS_IN_FLIGHT_MAX - this.accessInFlight.size;
+    const room =
+      ACCESS_IN_FLIGHT_MAX -
+      this.accessInFlight.size -
+      this.accessChecksPastDeadline;
     let started = 0;
     for (const event of events) {
       if (checking.size >= ACCESS_PRIME_LIMIT) break;
@@ -1112,6 +1119,9 @@ export class AppSyncState {
         ) ?? 0,
       ]),
     );
+    // An answer counts only while this batch still owns the resource's
+    // check. Past the deadline a newer check may have answered since, and a
+    // late answer must not overwrite it.
     const cacheUnlessInvalidated = (resourceId: string, allowed: boolean) => {
       const key = keys.get(resourceId);
       const epoch =
@@ -1119,6 +1129,7 @@ export class AppSyncState {
           accessResourceKey(resourceType, resourceId),
         ) ?? 0;
       if (!key || epoch !== epochs.get(resourceId)) return;
+      if (this.accessInFlight.get(key) !== check) return;
       this.setAccessCache(key, allowed, Date.now());
     };
     const ids = [...keys.keys()];
@@ -1171,13 +1182,23 @@ export class AppSyncState {
       try {
         // A resolver that never answers would hold these resources pending,
         // and every read stuck behind them, for good.
-        await Promise.race([
-          work,
-          new Promise<void>((resolve) => {
-            timer = setTimeout(resolve, ACCESS_BATCH_TIMEOUT_MS);
+        const outcome = await Promise.race([
+          work.then(() => "ended" as const),
+          new Promise<"past deadline">((resolve) => {
+            timer = setTimeout(
+              () => resolve("past deadline"),
+              ACCESS_BATCH_TIMEOUT_MS,
+            );
             (timer as { unref?: () => void }).unref?.();
           }),
         ]);
+        if (outcome === "past deadline") {
+          this.accessChecksPastDeadline += keys.size;
+          const ended = () => {
+            this.accessChecksPastDeadline -= keys.size;
+          };
+          void work.then(ended, ended);
+        }
       } finally {
         clearTimeout(timer);
         for (const key of keys.values()) this.endAccessCheck(key, check);
@@ -1189,6 +1210,7 @@ export class AppSyncState {
   __resetAccessCacheForTests(): void {
     this.accessCache.clear();
     this.accessInFlight.clear();
+    this.accessChecksPastDeadline = 0;
     this.accessInvalidationEpoch.clear();
   }
 
