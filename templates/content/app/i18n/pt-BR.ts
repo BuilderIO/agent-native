@@ -1737,7 +1737,7 @@ const overrides = {
     commandSearchInPageDescription:
       "Somente esta página e as páginas dentro dela",
     commandScopeChip: "Em “{{title}}”",
-    commandClearScope: "Pesquisar em todos os lugares",
+    commandClearScope: "Pesquisar em todo o espaço",
     commandAskAgent: "Perguntar ao agente: “{{query}}”",
     commandAskAgentDescription:
       "O agente pode pesquisar, ler e resumir para você",

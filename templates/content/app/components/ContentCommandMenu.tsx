@@ -222,16 +222,16 @@ export function contentCommandGroups({
         onSelect: () => actions.setPinned(page.id, !pinned),
       });
     }
-    if (editable) {
-      if (!isLocalFileDocumentId(page.id)) {
-        commands.push({
-          id: "move",
-          order: 4,
-          label: t("sidebar.moveTo"),
-          keywords: ["parent", "folder", "workspace"],
-          onSelect: () => actions.movePage(page.id),
-        });
-      }
+    // Pages from a local folder can't be moved or hold sub-pages, as in the
+    // sidebar.
+    if (editable && !isLocalFileDocumentId(page.id)) {
+      commands.push({
+        id: "move",
+        order: 4,
+        label: t("sidebar.moveTo"),
+        keywords: ["parent", "folder", "workspace"],
+        onSelect: () => actions.movePage(page.id),
+      });
       commands.push({
         id: "add-sub-page",
         order: 5,
@@ -566,7 +566,15 @@ export function ContentCommandMenu({
     if (event.nativeEvent.isComposing) return;
     const plain =
       !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
-    if (event.key === "Tab" && plain && currentPageId && !scopedToPage) {
+    // Once there's a query the filters show, and Tab moves to them; their
+    // Scope picker can still choose this page.
+    if (
+      event.key === "Tab" &&
+      plain &&
+      currentPageId &&
+      !scopedToPage &&
+      event.currentTarget.value.trim() === ""
+    ) {
       event.preventDefault();
       setScope(THIS_PAGE_SCOPE);
       return;
@@ -591,7 +599,7 @@ export function ContentCommandMenu({
       {currentPageId ? (
         scopedToPage ? (
           <KeyHint keys="⌫" label={t("root.commandClearScope")} />
-        ) : (
+        ) : wide ? null : (
           <KeyHint keys="Tab" label={t("root.commandSearchInPage")} />
         )
       ) : null}

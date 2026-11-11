@@ -1703,7 +1703,7 @@ const overrides = {
     commandSearchInPage: "このページ内を検索",
     commandSearchInPageDescription: "このページとその中のページのみ",
     commandScopeChip: "「{{title}}」内",
-    commandClearScope: "すべての場所を検索",
+    commandClearScope: "ワークスペース全体を検索",
     commandAskAgent: "エージェントに質問:「{{query}}」",
     commandAskAgentDescription:
       "エージェントが検索、閲覧、要約を代わりに行います",

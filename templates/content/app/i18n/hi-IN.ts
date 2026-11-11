@@ -1666,7 +1666,7 @@ const overrides = {
     commandSearchInPage: "इस पेज में खोजें",
     commandSearchInPageDescription: "सिर्फ़ यह पेज और इसके अंदर के पेज",
     commandScopeChip: "“{{title}}” में",
-    commandClearScope: "हर जगह खोजें",
+    commandClearScope: "पूरे कार्यक्षेत्र में खोजें",
     commandAskAgent: "एजेंट से पूछें: “{{query}}”",
     commandAskAgentDescription: "एजेंट आपके लिए खोज, पढ़ और सारांश बना सकता है",
     commandPreview: "प्रीव्यू",

@@ -1988,7 +1988,7 @@ const overrides = {
     commandSearchInPageDescription:
       "Solo esta página y las páginas que contiene",
     commandScopeChip: "En «{{title}}»",
-    commandClearScope: "Buscar en todas partes",
+    commandClearScope: "Buscar en todo el espacio",
     commandAskAgent: "Preguntar al agente: «{{query}}»",
     commandAskAgentDescription: "El agente puede buscar, leer y resumir por ti",
     commandPreview: "Vista previa",

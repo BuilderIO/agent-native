@@ -1688,7 +1688,7 @@ const overrides = {
     commandSearchInPage: "البحث في هذه الصفحة",
     commandSearchInPageDescription: "هذه الصفحة والصفحات الموجودة داخلها فقط",
     commandScopeChip: "في «{{title}}»",
-    commandClearScope: "البحث في كل مكان",
+    commandClearScope: "البحث في مساحة العمل بالكامل",
     commandAskAgent: "اسأل الوكيل: «{{query}}»",
     commandAskAgentDescription: "يمكن للوكيل البحث والقراءة والتلخيص نيابةً عنك",
     commandPreview: "معاينة",

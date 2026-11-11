@@ -1429,7 +1429,7 @@ const enUS = {
     commandSearchInPage: "Search in this page",
     commandSearchInPageDescription: "Only this page and the pages inside it",
     commandScopeChip: "In “{{title}}”",
-    commandClearScope: "Search everywhere",
+    commandClearScope: "Search the whole workspace",
     commandAskAgent: "Ask the agent: “{{query}}”",
     commandAskAgentDescription:
       "The agent can search, read and summarize for you",

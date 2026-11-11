@@ -224,21 +224,23 @@ describe("contentCommandGroups", () => {
     ).toEqual(["search-in-page", "copy-link"]);
   });
 
-  it("does not offer moving a local file", () => {
-    expect(
-      commandIds(
-        "page",
-        groupsFor({
-          page: {
-            id: "local-file:notes/today.md",
-            title: "today",
-            isFavorite: false,
-            canEdit: true,
-            scoped: false,
-          },
-        }),
-      ),
-    ).not.toContain("move");
+  it("does not offer moving a local file or adding a sub-page to it", () => {
+    for (const id of ["local-file:notes/today.md", "local-folder:notes"]) {
+      expect(
+        commandIds(
+          "page",
+          groupsFor({
+            page: {
+              id,
+              title: "today",
+              isFavorite: false,
+              canEdit: true,
+              scoped: false,
+            },
+          }),
+        ),
+      ).toEqual(["search-in-page", "copy-link", "pin"]);
+    }
   });
 
   it("lists up to five recent pages other than the open one, with where they live", () => {
@@ -397,6 +399,21 @@ describe("ContentCommandMenu", () => {
     type(input, "x");
     press(input, "Backspace");
     expect(chip()).not.toBeNull();
+  });
+
+  it("leaves Tab to reach the filters once there's a query", async () => {
+    const input = await renderMenu();
+    type(input, "road");
+    const tab = new KeyboardEvent("keydown", {
+      key: "Tab",
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      input.dispatchEvent(tab);
+    });
+    expect(tab.defaultPrevented).toBe(false);
+    expect(chip()).toBeNull();
   });
 
   it("widens into search with filters, a preview pane and the agent last", async () => {

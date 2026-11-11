@@ -1692,7 +1692,7 @@ const overrides = {
     commandSearchInPage: "이 페이지에서 검색",
     commandSearchInPageDescription: "이 페이지와 그 안의 페이지만",
     commandScopeChip: "“{{title}}” 안에서",
-    commandClearScope: "모든 곳에서 검색",
+    commandClearScope: "워크스페이스 전체 검색",
     commandAskAgent: "에이전트에게 묻기: “{{query}}”",
     commandAskAgentDescription: "에이전트가 대신 검색하고 읽고 요약해 드립니다",
     commandPreview: "미리 보기",

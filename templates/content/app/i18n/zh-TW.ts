@@ -275,7 +275,7 @@ const overrides = {
     commandSearchInPage: "在此頁面中搜尋",
     commandSearchInPageDescription: "僅此頁面及其中的頁面",
     commandScopeChip: "在「{{title}}」中",
-    commandClearScope: "在所有位置搜尋",
+    commandClearScope: "搜尋整個工作區",
     commandAskAgent: "詢問代理：「{{query}}」",
     commandAskAgentDescription: "代理可以替你搜尋、閱讀和摘要",
     commandPreview: "預覽",
