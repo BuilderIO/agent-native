@@ -900,6 +900,10 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  // No list here replaces a saved one: `deleteSupersededSetIds: []` deletes
+  // nothing and `features: []` shows none, so GPT-6 Luna's padded `[]` beside
+  // padded nulls can run as sent.
+  emptyListsEraseNothing: true,
   run: withGenerationAttempt(async (input, context, attempt) => {
     const {
       designId,

@@ -54,6 +54,18 @@ describe("previewFrameSize", () => {
     ).toEqual({ width: 1440, height: 900 });
   });
 
+  it("previews the device version a fixed-artwork prompt names", () => {
+    const prompt = "Design a poster for our jazz night with a mobile version";
+    expect(size({ prompt, fixedCanvas: true })).toEqual({
+      width: 390,
+      height: 844,
+    });
+    expect(size({ prompt, devices: ["desktop"] })).toEqual({
+      width: 390,
+      height: 844,
+    });
+  });
+
   it("uses the widest requested device", () => {
     expect(
       size({ prompt: "A dashboard", devices: ["mobile", "tablet"] }),
