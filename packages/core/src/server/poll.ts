@@ -473,6 +473,18 @@ export type ChangeReadResult = {
   accessPending?: boolean;
 };
 
+/** What one combined read tracks about access checks across its two sources. */
+type AccessRead = {
+  /**
+   * Checks it started or found still running, which count toward its limit.
+   * Counting running ones keeps a slow check from letting each poll start
+   * another 250 behind it.
+   */
+  checking: Set<string>;
+  /** The running checks of the changes it stopped at. */
+  blockedOn: Set<Promise<void>>;
+};
+
 export type AccessResolver = (
   resourceType: string,
   resourceId: string,
@@ -536,6 +548,14 @@ const defaultResolveAccessMany: ManyAccessResolver = async (
     answered,
   );
 };
+
+/** A single resolver that asks a batch resolver about one resource. */
+function resolveOneWith(resolveAccessMany: ManyAccessResolver): AccessResolver {
+  return async (resourceType, resourceId, ctx) =>
+    (await resolveAccessMany(resourceType, [resourceId], ctx)).has(resourceId)
+      ? true
+      : null;
+}
 
 /** A batch resolver that asks `resolveAccess` about each resource. */
 function resolveEachWith(resolveAccess: AccessResolver): ManyAccessResolver {
@@ -615,6 +635,10 @@ function resourceNeedingAccessCheck(
 
 export interface AppSyncStateOptions {
   getDb?: () => DbExec;
+  /**
+   * Checks one resource. Defaults to the sharing layer's check, or, when only
+   * `resolveAccessMany` is given, to a batch of one through it.
+   */
   resolveAccess?: AccessResolver;
   /**
    * Checks many resources of one type in one go. Defaults to the sharing
@@ -682,7 +706,13 @@ export class AppSyncState {
 
   constructor(options: AppSyncStateOptions = {}) {
     this.getDb = options.getDb ?? getDbExec;
-    this.resolveAccessFn = options.resolveAccess ?? defaultResolveAccess;
+    // Given one resolver, both kinds of check go through it, so a change is
+    // never let through under rules the caller didn't set.
+    this.resolveAccessFn =
+      options.resolveAccess ??
+      (options.resolveAccessMany
+        ? resolveOneWith(options.resolveAccessMany)
+        : defaultResolveAccess);
     this.resolveAccessManyFn =
       options.resolveAccessMany ??
       (options.resolveAccess
@@ -1094,10 +1124,7 @@ export class AppSyncState {
     events: Iterable<ChangeEvent | null>,
     userEmail: string,
     orgId: string | undefined,
-    // Checks this read started or found still running, shared by the two
-    // halves of a combined read. Counting running ones keeps a slow check
-    // from letting each poll start another 250 behind it.
-    checking: Set<string> = new Set(),
+    checking: AccessRead["checking"] = new Set(),
   ): void {
     const normalizedUserEmail = userEmail.trim().toLowerCase();
     const now = Date.now();
@@ -1316,10 +1343,20 @@ export class AppSyncState {
     timeoutMs: number,
   ): Promise<ChangeVisibility> {
     const visibility = this.getChangeVisibilityForUser(event, userEmail, orgId);
-    if (visibility !== "pending" || !event.resourceType || !event.resourceId) {
-      return visibility;
-    }
-    const check = this.accessInFlight.get(
+    if (visibility !== "pending") return visibility;
+    const check = this.runningAccessCheck(event, userEmail, orgId);
+    if (check) await this.waitForAccessChecks([check], timeoutMs);
+    return this.getChangeVisibilityForUser(event, userEmail, orgId);
+  }
+
+  /** The access check running for `event`'s resource and this reader. */
+  private runningAccessCheck(
+    event: Pick<ChangeEvent, "resourceType" | "resourceId">,
+    userEmail: string,
+    orgId: string | undefined,
+  ): Promise<void> | undefined {
+    if (!event.resourceType || !event.resourceId) return undefined;
+    return this.accessInFlight.get(
       accessCacheKey(
         userEmail.trim().toLowerCase(),
         orgId,
@@ -1327,8 +1364,6 @@ export class AppSyncState {
         event.resourceId,
       ),
     );
-    if (check) await this.waitForAccessChecks([check], timeoutMs);
-    return this.getChangeVisibilityForUser(event, userEmail, orgId);
   }
 
   getChangeVisibilityForUser(
@@ -1630,8 +1665,8 @@ export class AppSyncState {
     userEmail: string,
     orgId: string | undefined,
     cursor?: SyncCursor,
-    /** @internal The access checks a combined read has started so far. */
-    accessChecks?: Set<string>,
+    /** @internal The combined read this is half of. */
+    accessRead?: AccessRead,
   ): ChangeReadResult {
     const readCursor = cursor ?? { version: since, id: "" };
     if (
@@ -1650,7 +1685,7 @@ export class AppSyncState {
     const unread = this.buffer.filter((event) =>
       cursor ? isEventAfterCursor(event, readCursor) : event.version > since,
     );
-    this.primeAccessChecks(unread, userEmail, orgId, accessChecks);
+    this.primeAccessChecks(unread, userEmail, orgId, accessRead?.checking);
     for (const event of unread) {
       const visibility = this.getChangeVisibilityForUser(
         event,
@@ -1663,6 +1698,8 @@ export class AppSyncState {
         continue;
       }
       if (visibility === "pending") {
+        const check = this.runningAccessCheck(event, userEmail, orgId);
+        if (check) accessRead?.blockedOn.add(check);
         version = Math.max(since, event.version - 1);
         return {
           version,
@@ -1690,8 +1727,8 @@ export class AppSyncState {
     userEmail: string,
     orgId: string | undefined,
     cursor?: SyncCursor,
-    /** @internal The access checks a combined read has started so far. */
-    accessChecks?: Set<string>,
+    /** @internal The combined read this is half of. */
+    accessRead?: AccessRead,
   ): Promise<ChangeReadResult> {
     if (syncEventsDisabled()) {
       return { version: this.version, events: [] };
@@ -1764,7 +1801,7 @@ export class AppSyncState {
         parsedRows.map((row) => row.event),
         userEmail,
         orgId,
-        accessChecks,
+        accessRead?.checking,
       );
 
       for (const { rawVersion, rowId, event } of parsedRows) {
@@ -1790,6 +1827,8 @@ export class AppSyncState {
           continue;
         }
         if (visibility === "pending") {
+          const check = this.runningAccessCheck(event, userEmail, orgId);
+          if (check) accessRead?.blockedOn.add(check);
           return {
             version: Math.max(since, event.version - 1),
             events,
@@ -1848,12 +1887,17 @@ export class AppSyncState {
     useDurableEvents: boolean,
     cursor?: SyncCursor,
   ): Promise<ChangeReadResult> {
+    const accessRead: AccessRead = {
+      checking: new Set(),
+      blockedOn: new Set(),
+    };
     const first = await this.readCombinedChangesSinceForUser(
       since,
       userEmail,
       orgId,
       useDurableEvents,
       cursor,
+      accessRead,
     );
     // Only an unresolved access check is worth waiting for; a row-limit
     // truncation (also `cursorLimited`) is not blocked on one.
@@ -1863,11 +1907,13 @@ export class AppSyncState {
     }
     // A read stopped at an event whose access check had not finished. The
     // check is already running, so waiting for it here (bounded) delivers the
-    // event now instead of one poll interval later. A check that finished
-    // while the first read was returning needs no wait, only the second read.
-    if (this.accessInFlight.size > 0) {
+    // event now instead of one poll interval later. Only the checks this read
+    // stopped at count: another reader's slow batch must not hold it for the
+    // whole wait. A check that finished while the first read was returning
+    // needs no wait, only the second read.
+    if (accessRead.blockedOn.size > 0) {
       await this.waitForAccessChecks(
-        this.accessInFlight.values(),
+        accessRead.blockedOn,
         ACCESS_CHECK_WAIT_MS,
       );
     }
@@ -1878,6 +1924,7 @@ export class AppSyncState {
         orgId,
         useDurableEvents,
         cursor,
+        { checking: new Set(), blockedOn: new Set() },
       );
     return result;
   }
@@ -1887,16 +1934,16 @@ export class AppSyncState {
     userEmail: string,
     orgId: string | undefined,
     useDurableEvents: boolean,
-    cursor?: SyncCursor,
-  ): Promise<ChangeReadResult> {
+    cursor: SyncCursor | undefined,
     // One read's limit on access checks covers both of its sources.
-    const accessChecks = new Set<string>();
+    accessRead: AccessRead,
+  ): Promise<ChangeReadResult> {
     const memory = this.getChangesSinceForUser(
       since,
       userEmail,
       orgId,
       cursor,
-      accessChecks,
+      accessRead,
     );
     if (!useDurableEvents) return memory;
 
@@ -1905,7 +1952,7 @@ export class AppSyncState {
       userEmail,
       orgId,
       cursor,
-      accessChecks,
+      accessRead,
     );
     const byIdentity = new Map<string, ChangeEvent>();
     for (const event of [...durable.events, ...memory.events]) {

@@ -875,6 +875,69 @@ describe("AppSyncState read through other people's resources", () => {
     expect(resolveAccess).toHaveBeenCalledOnce();
   });
 
+  it("checks a single resource through the batch resolver when only it is set", async () => {
+    const resolveAccessMany = vi.fn(
+      async (_type: string, ids: string[]) => new Set(ids),
+    );
+    const state = stateReading([], { resolveAccessMany });
+    const event = {
+      owner: "writer@example.com",
+      resourceType: "document",
+      resourceId: "a",
+    };
+
+    expect(
+      state.getChangeVisibilityForUser(event, "reader@example.com", undefined),
+    ).toBe("pending");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The sharing layer's own check would have hidden it.
+    expect(
+      state.getChangeVisibilityForUser(event, "reader@example.com", undefined),
+    ).toBe("visible");
+    expect(resolveAccessMany).toHaveBeenCalledWith("document", ["a"], {
+      userEmail: "reader@example.com",
+      orgId: undefined,
+    });
+  });
+
+  it("waits only on the checks a read stopped at", async () => {
+    vi.useFakeTimers();
+    const rows = durableRows([readerDocument]);
+    // Another reader's checks never answer; this reader's take 10ms.
+    const resolveAccessMany = vi.fn(
+      (_type: string, ids: string[], ctx: { userEmail: string }) =>
+        new Promise<Set<string>>((resolve) => {
+          if (ctx.userEmail === "reader@example.com") {
+            setTimeout(() => resolve(new Set(ids)), 10);
+          }
+        }),
+    );
+    const state = stateReading(rows, { resolveAccessMany });
+    await state.getDurableChangesSinceForUser(
+      5,
+      "stuck@example.com",
+      undefined,
+      { version: 5, id: "" },
+    );
+
+    let delivered: string[] | undefined;
+    void state
+      .getCombinedChangesSinceForUser(
+        5,
+        "reader@example.com",
+        undefined,
+        true,
+        { version: 5, id: "" },
+      )
+      .then((result) => {
+        delivered = result.events.map((event) => String(event.resourceId));
+      });
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(delivered).toEqual(["mine"]);
+  });
+
   it("does not check resources the reader owns or that are public", async () => {
     const rows = [
       ...durableRows([readerDocument]),
