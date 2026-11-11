@@ -358,6 +358,7 @@ vi.mock("./VisualEditor", async (original) => {
     current.current = props;
     const draft = React.useRef(props.content);
     const version = React.useRef({}).current;
+    const reportRemoteSnapshot = props.onRemoteSnapshotChange;
     if (primary)
       fixture.editor = {
         ...props,
@@ -365,6 +366,16 @@ vi.mock("./VisualEditor", async (original) => {
           draft.current = content;
           props.onChange(content);
         },
+        // A remote snapshot is the whole live document, so the editor holds
+        // and serializes it from then on.
+        ...(reportRemoteSnapshot
+          ? {
+              onRemoteSnapshotChange: (content: string) => {
+                draft.current = content;
+                reportRemoteSnapshot(content);
+              },
+            }
+          : {}),
       };
     React.useEffect(() => {
       if (!props.onPersistenceControllerChange) return;
@@ -2056,6 +2067,57 @@ describe("closing a page this tab never edited", () => {
     expect(mounted(fixture.awareness).getLocalState()?.unsavedEdits).toBe(
       false,
     );
+  });
+
+  it("closes a page another writer rewrote with blank lines", async () => {
+    // An agent's write keeps a blank line between blocks. A real editor that
+    // adopts it holds the same page one block per line.
+    const written = "## Goal\n\nFinish the row.\n\n## Where it stands\n\nOpen.";
+    const writerDoc = new Y.Doc();
+    const writerMount = document.createElement("div");
+    document.body.append(writerMount);
+    const writer = new Editor({
+      element: writerMount,
+      extensions: createVisualEditorExtensions({ ydoc: writerDoc }),
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+    });
+    writer.commands.setContent(nfmToDoc(written));
+    const held = docToNfm(writer.getJSON());
+    writer.destroy();
+    writerDoc.destroy();
+    writerMount.remove();
+    expect(held).toContain("Finish the row.");
+    expect(held).not.toBe(written);
+    fixture.cachedDocument = true;
+    const page = mounted(fixture.page);
+    page.revision = documentRevisionToken(1, page.content);
+    const key = ["action", "get-document", { id: page.id }];
+    queryClient.setQueryData(key, page);
+    // The server keeps the other writer's body rather than this tab's unedited
+    // copy of it, as update-document does for a browser save with no edit.
+    fixture.save.mockResolvedValue({
+      preservationRequired: true,
+      id: page.id,
+      document: page,
+      reason: "provenance",
+      checkpointId: "kept-writer-body",
+    });
+    await act(async () => renderEditor());
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await act(async () => {
+      queryClient.setQueryData(key, {
+        ...page,
+        content: written,
+        revision: documentRevisionToken(2, written),
+        updatedAt: "2026-10-19T12:00:01.000Z",
+      });
+      renderEditor();
+    });
+    act(() => mounted(mounted(fixture.editor).onRemoteSnapshotChange)(held));
+    // The change settles before the row closes.
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(await closeSession()).toBe("closed");
+    expect(fixture.save).not.toHaveBeenCalled();
   });
 
   it.each([

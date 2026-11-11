@@ -3808,6 +3808,22 @@ function PageEditorSessionBody({
     () => authoredContentBaseRef.current.base(lastSavedContentRef.current),
     [],
   );
+  // Whether a body is the saved one. Another writer's body can spell the same
+  // page differently, as an agent's write keeps a blank line between blocks,
+  // and the editor holds what it adopts one block per line.
+  const savedBodySpellingRef = useRef<{ saved: string; held: string } | null>(
+    null,
+  );
+  const bodyMatchesSaved = useCallback((body: string) => {
+    const saved = lastSavedContentRef.current.content;
+    if (body === saved) return true;
+    let spelling = savedBodySpellingRef.current;
+    if (spelling?.saved !== saved) {
+      spelling = { saved, held: canonicalizeNfm(saved) };
+      savedBodySpellingRef.current = spelling;
+    }
+    return body === spelling.held;
+  }, []);
   const ownContentSaveLineageRef = useRef<OwnContentSaveLineage>(new Map());
   const editorSessionIdRef = useRef<string | null>(null);
   if (editorSessionIdRef.current === null) {
@@ -5869,8 +5885,8 @@ function PageEditorSessionBody({
     const fieldsMatchingSaved: (keyof DocumentUpdates)[] = [];
     if (localTitleRef.current === lastSavedTitleRef.current.title)
       fieldsMatchingSaved.push("title");
-    if (localContentRef.current === lastSavedContentRef.current.content)
-      fieldsMatchingSaved.push("content");
+    const bodySaved = bodyMatchesSaved(localContentRef.current);
+    if (bodySaved) fieldsMatchingSaved.push("content");
     settleRevertedDocumentPersistence(
       persistenceErrorsRef.current,
       fieldsMatchingSaved,
@@ -5895,11 +5911,13 @@ function PageEditorSessionBody({
         recoveryDraftRef.current !== null ||
         readPrimaryPersistenceError() !== undefined,
       localTitle: localTitleRef.current,
-      localContent: localContentRef.current,
+      localContent: bodySaved
+        ? lastSavedContentRef.current.content
+        : localContentRef.current,
       savedTitle: lastSavedTitleRef.current,
       savedContent: lastSavedContentRef.current,
     });
-  }, [readPrimaryPersistenceError]);
+  }, [bodyMatchesSaved, readPrimaryPersistenceError]);
   publishEditorSaveStateRef.current = () => {
     const awareness = collabAwarenessRef.current;
     if (!awareness || isLocalFileDocument || isLinkedLocalSourceDocument)
@@ -10044,11 +10062,16 @@ function PageEditorSessionBody({
     }
 
     const title = localTitleRef.current;
-    const content = localContentRef.current;
+    // Close an unedited body on the saved spelling. The editor's spelling of
+    // another writer's body would ask the server to replace that body with an
+    // unedited copy, which it refuses.
+    const content = bodyMatchesSaved(localContentRef.current)
+      ? lastSavedContentRef.current.content
+      : localContentRef.current;
     const savesThroughLiveCopy = bodyWritesThroughLiveCopyRef.current;
     const contentUnsaved = () =>
       !bodyWritesThroughLiveCopyRef.current &&
-      localContentRef.current !== lastSavedContentRef.current.content;
+      !bodyMatchesSaved(localContentRef.current);
     const hasUnsavedPrimaryEdit =
       title !== lastSavedTitleRef.current.title || contentUnsaved();
     if (!canEditRef.current && hasUnsavedPrimaryEdit) {
@@ -10108,6 +10131,7 @@ function PageEditorSessionBody({
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     }
   }, [
+    bodyMatchesSaved,
     documentId,
     documentReconcileConflict,
     flushSuggestionDraft,
