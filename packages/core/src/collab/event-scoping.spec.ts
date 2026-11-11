@@ -11,6 +11,20 @@ const resolveAccessMock =
 vi.mock("../sharing/access.js", () => ({
   resolveAccess: (...args: unknown[]) =>
     (resolveAccessMock as any)(...(args as [any, any, any])),
+  // A poll read checks its events in batches; each answer still comes from
+  // the same mock, one resource at a time.
+  resolveAccessMany: async (
+    resourceType: string,
+    resourceIds: string[],
+    ctx: { userEmail?: string; orgId?: string },
+  ) => {
+    const access = new Map<string, unknown>();
+    for (const resourceId of resourceIds) {
+      const resolved = await resolveAccessMock(resourceType, resourceId, ctx);
+      if (resolved) access.set(resourceId, resolved);
+    }
+    return access;
+  },
 }));
 
 import { canSeeAwarenessChangeForUser } from "../server/poll-events.js";

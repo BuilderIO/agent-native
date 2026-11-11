@@ -89,7 +89,14 @@ export const POLL_CHANGE_EVENT = "poll-change";
 
 const ACCESS_CACHE_TTL_MS = 30_000;
 const ACCESS_CACHE_DENY_TTL_MS = 5_000;
-const ACCESS_CACHE_MAX = 500;
+// A read starts up to ACCESS_PRIME_LIMIT checks at once, and every reader on
+// this instance shares the cache, so it holds many reads' worth: a smaller one
+// could evict a read's checks before that read used them.
+const ACCESS_CACHE_MAX = 5_000;
+// How many unchecked resources one read starts checks for. An app's access
+// check can cost a query or two per resource, so a tab far behind catches up
+// over several polls instead of checking a whole page of the log at once.
+const ACCESS_PRIME_LIMIT = 250;
 const ACCESS_CHECK_WAIT_MS = 1_000;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SCREEN_REFRESH_QUERY_LIMIT = 256;
@@ -123,6 +130,39 @@ function timestampValue(value: unknown): number {
   if (Number.isFinite(numeric)) return numeric;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** A `sync_events` row, with its event, or null when the row holds none. */
+function parseDurableEventRow(row: {
+  id?: unknown;
+  version?: unknown;
+  event_json?: unknown;
+}): { rawVersion: number; rowId: string; event: ChangeEvent | null } {
+  const rawVersion = timestampValue(row.version);
+  const rowId = typeof row.id === "string" ? row.id : "";
+  let event: ChangeEvent | null = null;
+  try {
+    const parsed = JSON.parse(String(row.event_json));
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.source === "string" &&
+      typeof parsed.type === "string"
+    ) {
+      event = {
+        ...(parsed as ChangeEvent),
+        version: rawVersion || (parsed as ChangeEvent).version,
+        ...(rowId || typeof (parsed as ChangeEvent).cursorId === "string"
+          ? {
+              cursorId: rowId || (parsed as ChangeEvent).cursorId,
+            }
+          : {}),
+      };
+    }
+  } catch {
+    event = null;
+  }
+  return { rawVersion, rowId, event };
 }
 
 function sqlWatermarkValue(value: unknown): string | number | undefined {
@@ -435,9 +475,58 @@ const defaultResolveAccess: AccessResolver = async (
   return resolveAccess(resourceType, resourceId, ctx);
 };
 
+/** Answers which of `resourceIds` the user may see. */
+export type ManyAccessResolver = (
+  resourceType: string,
+  resourceIds: string[],
+  ctx: { userEmail: string; orgId: string | undefined },
+) => Promise<ReadonlySet<string>>;
+
+const defaultResolveAccessMany: ManyAccessResolver = async (
+  resourceType,
+  resourceIds,
+  ctx,
+) => {
+  const { resolveAccessMany } = await import("../sharing/access.js");
+  const access = await resolveAccessMany(resourceType, resourceIds, ctx, {
+    skipResourceBody: true,
+  });
+  return new Set(access.keys());
+};
+
+/**
+ * The resource whose access decides whether `event` reaches this user, or
+ * undefined when its owner, visibility or scope decides it. Mirrors the order
+ * of `getChangeVisibilityForUser`, which stays the authority: this only picks
+ * which access checks a read starts ahead of time.
+ */
+function resourceNeedingAccessCheck(
+  event: Pick<
+    ChangeEvent,
+    "owner" | "orgId" | "resourceType" | "resourceId" | "visibility"
+  >,
+  normalizedUserEmail: string,
+): { resourceType: string; resourceId: string } | undefined {
+  if (!event.resourceType || !event.resourceId) return undefined;
+  if (
+    typeof event.owner === "string" &&
+    event.owner.trim().toLowerCase() === normalizedUserEmail
+  ) {
+    return undefined;
+  }
+  if (event.visibility === "public") return undefined;
+  return { resourceType: event.resourceType, resourceId: event.resourceId };
+}
+
 export interface AppSyncStateOptions {
   getDb?: () => DbExec;
   resolveAccess?: AccessResolver;
+  /**
+   * Checks many resources of one type in one go. Defaults to the sharing
+   * layer's batch check, or, when only `resolveAccess` is given, to one
+   * `resolveAccess` call per resource.
+   */
+  resolveAccessMany?: ManyAccessResolver;
   deterministicEventIds?: boolean;
   dbAssignedVersions?: boolean;
   accessAllowTtlMs?: number;
@@ -446,6 +535,8 @@ export interface AppSyncStateOptions {
 export class AppSyncState {
   private readonly getDb: () => DbExec;
   private readonly resolveAccessFn: AccessResolver;
+  /** Unset when only `resolveAccess` was given: checks then go one by one. */
+  private readonly resolveAccessManyFn: ManyAccessResolver | undefined;
   private readonly deterministicEventIds: boolean;
   private readonly dbAssignedVersions: boolean;
   private recordChain: Promise<void> = Promise.resolve();
@@ -492,6 +583,9 @@ export class AppSyncState {
   constructor(options: AppSyncStateOptions = {}) {
     this.getDb = options.getDb ?? getDbExec;
     this.resolveAccessFn = options.resolveAccess ?? defaultResolveAccess;
+    this.resolveAccessManyFn =
+      options.resolveAccessMany ??
+      (options.resolveAccess ? undefined : defaultResolveAccessMany);
     this.deterministicEventIds = options.deterministicEventIds ?? false;
     this.dbAssignedVersions = options.dbAssignedVersions ?? false;
     this.accessAllowTtlMs = options.accessAllowTtlMs ?? ACCESS_CACHE_TTL_MS;
@@ -873,6 +967,115 @@ export class AppSyncState {
       })(),
     );
     if (!settled) this.accessInFlight.set(key, check);
+  }
+
+  /**
+   * Starts every access check `events` will need before a read walks them.
+   * A read stops at the first event whose check hasn't finished, waits once,
+   * and reads again; on a deployment busy with other people's resources, a
+   * check started only when the walk reached its event let each poll pass one
+   * or two of them, so an open tab fell further behind with every poll. With
+   * the checks started together, as one batch per resource type, the one wait
+   * covers them all.
+   */
+  private primeAccessChecks(
+    events: Iterable<ChangeEvent | null>,
+    userEmail: string,
+    orgId: string | undefined,
+  ): void {
+    const normalizedUserEmail = userEmail.trim().toLowerCase();
+    const now = Date.now();
+    const keysByType = new Map<string, Map<string, string>>();
+    const started = new Set<string>();
+    for (const event of events) {
+      if (started.size >= ACCESS_PRIME_LIMIT) break;
+      if (!event) continue;
+      const resource = resourceNeedingAccessCheck(event, normalizedUserEmail);
+      if (!resource) continue;
+      const key = accessCacheKey(
+        normalizedUserEmail,
+        orgId,
+        resource.resourceType,
+        resource.resourceId,
+      );
+      if (started.has(key) || this.accessInFlight.has(key)) continue;
+      const cached = this.accessCache.get(key);
+      if (
+        cached &&
+        now - cached.checkedAt < this.accessCacheTtl(cached.allowed)
+      )
+        continue;
+      started.add(key);
+      if (!this.resolveAccessManyFn) {
+        this.scheduleAccessCheck(
+          key,
+          resource.resourceType,
+          resource.resourceId,
+          normalizedUserEmail,
+          orgId,
+        );
+        continue;
+      }
+      let keys = keysByType.get(resource.resourceType);
+      if (!keys) {
+        keys = new Map();
+        keysByType.set(resource.resourceType, keys);
+      }
+      keys.set(resource.resourceId, key);
+    }
+    for (const [resourceType, keys] of keysByType) {
+      this.scheduleAccessChecks(resourceType, keys, normalizedUserEmail, orgId);
+    }
+  }
+
+  /** One batch check for `keys`, a resource id to cache key map of one type. */
+  private scheduleAccessChecks(
+    resourceType: string,
+    keys: ReadonlyMap<string, string>,
+    userEmail: string,
+    orgId: string | undefined,
+  ): void {
+    const resolveMany = this.resolveAccessManyFn;
+    if (!resolveMany) return;
+    const epochs = new Map(
+      [...keys.keys()].map((resourceId) => [
+        resourceId,
+        this.accessInvalidationEpoch.get(
+          accessResourceKey(resourceType, resourceId),
+        ) ?? 0,
+      ]),
+    );
+    const cacheUnlessInvalidated = (allowed: (id: string) => boolean) => {
+      const checkedAt = Date.now();
+      for (const [resourceId, key] of keys) {
+        const epoch =
+          this.accessInvalidationEpoch.get(
+            accessResourceKey(resourceType, resourceId),
+          ) ?? 0;
+        if (epoch !== epochs.get(resourceId)) continue;
+        this.setAccessCache(key, allowed(resourceId), checkedAt);
+      }
+    };
+    let settled = false;
+    const check = retainRequestDbPoolScope(
+      (async () => {
+        try {
+          const visible = await resolveMany(resourceType, [...keys.keys()], {
+            userEmail,
+            orgId,
+          });
+          cacheUnlessInvalidated((resourceId) => visible.has(resourceId));
+        } catch {
+          cacheUnlessInvalidated(() => false);
+        } finally {
+          settled = true;
+          for (const key of keys.values()) this.accessInFlight.delete(key);
+        }
+      })(),
+    );
+    if (!settled) {
+      for (const key of keys.values()) this.accessInFlight.set(key, check);
+    }
   }
 
   __resetAccessCacheForTests(): void {
@@ -1273,12 +1476,11 @@ export class AppSyncState {
     const events: ChangeEvent[] = [];
     let version = this.version;
     let lastCursor = readCursor;
-    for (const event of this.buffer) {
-      if (
-        cursor ? !isEventAfterCursor(event, readCursor) : event.version <= since
-      ) {
-        continue;
-      }
+    const unread = this.buffer.filter((event) =>
+      cursor ? isEventAfterCursor(event, readCursor) : event.version > since,
+    );
+    this.primeAccessChecks(unread, userEmail, orgId);
+    for (const event of unread) {
       const visibility = this.getChangeVisibilityForUser(
         event,
         userEmail,
@@ -1384,34 +1586,17 @@ export class AppSyncState {
         result.rows[DURABLE_READ_LIMIT]?.version,
       );
 
-      for (const row of rows) {
-        const rawVersion = timestampValue(row.version);
+      const parsedRows = rows.map(parseDurableEventRow);
+      this.primeAccessChecks(
+        parsedRows.map((row) => row.event),
+        userEmail,
+        orgId,
+      );
+
+      for (const { rawVersion, rowId, event } of parsedRows) {
         if (rawVersion > lastDurableVersion) lastDurableVersion = rawVersion;
         if (rawVersion > version) version = rawVersion;
-        const rowId = typeof row.id === "string" ? row.id : "";
         let rowCursor = rowId ? { version: rawVersion, id: rowId } : undefined;
-        let event: ChangeEvent | null = null;
-        try {
-          const parsed = JSON.parse(String(row.event_json));
-          if (
-            parsed &&
-            typeof parsed === "object" &&
-            typeof parsed.source === "string" &&
-            typeof parsed.type === "string"
-          ) {
-            event = {
-              ...(parsed as ChangeEvent),
-              version: rawVersion || (parsed as ChangeEvent).version,
-              ...(rowId || typeof (parsed as ChangeEvent).cursorId === "string"
-                ? {
-                    cursorId: rowId || (parsed as ChangeEvent).cursorId,
-                  }
-                : {}),
-            };
-          }
-        } catch {
-          event = null;
-        }
         if (!event) {
           if (rowCursor) lastCursor = rowCursor;
           continue;
@@ -1498,17 +1683,20 @@ export class AppSyncState {
     );
     // Only an unresolved access check is worth waiting for; a row-limit
     // truncation (also `cursorLimited`) is not blocked on one.
-    if (!first.accessPending || this.accessInFlight.size === 0) {
+    if (!first.accessPending) {
       const { accessPending: _pending, ...result } = first;
       return result;
     }
     // A read stopped at an event whose access check had not finished. The
     // check is already running, so waiting for it here (bounded) delivers the
-    // event now instead of one poll interval later.
-    await this.waitForAccessChecks(
-      this.accessInFlight.values(),
-      ACCESS_CHECK_WAIT_MS,
-    );
+    // event now instead of one poll interval later. A check that finished
+    // while the first read was returning needs no wait, only the second read.
+    if (this.accessInFlight.size > 0) {
+      await this.waitForAccessChecks(
+        this.accessInFlight.values(),
+        ACCESS_CHECK_WAIT_MS,
+      );
+    }
     const { accessPending: _pending, ...result } =
       await this.readCombinedChangesSinceForUser(
         since,
