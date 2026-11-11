@@ -55,6 +55,8 @@ const outputSchema = z.object({
   unprocessedIds: z.array(z.string()).optional(),
   /** Clips still waiting for a retry after a rejected leveling dispatch; call again with `all: true`. */
   repairsRemaining: z.number().int().optional(),
+  /** Set when the pending repairs could not be read; the sweep ran without them. */
+  repairListError: z.string().optional(),
   /** True when the sweep has more clips; call again (with nextBefore if set). */
   moreRemaining: z.boolean().optional(),
   /** Clips that failed in a retryable way; pass them as `ids` to try again. */
@@ -221,18 +223,24 @@ export default defineAction({
     }
 
     const targetIds = [...explicitIds];
-    let repairsRemaining = 0;
+    let repairsLeftUnlisted = 0;
+    let repairIds: string[] = [];
+    let repairListError: string | undefined;
     if (args.all) {
       // Clips whose leveling job could not be queued come first, so a failed
       // dispatch is retried by the next sweep.
-      const repairs = await listAudioLevelRepairIds(
-        MAX_TARGETS_PER_CALL - targetIds.length,
-      ).catch((err: unknown) => {
+      try {
+        const repairs = await listAudioLevelRepairIds(
+          MAX_TARGETS_PER_CALL - targetIds.length,
+        );
+        repairIds = repairs.ids;
+        repairsLeftUnlisted = repairs.remaining;
+      } catch (err) {
+        // The sweep still runs; the response says the repairs were not read.
+        repairListError = err instanceof Error ? err.message : String(err);
         console.warn("[level-recording-audio] could not list repairs", err);
-        return { ids: [] as string[], remaining: 0 };
-      });
-      repairsRemaining = repairs.remaining;
-      for (const id of repairs.ids) {
+      }
+      for (const id of repairIds) {
         if (!targetIds.includes(id)) targetIds.push(id);
       }
     }
@@ -352,6 +360,16 @@ export default defineAction({
     // 50 explicit ids leave no room for the sweep; it still has to run.
     const sweepPending = Boolean(args.all) && sweepLimit === 0;
 
+    // Repairs still pending after this call: the ones not listed, plus listed
+    // ones that were not reached or failed in a retryable way.
+    const repairStatus = new Map(results.map((r) => [r.recordingId, r.status]));
+    const repairsRemaining =
+      repairsLeftUnlisted +
+      repairIds.filter((id) => {
+        const status = repairStatus.get(id);
+        return !status || isRetryableAudioLevelStatus(status);
+      }).length;
+
     const changed = results.filter((r) => r.changed).length;
     return {
       ok: true as const,
@@ -361,6 +379,7 @@ export default defineAction({
       ...(nextBefore ? { nextBefore } : {}),
       ...(unprocessedIds.length > 0 ? { unprocessedIds } : {}),
       ...(repairsRemaining > 0 ? { repairsRemaining } : {}),
+      ...(repairListError ? { repairListError } : {}),
       ...(retryIds.length > 0 ? { retryIds } : {}),
       ...(args.all &&
       (sweepPending || sweepFilledBatch || reachedCount < sweepRows.length)
