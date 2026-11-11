@@ -3475,7 +3475,9 @@ function PageEditorSessionBody({
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
   const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
   // The thread whose text Show uncovered by moving Discussion aside, on a
-  // window where the panel covers the page.
+  // window where the panel covers the page. Whatever opens Discussion for
+  // something else clears it; a suggested edit selected there would
+  // otherwise sit in the hidden panel behind the bar.
   const [discussionPeekThreadId, setDiscussionPeekThreadId] = useState<
     string | null
   >(null);
@@ -9175,6 +9177,7 @@ function PageEditorSessionBody({
     ) => {
       setPendingComment({ quotedText, offsetTop, anchor, range, fieldId });
       setCommentsBrowseOpen(false);
+      setDiscussionPeekThreadId(null);
       setUtilityPanel("comments");
       setSelectedThreadId(null);
       setHoveredThreadId(null);
@@ -9193,6 +9196,7 @@ function PageEditorSessionBody({
         ...(fieldId ? { fieldId } : {}),
       });
       setCommentsBrowseOpen(false);
+      setDiscussionPeekThreadId(null);
       setUtilityPanel("comments");
       setSelectedThreadId(null);
       setHoveredThreadId(null);
@@ -9221,6 +9225,7 @@ function PageEditorSessionBody({
                 ...(fieldId ? { fieldId } : {}),
               });
               setCommentsBrowseOpen(false);
+              setDiscussionPeekThreadId(null);
               setUtilityPanel("comments");
               setSelectedThreadId(null);
               setHoveredThreadId(null);
@@ -9537,6 +9542,7 @@ function PageEditorSessionBody({
     setSelectedThreadId(null);
     setSelectedSuggestionId(suggestionId);
     setCommentsBrowseOpen(false);
+    setDiscussionPeekThreadId(null);
     setUtilityPanel("comments");
     requestAnimationFrame(() => {
       const escaped = globalThis.CSS?.escape
@@ -9619,6 +9625,7 @@ function PageEditorSessionBody({
       }
       setPendingComment({ quotedText, offsetTop, anchor, range });
       setCommentsBrowseOpen(false);
+      setDiscussionPeekThreadId(null);
       setUtilityPanel("comments");
       setSelectedThreadId(null);
       setHoveredThreadId(null);
@@ -9710,6 +9717,7 @@ function PageEditorSessionBody({
       });
       setSelectedSuggestionId(null);
       setCommentsBrowseOpen(false);
+      setDiscussionPeekThreadId(null);
       setUtilityPanel("comments");
       setSelectedThreadId(null);
       setHoveredThreadId(null);
@@ -9901,6 +9909,7 @@ function PageEditorSessionBody({
     clearCommentFocus();
     setPendingComment(null);
     setSelectedSuggestionId(suggestion.id);
+    setDiscussionPeekThreadId(null);
     setUtilityPanel("comments");
     setCommentsBrowseOpen(true);
     replyDrafts.setOpenReply(suggestion.threadId, suggestion.id, false);
@@ -10404,6 +10413,7 @@ function PageEditorSessionBody({
       return next;
     });
     setSelectedSuggestionId(first.id);
+    setDiscussionPeekThreadId(null);
     setUtilityPanel("comments");
     setCommentsBrowseOpen(true);
   };
