@@ -314,14 +314,21 @@ describe("comment Markdown and the box's document", () => {
   it("chips mentions in a long line full of @ signs in linear time", () => {
     const unmatched = "x@".repeat(9_000);
     const matched = "@Sam ".repeat(1_900);
-    const started = performance.now();
-    const unmatchedDoc = commentMarkdownToDoc(unmatched, people);
-    const matchedDoc = commentMarkdownToDoc(matched, people);
-    const elapsedMs = performance.now() - started;
 
-    expect(chips(unmatchedDoc)).toEqual([]);
-    expect(chips(matchedDoc)).toHaveLength(1_900);
-    expect(elapsedMs).toBeLessThan(1_000);
+    expect(chips(commentMarkdownToDoc(unmatched, people))).toEqual([]);
+    expect(chips(commentMarkdownToDoc(matched, people))).toHaveLength(1_900);
+    // Each is timed against an ordinary comment of its length, so a slow or
+    // busy machine slows both alike. They take up to several times as long;
+    // a blowup would take hundreds.
+    for (const text of [unmatched, matched]) {
+      const ordinaryMs = fastest(
+        "Words, **bold**, `code` and a [link](https://example.com).\n\n"
+          .repeat(400)
+          .slice(0, text.length),
+        3,
+      );
+      expect(fastest(text, 2) / ordinaryMs, text.slice(0, 5)).toBeLessThan(20);
+    }
     // Past the most the renderer draws, none are chips, there or here.
     expect(chips(commentMarkdownToDoc("@Sam ".repeat(2_100), people))).toEqual(
       [],
@@ -398,3 +405,13 @@ describe("comment Markdown and the box's document", () => {
     expect(commentDocToMarkdown(lines(""))).toBe("");
   });
 });
+
+function fastest(markdown: string, runs: number): number {
+  let best = Infinity;
+  for (let run = 0; run < runs; run += 1) {
+    const started = performance.now();
+    commentMarkdownToDoc(markdown, people);
+    best = Math.min(best, performance.now() - started);
+  }
+  return best;
+}
