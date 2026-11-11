@@ -42,6 +42,8 @@ export interface ApiKeyEntry {
    * shared row (owner `org`) or, for owner `user`, the caller's solo row.
    */
   storedScope: SecretScope;
+  /** Exact outbound origins approved for this saved row. Empty or absent denies forwarding. */
+  urlAllowlist?: string[] | null;
   /** "••••1234". Absent on managed keys, which only say they exist. */
   masked?: string;
   updatedAt: number | null;
@@ -57,6 +59,8 @@ export interface ApiKeyEntry {
   managedBy?: SecretManagedBy;
   /** Saving a new value writes this same row. */
   canReplace: boolean;
+  /** The caller may edit this custom row's outbound origin policy. */
+  canEditOrigins?: boolean;
   canDelete: boolean;
   /** A registered validator can check the stored value. */
   canTest: boolean;
@@ -177,12 +181,16 @@ function toEntry(
     target.scopeId === meta.scopeId &&
     registered?.kind !== "oauth";
   const canReplace = mayChange && !provider && writesThisRow;
+  const canEditOrigins = mayChange && !registered && !provider;
 
   return {
     name: meta.key,
     ...(registered ? { label: registered.label } : {}),
     scope: owner,
     storedScope: meta.scope,
+    ...(canReplace || canEditOrigins
+      ? { urlAllowlist: meta.urlAllowlist }
+      : {}),
     ...(managedBy || !meta.last4 ? {} : { masked: meta.last4 }),
     updatedAt: meta.updatedAt || null,
     ...(vault ? { vault: true as const } : {}),
@@ -192,6 +200,7 @@ function toEntry(
     usedFor: describeSecretUsage(meta.key),
     ...(managedBy ? { managedBy } : {}),
     canReplace,
+    canEditOrigins,
     canDelete: mayChange,
     canTest: canReplace && !!registered?.validator,
   };

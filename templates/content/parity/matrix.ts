@@ -60,6 +60,31 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "sidebar.command-menu-title-list",
+    surface: "sidebar",
+    label: "Rank page titles in the command menu on every keystroke",
+    uiEntrypoints: [
+      "app/components/ContentCommandSearch.tsx",
+      "app/hooks/use-documents.ts",
+      "app/root.tsx",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "The command menu ranks titles in the browser from a compact list of every page the caller can search, then merges search-documents results for the current query.",
+    status: "action-backed",
+    actions: ["list-document-titles"],
+    exception:
+      "list-document-titles is hidden with agentTool: false because it is a lean UI projection for ranking on each keystroke, not an agent capability limit; agents use search-documents and list-documents.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/list-document-titles.db.test.ts",
+      "app/lib/content-command-search.test.ts",
+    ],
+  },
+  {
     id: "sidebar.document-tree-crud",
     surface: "sidebar",
     label:

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { blockSaveInput } from "../app/lib/plan-block-save.js";
 import {
   planContentSchema,
   storedPlanContentSchema,
@@ -2122,6 +2123,44 @@ describe("update-visual-plan comments", () => {
         consumedCommentIds: [],
       }),
     ).rejects.toThrow("remove 1 existing block ID (intro)");
+    expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("saves a block removal from the open document, keeping a version from before it", async () => {
+    request.email = "editor@example.com";
+    useSuccessfulDb();
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        ...blockSaveInput("plan_public", {
+          value: [],
+          revision: baseUpdatedAt,
+        }),
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).resolves.toMatchObject({ planId: "plan_public" });
+    expect(createPlanVersionSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still checks the revision of a block removal from the open document", async () => {
+    request.email = "editor@example.com";
+    getDbMock.mockReturnValue({});
+    loadPlanBundleMock.mockResolvedValue(planBundle());
+
+    await expect(
+      (updateVisualPlan as { run: (args: unknown) => Promise<unknown> }).run({
+        ...blockSaveInput("plan_public", {
+          value: [],
+          revision: "2026-06-04T00:00:00.000Z",
+        }),
+        sections: [],
+        comments: [],
+        consumedCommentIds: [],
+      }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict", statusCode: 409 });
     expect(createPlanVersionSnapshotMock).not.toHaveBeenCalled();
   });
 

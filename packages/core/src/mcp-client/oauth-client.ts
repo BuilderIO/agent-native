@@ -116,7 +116,9 @@ type GuardedFetch = (
 ) => Promise<Response>;
 
 function checkedRemoteUrl(value: string | URL, label: string): URL {
-  const result = validateRemoteUrl(String(value));
+  const result = validateRemoteUrl(String(value), {
+    allowedPrivateOrigins: configuredPrivateOrigins(),
+  });
   if (!result.ok || !result.url) {
     throw new Error(
       `MCP OAuth ${label} is not allowed: ${result.error ?? "invalid URL"}`,

@@ -75,6 +75,58 @@ If the resource is already registered with the Sharing Kit, the review actions
 reuse that access model. Add a review registration when the app needs a custom
 access resolver or wants to make the resource type explicit in setup code.
 
+## App Rules {#app-rules}
+
+A registration can also set how comments behave on its resource:
+
+```ts
+registerReviewableResource({
+  type: "deck",
+  comments: { minimumRole: "viewer", unmentionedRoute: "human" },
+  anchorKinds: {
+    "slide-point": { version: 2, parse: parseSlidePoint },
+  },
+  async onCommentWrite(event, tx) {
+    await tx.execute(/* keep the deck's comment count in step */);
+  },
+});
+```
+
+- `comments.minimumRole` is the lowest role that may comment, reply, react and
+  edit or delete their own comments (default `commenter`). Suggesting needs it
+  too, and never less than `commenter`.
+  `comments.unmentionedRoute` sends a new thread with no mention to the agent
+  (the default) or to people.
+- `anchorKinds` types the anchor. Once a resource declares any, every anchored
+  comment names its `anchorKind`, and `parse(anchor, version)` checks it and
+  returns what's stored, so an older version can be read forward. A comment is
+  written at the kind's current `version` unless it gives an older one. A
+  suggestion's thread uses the kit's own `review-suggestion` kind, which
+  every resource accepts and only the kit writes: the comment actions refuse
+  it.
+- `onCommentWrite` runs inside the comment's own database transaction for
+  `created`, `edited`, `anchor-moved`, `resolved`, `reopened` and `deleted`.
+  Resolving a thread that is already resolved, or reopening an open one,
+  fires no event, though a new resolution note is still saved. Throwing
+  refuses the write. Use the `tx` handle for database work there. A database
+  client without transactions refuses a hooked write.
+
+Every comment also carries a `surfaceId` (the slide, page or screen a thread
+sits on; `list-review-comments` filters by it) and a `revision` that goes up
+when it changes, including a thread's routing on its first comment. Pass the
+revision you read as `expectedRevision` to
+`update-review-comment` or `update-review-comment-anchor`, and a newer one
+refuses the write with `revision_conflict`. `list-review-comments` pages oldest
+first: pass back its `nextCursor` as `cursor` to read past the `limit` of 500.
+A cursor resumes only the list it came from, at any `limit`; with another
+resource or filter it's refused with `invalid_cursor`. A newest-first list isn't
+paged and returns no `nextCursor`.
+
+`linkReviewComment()` ties a comment to an ID in another system, such as a
+Notion discussion, so an import skips what it already copied.
+`findReviewCommentLink()` and `listReviewCommentLinks()` read those links back.
+An ID links to one comment, and a link outlives the comment's deletion.
+
 ## UI Usage {#ui-usage}
 
 ```tsx
@@ -96,7 +148,8 @@ export function DocumentReview({ documentId }: { documentId: string }) {
 
 The `anchor` field is intentionally `unknown`: editors, canvases, diagrams, and
 documents can store the shape they need while still using the shared review
-actions and thread UI.
+actions and thread UI. Declare [anchor kinds](#app-rules) to have the kit check
+that shape for you.
 
 ## UX Standard {#ux-standard}
 

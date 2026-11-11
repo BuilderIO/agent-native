@@ -2400,7 +2400,7 @@ function ModelSelector({
           );
         })}
       </DropdownMenuRadioGroup>
-      <DropdownMenuSeparator className="my-1" />
+      <DropdownMenuSeparator />
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuItem asChild inset>
@@ -2731,7 +2731,7 @@ function ModelSelector({
         data-agent-composer-model-group={section.key}
       >
         {leading || section !== otherSections[0] ? (
-          <DropdownMenuSeparator className="my-1" />
+          <DropdownMenuSeparator />
         ) : null}
         <DropdownMenuLabel>{section.label}</DropdownMenuLabel>
         {section.content}
@@ -2880,7 +2880,7 @@ function ModelSelector({
             {primaryItems}
             {moreSection ? renderSection(moreSection, true) : null}
             {otherSections.length > 0 && (hasPrimaryItems || moreSection) ? (
-              <DropdownMenuSeparator className="my-1" />
+              <DropdownMenuSeparator />
             ) : null}
             {otherSections.map((section) => renderSection(section, false))}
           </>
@@ -4824,6 +4824,8 @@ function TiptapComposerSurface({
         (e.metaKey || e.ctrlKey) &&
         !e.altKey;
       if (isToggleCombo) {
+        // A page that has already used the key keeps it.
+        if (e.defaultPrevented) return;
         e.preventDefault();
         if (voiceChatActiveRef.current) return;
         if (voice.state === "recording" || voice.state === "starting") {

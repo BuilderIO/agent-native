@@ -36,6 +36,7 @@ vi.mock("@/hooks/use-document-properties", () => ({
     databaseId: string | null,
     data: { documentId?: string; databaseId?: string | null } | undefined,
   ) => data?.documentId === documentId && data?.databaseId === databaseId,
+  documentPropertiesReadFailed: () => false,
   useDocumentProperties: () => mocks.query,
   useConfigureDocumentProperty: () => ({
     mutateAsync: mocks.configure,

@@ -37,8 +37,10 @@ import type {
 } from "../shared/api.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
+import { resolveProvisionedContentSpaceAccess } from "./_content-space-target.js";
 import {
   organizationContentSpaceId,
+  personalContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
 import { loadContext } from "./_database-row-mutation.js";
@@ -357,9 +359,13 @@ export async function resolveContentDatabaseSpace(
   }
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
-  const provisioned = await provisionContentSpaces(db, userEmail);
-  const spaceId = args.spaceId ?? provisioned.personalSpaceId;
-  await resolveContentSpaceAccess(spaceId, "contributor");
+  const spaceId = args.spaceId ?? personalContentSpaceId(userEmail);
+  await resolveProvisionedContentSpaceAccess({
+    db,
+    userEmail,
+    spaceId,
+    requiredRole: "contributor",
+  });
   return spaceId;
 }
 

@@ -182,7 +182,7 @@ function BlendMenu({
                   key={mode}
                   value={mode}
                   indicator="check"
-                  className="h-7 !text-[11px]"
+                  className="!text-[11px]"
                 >
                   {labelFor(mode)}
                 </DropdownMenuRadioItem>
