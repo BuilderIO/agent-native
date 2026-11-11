@@ -10,6 +10,7 @@ import {
   isRetryableAudioLevelStatus,
   type AudioLevelResult,
 } from "../server/lib/audio-level.js";
+import { listAudioLevelRepairIds } from "../server/lib/audio-level-repair-state.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -218,6 +219,20 @@ export default defineAction({
     }
 
     const targetIds = [...explicitIds];
+    if (args.all) {
+      // Clips whose leveling job could not be queued come first, so a failed
+      // dispatch is retried by the next sweep.
+      const repairIds = await listAudioLevelRepairIds().catch(
+        (err: unknown) => {
+          console.warn("[level-recording-audio] could not list repairs", err);
+          return [] as string[];
+        },
+      );
+      for (const id of repairIds) {
+        if (targetIds.length >= MAX_TARGETS_PER_CALL) break;
+        if (!targetIds.includes(id)) targetIds.push(id);
+      }
+    }
     let nextBefore: string | undefined;
     let sweepRows: { id: string; createdAt: string }[] = [];
     let sweepFilledBatch = false;

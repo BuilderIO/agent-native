@@ -77,6 +77,7 @@ import {
   clearSeekableRepairPending,
   markSeekableRepairPending,
 } from "../server/lib/seekable-media-state.js";
+import { markAudioLevelRepairPending } from "../server/lib/audio-level-repair-state.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import {
   markHostedCleanupConfirmed,
@@ -1019,10 +1020,22 @@ async function completeReadyRecordingBookkeeping(params: {
         recordingId: params.id,
         kind: "audio-level",
         requireAccepted: true,
-      }).catch((err: unknown) => {
+      }).catch(async (err: unknown) => {
+        const reason = err instanceof Error ? err.message : String(err);
         console.warn("[finalize] audio level dispatch failed", {
           id: params.id,
-          error: err instanceof Error ? err.message : String(err),
+          error: reason,
+        });
+        // Keep the clip findable for a retry: the leveling sweep picks up
+        // pending repair markers first.
+        await markAudioLevelRepairPending({
+          recordingId: params.id,
+          reason,
+        }).catch((markErr: unknown) => {
+          console.error("[finalize] failed to mark audio level repair", {
+            id: params.id,
+            error: markErr instanceof Error ? markErr.message : String(markErr),
+          });
         });
       });
     }

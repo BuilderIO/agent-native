@@ -31,6 +31,7 @@ import {
 import { isLoomRecordingSource } from "../../shared/loom.js";
 import { isYouTubeEmbedBackedRecording } from "../../shared/youtube.js";
 import { getDb, schema } from "../db/index.js";
+import { clearAudioLevelRepairPending } from "./audio-level-repair-state.js";
 import {
   deleteRecordingMediaObjects,
   deleteStoredMediaUrl,
@@ -537,9 +538,30 @@ async function writeMarker(input: {
 
 /**
  * Level one recording's audio. Safe to call more than once: a marker keyed on
- * the current media skips clips that were already checked.
+ * the current media skips clips that were already checked. A final result
+ * (anything not retryable) clears a pending repair marker left by a rejected
+ * dispatch.
  */
 export async function ensureRecordingAudioLevel(params: {
+  recordingId: string;
+  ownerEmail: string;
+  force?: boolean;
+}): Promise<AudioLevelResult> {
+  const result = await levelRecordingAudioOnce(params);
+  if (!isRetryableAudioLevelStatus(result.status)) {
+    await clearAudioLevelRepairPending(params.recordingId).catch(
+      (err: unknown) => {
+        console.warn("[audio-level] failed to clear repair marker", {
+          id: params.recordingId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      },
+    );
+  }
+  return result;
+}
+
+async function levelRecordingAudioOnce(params: {
   recordingId: string;
   ownerEmail: string;
   force?: boolean;

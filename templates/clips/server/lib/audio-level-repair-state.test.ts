@@ -1,0 +1,39 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const store = new Map<string, unknown>();
+vi.mock("@agent-native/core/application-state", () => ({
+  writeAppState: async (key: string, value: unknown) => {
+    store.set(key, value);
+  },
+  deleteAppState: async (key: string) => {
+    store.delete(key);
+  },
+  listAppState: async (prefix: string) =>
+    [...store.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => ({ key, value })),
+}));
+
+const {
+  clearAudioLevelRepairPending,
+  listAudioLevelRepairIds,
+  markAudioLevelRepairPending,
+  parseAudioLevelRepairMarker,
+} = await import("./audio-level-repair-state.js");
+
+describe("audio level repair markers", () => {
+  beforeEach(() => store.clear());
+
+  it("keeps a rejected dispatch findable until it is cleared", async () => {
+    await markAudioLevelRepairPending({ recordingId: "a", reason: "503" });
+    await markAudioLevelRepairPending({ recordingId: "b", reason: "503" });
+    expect(await listAudioLevelRepairIds()).toEqual(["a", "b"]);
+    await clearAudioLevelRepairPending("a");
+    expect(await listAudioLevelRepairIds()).toEqual(["b"]);
+  });
+
+  it("ignores malformed markers", () => {
+    expect(parseAudioLevelRepairMarker({ recordingId: "a" })).toBeNull();
+    expect(parseAudioLevelRepairMarker(null)).toBeNull();
+  });
+});

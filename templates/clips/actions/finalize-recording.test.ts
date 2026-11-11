@@ -459,6 +459,42 @@ describe("finalize-recording chunk completeness", () => {
     },
   );
 
+  it("keeps a rejected audio-level dispatch as a pending repair", async () => {
+    mockDeleteAppState.mockResolvedValue(undefined);
+    mockWriteAppState.mockResolvedValue(undefined);
+    mockClearSeekableRepairPending.mockResolvedValue(undefined);
+    mockState.uploadState = { seekableApplied: true };
+    mockState.selectRows = [
+      [
+        {
+          ...mockState.existingRecording,
+          status: "ready",
+          videoUrl: "https://cdn.example.com/rec_1",
+          videoSizeBytes: 2,
+        },
+      ],
+    ];
+    mockDispatchPostFinalizeJob.mockImplementation(
+      async (job: { kind: string }) => {
+        if (job.kind === "audio-level") throw new Error("worker rejected 503");
+      },
+    );
+
+    await finalizeRecording.run({ id: "rec_1" });
+
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "audio-level", requireAccepted: true }),
+    );
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "recording-audio-level-repair-rec_1",
+      expect.objectContaining({
+        recordingId: "rec_1",
+        status: "pending",
+        reason: "worker rejected 503",
+      }),
+    );
+  });
+
   it("gives the claimed re-finalize a live upload lease", async () => {
     mockState.existingRecording = {
       ...mockState.existingRecording,

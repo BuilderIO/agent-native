@@ -126,13 +126,14 @@ export async function fetchProviderBytes(
       return { ok: false, reason: "skipped-too-large" };
     }
 
-    const buf = new Uint8Array(await res.arrayBuffer());
-    if (buf.byteLength === 0)
+    // The declared length can be missing or wrong, so the limit is also
+    // enforced while the body streams in: an oversized file stops downloading
+    // before it fills memory.
+    const read = await readBodyWithinLimit(res.body, maxBytes);
+    if (!read.ok) return { ok: false, reason: "skipped-too-large" };
+    if (read.bytes.byteLength === 0)
       return { ok: false, reason: "skipped-fetch-failed" };
-    if (buf.byteLength > maxBytes) {
-      return { ok: false, reason: "skipped-too-large" };
-    }
-    return { ok: true, bytes: buf };
+    return { ok: true, bytes: read.bytes };
   } catch {
     return { ok: false, reason: "skipped-fetch-failed" };
   } finally {
@@ -465,4 +466,35 @@ export async function ensureRecordingSeekable(params: {
     });
   }
   return result;
+}
+
+/**
+ * Read a response body, giving up as soon as it passes `maxBytes`. The stream
+ * is cancelled at that point, so the rest is never downloaded.
+ */
+export async function readBodyWithinLimit(
+  body: ReadableStream<Uint8Array> | null,
+  maxBytes: number,
+): Promise<{ ok: true; bytes: Uint8Array } | { ok: false }> {
+  if (!body) return { ok: true, bytes: new Uint8Array(0) };
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return { ok: false };
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { ok: true, bytes };
 }
