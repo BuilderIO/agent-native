@@ -1020,7 +1020,7 @@ export function createIntegrationsPlugin(
             data = null;
           }
           const isMalformedPayload =
-            data === null || typeof data?.ok !== "boolean";
+            data === null || typeof data.ok !== "boolean";
           if (!res.ok || data?.ok !== true) {
             console.error(
               `[telegram] setWebhook failed (${res.status}): ${data?.description ?? body}`,
