@@ -44,13 +44,33 @@ import {
 } from "./CommentsSidebar";
 import type { DraftSuggestion } from "./suggestions/draft-session";
 
-const { replyMutate } = vi.hoisted(() => ({ replyMutate: vi.fn() }));
+const { replyMutateAsync, replySettlers } = vi.hoisted(() => {
+  const replySettlers: {
+    resolve: () => void;
+    reject: (error: unknown) => void;
+  }[] = [];
+  return {
+    replySettlers,
+    replyMutateAsync: vi.fn<
+      (request: Record<string, unknown>) => Promise<void>
+    >(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          replySettlers.push({ resolve, reject });
+        }),
+    ),
+  };
+});
 
-/** The suggestion reply sent last, or a failed test saying there is none. */
+/** The suggestion reply sent last, with ways to settle it, or a failed test
+ * saying there is none. */
 function lastReply() {
-  const call = replyMutate.mock.lastCall;
-  if (!call) throw new Error("No reply sent");
-  return { request: call[0], handlers: call[1] };
+  const call = replyMutateAsync.mock.lastCall;
+  const settle = replySettlers.length
+    ? replySettlers[replySettlers.length - 1]
+    : undefined;
+  if (!call || !settle) throw new Error("No reply sent");
+  return { request: call[0], ...settle };
 }
 
 it("isolates comment AI model selection by organization and user", () => {
@@ -368,7 +388,7 @@ vi.mock("@agent-native/core/client/review", () => ({
     isLoading: false,
   }),
   useReplyReviewComment: () => ({
-    mutate: replyMutate,
+    mutateAsync: replyMutateAsync,
     isPending: false,
     error: null,
   }),
@@ -1931,7 +1951,7 @@ it("opens an unanchored history thread so its recovery actions remain reachable"
 });
 
 it("keeps decided suggestion history readable and replies only to pending threads", async () => {
-  replyMutate.mockClear();
+  replyMutateAsync.mockClear();
   const operation = {
     ordinal: 0,
     kind: "replace_text",
@@ -2005,36 +2025,31 @@ it("keeps decided suggestion history readable and replies only to pending thread
       submit?.click();
       submit?.click();
     });
-    expect(replyMutate).toHaveBeenCalledTimes(1);
-    expect(replyMutate).toHaveBeenCalledWith(
+    expect(replyMutateAsync).toHaveBeenCalledTimes(1);
+    expect(replyMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({
         commentId: "root-pending-suggestion",
         body: "Pending reply",
       }),
-      expect.any(Object),
     );
-    const firstOperationId = replyMutate.mock.calls[0][0].clientOperationId;
+    const firstOperationId = lastReply().request.clientOperationId;
     const timeout = Object.assign(new Error("Request timed out"), {
       timedOut: true,
     });
     await act(async () => {
-      replyMutate.mock.calls[0][1].onError(timeout);
-      replyMutate.mock.calls[0][1].onSettled();
+      lastReply().reject(timeout);
     });
     expect(drafts.get("thread-pending-suggestion").text).toBe("Pending reply");
     await act(async () => submit?.click());
-    expect(replyMutate.mock.calls[1][0].clientOperationId).toBe(
-      firstOperationId,
-    );
+    expect(lastReply().request.clientOperationId).toBe(firstOperationId);
     const refused = Object.assign(new Error("Too many requests"), {
       status: 429,
     });
     await act(async () => {
-      lastReply().handlers.onError(refused);
-      lastReply().handlers.onSettled();
+      lastReply().reject(refused);
     });
     await act(async () => submit?.click());
-    expect(replyMutate).toHaveBeenCalledTimes(3);
+    expect(replyMutateAsync).toHaveBeenCalledTimes(3);
     expect(lastReply().request.clientOperationId).toBe(firstOperationId);
   } finally {
     await act(async () => root.unmount());
@@ -2043,7 +2058,7 @@ it("keeps decided suggestion history readable and replies only to pending thread
 });
 
 it("keeps a suggestion reply's key when its card remounts", async () => {
-  replyMutate.mockClear();
+  replyMutateAsync.mockClear();
   const suggestions = [
     suggestionFixture({
       id: "pending-suggestion",
@@ -2105,16 +2120,15 @@ it("keeps a suggestion reply's key when its card remounts", async () => {
     await send();
     const key = lastReply().request.clientOperationId;
     await act(async () => {
-      lastReply().handlers.onError(
+      lastReply().reject(
         Object.assign(new Error("Request timed out"), { timedOut: true }),
       );
-      lastReply().handlers.onSettled();
     });
 
     await act(async () => root.render(<Harness mount={1} />));
     if (!submitButton()) await reply();
     await send();
-    expect(replyMutate).toHaveBeenCalledTimes(2);
+    expect(replyMutateAsync).toHaveBeenCalledTimes(2);
     expect(lastReply().request.clientOperationId).toBe(key);
   } finally {
     await act(async () => root.unmount());
@@ -2123,7 +2137,7 @@ it("keeps a suggestion reply's key when its card remounts", async () => {
 });
 
 it("closes a saved suggestion reply's box in Discussion and hands focus to Reply", async () => {
-  replyMutate.mockClear();
+  replyMutateAsync.mockClear();
   const suggestions = [
     suggestionFixture({
       id: "pending-suggestion",
@@ -2177,12 +2191,11 @@ it("closes a saved suggestion reply's box in Discussion and hands focus to Reply
         )
         ?.click();
     });
-    expect(replyMutate).toHaveBeenCalledTimes(1);
+    expect(replyMutateAsync).toHaveBeenCalledTimes(1);
     expect(box()).not.toBeNull();
 
     await act(async () => {
-      lastReply().handlers.onSuccess();
-      lastReply().handlers.onSettled();
+      lastReply().resolve();
     });
     expect(box()).toBeNull();
     await act(
@@ -2197,7 +2210,7 @@ it("closes a saved suggestion reply's box in Discussion and hands focus to Reply
 });
 
 it("mentions only the people a suggestion reply names as a whole @name", async () => {
-  replyMutate.mockClear();
+  replyMutateAsync.mockClear();
   const suggestions = [
     suggestionFixture({
       id: "pending-suggestion",
@@ -2256,8 +2269,8 @@ it("mentions only the people a suggestion reply names as a whole @name", async (
     );
     await act(async () => submit?.click());
 
-    expect(replyMutate).toHaveBeenCalledTimes(1);
-    expect(replyMutate.mock.calls[0][0].mentions).toEqual([
+    expect(replyMutateAsync).toHaveBeenCalledTimes(1);
+    expect(lastReply().request.mentions).toEqual([
       { email: "samantha@example.test", label: "Samantha" },
     ]);
   } finally {

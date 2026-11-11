@@ -5054,7 +5054,7 @@ function SuggestionThreadView({
           replyDrafts.setMentions(suggestion.threadId, entries)
         }
         onHeightChange={onHeightChange}
-        onSubmitReply={() => {
+        onSubmitReply={async () => {
           if (
             !canReply ||
             !root ||
@@ -5089,36 +5089,32 @@ function SuggestionThreadView({
           );
           const clientOperationId = retryId ?? crypto.randomUUID();
           replyDrafts.beginSubmission(suggestion.threadId, clientOperationId);
-          // Whether it saved, so Discussion can close the box once it has.
-          return new Promise<boolean>((resolve) => {
-            reply.mutate(
-              {
-                resourceType: "document",
-                resourceId: documentId,
-                commentId: root.id,
-                clientOperationId,
-                body: draft.trim(),
-                mentions: replyMentions,
-              },
-              {
-                onSuccess: () => resolve(true),
-                onError: (error) => {
-                  replyDrafts.restoreSubmittedDraft(
-                    suggestion.threadId,
-                    clientOperationId,
-                    uncertainAfterFailure(error, retryId !== undefined, {
-                      payload,
-                      operationId: clientOperationId,
-                    }),
-                  );
-                  resolve(false);
-                },
-                onSettled: () => {
-                  replyDrafts.finishSubmission(clientOperationId);
-                },
-              },
+          // Awaited rather than handed callbacks, which TanStack skips once the
+          // card unmounts, so the submission always finishes. Whether it saved
+          // tells Discussion to close the box.
+          try {
+            await reply.mutateAsync({
+              resourceType: "document",
+              resourceId: documentId,
+              commentId: root.id,
+              clientOperationId,
+              body: draft.trim(),
+              mentions: replyMentions,
+            });
+            return true;
+          } catch (error) {
+            replyDrafts.restoreSubmittedDraft(
+              suggestion.threadId,
+              clientOperationId,
+              uncertainAfterFailure(error, retryId !== undefined, {
+                payload,
+                operationId: clientOperationId,
+              }),
             );
-          });
+            return false;
+          } finally {
+            replyDrafts.finishSubmission(clientOperationId);
+          }
         }}
         onResolve={() => {}}
         canComment={canReply}
@@ -5474,7 +5470,8 @@ function ThreadView({
   // thread's Reply, unless the reader has gone on to something else.
   const submitReply = async () => {
     const saved = await onSubmitReply();
-    if (!isPanel || !saved) return;
+    // A card that unmounted while the reply saved has no box left to close.
+    if (!isPanel || !saved || !cardRef.current) return;
     const active = globalThis.document.activeElement;
     if (
       active &&
