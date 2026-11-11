@@ -8887,6 +8887,9 @@ function PageEditorSessionBody({
   const pagePanelSpacerRef = useRef<HTMLDivElement>(null);
   const pagePanelHeadingRef = useRef<HTMLHeadingElement>(null);
   const agentSlotRef = useRef<HTMLDivElement>(null);
+  // The panel head's tool slot; Discussion portals its controls there.
+  const [pagePanelHeadTools, setPagePanelHeadTools] =
+    useState<HTMLDivElement | null>(null);
   const pagePanelOpenRef = useRef(false);
   const pagePanelLastTabRef = useRef<DocumentPagePanelTab | null>(null);
   const pagePanelReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -11045,6 +11048,9 @@ function PageEditorSessionBody({
       onHighlightsVisibleChange={
         presentation === "history" ? setShowCommentIndicators : undefined
       }
+      headToolsContainer={
+        presentation === "history" ? pagePanelHeadTools : undefined
+      }
       threads={
         infoProperty
           ? infoPropertyId === infoProperty
@@ -12474,6 +12480,7 @@ function PageEditorSessionBody({
           spacerRef={pagePanelSpacerRef}
           headingRef={pagePanelHeadingRef}
           agentSlotRef={host === "page" ? agentSlotRef : undefined}
+          headToolsRef={setPagePanelHeadTools}
           onClose={() => handlePagePanelChange(null)}
         >
           {pagePanelBody}

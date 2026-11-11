@@ -130,6 +130,8 @@ let onSelectedThreadChange: ((threadId: string | null) => void) | undefined;
 let pageComment: { focus: boolean; onFocused?: () => void } = { focus: false };
 // Hears Discussion's Show.
 let showSubject: ((thread: CommentThread) => void) | undefined;
+// The page panel head's tool slot, when the panel gives one.
+let headTools: HTMLElement | null = null;
 
 function Owner({
   presentation,
@@ -158,6 +160,7 @@ function Owner({
       focusPageComposer={pageComment.focus}
       onPageComposerFocused={pageComment.onFocused}
       onShowThreadSubject={showSubject}
+      headToolsContainer={headTools}
     />
   );
 }
@@ -185,6 +188,8 @@ describe("the Discussion panel", () => {
     onSelectedThreadChange = undefined;
     pageComment = { focus: false };
     showSubject = undefined;
+    headTools?.remove();
+    headTools = null;
     queryClient.clear();
     window.localStorage.clear();
   });
@@ -365,6 +370,35 @@ describe("the Discussion panel", () => {
     render();
     expect(toggle().getAttribute("aria-label")).toBe("comments.showIndicators");
     expect(toggle().getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("puts its controls in the panel head it's given, and opens the search under it", async () => {
+    headTools = document.createElement("div");
+    document.body.append(headTools);
+    render();
+    const head = headTools;
+    expect(head.querySelector("[data-discussion-sort-trigger]")).not.toBeNull();
+    expect(
+      head.querySelector("[data-discussion-filter-trigger]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-discussion-sort-trigger]"),
+    ).toBeNull();
+
+    await act(async () =>
+      head
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="comments.searchDiscussion"]',
+        )!
+        .click(),
+    );
+    const field = container.querySelector<HTMLInputElement>(
+      'input[aria-label="comments.searchDiscussion"]',
+    );
+    expect(field).not.toBeNull();
+    // Escape there closes the search, not the panel.
+    expect(field!.closest("[data-discussion-toolbar]")).not.toBeNull();
+    expect(head.querySelector("input")).toBeNull();
   });
 
   it("shows a chip for each filter someone chose and clears it from the chip", async () => {

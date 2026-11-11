@@ -1228,6 +1228,8 @@ interface CommentsSidebarOptions {
   highlightsVisible?: boolean;
   onHighlightsVisibleChange?: (visible: boolean) => void;
   pageComposerRef?: RefObject<TiptapComposerHandle | null>;
+  /** The page panel head's tool slot, where Discussion puts its controls. */
+  headToolsContainer?: HTMLElement | null | undefined;
 }
 
 type CommentsSidebarProps = CommentsSidebarOptions &
@@ -1314,6 +1316,7 @@ export function CommentsSidebar({
   highlightsVisible = true,
   onHighlightsVisibleChange,
   pageComposerRef,
+  headToolsContainer,
 }: CommentsSidebarProps) {
   const surface: CommentSurface =
     surfaceProp ?? (presentation === "history" ? "panel" : "rail");
@@ -4076,6 +4079,7 @@ export function CommentsSidebar({
         chips={chips}
         onClearFilters={clearFilters}
         portalContainer={historyPortalContainer}
+        headContainer={headToolsContainer}
         highlightsVisible={highlightsVisible}
         onHighlightsVisibleChange={onHighlightsVisibleChange}
       />
@@ -4111,8 +4115,9 @@ export function CommentsSidebar({
         data-comments-history
         data-comments-sidebar
       >
-        {/* The page panel's header sits above this scroller, so pin at 0. */}
-        <div className="sticky top-0 z-10 border-b border-border bg-background">
+        {/* The page panel's header sits above this scroller, so pin at 0.
+            With the controls in that header, only chips land here, if any. */}
+        <div className="sticky top-0 z-10 border-b border-border bg-background empty:hidden">
           {toolbar}
         </div>
         {composer}

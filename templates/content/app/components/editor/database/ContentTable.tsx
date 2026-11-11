@@ -316,6 +316,8 @@ export function ContentTableSearch({
   closeLabel,
   onOpenChange,
   onValueChange,
+  className,
+  buttonClassName,
 }: {
   open: boolean;
   value: string;
@@ -324,13 +326,22 @@ export function ContentTableSearch({
   closeLabel: string;
   onOpenChange: (open: boolean) => void;
   onValueChange: (value: string) => void;
+  /** The open field's box. */
+  className?: string | undefined;
+  /** The closed search button. */
+  buttonClassName?: string | undefined;
 }) {
   const close = () => {
     onValueChange("");
     onOpenChange(false);
   };
   return open ? (
-    <div className="flex h-7 w-52 items-center gap-1 rounded border border-border bg-background px-2">
+    <div
+      className={cn(
+        "flex h-7 w-52 items-center gap-1 rounded border border-border bg-background px-2",
+        className,
+      )}
+    >
       <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
       <Input
         autoFocus
@@ -356,6 +367,7 @@ export function ContentTableSearch({
     <ContentTableToolbarButton
       label={label}
       active={Boolean(value)}
+      className={buttonClassName}
       onClick={() => onOpenChange(true)}
     >
       <IconSearch className="size-3.5" />

@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconX } from "@tabler/icons-react";
-import { type ReactNode, type RefObject } from "react";
+import { type ReactNode, type Ref, type RefObject } from "react";
 
 import type { ContentPanelLayout } from "@/components/layout/content-layout";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,7 @@ export function DocumentPagePanel({
   spacerRef,
   headingRef,
   agentSlotRef,
+  headToolsRef,
   panelId = DOCUMENT_PAGE_PANEL_ID,
   onClose,
   children,
@@ -36,6 +37,8 @@ export function DocumentPagePanel({
   spacerRef: RefObject<HTMLDivElement | null>;
   headingRef: RefObject<HTMLHeadingElement | null>;
   agentSlotRef?: RefObject<HTMLDivElement | null> | undefined;
+  /** Where a tab puts its own tools, between the title and Close. */
+  headToolsRef?: Ref<HTMLDivElement> | undefined;
   panelId?: string | undefined;
   onClose: () => void;
   children: ReactNode;
@@ -105,9 +108,15 @@ export function DocumentPagePanel({
           >
             {title}
           </h2>
+          {/* Always there, so Close stays put whichever tab is open. */}
+          <div
+            ref={headToolsRef}
+            className="flex min-w-0 flex-1 items-center justify-end gap-1"
+            data-document-panel-head-tools
+          />
           <button
             type="button"
-            className="ms-auto flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             aria-label={t("editor.toolbar.closeUtilityPanel")}
             onClick={onClose}
           >

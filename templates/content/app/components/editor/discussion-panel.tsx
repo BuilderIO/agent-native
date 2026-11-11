@@ -14,6 +14,7 @@ import {
   IconSearch,
 } from "@tabler/icons-react";
 import { forwardRef, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import {
   ContentTableConstraintBar,
@@ -290,7 +291,9 @@ export type DiscussionFilterGroup = {
 /**
  * Search, sort and filter for the Discussion panel, built from the controls
  * Collections and Trash share so all three look and behave alike, plus the
- * switch that hides comment highlights on the page.
+ * switch that hides comment highlights on the page. Given the page panel's
+ * head, the controls sit there beside Close, at its size, and only the chips
+ * for what's narrowed stay above the comments.
  */
 export function DiscussionToolbar({
   query,
@@ -301,6 +304,7 @@ export function DiscussionToolbar({
   chips,
   onClearFilters,
   portalContainer,
+  headContainer,
   highlightsVisible,
   onHighlightsVisibleChange,
 }: {
@@ -312,11 +316,16 @@ export function DiscussionToolbar({
   chips: DiscussionChip[];
   onClearFilters: () => void;
   portalContainer?: HTMLElement | null;
+  /** The page panel head's tool slot. */
+  headContainer?: HTMLElement | null | undefined;
   highlightsVisible?: boolean;
   onHighlightsVisibleChange?: (visible: boolean) => void;
 }) {
   const t = useT();
   const [searchOpen, setSearchOpen] = useState(Boolean(query));
+  const inHead = Boolean(headContainer);
+  // In the head, buttons match Close beside them.
+  const buttonSize = inHead ? "h-8 w-8" : undefined;
   const sortLabel = (value: DiscussionSort) =>
     t(
       value === "page"
@@ -325,173 +334,215 @@ export function DiscussionToolbar({
           ? "comments.sortActivity"
           : "comments.sortOldest",
     );
+  const search = {
+    value: query,
+    label: t("comments.searchDiscussion"),
+    placeholder: t("comments.searchDiscussion"),
+    closeLabel: t("comments.closeSearch"),
+    onOpenChange: setSearchOpen,
+    onValueChange: onQueryChange,
+  };
+  // The head has no room to type in, so there the field opens under it, the
+  // panel's width, and says what's searched itself, without a chip.
+  const searchBelowHead = inHead && searchOpen;
+  const controls = (
+    <ContentTableToolbar
+      className={
+        inHead
+          ? "min-w-0 flex-1 flex-nowrap"
+          : "flex-nowrap justify-start px-3 py-1"
+      }
+    >
+      <ContentTableSearch
+        {...search}
+        open={searchOpen && !inHead}
+        buttonClassName={buttonSize}
+      />
+      <Popover>
+        <PopoverTrigger asChild>
+          <ContentTableToolbarButton
+            label={t("comments.sortBy")}
+            active={sort !== "page"}
+            className={buttonSize}
+            data-discussion-sort-trigger
+          >
+            <IconArrowsSort className="size-3.5" />
+          </ContentTableToolbarButton>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="grid w-52 gap-1 p-2"
+          container={portalContainer}
+        >
+          {DISCUSSION_SORTS.map((value) => (
+            <Button
+              key={value}
+              type="button"
+              size="sm"
+              variant={sort === value ? "secondary" : "ghost"}
+              className="justify-start"
+              aria-pressed={sort === value}
+              data-discussion-sort={value}
+              onClick={() => onSortChange(value)}
+            >
+              {sortLabel(value)}
+            </Button>
+          ))}
+        </PopoverContent>
+      </Popover>
+      <Popover>
+        <PopoverTrigger asChild>
+          <ContentTableToolbarButton
+            label={t("comments.filter")}
+            active={chips.length > 0}
+            count={chips.length}
+            className={buttonSize}
+            data-discussion-filter-trigger
+          >
+            <IconAdjustmentsHorizontal className="size-3.5" />
+          </ContentTableToolbarButton>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="grid max-h-[min(32rem,var(--radix-popover-content-available-height))] w-72 gap-3 overflow-y-auto"
+          container={portalContainer}
+        >
+          {filterGroups.map((group) => (
+            <fieldset
+              key={group.key}
+              className="grid gap-1.5"
+              data-discussion-filter-group={group.key}
+            >
+              <legend className="text-xs font-medium">{group.label}</legend>
+              <div
+                className={
+                  group.columns === 1 ? "grid gap-1" : "grid grid-cols-2 gap-1"
+                }
+              >
+                {group.options.map((option) => (
+                  <Button
+                    key={option.key}
+                    type="button"
+                    size="sm"
+                    variant={option.selected ? "secondary" : "ghost"}
+                    className="justify-start truncate"
+                    aria-pressed={option.selected}
+                    data-discussion-filter-option={option.key}
+                    onClick={option.onSelect}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+            </fieldset>
+          ))}
+          {chips.length ? (
+            <Button variant="ghost" size="sm" onClick={onClearFilters}>
+              {t("comments.clearFilters")}
+            </Button>
+          ) : null}
+        </PopoverContent>
+      </Popover>
+      {onHighlightsVisibleChange ? (
+        <ContentTableToolbarButton
+          label={t(
+            highlightsVisible
+              ? "comments.hideIndicators"
+              : "comments.showIndicators",
+          )}
+          active={!highlightsVisible}
+          aria-pressed={!highlightsVisible}
+          className={inHead ? buttonSize : "ms-auto"}
+          data-discussion-highlights-toggle
+          onClick={() => onHighlightsVisibleChange(!highlightsVisible)}
+        >
+          {highlightsVisible ? (
+            <IconEye className="size-3.5" />
+          ) : (
+            <IconEyeOff className="size-3.5" />
+          )}
+        </ContentTableToolbarButton>
+      ) : null}
+    </ContentTableToolbar>
+  );
+  const searchChip = Boolean(query.trim()) && !searchBelowHead;
+  const constraints =
+    searchChip || sort !== "page" || chips.length ? (
+      <ContentTableConstraintBar
+        className={inHead && !searchBelowHead ? "px-3 py-2" : "px-3 pb-2"}
+        trailing={
+          chips.length ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 text-xs"
+              onClick={onClearFilters}
+            >
+              {t("comments.clearFilters")}
+            </Button>
+          ) : undefined
+        }
+      >
+        {searchChip ? (
+          <ContentTableConstraintChip
+            icon={<IconSearch className="size-3.5" />}
+            label={`${t("comments.searchDiscussion")}: ${query.trim()}`}
+            removeLabel={t("comments.removeFilter", {
+              filter: t("comments.searchDiscussion"),
+            })}
+            onRemove={() => {
+              onQueryChange("");
+              setSearchOpen(false);
+            }}
+          />
+        ) : null}
+        {sort !== "page" ? (
+          <ContentTableConstraintChip
+            icon={<IconArrowsSort className="size-3.5" />}
+            label={`${t("comments.sortBy")}: ${sortLabel(sort)}`}
+            removeLabel={t("comments.removeFilter", {
+              filter: t("comments.sortBy"),
+            })}
+            onRemove={() => onSortChange("page")}
+          />
+        ) : null}
+        {chips.map((chip) => (
+          <ContentTableConstraintChip
+            key={chip.key}
+            label={chip.label}
+            removeLabel={t("comments.removeFilter", { filter: chip.label })}
+            onRemove={chip.onRemove}
+          />
+        ))}
+      </ContentTableConstraintBar>
+    ) : null;
+  if (headContainer) {
+    return (
+      <>
+        {createPortal(
+          <div className="flex min-w-0 flex-1" data-discussion-toolbar>
+            {controls}
+          </div>,
+          headContainer,
+        )}
+        {searchBelowHead || constraints ? (
+          // Escape in the field closes the search, not the panel.
+          <div data-discussion-toolbar>
+            {searchBelowHead ? (
+              <div className="px-3 py-2">
+                <ContentTableSearch {...search} open className="h-8 w-full" />
+              </div>
+            ) : null}
+            {constraints}
+          </div>
+        ) : null}
+      </>
+    );
+  }
   return (
     <div data-discussion-toolbar>
-      <ContentTableToolbar className="flex-nowrap justify-start px-3 py-1">
-        <ContentTableSearch
-          open={searchOpen}
-          value={query}
-          label={t("comments.searchDiscussion")}
-          placeholder={t("comments.searchDiscussion")}
-          closeLabel={t("comments.closeSearch")}
-          onOpenChange={setSearchOpen}
-          onValueChange={onQueryChange}
-        />
-        <Popover>
-          <PopoverTrigger asChild>
-            <ContentTableToolbarButton
-              label={t("comments.sortBy")}
-              active={sort !== "page"}
-              data-discussion-sort-trigger
-            >
-              <IconArrowsSort className="size-3.5" />
-            </ContentTableToolbarButton>
-          </PopoverTrigger>
-          <PopoverContent
-            align="start"
-            className="grid w-52 gap-1 p-2"
-            container={portalContainer}
-          >
-            {DISCUSSION_SORTS.map((value) => (
-              <Button
-                key={value}
-                type="button"
-                size="sm"
-                variant={sort === value ? "secondary" : "ghost"}
-                className="justify-start"
-                aria-pressed={sort === value}
-                data-discussion-sort={value}
-                onClick={() => onSortChange(value)}
-              >
-                {sortLabel(value)}
-              </Button>
-            ))}
-          </PopoverContent>
-        </Popover>
-        <Popover>
-          <PopoverTrigger asChild>
-            <ContentTableToolbarButton
-              label={t("comments.filter")}
-              active={chips.length > 0}
-              count={chips.length}
-              data-discussion-filter-trigger
-            >
-              <IconAdjustmentsHorizontal className="size-3.5" />
-            </ContentTableToolbarButton>
-          </PopoverTrigger>
-          <PopoverContent
-            align="start"
-            className="grid max-h-[min(32rem,var(--radix-popover-content-available-height))] w-72 gap-3 overflow-y-auto"
-            container={portalContainer}
-          >
-            {filterGroups.map((group) => (
-              <fieldset
-                key={group.key}
-                className="grid gap-1.5"
-                data-discussion-filter-group={group.key}
-              >
-                <legend className="text-xs font-medium">{group.label}</legend>
-                <div
-                  className={
-                    group.columns === 1
-                      ? "grid gap-1"
-                      : "grid grid-cols-2 gap-1"
-                  }
-                >
-                  {group.options.map((option) => (
-                    <Button
-                      key={option.key}
-                      type="button"
-                      size="sm"
-                      variant={option.selected ? "secondary" : "ghost"}
-                      className="justify-start truncate"
-                      aria-pressed={option.selected}
-                      data-discussion-filter-option={option.key}
-                      onClick={option.onSelect}
-                    >
-                      {option.label}
-                    </Button>
-                  ))}
-                </div>
-              </fieldset>
-            ))}
-            {chips.length ? (
-              <Button variant="ghost" size="sm" onClick={onClearFilters}>
-                {t("comments.clearFilters")}
-              </Button>
-            ) : null}
-          </PopoverContent>
-        </Popover>
-        {onHighlightsVisibleChange ? (
-          <ContentTableToolbarButton
-            label={t(
-              highlightsVisible
-                ? "comments.hideIndicators"
-                : "comments.showIndicators",
-            )}
-            active={!highlightsVisible}
-            aria-pressed={!highlightsVisible}
-            className="ms-auto"
-            data-discussion-highlights-toggle
-            onClick={() => onHighlightsVisibleChange(!highlightsVisible)}
-          >
-            {highlightsVisible ? (
-              <IconEye className="size-3.5" />
-            ) : (
-              <IconEyeOff className="size-3.5" />
-            )}
-          </ContentTableToolbarButton>
-        ) : null}
-      </ContentTableToolbar>
-      {query.trim() || sort !== "page" || chips.length ? (
-        <ContentTableConstraintBar
-          className="px-3 pb-2"
-          trailing={
-            chips.length ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 shrink-0 text-xs"
-                onClick={onClearFilters}
-              >
-                {t("comments.clearFilters")}
-              </Button>
-            ) : undefined
-          }
-        >
-          {query.trim() ? (
-            <ContentTableConstraintChip
-              icon={<IconSearch className="size-3.5" />}
-              label={`${t("comments.searchDiscussion")}: ${query.trim()}`}
-              removeLabel={t("comments.removeFilter", {
-                filter: t("comments.searchDiscussion"),
-              })}
-              onRemove={() => {
-                onQueryChange("");
-                setSearchOpen(false);
-              }}
-            />
-          ) : null}
-          {sort !== "page" ? (
-            <ContentTableConstraintChip
-              icon={<IconArrowsSort className="size-3.5" />}
-              label={`${t("comments.sortBy")}: ${sortLabel(sort)}`}
-              removeLabel={t("comments.removeFilter", {
-                filter: t("comments.sortBy"),
-              })}
-              onRemove={() => onSortChange("page")}
-            />
-          ) : null}
-          {chips.map((chip) => (
-            <ContentTableConstraintChip
-              key={chip.key}
-              label={chip.label}
-              removeLabel={t("comments.removeFilter", { filter: chip.label })}
-              onRemove={chip.onRemove}
-            />
-          ))}
-        </ContentTableConstraintBar>
-      ) : null}
+      {controls}
+      {constraints}
     </div>
   );
 }
