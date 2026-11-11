@@ -578,6 +578,7 @@ const messages = {
     them: "他们",
     me: "我",
     regeneratingNotes: "正在重新生成摘要",
+    notesAlreadyGenerating: "摘要已在生成中，完成后会显示在这里。",
     meetingRemoved: "会议已删除",
     couldNotRemoveMeeting: "无法删除会议",
     couldNotLoadMeeting: "无法加载该会议。",
@@ -737,6 +738,10 @@ const messages = {
     saveThumbnail: "保存缩略图",
   },
   shareDialog: {
+    enterPassword: "输入密码",
+    showPassword: "显示密码",
+    hidePassword: "隐藏密码",
+    copyPassword: "复制密码",
     redactionsPendingTitle: "分享前完成遮挡处理",
     redactionsPendingBody:
       "待应用的遮挡：{{count}} 处。请先在编辑器中应用；视频中仍保留原始内容。",

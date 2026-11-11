@@ -111,6 +111,10 @@ import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import { useContentLayout } from "@/components/layout/use-content-layout";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
+  remainingPageAfterDelete,
+  stillOnPageOpenedForDelete,
+} from "@/components/sidebar/document-sidebar-actions";
+import {
   createContentSpaceSelectionQueue,
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
@@ -164,6 +168,7 @@ import {
   refreshLandingTitleHintCache,
 } from "@/hooks/use-optimistic-document-title";
 import { usePageTabTitle } from "@/hooks/use-page-tab-title";
+import { usePendingTrash } from "@/hooks/use-pending-trash";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
@@ -171,6 +176,7 @@ import { documentContentHash } from "@/lib/document-content-hash";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import { documentReadFailure } from "@/lib/document-read-failures";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
+import { cachedFilesRootDocumentIds } from "@/lib/files-navigation";
 import { filesRootHintScope } from "@/lib/files-root-hint";
 import { rememberLastLocationHint } from "@/lib/last-location-hint";
 import {
@@ -2848,6 +2854,26 @@ export function documentEditorShowsInlineComments(args: {
 }
 
 /**
+ * Whether the margin still shows a thread AI just resolved. Its Resolved by
+ * AI mark holds the margin open until it fades, even when AI resolved the
+ * page's last open thread. Only the open tab's threads count: another tab's
+ * mark isn't on screen to fade, so it would hold an empty margin.
+ */
+export function documentEditorHasFreshAiResolution(
+  threads: readonly CommentThread[] | null | undefined,
+  openFieldId: string | null,
+  freshResolutions: ReadonlyMap<string, unknown>,
+) {
+  if (!threads || freshResolutions.size === 0) return false;
+  return commentRailThreads(threads, openFieldId).some(
+    (thread) =>
+      thread.resolved &&
+      freshResolutions.has(thread.threadId) &&
+      !isPageCommentThread(thread),
+  );
+}
+
+/**
  * What the page panel shows. `utilityPanel === "comments"` alone only means a
  * comment is in focus, which the margin or a card on the text shows; the panel
  * takes it when Discussion was asked for, or for a suggestion with no margin to
@@ -3215,6 +3241,7 @@ function PageEditorSessionBody({
   );
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
+  const pendingTrash = usePendingTrash();
   const processBuilderBodies = useProcessBuilderBodyHydration(
     document.bodyHydration?.databaseDocumentId ?? documentId,
   );
@@ -3626,6 +3653,27 @@ function PageEditorSessionBody({
     [],
   );
   const handleDeleteDocument = useCallback(async () => {
+    // An open page leaves for a remaining page with the click and comes back
+    // if the move to Trash fails. Knowing none, it waits for the move and
+    // opens Home.
+    const remainingPageId =
+      onDelete || host !== "page"
+        ? null
+        : remainingPageAfterDelete(documentId, {
+            activePath: navigationPath,
+            filesRootDocumentIds: cachedFilesRootDocumentIds(
+              queryClient,
+              documentId,
+            ),
+            pendingTrashIds: pendingTrash.documentIds,
+          });
+    const previousPath = `${location.pathname}${location.search}${location.hash}`;
+    if (remainingPageId) {
+      void navigate(`/page/${remainingPageId}`, {
+        replace: true,
+        flushSync: true,
+      });
+    }
     try {
       if (onDelete) {
         await onDelete();
@@ -3638,8 +3686,15 @@ function PageEditorSessionBody({
       } else {
         await deleteDocument.mutateAsync({ id: documentId });
       }
-      void navigate("/home", { replace: true, flushSync: true });
+      if (!remainingPageId) {
+        void navigate("/home", { replace: true, flushSync: true });
+      }
     } catch (error) {
+      if (
+        stillOnPageOpenedForDelete(window.location.pathname, remainingPageId)
+      ) {
+        void navigate(previousPath, { replace: true, flushSync: true });
+      }
       toast.error(t("sidebar.failedDeletePage"), {
         description:
           error instanceof Error ? error.message : t("empty.genericError"),
@@ -3650,8 +3705,15 @@ function PageEditorSessionBody({
     deleteDocument,
     document.database,
     documentId,
+    host,
+    location.hash,
+    location.pathname,
+    location.search,
     navigate,
+    navigationPath,
     onDelete,
+    pendingTrash.documentIds,
+    queryClient,
     t,
   ]);
 
@@ -9028,20 +9090,6 @@ function PageEditorSessionBody({
           thread.threadId === selectedThreadId && !isPageCommentThread(thread),
       ) ??
         false));
-  const marginWanted = documentEditorShowsInlineComments({
-    showIndicators: showCommentIndicators,
-    hasInlineCommentSpace,
-    hasOpenCommentThreads: hasOpenCommentThreads || hasOpenSuggestions,
-    hasSelectedCommentThread,
-    hasPendingComment: !!pendingComment,
-  });
-  const pagePanel = usePagePanelMotion(requestedPanelTab, marginWanted);
-  // The margin gives its space back with the panel's arrival and takes it again
-  // as the panel leaves, so the page moves once; its comments wait until the
-  // panel has gone.
-  const marginReserved = marginWanted && !pagePanel.tab;
-  const showInlineComments = marginReserved && !pagePanel.closing;
-  if (pagePanel.tab) pagePanelLastTabRef.current = pagePanel.tab;
   // A failed read says nothing about whether the page still has open review,
   // so the remembered margin holds until both reads answer.
   const reviewReadsSettled = documentEditorReviewReadsSettled({
@@ -9056,25 +9104,6 @@ function PageEditorSessionBody({
   const pageHadOpenReview = useMemo(
     () => host === "page" && readPageShapeHint(documentId) === "review",
     [documentId, host],
-  );
-  const reserveInlineReviewSpace = documentEditorReservesInlineReviewSpace({
-    showInlineComments: marginReserved,
-    preserveInlineReviewSpace:
-      preserveInlineReviewSpace || (pageHadOpenReview && !reviewReadsSettled),
-    hasInlineCommentSpace: hasInlineCommentSpace && !pagePanel.tab,
-    isDatabasePage: Boolean(document.database),
-  });
-  const scrollContentRef = useRef<HTMLDivElement>(null);
-  const pageColumnRef = useRef<HTMLDivElement>(null);
-  useReviewMarginSlide(
-    {
-      scroller: scrollContainerRef,
-      content: scrollContentRef,
-      column: pageColumnRef,
-      panelSpacer: pagePanelSpacerRef,
-    },
-    reserveInlineReviewSpace,
-    !!pagePanel.tab && pagePanelLayout.mode === "dock",
   );
   const hasOpenReview = hasOpenCommentThreads || hasOpenSuggestions;
   useEffect(() => {
@@ -9256,6 +9285,46 @@ function PageEditorSessionBody({
   const clipRailThreads = useMemo(
     () => commentRailThreads(clipThreads, blockFieldComments.openFieldId),
     [blockFieldComments.openFieldId, clipThreads],
+  );
+  const marginWanted = documentEditorShowsInlineComments({
+    showIndicators: showCommentIndicators,
+    hasInlineCommentSpace,
+    hasOpenCommentThreads:
+      hasOpenCommentThreads ||
+      hasOpenSuggestions ||
+      documentEditorHasFreshAiResolution(
+        threads,
+        blockFieldComments.openFieldId,
+        commentAi.freshResolutions,
+      ),
+    hasSelectedCommentThread,
+    hasPendingComment: !!pendingComment,
+  });
+  const pagePanel = usePagePanelMotion(requestedPanelTab, marginWanted);
+  // The margin gives its space back with the panel's arrival and takes it again
+  // as the panel leaves, so the page moves once; its comments wait until the
+  // panel has gone.
+  const marginReserved = marginWanted && !pagePanel.tab;
+  const showInlineComments = marginReserved && !pagePanel.closing;
+  if (pagePanel.tab) pagePanelLastTabRef.current = pagePanel.tab;
+  const reserveInlineReviewSpace = documentEditorReservesInlineReviewSpace({
+    showInlineComments: marginReserved,
+    preserveInlineReviewSpace:
+      preserveInlineReviewSpace || (pageHadOpenReview && !reviewReadsSettled),
+    hasInlineCommentSpace: hasInlineCommentSpace && !pagePanel.tab,
+    isDatabasePage: Boolean(document.database),
+  });
+  const scrollContentRef = useRef<HTMLDivElement>(null);
+  const pageColumnRef = useRef<HTMLDivElement>(null);
+  useReviewMarginSlide(
+    {
+      scroller: scrollContainerRef,
+      content: scrollContentRef,
+      column: pageColumnRef,
+      panelSpacer: pagePanelSpacerRef,
+    },
+    reserveInlineReviewSpace,
+    !!pagePanel.tab && pagePanelLayout.mode === "dock",
   );
   const showAnchoredCommentPopover =
     !showCommentsHistoryDrawer &&
@@ -10643,7 +10712,7 @@ function PageEditorSessionBody({
       // Accepting a tab's suggestion writes the Collection's field.
       canDecideFieldSuggestions={pagePropertiesInScope?.canEditValues === true}
       decidingSuggestion={(suggestionId) =>
-        fieldSuggestions.deciding ||
+        fieldSuggestions.decidingSuggestion(suggestionId) ||
         isSubmittingSuggestions ||
         isStartingSuggestion ||
         !!pendingSuggestionDecision ||

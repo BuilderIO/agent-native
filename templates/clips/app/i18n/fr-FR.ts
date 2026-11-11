@@ -643,6 +643,8 @@ const messages = {
     them: "Eux",
     me: "Moi",
     regeneratingNotes: "Régénération du résumé",
+    notesAlreadyGenerating:
+      "Un résumé est déjà en cours de génération. Il s'affichera ici dès qu'il sera prêt.",
     meetingRemoved: "Réunion supprimée",
     couldNotRemoveMeeting: "Impossible de supprimer la réunion",
     couldNotLoadMeeting: "Impossible de charger cette réunion.",
@@ -818,6 +820,10 @@ const messages = {
     saveThumbnail: "Enregistrer la miniature",
   },
   shareDialog: {
+    enterPassword: "Saisir un mot de passe",
+    showPassword: "Afficher le mot de passe",
+    hidePassword: "Masquer le mot de passe",
+    copyPassword: "Copier le mot de passe",
     redactionsPendingTitle: "Terminer les masquages avant le partage",
     redactionsPendingBody:
       "Masquages en attente : {{count}}. Appliquez-les dans l’éditeur avant de partager ; la vidéo contient encore le contenu d’origine.",

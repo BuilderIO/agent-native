@@ -605,6 +605,8 @@ const messages = {
     them: "هم",
     me: "أنا",
     regeneratingNotes: "جارٍ إعادة إنشاء الملخص",
+    notesAlreadyGenerating:
+      "يجري إنشاء ملخص بالفعل. سيظهر هنا عندما يصبح جاهزًا.",
     meetingRemoved: "تمت إزالة الاجتماع",
     couldNotRemoveMeeting: "تعذرت إزالة الاجتماع",
     couldNotLoadMeeting: "تعذر تحميل هذا الاجتماع.",
@@ -780,6 +782,10 @@ const messages = {
     saveThumbnail: "حفظ الصورة المصغرة",
   },
   shareDialog: {
+    enterPassword: "أدخل كلمة مرور",
+    showPassword: "إظهار كلمة المرور",
+    hidePassword: "إخفاء كلمة المرور",
+    copyPassword: "نسخ كلمة المرور",
     redactionsPendingTitle: "أكمل التنقيح قبل المشاركة",
     redactionsPendingBody:
       "عمليات التنقيح المعلّقة: {{count}}. طبّقها في المحرر قبل المشاركة؛ فما زال الفيديو يحتوي على المحتوى الأصلي.",

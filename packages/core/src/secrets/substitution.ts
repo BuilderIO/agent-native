@@ -32,6 +32,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { GEMINI_API_KEY, LEGACY_GEMINI_API_KEY } from "./key-aliases.js";
 import { getRequiredSecret, type SecretScope } from "./register.js";
 import { readAppSecret, readAppSecretMeta } from "./storage.js";
 
@@ -214,6 +215,18 @@ const DEFAULT_PROVIDER_ORIGINS: Partial<Record<string, readonly string[]>> = {
   OPENAI_API_KEY: ["https://api.openai.com"],
   ANTHROPIC_API_KEY: ["https://api.anthropic.com"],
   GITHUB_TOKEN: ["https://api.github.com"],
+  FIGMA_ACCESS_TOKEN: ["https://api.figma.com"],
+  JEV_API_KEY: ["https://api.typesafe.ai"],
+  OPENROUTER_API_KEY: ["https://openrouter.ai"],
+  [GEMINI_API_KEY]: ["https://generativelanguage.googleapis.com"],
+  [LEGACY_GEMINI_API_KEY]: ["https://generativelanguage.googleapis.com"],
+  GROQ_API_KEY: ["https://api.groq.com"],
+  MISTRAL_API_KEY: ["https://api.mistral.ai"],
+  COHERE_API_KEY: ["https://api.cohere.com"],
+  BRAVE_SEARCH_API_KEY: ["https://api.search.brave.com"],
+  TAVILY_API_KEY: ["https://api.tavily.com"],
+  EXA_API_KEY: ["https://api.exa.ai"],
+  FIRECRAWL_API_KEY: ["https://api.firecrawl.dev"],
   STRIPE_SECRET_KEY: ["https://api.stripe.com"],
   SLACK_BOT_TOKEN: ["https://slack.com"],
   NOTION_API_KEY: ["https://api.notion.com"],

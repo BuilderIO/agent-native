@@ -638,6 +638,8 @@ const messages = {
     them: "Eles",
     me: "Meu",
     regeneratingNotes: "Regenerando resumo",
+    notesAlreadyGenerating:
+      "Um resumo já está sendo gerado. Ele aparecerá aqui quando estiver pronto.",
     meetingRemoved: "Reunião removida",
     couldNotRemoveMeeting: "Não foi possível remover a reunião",
     couldNotLoadMeeting: "Não foi possível carregar esta reunião.",
@@ -812,6 +814,10 @@ const messages = {
     saveThumbnail: "Salvar miniatura",
   },
   shareDialog: {
+    enterPassword: "Digite uma senha",
+    showPassword: "Mostrar senha",
+    hidePassword: "Ocultar senha",
+    copyPassword: "Copiar senha",
     redactionsPendingTitle: "Conclua as ocultações antes de compartilhar",
     redactionsPendingBody:
       "Ocultações pendentes: {{count}}. Aplique-as no editor antes de compartilhar; o vídeo ainda contém o conteúdo original.",

@@ -580,6 +580,7 @@ const messages = {
     them: "他們",
     me: "我",
     regeneratingNotes: "正在重新產生摘要",
+    notesAlreadyGenerating: "摘要已在產生中，完成後會顯示在這裡。",
     meetingRemoved: "會議已刪除",
     couldNotRemoveMeeting: "無法刪除會議",
     couldNotLoadMeeting: "無法載入該會議。",
@@ -739,6 +740,10 @@ const messages = {
     saveThumbnail: "儲存縮圖",
   },
   shareDialog: {
+    enterPassword: "輸入密碼",
+    showPassword: "顯示密碼",
+    hidePassword: "隱藏密碼",
+    copyPassword: "複製密碼",
     redactionsPendingTitle: "分享前完成遮蔽處理",
     redactionsPendingBody:
       "待套用的遮蔽：{{count}} 處。請先在編輯器中套用；影片仍保留原始內容。",

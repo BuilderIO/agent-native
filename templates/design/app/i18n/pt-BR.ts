@@ -1794,6 +1794,8 @@ export default {
         "Aplique ou descarte suas edições visuais pendentes antes de duplicar.",
       allDesigns: "Todos os designs",
       rename: "Renomear",
+      builtFrom: "Criado a partir de {{title}}",
+      builtFromPage: "Criado a partir de uma página do Content",
       duplicate: "Duplicar",
       versionHistory: "Histórico de versões",
       import: "Importar…",
@@ -2596,6 +2598,9 @@ export default {
     changesDiscarded:
       "Algumas alterações não puderam ser salvas porque o arquivo não existe mais e foram descartadas.",
     offline: "Off-line",
+    unsaved: "Não salvo",
+    saveRetrying:
+      "Não foi possível salvar suas alterações. Tentando novamente automaticamente.",
     saving: "Salvando...",
     clearedAllAnnotations: "Todas as anotações foram limpas",
     annotationsDiscardedOnViewChange:
@@ -2663,6 +2668,7 @@ export default {
     searchSystems: "Buscar sistemas de design…",
     searchDesigns: "Buscar designs…",
     searchPresentations: "Buscar apresentações…",
+    searchPages: "Buscar páginas…",
     searchDesign: "Buscar design…",
     useDesignSystem: "Usar um sistema de design",
     notReady:
@@ -2675,6 +2681,7 @@ export default {
     design: "Referências de design",
     slides: "Slides",
     referenceDesign: "Usar um design como referência",
+    contentPage: "Página do Content",
     connectFigma: "Conectar Figma",
     figmaReference: "Design do Figma…",
     figmaDialogTitle: "Adicionar design do Figma",

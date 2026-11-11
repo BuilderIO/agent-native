@@ -1716,6 +1716,8 @@ export default {
         "Apply or discard your pending visual edits before duplicating.",
       allDesigns: "All designs",
       rename: "Rename",
+      builtFrom: "Built from {{title}}",
+      builtFromPage: "Built from a Content page",
       duplicate: "Duplicate",
       versionHistory: "Version history",
       import: "Import…",
@@ -2506,6 +2508,8 @@ export default {
     changesDiscarded:
       "Some changes couldn't be saved because the file no longer exists and were discarded.",
     offline: "Offline",
+    unsaved: "Not saved",
+    saveRetrying: "Couldn't save your changes. Retrying automatically.",
     saving: "Saving...",
     clearedAllAnnotations: "Cleared all annotations",
     annotationsDiscardedOnViewChange:
@@ -2573,6 +2577,7 @@ export default {
     searchSystems: "Search design systems…",
     searchDesigns: "Search designs…",
     searchPresentations: "Search presentations…",
+    searchPages: "Search pages…",
     searchDesign: "Search design…",
     useDesignSystem: "Use a design system",
     notReady:
@@ -2585,6 +2590,7 @@ export default {
     design: "Design references",
     slides: "Slides",
     referenceDesign: "Reference a design",
+    contentPage: "Content page",
     connectFigma: "Connect Figma",
     figmaReference: "Figma design…",
     figmaDialogTitle: "Add Figma design",

@@ -175,6 +175,7 @@ import {
   type DatabaseRowView,
   databaseRowPropertyLayout,
 } from "./database/row-view-layout";
+import { databaseSortDirectionLabel } from "./database/sort-direction";
 import type { DatabaseFilter, DatabaseSort } from "./database/types";
 import { EmojiPicker } from "./EmojiPicker";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
@@ -1872,7 +1873,7 @@ export function PropertyManagementPopover({
         >
           {view === "quick" && hasColumnMenu ? (
             <>
-              <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
+              <DropdownMenuLabel className="truncate text-muted-foreground">
                 {property.definition.name}
               </DropdownMenuLabel>
               <DropdownMenuItem
@@ -1952,7 +1953,11 @@ export function PropertyManagementPopover({
                     }}
                   >
                     <span className="min-w-0 flex-1">
-                      {t("database.sortAscending")}
+                      {databaseSortDirectionLabel(
+                        "asc",
+                        columnKey,
+                        property.definition.type,
+                      )}
                     </span>
                     {columnSort?.direction === "asc" ? (
                       <IconCheck className="size-4 text-muted-foreground" />
@@ -1972,7 +1977,11 @@ export function PropertyManagementPopover({
                     }}
                   >
                     <span className="min-w-0 flex-1">
-                      {t("database.sortDescending")}
+                      {databaseSortDirectionLabel(
+                        "desc",
+                        columnKey,
+                        property.definition.type,
+                      )}
                     </span>
                     {columnSort?.direction === "desc" ? (
                       <IconCheck className="size-4 text-muted-foreground" />
@@ -2142,7 +2151,7 @@ export function PropertyManagementPopover({
                 >
                   <DropdownMenuLabel
                     id={visibilityScopeId}
-                    className="py-1.5 font-normal"
+                    className="font-normal"
                   >
                     {t("editor.properties.visibilityScope")}
                   </DropdownMenuLabel>
@@ -2275,7 +2284,7 @@ export function PropertyManagementPopover({
                     )}
                     {bindableSourceFields.length > 0 ? (
                       <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="mt-0.5">
+                        <DropdownMenuSubTrigger>
                           {t("database.bindAFieldFromASource")}
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent

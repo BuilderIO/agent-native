@@ -606,6 +606,8 @@ const messages = {
     them: "उन्हें",
     me: "मुझे",
     regeneratingNotes: "सारांश पुन: उत्पन्न कर रहे हैं",
+    notesAlreadyGenerating:
+      "सारांश पहले से बनाया जा रहा है। तैयार होने पर यह यहाँ दिखेगा।",
     meetingRemoved: "मीटिंग हटा दी गई",
     couldNotRemoveMeeting: "मीटिंग को हटाया नहीं जा सका",
     couldNotLoadMeeting: "इस मीटिंग को लोड नहीं किया जा सका.",
@@ -771,6 +773,10 @@ const messages = {
     saveThumbnail: "थंबनेल सेव करें",
   },
   shareDialog: {
+    enterPassword: "पासवर्ड दर्ज करें",
+    showPassword: "पासवर्ड दिखाएं",
+    hidePassword: "पासवर्ड छिपाएं",
+    copyPassword: "पासवर्ड कॉपी करें",
     redactionsPendingTitle: "शेयर करने से पहले छिपाए गए हिस्सों को लागू करें",
     redactionsPendingBody:
       "लंबित छिपाए गए हिस्से: {{count}}. शेयर करने से पहले इन्हें एडिटर में लागू करें; वीडियो में अभी भी मूल सामग्री मौजूद है।",
