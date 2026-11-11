@@ -9356,8 +9356,26 @@ function PageEditorSessionBody({
   );
   const peeking = !!peekThread;
   useEffect(() => {
-    if (discussionPeekThreadId && !peeking) setDiscussionPeekThreadId(null);
-  }, [discussionPeekThreadId, peeking]);
+    if (!discussionPeekThreadId || peeking) return;
+    const threadId = discussionPeekThreadId;
+    setDiscussionPeekThreadId(null);
+    // Ended on its own while Discussion stays open: focus that went with the
+    // bar's button lands on the thread's Show, or on the tab once the thread
+    // is gone. Focus somewhere else stays where it is.
+    if (pagePanel.tab !== "comments") return;
+    const active = globalThis.document.activeElement;
+    if (active && active !== globalThis.document.body) return;
+    requestAnimationFrame(() => {
+      const target =
+        pagePanelRef.current?.querySelector(
+          `[data-thread-card="${CSS.escape(threadId)}"] button[data-discussion-subject]`,
+        ) ??
+        globalThis.document.querySelector(
+          `[data-page-editor-owner="${CSS.escape(pageEditorOwner)}"] [data-document-panel-tab="comments"]`,
+        );
+      if (target instanceof HTMLElement) target.focus({ preventScroll: true });
+    });
+  }, [discussionPeekThreadId, pageEditorOwner, pagePanel.tab, peeking]);
 
   // Escape closes what is innermost, so a reply box or a card goes first. A
   // reply left open in Discussion doesn't show behind another tab, or while
