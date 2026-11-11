@@ -1438,6 +1438,11 @@ export default function RecordRoute() {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const queryClient = useQueryClient();
+  // A cancelled or failed take gives its free clip back once its abort or
+  // trash lands, so the limit screen reads the count again then.
+  const refreshFreeClips = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: VIDEO_STORAGE_STATUS_KEY });
+  }, [queryClient]);
   const { isDesktopApp } = useDesktopPromo();
   const clipIntake = useMemo(
     () => parseClipIntakeParams(new URLSearchParams(location.search)),
@@ -2605,7 +2610,9 @@ export default function RecordRoute() {
                 ...uploadAbortMetadata(err),
               }),
             },
-          ).catch(() => {});
+          )
+            .catch(() => {})
+            .finally(refreshFreeClips);
         }
         if (aborted || isStale()) return;
         setError(message);
@@ -2644,6 +2651,7 @@ export default function RecordRoute() {
       infoUploadToast,
       markStorageConfigured,
       navigate,
+      refreshFreeClips,
       showSavedToast,
       startUploadToast,
       t,
@@ -3616,7 +3624,9 @@ export default function RecordRoute() {
             failureCode: "user_cancelled",
             ...pendingUploadFence,
           }),
-        }).catch(() => {});
+        })
+          .catch(() => {})
+          .finally(refreshFreeClips);
       } else {
         // The abort handler owns hosted allowance release after confirming cleanup.
         reportFailedFetchWrite(
@@ -3624,7 +3634,7 @@ export default function RecordRoute() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id: pendingId, skipIfReady: true }),
-          }),
+          }).finally(refreshFreeClips),
         );
       }
     }
@@ -3637,14 +3647,16 @@ export default function RecordRoute() {
             reason: "Recording cancelled by user",
             failureCode: "user_cancelled",
           }),
-        }).catch(() => {});
+        })
+          .catch(() => {})
+          .finally(refreshFreeClips);
       } else {
         reportFailedFetchWrite(
           fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
-          }),
+          }).finally(refreshFreeClips),
         );
       }
     }
@@ -3660,6 +3672,7 @@ export default function RecordRoute() {
     liveTranscription,
     localCopy,
     ownsLocalCopy,
+    refreshFreeClips,
   ]);
 
   const playCountdownAudioCue = useCallback(() => {

@@ -108,23 +108,28 @@ export function useFreeClipsGate(action: "record" | "upload") {
     setPromptSeen(lastClipPromptSeen());
   };
 
-  // Storage that became usable under the prompt (Builder.io connected) lets
-  // held drops go ahead; anything else just closes it.
+  // When the prompt stops applying under it, held drops go ahead and a held
+  // click is told what changed, so nothing is dropped without a word.
   const storageUsable = status?.configured === true;
+  const ownStorage = storageUsable && status.mode === "own";
   useEffect(() => {
     if (!open || promptApplies) return;
     const held = pendingRef.current;
     pendingRef.current = [];
     openRef.current = false;
     setOpen(false);
-    if (!storageUsable) return;
+    if (held.length === 0) return;
     if (resumableRef.current) {
+      // Drops read the status again as they're admitted, so they go ahead
+      // or reach the right setup whatever changed.
       for (const proceed of held) proceed();
-    } else if (held.length > 0) {
-      // The click it held needs a fresh one; say storage is ready for it.
+    } else if (ownStorage) {
+      // A held click needs a fresh one; say storage is ready for it.
       toast.success(t("storageSetup.builderConnected"));
+    } else if (!storageUsable) {
+      toast.error(t("recordingPage.storageStillDisconnected"));
     }
-  }, [open, promptApplies, storageUsable, t]);
+  }, [open, ownStorage, promptApplies, storageUsable, t]);
 
   const anchor = (control: ReactElement) => (
     <PopoverAnchor asChild>{control}</PopoverAnchor>
