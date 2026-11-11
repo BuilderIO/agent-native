@@ -998,15 +998,22 @@ const EMAIL_NAME_CHAR = /[\w.+-]/;
 
 /**
  * Where the first web or email address the renderer links can start in a
- * word, or -1. An email address's name is read back from its `@`, as a
- * pattern for it would try every start of a long word.
+ * word, or -1. An email address's name is read back from the first `@` with
+ * one before it, as a pattern for it would try every start of a long word.
+ * Each read stops at the `@` before, so the word is read once.
  */
 function addressStart(word: string): number {
   const web = word.search(WEB_ADDRESS_START);
-  const at = word.indexOf("@");
-  let name = at;
-  while (name > 0 && EMAIL_NAME_CHAR.test(word.charAt(name - 1))) name -= 1;
-  const email = name < at ? name : -1;
+  let email = -1;
+  for (
+    let at = word.indexOf("@");
+    at !== -1 && email === -1;
+    at = word.indexOf("@", at + 1)
+  ) {
+    let name = at;
+    while (name > 0 && EMAIL_NAME_CHAR.test(word.charAt(name - 1))) name -= 1;
+    if (name < at) email = name;
+  }
   if (web === -1 || email === -1) return Math.max(web, email);
   return Math.min(web, email);
 }

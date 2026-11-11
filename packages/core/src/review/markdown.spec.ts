@@ -308,6 +308,10 @@ describe("comment Markdown and the box's document", () => {
         saved: "reach <joe@example.com>**!x**",
       },
       {
+        content: [text("@joe@example.com"), text("!", "bold")],
+        saved: "@<joe@example.com>**!**",
+      },
+      {
         content: [text("https://example.com\\"), text("now", "bold")],
         saved: "[https://example.com\\\\](https://example.com\\\\)**now**",
       },
