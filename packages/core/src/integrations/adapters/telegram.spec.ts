@@ -162,6 +162,20 @@ describe("telegramAdapter parseIncomingMessage", () => {
     ]);
   });
 
+  it("strips a leading bot command from a caption, as it does for text", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(
+        update({
+          text: undefined,
+          caption: "/ask what is this",
+          photo: [{ file_id: "example-photo", width: 1280, height: 853 }],
+        }),
+      ),
+    );
+    expect(msg?.text).toBe("what is this");
+    expect(msg?.files).toHaveLength(1);
+  });
+
   it("keeps a document sent without a caption", async () => {
     const msg = await telegramAdapter().parseIncomingMessage(
       eventWithBody(

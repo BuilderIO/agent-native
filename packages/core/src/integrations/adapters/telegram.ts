@@ -138,9 +138,8 @@ export function telegramAdapter(): PlatformAdapter {
       const text = message.text?.trim() ?? message.caption?.trim() ?? "";
       if (!text && files.length === 0) return null;
 
-      const cleanText = !message.text
-        ? text
-        : text === "/start"
+      const cleanText =
+        text === "/start"
           ? "Hello! I'm ready to chat."
           : text.replace(/^\/\w+\s*/, "").trim() || text;
 
