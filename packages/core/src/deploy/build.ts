@@ -4820,6 +4820,19 @@ export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
   );
 }
 
+export function shouldCopyExternalSsrRuntimePackages(
+  targetPreset: string,
+): boolean {
+  return (
+    targetPreset === "netlify" ||
+    targetPreset === "vercel" ||
+    isAwsLambdaPreset(targetPreset) ||
+    isAwsAmplifyPreset(targetPreset) ||
+    targetPreset === "node" ||
+    targetPreset === "node-server"
+  );
+}
+
 const NITRO_AGENT_NATIVE_SERVER_CHUNK_RE =
   /@agent-native[\\/](?:core|creative-context)(?:[\\/]|$)/;
 
@@ -6433,9 +6446,14 @@ export default bundle;
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
-    copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
+  }
+
+  // url-safety loads undici through an opaque specifier; the bundle cannot resolve
+  // it from a pnpm store unless the package is copied into the server output.
+  if (shouldCopyExternalSsrRuntimePackages(preset)) {
+    copyInstalledExternalSsrPackages(nitro.options.output.serverDir);
   }
 
   if (preset === "vercel") {
