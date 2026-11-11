@@ -68,10 +68,11 @@ Content makes arrival, navigation, and resumption feel dependable instead of ask
 - **Recent work:** Restores the objects and views a person was actually using, scoped by current access.
 - **Known links and invitations:** Land on the intended object with an honest access-denied state when permission is missing.
 - **Session resumption:** Reopens enough navigation and View state to pick up the work without reconstructing the route manually.
+- **Related work:** Suggests a few current, related Pages and records beside the open one, so people can move through a workspace without filing everything first. Suggestions never become declared links or Relationships on their own.
 
 **Required capability records:** [Content spaces and Files](capabilities/content.source.spaces-files.md), [Personal and organization contexts](capabilities/content.workspace.multi-scope.md), [Global Home](capabilities/content.home.global.md), [Personal sidebar](capabilities/content.navigation.sidebar.md), [Session resumption](capabilities/content.workspace.session-restore.md)
 
-**Enhancing capability records:** [Working set](capabilities/content.workspace.working-set.md), [View instances](capabilities/content.workspace.view-instance.md)
+**Enhancing capability records:** [Working set](capabilities/content.workspace.working-set.md), [View instances](capabilities/content.workspace.view-instance.md), [Related work](capabilities/content.knowledge.related.md)
 
 ### Feature 3: Living references
 

@@ -5,6 +5,7 @@
  */
 
 import { buildAgentEditedTimeline } from "./agent-edited-timeline.js";
+import type { RemoteFrameInput } from "./agent-frame-range.js";
 import { loadStoredAgentFrame } from "./agent-frame-store.js";
 import {
   loadRecordingMediaFile,
@@ -53,14 +54,16 @@ export async function extractFrameWithStaleDurationRecovery({
   mediaPath,
   atMs,
   lastVisibleSourceMs,
+  remote,
 }: {
   mediaPath: string;
   atMs: number;
+  remote?: RemoteFrameInput | undefined;
   lastVisibleSourceMs: (sourceMs: number) => number | null;
 }): Promise<{ frame: Uint8Array; atMs: number }> {
   try {
     return {
-      frame: await extractJpegFrameFromFile({ mediaPath, atMs }),
+      frame: await extractJpegFrameFromFile({ mediaPath, atMs, remote }),
       atMs,
     };
   } catch (error) {
@@ -72,7 +75,10 @@ export async function extractFrameWithStaleDurationRecovery({
       throw error;
     }
 
-    const actualDurationMs = await probeMediaDurationMsFromFile(mediaPath);
+    const actualDurationMs = await probeMediaDurationMsFromFile(
+      mediaPath,
+      ...(remote ? [{ remote }] : []),
+    );
     if (actualDurationMs === null || actualDurationMs > atMs + 1) {
       throw error;
     }
@@ -91,7 +97,11 @@ export async function extractFrameWithStaleDurationRecovery({
       if (candidate === atMs) continue;
       try {
         return {
-          frame: await extractJpegFrameFromFile({ mediaPath, atMs: candidate }),
+          frame: await extractJpegFrameFromFile({
+            mediaPath,
+            atMs: candidate,
+            remote,
+          }),
           atMs: candidate,
         };
       } catch (candidateError) {
@@ -147,6 +157,7 @@ export async function loadAgentFrame(
     const media = await mediaSource.load();
     const resolved = await extractFrameWithStaleDurationRecovery({
       mediaPath: media.path,
+      remote: media.remote,
       atMs,
       // A fallback frame must not land inside a cut the owner removed.
       lastVisibleSourceMs: buildAgentEditedTimeline(
@@ -159,10 +170,17 @@ export async function loadAgentFrame(
     if (resolved.atMs !== atMs) {
       return { frame: resolved.frame, atMs: resolved.atMs, moved: true };
     }
+    // A verified frame must not wait for a multi-frame fill to spend the
+    // remaining serverless request budget or poison its shared range broker.
+    if (media.remote) return { frame: resolved.frame, atMs, moved: false };
 
     await claim?.fill(
       (frameAtMs) =>
-        extractJpegFrameFromFile({ mediaPath: media.path, atMs: frameAtMs }),
+        extractJpegFrameFromFile({
+          mediaPath: media.path,
+          atMs: frameAtMs,
+          remote: media.remote,
+        }),
       { atMs, frame: resolved.frame },
     );
     return { frame: resolved.frame, atMs, moved: false };

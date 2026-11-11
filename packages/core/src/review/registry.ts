@@ -1,3 +1,4 @@
+import type { DbExec } from "../db/client.js";
 import {
   ForbiddenError,
   resolveAccess,
@@ -5,7 +6,11 @@ import {
 } from "../sharing/access.js";
 import { getShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type Visibility } from "../sharing/schema.js";
+import { ReviewAnchorError } from "./errors.js";
 import type {
+  ReviewAnchorKind,
+  ReviewCommentPolicy,
+  ReviewCommentWriteEvent,
   ReviewResourceAccess,
   ReviewResourceContext,
   ReviewResourceRole,
@@ -21,6 +26,16 @@ export function registerReviewableResource(
     throw new Error(
       "registerReviewableResource requires a non-empty resource type",
     );
+  }
+  for (const [name, kind] of Object.entries(registration.anchorKinds ?? {})) {
+    if (!name.trim() || !Number.isInteger(kind.version) || kind.version < 1) {
+      throw new Error(
+        `Anchor kind "${name}" on ${registration.type} needs a name and a whole version from 1`,
+      );
+    }
+    if (ownAnchorKind(KIT_ANCHOR_KINDS, name)) {
+      throw new Error(`Anchor kind "${name}" belongs to the review kit`);
+    }
   }
   registrations.set(registration.type, registration);
 }
@@ -94,6 +109,185 @@ export async function assertReviewableResourceAccess(
     );
   }
   return access;
+}
+
+/** The resource's comment policy, with the kit's defaults filled in. */
+export function reviewCommentPolicy(
+  resourceType: string,
+): Required<ReviewCommentPolicy> {
+  const policy = getReviewableResource(resourceType)?.comments;
+  return {
+    minimumRole: policy?.minimumRole ?? "commenter",
+    unmentionedRoute: policy?.unmentionedRoute ?? "agent",
+  };
+}
+
+/**
+ * The role a suggestion's author needs. A suggestion opens a comment thread,
+ * so a resource asking more of commenters asks it of suggesters too; but it
+ * proposes a change as well, so it never takes less than a commenter, even
+ * where viewers may comment.
+ */
+export function reviewSuggestionAuthorRole(
+  resourceType: string,
+): ReviewResourceRole {
+  const { minimumRole } = reviewCommentPolicy(resourceType);
+  return roleSatisfies(minimumRole, "commenter") ? minimumRole : "commenter";
+}
+
+/**
+ * Whether this access lets its holder comment, reply and react, and edit or
+ * delete their own comments. A viewer-level policy opens that to signed-in
+ * viewers only: a caller who isn't signed in, such as a visitor to a public
+ * resource, still needs the commenter role.
+ */
+export function canCommentOnReviewableResource(
+  resourceType: string,
+  access: ReviewResourceAccess | null | undefined,
+  signedIn = true,
+): access is ReviewResourceAccess {
+  return Boolean(
+    access &&
+    roleSatisfies(access.role, reviewCommentPolicy(resourceType).minimumRole) &&
+    (signedIn || roleSatisfies(access.role, "commenter")),
+  );
+}
+
+/** Checks the caller holds at least the role the comment policy asks for. */
+export async function assertReviewCommentAccess(
+  resourceType: string,
+  resourceId: string,
+  ctx: ReviewResourceContext | undefined,
+): Promise<ReviewResourceAccess> {
+  const access = await resolveReviewableResourceAccess(
+    resourceType,
+    resourceId,
+    ctx,
+  );
+  if (
+    !canCommentOnReviewableResource(
+      resourceType,
+      access,
+      Boolean(ctx?.userEmail),
+    )
+  ) {
+    throw new ForbiddenError(
+      `Not allowed to comment on ${resourceType}:${resourceId}`,
+    );
+  }
+  return access;
+}
+
+/**
+ * The kit's own anchor kind, on the thread a suggestion opens: the anchors of
+ * its operations, in order. Every resource accepts it, and none may declare it.
+ */
+export const REVIEW_SUGGESTION_ANCHOR_KIND = "review-suggestion";
+
+const KIT_ANCHOR_KINDS: Readonly<Record<string, ReviewAnchorKind>> = {
+  [REVIEW_SUGGESTION_ANCHOR_KIND]: { version: 1, parse: (anchor) => anchor },
+};
+
+function ownAnchorKind(
+  kinds: Readonly<Record<string, ReviewAnchorKind>> | undefined,
+  name: string,
+): ReviewAnchorKind | null {
+  const kind = kinds?.[name];
+  return kind && Object.prototype.hasOwnProperty.call(kinds, name)
+    ? kind
+    : null;
+}
+
+export interface ReviewAnchorInput {
+  anchor?: unknown;
+  anchorKind?: string | null;
+  anchorVersion?: number | null;
+}
+
+export interface NormalizedReviewAnchor {
+  anchor: unknown;
+  anchorKind: string | null;
+  anchorVersion: number | null;
+}
+
+/**
+ * Checks a comment's anchor against its resource's anchor kinds and returns it
+ * as it's stored. A resource that declares no kinds keeps untyped anchors, as
+ * before kinds existed; one that declares any needs every anchor to name one.
+ */
+export function normalizeReviewAnchor(
+  resourceType: string,
+  input: ReviewAnchorInput,
+): NormalizedReviewAnchor {
+  const anchor = input.anchor ?? null;
+  const kinds = getReviewableResource(resourceType)?.anchorKinds;
+  const kindName = input.anchorKind ?? null;
+  if (kindName === null) {
+    if (input.anchorVersion != null) {
+      throw new ReviewAnchorError("An anchor version needs an anchor kind.");
+    }
+    if (anchor !== null && kinds && Object.keys(kinds).length > 0) {
+      throw new ReviewAnchorError(
+        `Anchored ${resourceType} comments need an anchor kind: ${Object.keys(kinds).join(", ")}.`,
+      );
+    }
+    return { anchor, anchorKind: null, anchorVersion: null };
+  }
+  const kind =
+    ownAnchorKind(KIT_ANCHOR_KINDS, kindName) ?? ownAnchorKind(kinds, kindName);
+  if (!kind) {
+    throw new ReviewAnchorError(
+      `${resourceType} comments have no anchor kind "${kindName}".`,
+    );
+  }
+  const version = input.anchorVersion ?? kind.version;
+  if (!Number.isInteger(version) || version < 1 || version > kind.version) {
+    throw new ReviewAnchorError(
+      `Anchor kind "${kindName}" has no version ${version}; the latest is ${kind.version}.`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = kind.parse(anchor, version);
+  } catch (error) {
+    throw new ReviewAnchorError(
+      `Not a valid "${kindName}" anchor: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  return {
+    anchor: parsed === undefined ? null : parsed,
+    anchorKind: kindName,
+    anchorVersion: version,
+  };
+}
+
+/**
+ * Refuses a person's comment write that names one of the kit's own anchor
+ * kinds, or moves an anchor that keeps one. Only the kit writes those, so a
+ * resource's own parser reads every anchor a person sends.
+ */
+export function assertPersonReviewAnchorKind(
+  anchorKind: string | null | undefined,
+): void {
+  if (anchorKind != null && ownAnchorKind(KIT_ANCHOR_KINDS, anchorKind)) {
+    throw new ReviewAnchorError(
+      `Only the review kit writes "${anchorKind}" anchors.`,
+    );
+  }
+}
+
+/** Whether a resource type has a hook that comment writes must run. */
+export function hasReviewCommentWriteHook(resourceType: string): boolean {
+  return Boolean(getReviewableResource(resourceType)?.onCommentWrite);
+}
+
+/** Runs the resource's comment write hook on the write's own transaction. */
+export async function runReviewCommentWriteHook(
+  resourceType: string,
+  event: ReviewCommentWriteEvent,
+  tx: DbExec,
+): Promise<void> {
+  await getReviewableResource(resourceType)?.onCommentWrite?.(event, tx);
 }
 
 export function normalizeReviewVisibility(
