@@ -40,12 +40,16 @@ ci-dessous indique APP_NAME.
 5. Démarre l’application avec `pnpm dev --no-open` et laisse-la tourner en
    arrière-plan.
 6. Lis l’URL locale affichée par `pnpm dev`. Vérifie qu’elle répond,
-   par exemple avec `curl -I <url>`. N’ouvre pas de navigateur et
-   n’utilise pas d’outils de navigateur headless. J’ouvrirai
-   l’application moi-même.
-7. Montre-moi le résultat. Donne-moi l’URL locale et la réponse que
-   tu en as obtenue. Ne te contente pas de dire que l’installation
-   est terminée.
+   avec `curl "<url>/_agent-native/ping?configuration=1"`. La réponse
+   doit contenir `"message":"pong"` et un statut de configuration
+   `"ok"`. N’ouvre pas de navigateur et n’utilise pas d’outils de
+   navigateur headless. J’ouvrirai l’application moi-même.
+7. Dans le dossier APP_NAME, lance `pnpm action hello`. Cela exécute
+   l’action d’exemple de l’application, qui doit afficher
+   « Hello, world! ».
+8. Montre-moi le résultat. Donne-moi l’URL locale et ce qu’ont
+   affiché les deux vérifications. Ne te contente pas de dire que
+   l’installation est terminée.
 
 Règles :
 
@@ -63,6 +67,8 @@ Une bonne exécution se termine par ces résultats, et vous pouvez vérifier cha
 - Un nouveau dossier d’application, nommé `my-app` sauf si vous l’avez changé, qui contient `actions/`, `app/` et un fichier `AGENTS.md`.
 - `pnpm dev` en cours d’exécution sans erreur.
 - Une URL locale, généralement `http://localhost:8080`, dont l’agent a vérifié qu’elle répond.
+- Une réponse de `<url>/_agent-native/ping?configuration=1` avec le statut de configuration `ok`.
+- `pnpm action hello`, qui affiche « Hello, world! ».
 
 Ouvrez ensuite l’URL locale dans votre propre navigateur. Sur l’écran d’accueil, choisissez **Continue as local dev**. La page Get started s’affiche.
 

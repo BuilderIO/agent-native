@@ -4,7 +4,11 @@ import { defineAction } from "../../action.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
-import { resolveReviewableResourceAccess } from "../registry.js";
+import {
+  assertPersonReviewAnchorKind,
+  canCommentOnReviewableResource,
+  resolveReviewableResourceAccess,
+} from "../registry.js";
 import { getReviewCommentById, updateReviewComment } from "../store.js";
 import type { ReviewResourceContext } from "../types.js";
 
@@ -21,7 +25,17 @@ const schema = z
     commentId: z.string().min(1),
     body: z.string().min(1).optional(),
     anchor: z.unknown().optional(),
+    anchorKind: z.string().min(1).nullable().optional(),
+    anchorVersion: z.number().int().positive().nullable().optional(),
     mentions: z.array(mentionSchema).optional(),
+    expectedRevision: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe(
+        "The comment's revision when read; a newer one refuses the edit with revision_conflict",
+      ),
   })
   .refine((args) => args.body !== undefined || args.anchor !== undefined, {
     message: "Provide a body or anchor to update",
@@ -64,12 +78,22 @@ export default defineAction({
       args.body !== undefined || args.mentions !== undefined;
     if (
       !access ||
-      !roleSatisfies(access.role, "commenter") ||
+      !canCommentOnReviewableResource(args.resourceType, access) ||
       (changesContent
         ? !isAuthor
         : !isAuthor && !roleSatisfies(access.role, "editor"))
     ) {
       throw new ForbiddenError("Not allowed to update this review comment");
+    }
+    if (args.anchor !== undefined) {
+      // The kind the moved anchor ends up with, worked out as the store does.
+      assertPersonReviewAnchorKind(
+        args.anchorKind !== undefined
+          ? args.anchorKind
+          : args.anchor === null
+            ? null
+            : comment.anchorKind,
+      );
     }
     const mentions =
       args.body === undefined
@@ -83,9 +107,19 @@ export default defineAction({
       {
         ...(args.body !== undefined ? { body: args.body } : {}),
         ...(args.anchor !== undefined ? { anchor: args.anchor } : {}),
+        ...(args.anchor !== undefined && args.anchorKind !== undefined
+          ? { anchorKind: args.anchorKind }
+          : {}),
+        ...(args.anchor !== undefined && args.anchorVersion !== undefined
+          ? { anchorVersion: args.anchorVersion }
+          : {}),
         ...(mentions !== undefined ? { mentions } : {}),
       },
       { resourceType: args.resourceType, resourceId: args.resourceId },
+      {
+        expectedRevision: args.expectedRevision,
+        actorEmail: actionCtx?.userEmail ?? null,
+      },
     );
     if (!updated) throw new Error("Review comment not found");
     return updated;

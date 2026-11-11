@@ -39,10 +39,14 @@ my-app नाम के नए folder में नया Agent-Native app ब�
    व्यवस्थित है।
 5. `pnpm dev --no-open` से app चालू करो और उसे background में चलता रखो।
 6. `pnpm dev` जो local URL प्रिंट करे उसे पढ़ो। जांचो कि वह
-   जवाब देता है, जैसे `curl -I <url>` से। browser मत खोलो और
-   headless browser tools इस्तेमाल मत करो। app मैं खुद खोलूंगा।
-7. मुझे नतीजा दिखाओ। मुझे local URL और उससे मिला जवाब दो।
-   सिर्फ यह मत कहो कि setup पूरा हो गया।
+   जवाब देता है, `curl "<url>/_agent-native/ping?configuration=1"` से।
+   जवाब में `"message":"pong"` और configuration status `"ok"`
+   होना चाहिए। browser मत खोलो और headless browser tools इस्तेमाल
+   मत करो। app मैं खुद खोलूंगा।
+7. APP_NAME folder में `pnpm action hello` चलाओ। यह app का sample
+   action चलाता है और इसे "Hello, world!" प्रिंट करना चाहिए।
+8. मुझे नतीजा दिखाओ। मुझे local URL और दोनों जांचों ने जो प्रिंट
+   किया वह दो। सिर्फ यह मत कहो कि setup पूरा हो गया।
 
 नियम:
 
@@ -60,6 +64,8 @@ my-app नाम के नए folder में नया Agent-Native app ब�
 - एक नया app folder, जिसका नाम आपके बदले बिना `my-app` है, और जिसमें `actions/`, `app/` और एक `AGENTS.md` file हो।
 - `pnpm dev` बिना errors के चल रहा हो।
 - एक local URL, आमतौर पर `http://localhost:8080`, जिसके जवाब देने की agent ने जांच कर ली हो।
+- `<url>/_agent-native/ping?configuration=1` से मिला जवाब, जिसमें configuration status `ok` हो।
+- `pnpm action hello`, जो "Hello, world!" प्रिंट करे।
 
 फिर local URL को अपने browser में खोलें। Welcome screen पर **Continue as local dev** चुनें। शुरुआत का page दिखाई देगा।
 

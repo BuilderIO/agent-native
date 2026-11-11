@@ -38,10 +38,14 @@ unten APP_NAME steht.
 4. Lies APP_NAME/AGENTS.md, damit du weißt, wie die App aufgebaut ist.
 5. Starte die App mit `pnpm dev --no-open` und lass sie im Hintergrund laufen.
 6. Lies die lokale URL, die `pnpm dev` ausgibt. Prüfe, ob sie
-   antwortet, zum Beispiel mit `curl -I <url>`. Öffne keinen Browser
-   und nutze keine Headless-Browser-Tools. Ich öffne die App selbst.
-7. Zeig mir das Ergebnis. Nenne mir die lokale URL und die Antwort,
-   die du von ihr erhalten hast. Sag nicht einfach nur, dass die
+   antwortet, mit `curl "<url>/_agent-native/ping?configuration=1"`.
+   Die Antwort sollte `"message":"pong"` und den Konfigurationsstatus
+   `"ok"` enthalten. Öffne keinen Browser und nutze keine
+   Headless-Browser-Tools. Ich öffne die App selbst.
+7. Führe im Ordner APP_NAME `pnpm action hello` aus. Das startet die
+   Beispielaktion der App und sollte "Hello, world!" ausgeben.
+8. Zeig mir das Ergebnis. Nenne mir die lokale URL und was beide
+   Prüfungen ausgegeben haben. Sag nicht einfach nur, dass die
    Einrichtung abgeschlossen ist.
 
 Regeln:
@@ -60,6 +64,8 @@ Ein guter Durchlauf endet mit diesen Ergebnissen, und Sie können jedes davon se
 - Ein neuer App-Ordner, der `my-app` heißt, sofern Sie den Namen nicht geändert haben, und `actions/`, `app/` und eine Datei `AGENTS.md` enthält.
 - `pnpm dev` läuft ohne Fehler.
 - Eine lokale URL, normalerweise `http://localhost:8080`, bei der der Agent geprüft hat, dass sie antwortet.
+- Eine Antwort von `<url>/_agent-native/ping?configuration=1` mit dem Konfigurationsstatus `ok`.
+- `pnpm action hello` gibt "Hello, world!" aus.
 
 Öffnen Sie dann die lokale URL in Ihrem eigenen Browser. Wählen Sie auf dem Begrüßungsbildschirm **Continue as local dev**. Die Seite „Get started“ wird angezeigt.
 
