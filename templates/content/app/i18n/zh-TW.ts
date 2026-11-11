@@ -622,6 +622,7 @@ const overrides = {
       altText: "替代文字",
       altTextGenerationFailed: "無法啟動替代文字生成。",
       assets: "資產",
+      assetsCopyFailed: "無法從資產複製此圖片。請再試一次，或改為上傳檔案。",
       assetsImagePicker: "資產圖片選取器",
       assetsMissingImageUrl: "資產未傳回圖片 URL。",
       audio: "音訊",
