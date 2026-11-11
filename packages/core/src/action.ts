@@ -190,6 +190,8 @@ export function resolveToolMaxResultChars(
 
 export interface ActionRunContext {
   send?: (event: AgentChatEvent) => void;
+  /** Request a clean empty final after this invocation succeeds. Available only to agent tool calls; does not stop the model or override errors, receipts, or later instructions. */
+  settle?: () => void;
   /**
    * Result cap the agent loop enforces on this call, from
    * `resolveToolMaxResultChars`. Absent outside the agent loop.
@@ -244,10 +246,16 @@ export interface ActionRunContext {
   approvedToolCallKey?: string;
   /**
    * The client behind a `caller: "mcp"` call. `name` and `version` are its
-   * self-reported `clientInfo`. `oauthClientId` is the OAuth client its
-   * credential was issued to.
+   * self-reported `clientInfo`, and `userAgent` its self-reported HTTP
+   * User-Agent. `oauthClientId` is the OAuth client its credential was issued
+   * to.
    */
-  mcpClient?: { name?: string; version?: string; oauthClientId?: string };
+  mcpClient?: {
+    name?: string;
+    version?: string;
+    userAgent?: string;
+    oauthClientId?: string;
+  };
 }
 
 export type ActionAuthorize<TArgs> = (
@@ -1081,11 +1089,13 @@ interface DefineActionWithSchema<
    *  characters. */
   searchHints?: readonly string[];
   eagerInputStreaming?: boolean;
-  /** An empty list on this action sets an option and erases nothing saved, so
-   *  a call that pads unused fields with `null` and `[]` can run as sent. Leave
-   *  this off for any action that stores a list: there, `[]` beside a padded
-   *  `null` might be a real clear or padding, so the call is refused rather
-   *  than guessed at. */
+  /** An empty list on this action erases nothing saved, so a call that pads
+   *  unused fields with `null` and `[]` can run as sent. The action must then
+   *  read every `[]` as if the field were left out: a padding model sends it
+   *  for each list it isn't using, so `[]` can't also mean "none" (give that
+   *  its own `true`-only switch). Leave this off for any action that stores a
+   *  list: there, `[]` beside a padded `null` might be a real clear or
+   *  padding, so the call is refused rather than guessed at. */
   emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
   grounding?: boolean;

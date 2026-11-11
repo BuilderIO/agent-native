@@ -30,6 +30,7 @@ import {
   EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS,
   WORKSPACE_GATEWAY_ORIGIN_ENV_KEYS,
 } from "../server/origin-allowlist.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { getUserSetting } from "../settings/user-settings.js";
 import {
   isMcpDirectoryWidgetReadCapabilityScope,
@@ -515,6 +516,25 @@ function makeWebEvent(opts: MakeEventOpts): any {
     };
     event._nodeChunks = chunks;
   }
+  return event;
+}
+
+function makeDirectLoopbackEvent(opts: MakeEventOpts): any {
+  const event = makeWebEvent({
+    ...opts,
+    node: true,
+    ip: "127.0.0.1",
+    headers: { ...opts.headers, host: "127.0.0.1:8100" },
+  });
+  delete event._headers["x-forwarded-proto"];
+  event.req.headers.delete("x-forwarded-proto");
+  delete event.node.req.headers["x-forwarded-proto"];
+  event.node.req.socket = {
+    localAddress: "127.0.0.1",
+    localPort: 8100,
+    remoteAddress: "127.0.0.1",
+    encrypted: false,
+  };
   return event;
 }
 
@@ -1099,9 +1119,8 @@ async function mcpAppsFullCatalogHeaders(
   };
 }
 
-// The shared ACCESS_TOKEN carries no email, so tests that expect cards name an
-// owner who turned on the "App cards in chat apps" lab.
-const CARDS_OWNER = { "x-agent-native-owner-email": "cards-owner@example.com" };
+// Static-token fixtures use an owner pinned by the server, never a request header.
+const STATIC_OWNER = "cards-owner@example.com";
 
 describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)", () => {
   beforeEach(() => {
@@ -1115,17 +1134,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       ].join(","),
     );
     process.env.ACCESS_TOKEN = "test-access-token";
+    process.env.AGENT_NATIVE_OWNER_EMAIL = STATIC_OWNER;
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
-    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
     delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
-    appCardsLab.optedIn = new Set([
-      "oauth@example.com",
-      CARDS_OWNER["x-agent-native-owner-email"],
-    ]);
+    appCardsLab.optedIn = new Set(["oauth@example.com", STATIC_OWNER]);
     mockOAuthClients.clear();
     approvalStoreMocks.grants.clear();
     embedSessionMocks.renewalTickets.clear();
@@ -1975,12 +1991,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it("returns a typed 503 for broken directory annotations while regular MCP works", async () => {
-    process.env.AGENT_NATIVE_MCP_DEV_OPEN = "1";
-    delete process.env.ACCESS_TOKEN;
-    delete process.env.ACCESS_TOKENS;
-    delete process.env.A2A_SECRET;
-    delete process.env.BETTER_AUTH_SECRET;
-
     const directoryAction = defineAction({
       description: "A production directory action.",
       parameters: {},
@@ -2004,7 +2014,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       ip: "127.0.0.1",
       body: { jsonrpc: "2.0", id: 143, method: "tools/list", params: {} },
       headers: {
-        authorization: "",
+        authorization: "Bearer test-access-token",
         host: "localhost:8100",
         "x-forwarded-proto": "https",
       },
@@ -2032,7 +2042,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       ip: "127.0.0.1",
       body: { jsonrpc: "2.0", id: 144, method: "tools/list", params: {} },
       headers: {
-        authorization: "",
+        authorization: "Bearer test-access-token",
         host: "localhost:8100",
         "x-forwarded-proto": "http",
       },
@@ -2045,8 +2055,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(logError).toHaveBeenCalledTimes(1);
     logError.mockRestore();
 
-    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
-    process.env.ACCESS_TOKEN = "test-access-token";
     const { client } = await createModernClient(directoryConfig);
     try {
       const listed = await client.listTools();
@@ -2085,15 +2093,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       directoryProfile: { connectorCatalog: ["production-only"] },
     };
     const logError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const event = makeWebEvent({
+    const event = makeDirectLoopbackEvent({
       path: "/",
-      ip: "127.0.0.1",
       body: { jsonrpc: "2.0", id: 145, method: "tools/list", params: {} },
-      headers: {
-        authorization: "",
-        host: "localhost:8100",
-        "x-forwarded-proto": "https",
-      },
+      headers: { authorization: "" },
     });
 
     const result = await handleMcpRequest(
@@ -7988,7 +7991,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      { headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" } },
+      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
     );
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
@@ -8799,7 +8802,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      { headers: CARDS_OWNER, config: compactSurfaceDefaultConfig },
+      { config: compactSurfaceDefaultConfig },
     );
 
     expect(toolsOut.error).toBeUndefined();
@@ -8828,7 +8831,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "resources/list",
         params: {},
       },
-      { headers: CARDS_OWNER, config: compactSurfaceDefaultConfig },
+      { config: compactSurfaceDefaultConfig },
     );
 
     expect(resourcesOut.error).toBeUndefined();
@@ -8867,7 +8870,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/list",
         params: {},
       },
-      { headers: CARDS_OWNER, config: toolSearchConfig },
+      { config: toolSearchConfig },
     );
 
     expect(toolsOut.error).toBeUndefined();
@@ -9616,7 +9619,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         ),
       ).toEqual(["ui://mail/healthy-review/shell-v65"]);
 
-      const warnCallsBeforeRead = warn.mock.calls.length;
+      const resourceWarnings = () =>
+        warn.mock.calls.filter(([message]) =>
+          String(message).includes("metadata could not be resolved"),
+        );
+      const warnCallsBeforeRead = resourceWarnings().length;
       const read = await callWeb(
         {
           jsonrpc: "2.0",
@@ -9641,7 +9648,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           `"broken-review" because its metadata could not be resolved: Error: ${resourceFailure.message}`,
         ),
       );
-      expect(warn).toHaveBeenCalledTimes(warnCallsBeforeRead);
+      expect(resourceWarnings()).toHaveLength(warnCallsBeforeRead);
     } finally {
       warn.mockRestore();
     }
@@ -9886,7 +9893,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         method: "tools/call",
         params: { name: "echo-thing", arguments: { value: "hello" } },
       },
-      { headers: { ...CARDS_OWNER, "x-agent-native-mcp-full-catalog": "1" } },
+      { headers: { "x-agent-native-mcp-full-catalog": "1" } },
     );
     expect(out.error).toBeUndefined();
     const content = out.result.content;
@@ -10665,6 +10672,58 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect((await call("retry-18")).result.structuredContent).not.toEqual(
       retry.result.structuredContent,
     );
+  });
+
+  it("does not infer email membership for an unclaimed first-party token over HTTP", async () => {
+    process.env.A2A_SECRET = "fake-first-party-org-scope-secret";
+    resolveOrgIdForEmailMock.mockResolvedValue("org-must-not-be-granted");
+    const token = await new jose.SignJWT({
+      sub: "member@example.test",
+      agent_native_first_party_mcp: true,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setAudience("https://mail.agent-native.com/_agent-native/mcp")
+      .setExpirationTime("5m")
+      .sign(new TextEncoder().encode(process.env.A2A_SECRET));
+    const actions = {
+      "scope-probe": {
+        tool: {
+          description: "Return the fake caller scope",
+          parameters: { type: "object" as const, properties: {} },
+        },
+        readOnly: true,
+        run: async () => {
+          const { getRequestContext } =
+            await import("../server/request-context.js");
+          const context = getRequestContext();
+          return {
+            orgId: context?.orgId ?? null,
+            orgScope: context?.orgScope ?? null,
+          };
+        },
+      },
+    };
+    const result = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 19,
+        method: "tools/call",
+        params: { name: "scope-probe", arguments: {} },
+      },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+        config: { ...config, actions, productionActions: actions },
+      },
+    );
+    expect(result.result.structuredContent).toEqual({
+      orgId: null,
+      orgScope: "personal",
+    });
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
   });
 
   it("preserves verified organization-member assurance for action calls", async () => {
@@ -12648,34 +12707,194 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
-  it("answers 503 without an auth challenge when the token's org domain cannot be resolved", async () => {
-    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
-    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
-    const token = await signMcpOAuthAccessToken({
-      ownerEmail: "oauth@example.com",
-      orgDomain: "example.com",
-      clientId: "client-123",
-      scope: "mcp:read",
-      resource: "https://mail.agent-native.com/mcp",
-      issuer: "https://mail.agent-native.com",
-    });
-    lookupOrgByDomainMock.mockRejectedValueOnce(
-      new Error("database connection failed"),
-    );
+  it.each(["57014", "42501", "42P01", "unexpected"])(
+    "classifies a failed token org domain lookup: %s",
+    async (code) => {
+      process.env.BETTER_AUTH_SECRET =
+        "oauth-secret-at-least-32-characters-long";
+      const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "oauth@example.com",
+        orgDomain: "example.com",
+        clientId: "client-123",
+        scope: "mcp:read",
+        resource: "https://mail.agent-native.com/mcp",
+        issuer: "https://mail.agent-native.com",
+      });
+      lookupOrgByDomainMock.mockRejectedValueOnce(
+        Object.assign(new Error("private domain lookup failure"), {
+          code: code === "unexpected" ? undefined : code,
+        }),
+      );
 
-    const event = makeWebEvent({
-      method: "POST",
-      body: { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} },
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const result = await handleMcpRequest(event, config as any);
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const result = await handleMcpRequest(event, config as any);
 
-    expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
-    expect(event._status).toBe(503);
-    expect(event._responseHeaders?.["retry-after"]).toBe("5");
-    expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
-    expect(result).toMatchObject({ error: "Service Unavailable" });
-  });
+      expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+      expect(event._status).toBe(code === "57014" ? 503 : 500);
+      expect(event._responseHeaders?.["retry-after"]).toBe(
+        code === "57014" ? "5" : undefined,
+      );
+      expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+      expect(result).toMatchObject({
+        error:
+          code === "57014" ? "Service Unavailable" : "Internal server error",
+      });
+    },
+  );
+
+  it.each([
+    "revoked",
+    "email-mismatch",
+    "missing-org",
+    "valid",
+    "unavailable",
+  ] as const)(
+    "preserves delegated organization resolution over HTTP: %s",
+    async (scope) => {
+      process.env.BETTER_AUTH_SECRET =
+        "oauth-secret-at-least-32-characters-long";
+      const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "delegate@example.test",
+        clientId: "client-123",
+        scope: "mcp:read",
+        resource: "https://mail.agent-native.com/mcp",
+        issuer: "https://mail.agent-native.com",
+      });
+      const org =
+        await vi.importActual<typeof import("../org/context.js")>(
+          "../org/context.js",
+        );
+      resolveOrgIdForEmailMock.mockImplementation(org.resolveOrgIdForEmail);
+      const db = await import("../db/client.js");
+      const realDb = db.getDbExec();
+      const dbSpy = vi.spyOn(db, "getDbExec").mockReturnValue({
+        execute: async (query: { sql: string; args: unknown[] }) => {
+          if (!query.sql.includes("SELECT role FROM org_members"))
+            return realDb.execute(query);
+          if (scope === "unavailable")
+            throw Object.assign(new Error("fake membership database failure"), {
+              code: "57014",
+            });
+          return { rows: scope === "revoked" ? [] : [{ role: "member" }] };
+        },
+      } as any);
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 15, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      try {
+        const result = await runWithRequestContext(
+          {
+            userEmail:
+              scope === "email-mismatch"
+                ? "other@example.test"
+                : "delegate@example.test",
+            orgId: scope === "missing-org" ? undefined : "delegated-org",
+            a2aIdentityAssurance: "org-member",
+          },
+          () => handleMcpRequest(event, config as any),
+        );
+        expect(result instanceof Response ? result.status : event._status).toBe(
+          scope === "valid" ? 200 : scope === "unavailable" ? 503 : 401,
+        );
+        if (scope === "unavailable") {
+          expect(event._responseHeaders?.["retry-after"]).toBe("5");
+          expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+          expect(result).toMatchObject({ error: "Service Unavailable" });
+        } else if (scope !== "valid") {
+          expect(event._responseHeaders?.["retry-after"]).toBeUndefined();
+          expect(event._responseHeaders?.["www-authenticate"]).toContain(
+            'error="invalid_token"',
+          );
+          expect(result).toMatchObject({ reason: "invalid" });
+        }
+      } finally {
+        dbSpy.mockRestore();
+      }
+    },
+  );
+
+  it.each([
+    "unavailable",
+    "permission",
+    "schema",
+    "unexpected",
+    "personal",
+  ] as const)(
+    "preserves the email-only MCP scope result over HTTP: %s",
+    async (scope) => {
+      process.env.BETTER_AUTH_SECRET =
+        "oauth-secret-at-least-32-characters-long";
+      const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "email-only@example.test",
+        clientId: "client-123",
+        scope: "mcp:read",
+        resource: "https://mail.agent-native.com/mcp",
+        issuer: "https://mail.agent-native.com",
+      });
+      const org =
+        await vi.importActual<typeof import("../org/context.js")>(
+          "../org/context.js",
+        );
+      resolveOrgIdForEmailMock.mockImplementation(org.resolveOrgIdForEmail);
+      const db = await import("../db/client.js");
+      const realDb = db.getDbExec();
+      const execute = vi.fn(async (query: { sql: string; args: unknown[] }) => {
+        if (!query.sql.includes("SELECT org_id FROM org_members"))
+          return realDb.execute(query);
+        if (scope !== "personal")
+          throw Object.assign(
+            new Error("permission denied for table org_members"),
+            {
+              code:
+                scope === "unavailable"
+                  ? "57014"
+                  : scope === "permission"
+                    ? "42501"
+                    : scope === "schema"
+                      ? "42P01"
+                      : undefined,
+            },
+          );
+        return { rows: [] };
+      });
+      const dbSpy = vi
+        .spyOn(db, "getDbExec")
+        .mockReturnValue({ execute } as any);
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 15, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      try {
+        const result = await handleMcpRequest(event, config as any);
+        expect(result instanceof Response ? result.status : event._status).toBe(
+          scope === "personal" ? 200 : scope === "unavailable" ? 503 : 500,
+        );
+        expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+        if (scope !== "personal" && scope !== "unavailable") {
+          expect(event._responseHeaders?.["retry-after"]).toBeUndefined();
+          expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+          expect(result).toEqual({ error: "Internal server error" });
+        }
+        if (scope === "unavailable") {
+          expect(event._responseHeaders?.["retry-after"]).toBe("5");
+          expect(result).toMatchObject({ error: "Service Unavailable" });
+        }
+        expect(resolveOrgIdForEmailMock).toHaveBeenCalledOnce();
+      } finally {
+        dbSpy.mockRestore();
+      }
+    },
+  );
 
   it.each([
     ["unknown", { status: "not-found" }],
@@ -12771,6 +12990,102 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       authenticate: {
         mcpUrl: "http://localhost:8100/mcp",
       },
+    });
+  });
+
+  it("accepts an owner hint only on a direct loopback socket with a matching local authority", async () => {
+    process.env.ACCESS_TOKEN = "test-access-token";
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    const remote = makeWebEvent({
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-access-token",
+        "x-agent-native-owner-email": "local@example.com",
+      },
+      body: { jsonrpc: "2.0", id: 13, method: "tools/list", params: {} },
+    });
+    const remoteResult = await handleMcpRequest(remote, config as any);
+    expect(remote._status).toBe(401);
+    expect(remoteResult).toMatchObject({ error: "Unauthorized" });
+
+    const makeLocal = (headers: Record<string, string>) => {
+      const event = makeWebEvent({
+        method: "POST",
+        node: true,
+        ip: "127.0.0.1",
+        headers: {
+          authorization: "Bearer test-access-token",
+          host: "127.0.0.1:8100",
+          "x-agent-native-owner-email": "local@example.com",
+          ...headers,
+        },
+        body: { jsonrpc: "2.0", id: 14, method: "tools/list", params: {} },
+      });
+      event.node.req.socket = {
+        localAddress: "127.0.0.1",
+        localPort: 8100,
+        remoteAddress: "127.0.0.1",
+        encrypted: false,
+      };
+      delete event._headers["x-forwarded-proto"];
+      event.req.headers.delete("x-forwarded-proto");
+      return event;
+    };
+    const direct = makeLocal({});
+    const { isDirectLoopbackRequest } = await import("../server/loopback.js");
+    expect(isDirectLoopbackRequest(direct)).toBe(true);
+    const admitted = await handleMcpRequest(direct, config as any);
+    expect(admitted).toBeInstanceOf(Response);
+    expect((admitted as Response).status).toBe(200);
+
+    const sameOrigin = makeLocal({ origin: "http://127.0.0.1:8100" });
+    const admittedOrigin = await handleMcpRequest(sameOrigin, config as any);
+    expect(admittedOrigin).toBeInstanceOf(Response);
+    expect((admittedOrigin as Response).status).toBe(200);
+
+    const forwarded = makeLocal({ "x-forwarded-host": "127.0.0.1:8100" });
+    const refused = await handleMcpRequest(forwarded, config as any);
+    expect(forwarded._status).toBe(401);
+    expect(refused).toMatchObject({ error: "Unauthorized" });
+
+    const wrongPort = makeLocal({ host: "127.0.0.1:8101" });
+    const refusedPort = await handleMcpRequest(wrongPort, config as any);
+    expect(wrongPort._status).toBe(401);
+    expect(refusedPort).toMatchObject({ error: "Unauthorized" });
+
+    const crossOrigin = makeLocal({ origin: "https://remote.example.test" });
+    const refusedOrigin = await handleMcpRequest(crossOrigin, config as any);
+    expect(crossOrigin._status).toBe(401);
+    expect(refusedOrigin).toMatchObject({ error: "Unauthorized" });
+  });
+
+  it("keeps a remote static-token caller scoped to the server-pinned owner", async () => {
+    const whoami = defineAction({
+      description: "Read the authenticated caller.",
+      schema: z.object({}),
+      readOnly: true,
+      mcpTool: true,
+      run: async (_args, context) => ({ ownerEmail: context.userEmail }),
+    });
+    const scopedConfig = {
+      ...config,
+      actions: { whoami },
+      productionActions: { whoami },
+    };
+    const result = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 15,
+        method: "tools/call",
+        params: { name: "whoami", arguments: {} },
+      },
+      {
+        config: scopedConfig,
+        headers: { "x-agent-native-owner-email": "attacker@example.com" },
+      },
+    );
+    expect(result.result.structuredContent).toMatchObject({
+      ownerEmail: STATIC_OWNER,
     });
   });
 
@@ -12872,9 +13187,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
   it("returns modern tools/call results as one JSON response", async () => {
     const { client, wireContentTypes, wireResponses } =
-      await createModernClient(config, {
-        requestHeaders: CARDS_OWNER,
-      });
+      await createModernClient(config);
     try {
       const result = await client.callTool({
         name: "echo-thing",
@@ -13683,12 +13996,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 describe("handleMcpRequest — Node request objects use the v2 web handler", () => {
   beforeEach(() => {
     process.env.ACCESS_TOKEN = "test-access-token";
+    process.env.AGENT_NATIVE_OWNER_EMAIL = STATIC_OWNER;
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
     delete process.env.BETTER_AUTH_SECRET;
     vi.clearAllMocks();
     vi.restoreAllMocks();
@@ -13760,6 +14075,7 @@ describe("handleMcpRequest — $mcp_initialize analytics", () => {
 
   beforeEach(async () => {
     process.env.ACCESS_TOKEN = "test-access-token";
+    process.env.AGENT_NATIVE_OWNER_EMAIL = STATIC_OWNER;
     events.length = 0;
     const { registerTrackingProvider } =
       await import("../tracking/registry.js");
@@ -13773,6 +14089,7 @@ describe("handleMcpRequest — $mcp_initialize analytics", () => {
 
   afterEach(async () => {
     delete process.env.ACCESS_TOKEN;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
     const { unregisterTrackingProvider } =
       await import("../tracking/registry.js");
     unregisterTrackingProvider("spec-collector");

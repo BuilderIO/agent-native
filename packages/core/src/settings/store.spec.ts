@@ -29,6 +29,7 @@ vi.mock("../db/client.js", async (importOriginal) => {
 const {
   getSetting,
   getSettings,
+  getSettingsRaw,
   putSetting,
   deleteSetting,
   deleteSettingIfValue,
@@ -432,6 +433,26 @@ describe("getSettings (batched read)", () => {
         ["corrupt", null],
       ]),
     );
+  });
+
+  it("returns stored values unparsed, so a corrupt row stays apart from a missing one", async () => {
+    await putSetting("good", { v: 1 });
+    await pglite
+      .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
+      .run("corrupt", "{not valid json", Date.now());
+
+    await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
+      const read = () => getSettingsRaw(["good", "corrupt", "missing"]);
+      const expected = new Map([
+        ["good", JSON.stringify({ v: 1 })],
+        ["corrupt", "{not valid json"],
+        ["missing", null],
+      ]);
+      expect(await read()).toEqual(expected);
+      rawClient.execute.mockClear();
+      expect(await read()).toEqual(expected);
+      expect(rawClient.execute).not.toHaveBeenCalled();
+    });
   });
 
   it("bypasses and does not populate the request cache when bypassCache is set", async () => {

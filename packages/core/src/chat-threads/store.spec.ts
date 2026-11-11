@@ -790,6 +790,35 @@ describe("chat thread store", () => {
     expect(row!.thread_data).toContain("Example data URL");
   });
 
+  it("saves generated code that mentions a data: URL prefix without a payload", async () => {
+    const source =
+      "else src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent('<svg/>');";
+    const incoming = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "design-edit",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "edit-1",
+                toolName: "edit-design",
+                args: { source },
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    await expect(
+      updateThreadData("thread-1", incoming, "Thread", "Design", 1),
+    ).resolves.toBe(true);
+    expect(row!.thread_data).toContain("charset=utf-8,'+encodeURIComponent");
+  });
+
   it("cleans legacy inline image bodies before saving a later chat turn", async () => {
     const legacyImageUrl = "data:image/png;base64,LEGACY_INLINE_IMAGE_BYTES";
     const legacyMessage = {

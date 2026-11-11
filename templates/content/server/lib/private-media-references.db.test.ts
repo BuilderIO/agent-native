@@ -8,10 +8,15 @@ import {
   privateMedia,
   privateMediaStore,
 } from "@agent-native/core/private-media";
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  createScopedAgentAccessGrant,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { H3 } from "h3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { DOCUMENT_AGENT_RESOURCE_KIND } from "../../shared/agent-readable.js";
 
 const owners = vi.hoisted(() => new Map<string, string>());
 const redirects = vi.hoisted(() => new Set<string>());
@@ -65,6 +70,7 @@ let schema: typeof import("../db/schema.js");
 let refs: typeof import("./private-media-references.js");
 let updateDocumentAction: typeof import("../../actions/update-document.js").default;
 let editDocumentAction: typeof import("../../actions/edit-document.js").default;
+let getDocumentAction: typeof import("../../actions/get-document.js").default;
 let readMedia: H3["request"];
 let count = 0;
 
@@ -170,13 +176,18 @@ beforeAll(async () => {
   updateDocumentAction = (await import("../../actions/update-document.js"))
     .default;
   editDocumentAction = (await import("../../actions/edit-document.js")).default;
+  getDocumentAction = (await import("../../actions/get-document.js")).default;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as never);
   await privateMediaStore.ready();
   const route = (await import("../routes/api/private-media/[id].get.js"))
     .default;
+  const contextRoute = (
+    await import("../routes/api/document-agent-context.json.get.js")
+  ).default;
   const app = new H3();
   app.get("/media/:id", route);
+  app.get("/context", contextRoute);
   readMedia = app.request.bind(app);
 }, 60_000);
 
@@ -425,5 +436,132 @@ describe("private media references", () => {
       updateDocumentAction.run({ id: viaAction, content: body(copied) }),
     );
     expect(await references(viaAction, copied)).toHaveLength(1);
+  });
+  it("gives an agent reading a page a link that opens each of its images for an hour", async () => {
+    const id = mediaId();
+    const unbound = mediaId();
+    await uploaded(id, OWNER);
+    await uploaded(unbound, OTHER);
+    const content = body(id, unbound);
+    const page = await document({ content });
+    await share(page);
+    // The owner can't see the other uploader's image, so it stays unbound.
+    await save(page, content);
+    const read = (caller: "mcp" | "mcp-widget" | "frontend") =>
+      runWithRequestContext(
+        { userEmail: SHARED, requestOrigin: "https://content.test" },
+        () => getDocumentAction.run({ id: page }, { caller }),
+      );
+
+    const agent = await read("mcp");
+    expect(agent.privateMediaLinks?.links).toEqual([
+      {
+        src: `/api/private-media/${id}`,
+        url: expect.stringMatching(
+          new RegExp(
+            `^https://content[.]test/api/private-media/${id}[?]agent_access=[A-Za-z0-9_.-]+$`,
+          ),
+        ),
+      },
+    ]);
+    const expiresIn =
+      Date.parse(agent.privateMediaLinks?.expiresAt ?? "") - Date.now();
+    expect(expiresIn).toBeGreaterThan(59 * 60_000);
+    expect(expiresIn).toBeLessThanOrEqual(60 * 60_000);
+    // MCP widgets fetch without credentials too; the editor uses its cookie.
+    expect((await read("mcp-widget")).privateMediaLinks?.links).toHaveLength(1);
+    expect((await read("frontend")).privateMediaLinks).toBeUndefined();
+
+    const token =
+      new URL(agent.privateMediaLinks?.links[0]?.url ?? "").searchParams.get(
+        "agent_access",
+      ) ?? "";
+    const opened = await get(`${id}?agent_access=${token}`);
+    expect(opened.status).toBe(200);
+    expect(new Uint8Array(await opened.arrayBuffer())).toEqual(
+      new Uint8Array([1, 2, 3]),
+    );
+    expect(opened.headers.get("cache-control")).toBe("private, no-store");
+    expect((await get(`${unbound}?agent_access=${token}`)).status).toBe(404);
+    expect(
+      (await get(`${id}?agent_access=${token.slice(0, -2)}AA`)).status,
+    ).toBe(404);
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 61 * 60_000 });
+    try {
+      expect((await get(`${id}?agent_access=${token}`)).status).toBe(404);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says how many images got no link when a page has more than 200", async () => {
+    const ids = Array.from({ length: 201 }, () => mediaId());
+    const page = await document({ content: body(...ids) });
+    await db
+      .insert(schema.privateMediaReferences)
+      .values(ids.map((id) => ({ documentId: page, mediaId: id })));
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getDocumentAction.run({ id: page }, { caller: "mcp" }),
+    );
+    expect(result.privateMediaLinks?.links).toHaveLength(200);
+    expect(result.privateMediaLinks?.links[199]?.src).toBe(
+      `/api/private-media/${ids[199]}`,
+    );
+    expect(result.privateMediaLinks?.omitted).toBe(1);
+  });
+
+  it("gives image links to an agent reading a private page by its share link", async () => {
+    const id = mediaId();
+    await uploaded(id, OWNER);
+    const content = body(id);
+    const page = await document({ content });
+    await save(page, content);
+    const { token } = createScopedAgentAccessGrant({
+      resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,
+      resourceId: page,
+    });
+    const response = await readMedia(
+      `http://content.test/context?id=${page}&agent_access=${token}`,
+    );
+    expect(response.status).toBe(200);
+    const result = (await response.json()) as {
+      privateMediaLinks?: { links: Array<{ src: string; url: string }> };
+    };
+    const link = result.privateMediaLinks?.links[0];
+    expect(link?.src).toBe(`/api/private-media/${id}`);
+    expect(link?.url).toMatch(
+      new RegExp(
+        `^http://content[.]test/api/private-media/${id}[?]agent_access=`,
+      ),
+    );
+    // The page's own token is not a link to its images.
+    expect((await get(`${id}?agent_access=${token}`)).status).toBe(404);
+    const imageToken =
+      new URL(link?.url ?? "").searchParams.get("agent_access") ?? "";
+    expect((await get(`${id}?agent_access=${imageToken}`)).status).toBe(200);
+
+    // Once the collection holding the page is deleted, the browser route
+    // refuses the image, so a share-link read gets no new link to it.
+    const databaseId = `private-media-db-${++count}`;
+    await db.insert(schema.contentDatabases).values({
+      id: databaseId,
+      ownerEmail: OWNER,
+      documentId: await document(),
+      deletedAt: new Date().toISOString(),
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: `private-media-item-${++count}`,
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: page,
+    });
+    const deleted = await readMedia(
+      `http://content.test/context?id=${page}&agent_access=${token}`,
+    );
+    expect(deleted.status).toBe(200);
+    expect(
+      ((await deleted.json()) as { privateMediaLinks?: unknown })
+        .privateMediaLinks,
+    ).toBeUndefined();
   });
 });

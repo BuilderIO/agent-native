@@ -1,4 +1,3 @@
-import "../authorization/check-action.js";
 import type {
   CallToolResult,
   ClientCapabilities,
@@ -7,6 +6,8 @@ import type {
   ServerContext,
   Tool,
 } from "@modelcontextprotocol/server";
+
+import "../authorization/check-action.js";
 import type { JWTPayload } from "jose";
 
 import {
@@ -33,6 +34,7 @@ import {
   type NormalizedToolResultImages,
 } from "../agent/tool-result-images.js";
 import { getAppConfig } from "../app-config/store.js";
+import { isTransientDatabaseError } from "../db/errors.js";
 import {
   UnusableSchemaError,
   usableInputSchema,
@@ -64,6 +66,7 @@ import {
   getRequestContext,
   getRequestOrgId,
   runWithRequestContext,
+  type RequestRunContext,
 } from "../server/request-context.js";
 import { reportUnusableToolSchema } from "../server/unusable-tool-schema.js";
 import {
@@ -80,6 +83,7 @@ import {
   type McpDirectoryWidgetReadArgument,
   renewMcpDirectoryWidgetCapabilityScope,
 } from "../shared/embed-auth.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import {
   isAutoReadExcludedActionName,
   isMcpActionInputEligible,
@@ -102,6 +106,10 @@ import {
 import { mcpApprovalAppId } from "./approval-store.js";
 export { isAutoReadExcludedActionName } from "./action-eligibility.js";
 import { isMcpAppsInlineEnabled } from "./app-cards-lab.js";
+import {
+  createBrowserTabTargetSlot,
+  withBrowserTabTargetNote,
+} from "./browser-tab-target.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import { mcpCallAttribution } from "./call-attribution.js";
 import {
@@ -3205,6 +3213,7 @@ export async function createMCPServerForRequest(
     fn: () => Promise<T>,
     mcpRequestId?: string,
     authUserId?: string,
+    run?: RequestRunContext,
   ): Promise<T> {
     const orgId = await orgIdPromise;
     return runWithRequestContext(
@@ -3226,6 +3235,7 @@ export async function createMCPServerForRequest(
         ...(mcpRequestId ? { mcpRequestId } : {}),
         mcpCredentialIssuedAtMs:
           effectiveIdentity?.mcpCredentialIssuedAtMs ?? null,
+        ...(run ? { run } : {}),
       },
       fn,
     ) as Promise<T>;
@@ -3235,7 +3245,17 @@ export async function createMCPServerForRequest(
     fn: () => Promise<T>,
     mcpRequestId?: string,
   ): Promise<T> {
-    return withCallerContext(fn, mcpRequestId, await resolveCallerAuthUserId());
+    // Only a signed-in person has browser tabs for a call to act on.
+    const browserTabTarget = hasVerifiedMcpUserIdentity(effectiveIdentity)
+      ? createBrowserTabTargetSlot()
+      : undefined;
+    const result = await withCallerContext(
+      fn,
+      mcpRequestId,
+      await resolveCallerAuthUserId(),
+      browserTabTarget ? { browserTabTarget } : undefined,
+    );
+    return withBrowserTabTargetNote(result, browserTabTarget);
   }
 
   const actionCallContext: McpActionCallContext = {
@@ -4150,10 +4170,19 @@ export function getBearerToken(
 export class McpIdentityVerificationUnavailableError extends Error {
   override readonly cause: unknown;
 
-  constructor(cause: unknown) {
-    super("MCP identity verification is temporarily unavailable");
+  readonly retryable: boolean;
+  readonly statusCode: 500 | 503;
+
+  constructor(cause: unknown, retryable = true) {
+    super(
+      retryable
+        ? "MCP identity verification is temporarily unavailable"
+        : "Internal server error",
+    );
     this.name = "McpIdentityVerificationUnavailableError";
     this.cause = cause;
+    this.retryable = retryable;
+    this.statusCode = retryable ? 503 : 500;
   }
 }
 
@@ -4259,7 +4288,10 @@ async function verifyA2AJwtForMcp(
           organization =
             await resolveA2AOrganizationCredentialsByDomain(orgDomain);
         } catch (error) {
-          throw new McpIdentityVerificationUnavailableError(error);
+          throw new McpIdentityVerificationUnavailableError(
+            error,
+            isTransientDatabaseError(error, { source: "database" }),
+          );
         }
         if (organization?.secret.trim() === globalSecret) {
           const claims = organizationPrincipalClaims(
@@ -4291,7 +4323,10 @@ async function verifyA2AJwtForMcp(
       try {
         verifiedOrganization = await verifyA2AOrganizationIdentity(payload);
       } catch (error) {
-        throw new McpIdentityVerificationUnavailableError(error);
+        throw new McpIdentityVerificationUnavailableError(
+          error,
+          isTransientDatabaseError(error, { source: "database" }),
+        );
       }
       if (verifiedOrganization === null) return null;
       return {
@@ -4317,7 +4352,10 @@ async function verifyA2AJwtForMcp(
       await import("../org/context.js");
     organization = await resolveA2AOrganizationCredentialsByDomain(orgDomain);
   } catch (error) {
-    throw new McpIdentityVerificationUnavailableError(error);
+    throw new McpIdentityVerificationUnavailableError(
+      error,
+      isTransientDatabaseError(error, { source: "database" }),
+    );
   }
   if (!organization) return null;
 
@@ -4401,6 +4439,7 @@ type IssuedMcpCredential = {
   connect?: { jti: string | undefined };
   oauthScopes?: string[];
   oauthClientId?: string;
+  oauthResource?: string;
   catalogScope?: "full";
   /** Immutable server-recorded OAuth grant creation time, in milliseconds. */
   grantCreatedAtMs?: number;
@@ -4483,6 +4522,7 @@ async function verifyIssuedMcpCredential(
       : {}),
     oauthScopes: oauth.scopes,
     oauthClientId: oauth.clientId,
+    oauthResource: oauth.resource,
     ...(oauth.catalogScope ? { catalogScope: oauth.catalogScope } : {}),
     ...(oauth.grantCreatedAtMs !== undefined
       ? { grantCreatedAtMs: oauth.grantCreatedAtMs }
@@ -4569,6 +4609,23 @@ async function admitIssuedMcpCredential(
   );
   if (admitted.authed && credential.connect) {
     await markConnectTokenUsed(credential.connect.jti);
+  } else if (
+    admitted.authed &&
+    credential.oauthClientId &&
+    credential.oauthResource
+  ) {
+    try {
+      const { recordOAuthClientActivity } = await import("./oauth-store.js");
+      await recordOAuthClientActivity({
+        clientId: credential.oauthClientId,
+        email: credential.userEmail,
+        orgId: orgId ?? null,
+        resource: credential.oauthResource,
+      });
+    } catch (error) {
+      // Activity metadata must not turn a successfully admitted request into an authentication failure.
+      console.warn("[mcp] Could not record client activity", error);
+    }
   }
   return admitted;
 }
@@ -4699,6 +4756,7 @@ export async function verifyAuth(
   ownerEmailHeader?: string,
   options: {
     allowDevOpen?: boolean;
+    allowLocalOwnerHint?: boolean;
     resourceUrl?: string | string[];
     event?: unknown;
     /** This app's public origin; federated orgs need it for the membership check. */
@@ -4706,6 +4764,9 @@ export async function verifyAuth(
   } = {},
 ): Promise<VerifyAuthResult> {
   const accessTokens = getAccessTokens();
+  const trustedOwnerHeader = options.allowLocalOwnerHint
+    ? ownerEmailHeader
+    : undefined;
   const hasA2ASecret = !!readDeployCredentialEnv("A2A_SECRET")?.trim();
   const token = getBearerToken(authHeader);
   const orgMemberDelegation = token
@@ -4722,7 +4783,7 @@ export async function verifyAuth(
           (await matchStaticAccessToken(
             token,
             accessTokens,
-            ownerEmailHeader,
+            trustedOwnerHeader,
           )) ?? {
             authed: false,
             refusal: "invalid",
@@ -4739,8 +4800,8 @@ export async function verifyAuth(
     }
     return {
       authed: true,
-      identity: deriveStaticTokenIdentity(ownerEmailHeader),
-      fullSurface: !!(ownerEmailHeader && ownerEmailHeader.trim()),
+      identity: deriveStaticTokenIdentity(trustedOwnerHeader),
+      fullSurface: !!(trustedOwnerHeader && trustedOwnerHeader.trim()),
     };
   }
 
@@ -4755,6 +4816,7 @@ export async function verifyAuth(
     );
   } catch (error) {
     if (error instanceof McpIdentityVerificationUnavailableError) {
+      if (error.retryable === false) throw error;
       return { authed: false, unavailable: true };
     }
     if (error instanceof McpIdentityVerificationRefusedError) {
@@ -4780,7 +4842,7 @@ export async function verifyAuth(
     const orgId =
       orgIdClaim.orgId !== undefined
         ? orgIdClaim.orgId
-        : tokenScope === MCP_CONNECT_SCOPE
+        : firstPartyMcp || tokenScope === MCP_CONNECT_SCOPE
           ? null
           : undefined;
     return admitServicePrincipal({
@@ -4816,7 +4878,7 @@ export async function verifyAuth(
   // A supplied bearer that failed JWT verification must not fall through to
   // dev-open auth or reuse a forwarded owner-email hint.
   return (
-    (await matchStaticAccessToken(token, accessTokens, ownerEmailHeader)) ?? {
+    (await matchStaticAccessToken(token, accessTokens, trustedOwnerHeader)) ?? {
       authed: false,
       refusal: "invalid",
     }
@@ -4847,9 +4909,11 @@ async function matchStaticAccessToken(
     );
   });
   if (!matched) return null;
+  const identity = deriveStaticTokenIdentity(ownerEmailHeader);
+  if (!identity) return { authed: false, refusal: "invalid" };
   return {
     authed: true,
-    identity: deriveStaticTokenIdentity(ownerEmailHeader),
+    identity,
     fullSurface: true,
   };
 }
@@ -4863,7 +4927,10 @@ export async function resolveOrgIdFromDomain(
   try {
     result = await lookupOrgByDomain(orgDomain);
   } catch (cause) {
-    throw new McpIdentityVerificationUnavailableError(cause);
+    throw new McpIdentityVerificationUnavailableError(
+      cause,
+      isTransientDatabaseError(cause, { source: "database" }),
+    );
   }
   if (result.status === "ambiguous") {
     throw new McpIdentityVerificationRefusedError();
@@ -4889,7 +4956,13 @@ export async function resolveMcpIdentityOrgId(
   try {
     const { resolveOrgIdForEmail } = await import("../org/context.js");
     return (await resolveOrgIdForEmail(userEmail)) ?? undefined;
-  } catch {
-    return undefined;
+  } catch (cause) {
+    if (cause instanceof ForbiddenError) {
+      throw new McpIdentityVerificationRefusedError();
+    }
+    throw new McpIdentityVerificationUnavailableError(
+      cause,
+      isTransientDatabaseError(cause, { source: "database" }),
+    );
   }
 }

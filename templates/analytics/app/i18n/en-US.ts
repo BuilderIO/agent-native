@@ -983,6 +983,7 @@ export default {
     drilldownOverByteCap:
       "These records would read more than {{gib}} GiB, so they didn't load. Narrow the dashboard's filters or date range and try again.",
     filterSeries: "Filter",
+    noXValue: "No value",
     chartTimeRangeOverride: "Override time range for this chart",
     chartTimeRangeInherit: "Dashboard range",
     hide: "Hide",

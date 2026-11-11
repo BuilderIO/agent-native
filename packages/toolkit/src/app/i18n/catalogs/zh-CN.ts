@@ -1,6 +1,19 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "已批准的来源",
+  "settingsApiKeys.originsHint":
+    "每行填写一个准确的 HTTPS 来源。留空将阻止转发。允许本地 HTTP。",
+  "settingsApiKeys.invalidOrigins": "请每行输入一个准确的 HTTPS 来源。",
+  "settingsApiKeys.editOrigins": "编辑来源",
+  "settingsApiKeys.originsSaved": "来源已保存",
+  "settingsApiKeys.originsCount_one": "{{count}} 个已批准的来源",
+  "settingsApiKeys.originsCount_other": "{{count}} 个已批准的来源",
+  "settingsApiKeys.noApprovedOrigins": "没有已批准的来源",
+  "extensions.cancel": "取消",
+  "extensions.context": "上下文",
+  "extensions.confirmAgentMessage": "将扩展消息发送给智能体？",
+  "extensions.sendToAgent": "发送给智能体",
   "auth.logOutFailed": "退出登录失败",
   "block.renderUnavailable": "此区块暂时不可用。",
   "block.loading": "正在加载区块。",
@@ -140,7 +153,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderCredits": "包含在 Builder.io 免费额度中",
   "onboarding.builderIncludedFreeWithAccount":
     "拥有 Builder.io 账户即可免费使用",
-  "onboarding.builderMonthlyCredits": "每月 60 个 Agent Credits",
+  "onboarding.builderMonthlyCredits": "每天 15 个免费积分，每月最多 60 个",
   "onboarding.builderIncludedFree": "免费包含",
   "onboarding.builderMoreServices": "+ {{count}} 项其他服务",
   "onboarding.builderLlmCredits": "LLM 积分",
@@ -169,9 +182,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "隐私政策",
   "onboarding.builderConsentAnd": "和",
   "onboarding.builderExistingAccount": "我有 Builder.io 账户",
-  "onboarding.creditsTitle": "每月免费试用 60 个 Agent Credits",
+  "onboarding.creditsTitle": "用每天 15 个免费积分试用，每月最多 60 个",
   "onboarding.creditsTitleClips":
-    "免费试用视频存储，并每月获得 60 个 Agent Credits",
+    "免费试用视频存储，并每天获得 15 个积分，每月最多 60 个",
   "onboarding.creditsActivate": "激活免费额度",
   "onboarding.creditsFinePrint":
     "这将创建一个免费的 Builder.io 账户。继续表示您同意我们的",
@@ -1515,6 +1528,28 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder 积分推荐",
   "featureFlags.builderCreditReferrals.description":
     "在用量中显示已连接 Builder 工作区的推荐详情。",
+  "featureFlags.scope.appliesTo": "适用范围",
+  "featureFlags.scope.org": "此组织",
+  "featureFlags.scope.global": "所有组织",
+  "featureFlags.scope.setForOrg": "为此组织设置",
+  "featureFlags.scope.setForGlobal": "为所有组织设置",
+  "featureFlags.scope.overridesGlobal": "覆盖了所有组织的规则",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "此组织自己的规则会替代所有组织的规则，后者为：{{audience}}。",
+  "featureFlags.scope.unreadable": "无法读取",
+  "featureFlags.scope.enableForMeOrg": "将你加入此组织的规则",
+  "featureFlags.scope.enableForMeGlobal": "将你加入所有组织的规则",
+  "featureFlags.scope.turnOffOrg": "为此组织关闭",
+  "featureFlags.scope.turnOffGlobal": "为所有组织关闭",
+  "featureFlags.scope.turnOffOrgTitle": "要为此组织关闭 {{name}} 吗？",
+  "featureFlags.scope.turnOffGlobalTitle": "要为所有组织关闭 {{name}} 吗？",
+  "featureFlags.scope.turnOffOrgDescription":
+    "这会立即移除此组织中所有人的访问权限。你之后可以重新配置发布。",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "这会立即移除所有没有自己规则的组织中的访问权限。你之后可以重新配置发布。",
+  "featureFlags.scope.summaryOrg": "在此组织中：{{audience}}。",
+  "featureFlags.scope.summaryGlobal": "在所有组织中：{{audience}}。",
+  "featureFlags.scope.orgKeepsOwnRule": "此组织会保留自己的规则。",
   "usage.inviteFriends": "邀请好友",
   "usage.inviteCredits": "好友订阅后可获得 {{amount}} 个 Builder 积分。",
   "usage.copyInviteLink": "复制邀请链接",
@@ -2265,6 +2300,9 @@ const messages: ToolkitAgentChatTranslation = {
     "智能体使用你添加的访问令牌，因此能看到该令牌可访问的内容。",
   "settingsShell.integrationDetail.accessToken": "访问令牌",
   "settingsShell.integrationDetail.addAccessToken": "添加访问令牌",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "无法检查已保存的访问令牌。",
+  "settingsShell.integrationDetail.tokenCheckRetry": "重试",
   "settingsShell.integrationDetail.callout.adminNeeded": "需要管理员进行设置",
   "settingsShell.integrationDetail.callout.adminNeededBody":
     "请 {{org}} 的所有者或管理员添加 {{name}} 的客户端 ID 和密钥。之后你就可以连接自己的账号。",
@@ -2612,6 +2650,58 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "上传技能文件",
   "settingsResources.skills.describePlaceholder":
     "一个检查拉取请求安全问题的技能",
+  "settingsResources.skills.personalHint": "只有你拥有这些技能。",
+  "settingsResources.skills.orgHint":
+    "与 {{org}} 的所有人共享。你的开关只对你生效。",
+  "settingsResources.skills.orgAdminHint":
+    "与 {{org}} 的所有人共享。你是管理员，可以选择每个技能对其他人的默认状态。",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch 是工作区存放所有应用共享技能的地方。在这里关闭某个技能只会影响 {{app}}。",
+  "settingsResources.skills.thisApp": "此应用",
+  "settingsResources.skills.forEveryone": "所有人",
+  "settingsResources.skills.forYou": "你",
+  "settingsResources.skills.markRecommended": "推荐",
+  "settingsResources.skills.markRecommendedHint": "默认开启，除非有人关闭。",
+  "settingsResources.skills.markOptional": "可选",
+  "settingsResources.skills.markOptionalHint": "默认关闭，除非有人开启。",
+  "settingsResources.skills.markRequired": "必需",
+  "settingsResources.skills.markRequiredHint":
+    "对所有人开启。任何人都不能关闭或使用自己的版本。",
+  "settingsResources.skills.recommendedBy": "{{org}} 推荐",
+  "settingsResources.skills.requiredBy": "{{org}} 要求",
+  "settingsResources.skills.requiredHidesOwn":
+    "未使用：{{org}} 要求所有人使用共享版本",
+  "settingsResources.skills.optionalOff": "可选：开启前一直关闭",
+  "settingsResources.skills.optionalOn": "可选：你已开启",
+  "settingsResources.skills.switchedOffOn": "你在 {{date}} 关闭了它",
+  "settingsResources.skills.alwaysOn": "始终开启",
+  "settingsResources.skills.requiredLockHint": "{{org}} 要求使用，因此始终开启",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch 中也有 {{name}}。智能体会使用这个，并跳过 Dispatch 中的那个。重命名其中一个即可同时使用两者。",
+  "settingsResources.skills.dispatchClashRequired":
+    "Dispatch 中的 {{name}} 是必需的，所以智能体会使用它，并跳过这个。重命名其中一个即可同时使用两者。",
+  "settingsResources.skills.choicesLoadFailed":
+    "无法加载你启用了哪些技能，所以开关已隐藏。请重新加载页面再试一次。",
+  "settingsResources.skills.requireChecking": "正在确认这会影响哪些人…",
+  "settingsResources.skills.requireCountsFailed": "无法确认这会影响哪些人。",
+  "settingsResources.skills.requireTitle": "将 {{name}} 设为必需？",
+  "settingsResources.skills.makeRequired": "设为必需",
+  "settingsResources.skills.switchFailed": "无法保存你对 {{name}} 的选择。",
+  "settingsResources.skills.markFailed":
+    "无法更改 {{name}} 对其他人的默认状态。",
+  "settingsResources.skills.addForMe": "为我添加",
+  "settingsResources.skills.addForEveryone": "为所有人添加",
+  "settingsResources.skills.offFor_other": "{{count}} 人中有 {{off}} 人关闭",
+  "settingsResources.skills.onFor_other": "{{count}} 人中有 {{on}} 人开启",
+  "settingsResources.skills.ownVersions_other": "{{count}} 人有自己的版本",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "它会为关闭它的 {{count}} 人重新开启。",
+  "settingsResources.skills.requireTurnsOn_other":
+    "它会为尚未开启它的 {{count}} 人开启。",
+  "settingsResources.skills.requireOwnVersions_other":
+    "拥有自己版本的 {{count}} 人将改用 {{org}} 的文本。他们的版本会保留，之后你更改此设置时会恢复。",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "拥有自己版本的 {{count}} 人将改用 Dispatch 的文本。他们的版本会保留，之后你更改此设置时会恢复。",
   "settingsResources.files.empty": "添加文件，为智能体提供更多上下文。",
   "settingsResources.files.emptyTitle": "还没有文件",
   "settingsResources.files.orgEmpty": "还没有共享文件",

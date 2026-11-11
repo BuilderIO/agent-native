@@ -68,6 +68,7 @@ export const VideoBlockIds = Extension.create<VideoBlockIdsOptions>({
           const lost: { id: string; node: PMNode; from: number; to: number }[] =
             [];
           for (const block of commentAnchorBlockList(oldState.doc)) {
+            if (block.blockType !== "video") continue;
             const node = oldState.doc.nodeAt(block.pos);
             let from = block.pos;
             let to = block.pos + (node?.nodeSize ?? 0);

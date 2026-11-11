@@ -43,6 +43,10 @@ vi.mock("h3", () => ({
   },
 }));
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { saveRevisionOf } from "../save-conflict/index.js";
 import { getSession } from "../server/auth.js";
 import {
@@ -535,6 +539,41 @@ describe("application-state handlers", () => {
         },
       );
       expect(result).toEqual(body);
+    });
+
+    it("files a tab's use under this app and the tab that sent it", async () => {
+      resetAppConfigForTests();
+      defineAppConfig({ app: { id: "design" } });
+      mockAppStatePut.mockResolvedValue(undefined);
+      try {
+        await putState({
+          _params: { key: "browser-tab-used" },
+          _body: { usedAt: 1 },
+          _headers: { "x-agent-native-browser-tab": "tab-a" },
+        });
+        await putStateMany({
+          _body: {
+            writes: [{ key: "browser-tab-used", value: { usedAt: 2 } }],
+          },
+          _headers: { "x-agent-native-browser-tab": "tab-b" },
+        });
+        await deleteState({
+          _params: { key: "browser-tab-used" },
+          _headers: { "x-agent-native-browser-tab": "tab-a" },
+        });
+      } finally {
+        resetAppConfigForTests();
+      }
+
+      expect(mockAppStatePut.mock.calls.map((call) => call[1])).toEqual([
+        "browser-tab-used:design:tab-a",
+        "browser-tab-used:design:tab-b",
+      ]);
+      expect(mockAppStateDelete).toHaveBeenCalledWith(
+        "user@example.com",
+        "browser-tab-used:design:tab-a",
+        expect.anything(),
+      );
     });
 
     it("passes x-request-source header", async () => {

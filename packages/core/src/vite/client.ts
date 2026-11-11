@@ -95,10 +95,12 @@ import {
   readAgentNativeJsonConfig,
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
+  resolveRequiredEnvBuildReplacement,
   writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { boundedTaskSourcePlugin } from "./bounded-task-plugin.js";
+import { browserChunkNamesPlugin } from "./browser-chunk-names-plugin.js";
 import { migrationDiagnosticPlugin } from "./migration-diagnostic-plugin.js";
 import { motionSourceProvenancePlugin } from "./motion-source-provenance-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
@@ -4718,6 +4720,7 @@ function createAgentNativePlugins(
   return [
     migrationDiagnosticPlugin(),
     motionSourceProvenancePlugin(),
+    browserChunkNamesPlugin(),
     persistent5xxRecovery(),
     presetMarkerPlugin,
     ssrStubPlugin([
@@ -4882,14 +4885,17 @@ function createAgentNativeConfig(
     runtimeEnv,
   );
   const harnessMode = resolveHarnessBuildReplacement(resolvedAppConfig);
+  const requiredEnv = resolveRequiredEnvBuildReplacement(resolvedAppConfig);
   if (command === "build") {
     writeAgentNativeBuildConfigMarker(cwd, {
       firstRunOnboarding: firstRunOnboardingMode,
       harness: harnessMode,
+      requiredEnv,
     });
   }
   const firstRunOnboardingBuildMode = JSON.stringify(firstRunOnboardingMode);
   const harnessBuildMode = JSON.stringify(harnessMode);
+  const requiredEnvBuildValue = JSON.stringify(requiredEnv);
   const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
   const frameworkRoutePrefix =
@@ -4980,6 +4986,7 @@ function createAgentNativeConfig(
         "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
           firstRunOnboardingBuildMode,
         "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
+        "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": requiredEnvBuildValue,
       },
     },
     logLevel:
@@ -5030,6 +5037,7 @@ function createAgentNativeConfig(
       "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
         firstRunOnboardingBuildMode,
       "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
+      "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": requiredEnvBuildValue,
       ...(resolvedAppConfig.deployment?.environment
         ? {
             "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(

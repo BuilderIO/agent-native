@@ -259,7 +259,7 @@ export function CaptureInstallMenu({
             </a>
           </DropdownMenuItem>
         ) : (
-          <DropdownMenuItem disabled className="gap-2">
+          <DropdownMenuItem disabled>
             {t("recordRoute.getChromeExtension")}
           </DropdownMenuItem>
         )}

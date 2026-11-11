@@ -138,6 +138,8 @@ Claude、ChatGPT、Cursor、VS Code、Claude Code、Codex、Grok、その他の�
 
 コネクタを再インストールしたり公開共有リンクを変更したりしても、確認済みの接続アカウントの権限拒否は解決しません。
 
+非公開文書にアップロードした画像は、本文に `/api/private-media/<id>` リンクとして保存され、Content にサインインしている場合にのみ読み込まれます。エージェントが MCP で文書を読むと、`get-document` と Markdown 形式の `pull-document` は `privateMediaLinks` も返します。これは保存済みの各リンクと、その画像 1 枚をサインインなしで 1 時間開ける URL の組です。1 回の読み取りでリンクが付く画像は最大 200 枚で、残りの枚数は `omitted` に入ります。新しいリンクが必要な場合は文書を読み直してください。本文を編集するときは保存済みのリンクをそのまま残してください。
+
 <a id="access-tab"></a>
 
 ### アプリ内の MCP 設定 {#mcp-settings}
