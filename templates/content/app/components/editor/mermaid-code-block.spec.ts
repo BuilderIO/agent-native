@@ -200,6 +200,22 @@ describe("Mermaid code blocks", () => {
     expect(before).toContain(`\`\`\`mermaid\n${DIAGRAM}\n\`\`\``);
   });
 
+  it("type nothing over the selected drawing", async () => {
+    const { editor } = await mountEditor(SOURCE);
+    const blockPos = mermaidPosition(editor);
+    const before = docToNfm(editor.getJSON() as never);
+
+    await act(async () => {
+      editor.chain().focus().setNodeSelection(blockPos).run();
+    });
+    await pressKey(editor, "x");
+    await typeText(editor, "y");
+
+    expect(docToNfm(editor.getJSON() as never)).toBe(before);
+    expect(editor.state.selection).toBeInstanceOf(NodeSelection);
+    expect(editor.state.selection.from).toBe(blockPos);
+  });
+
   it("select the resting drawing when the caret arrows into it", async () => {
     const { editor } = await mountEditor(SOURCE);
     const blockPos = mermaidPosition(editor);

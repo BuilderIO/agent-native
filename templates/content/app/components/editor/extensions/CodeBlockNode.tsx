@@ -1,4 +1,3 @@
-import type { KeyboardShortcutCommand } from "@tiptap/core";
 import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
@@ -74,6 +73,30 @@ function selectRestingMermaidOnArrow(
   return true;
 }
 
+function isSelectedMermaidDrawing(view: EditorView): boolean {
+  const { selection } = view.state;
+  return (
+    selection instanceof NodeSelection && isMermaidCodeBlock(selection.node)
+  );
+}
+
+/**
+ * Typing on a selected drawing would replace the whole block, source and all.
+ * Like a selected block in Notion, it types nothing; Enter opens the source.
+ */
+function ignoreTypingOnSelectedMermaid(
+  view: EditorView,
+  event: KeyboardEvent,
+): boolean {
+  if (
+    event.key.length !== 1 ||
+    event.metaKey ||
+    (event.ctrlKey && !event.altKey)
+  )
+    return false;
+  return isSelectedMermaidDrawing(view);
+}
+
 export const CodeBlock = CodeBlockLowlight.extend({
   addKeyboardShortcuts() {
     return {
@@ -119,8 +142,8 @@ export const DrawingCodeBlock = CodeBlock.extend({
 
   addKeyboardShortcuts() {
     const parentShortcuts = this.parent?.() ?? {};
-    const parentEnter: KeyboardShortcutCommand | undefined =
-      parentShortcuts["Enter"];
+    const parentEnter =
+      "Enter" in parentShortcuts ? parentShortcuts["Enter"] : undefined;
     return {
       ...parentShortcuts,
       // Like a table cell, the first Escape from a Mermaid source only closes
@@ -151,8 +174,13 @@ export const DrawingCodeBlock = CodeBlock.extend({
     return [
       ...(this.parent?.() ?? []),
       new Plugin({
-        key: new PluginKey("mermaidArrowSelect"),
-        props: { handleKeyDown: selectRestingMermaidOnArrow },
+        key: new PluginKey("mermaidSelectedDrawing"),
+        props: {
+          handleKeyDown: (view, event) =>
+            selectRestingMermaidOnArrow(view, event) ||
+            ignoreTypingOnSelectedMermaid(view, event),
+          handleTextInput: (view) => isSelectedMermaidDrawing(view),
+        },
       }),
     ];
   },
