@@ -1694,6 +1694,34 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Indicações de créditos Builder",
   "featureFlags.builderCreditReferrals.description":
     "Mostrar os detalhes de indicação do espaço de trabalho Builder conectado em Uso.",
+  "featureFlags.scope.appliesTo": "Aplica-se a",
+  "featureFlags.scope.org": "Esta organização",
+  "featureFlags.scope.global": "Todas as organizações",
+  "featureFlags.scope.setForOrg": "Definido para esta organização",
+  "featureFlags.scope.setForGlobal": "Definido para todas as organizações",
+  "featureFlags.scope.overridesGlobal":
+    "Substitui a regra de todas as organizações",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "A regra própria desta organização substitui a regra de todas as organizações, que é: {{audience}}.",
+  "featureFlags.scope.unreadable": "Não foi possível ler",
+  "featureFlags.scope.enableForMeOrg":
+    "Adiciona você à regra desta organização",
+  "featureFlags.scope.enableForMeGlobal":
+    "Adiciona você à regra de todas as organizações",
+  "featureFlags.scope.turnOffOrg": "Desativar para esta organização",
+  "featureFlags.scope.turnOffGlobal": "Desativar para todas as organizações",
+  "featureFlags.scope.turnOffOrgTitle":
+    "Desativar {{name}} para esta organização?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "Desativar {{name}} para todas as organizações?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "Isso remove imediatamente o acesso de todas as pessoas desta organização. Você pode configurar um novo lançamento depois.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "Isso remove imediatamente o acesso em todas as organizações que não têm uma regra própria. Você pode configurar um novo lançamento depois.",
+  "featureFlags.scope.summaryOrg": "Nesta organização: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "Em todas as organizações: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule":
+    "Esta organização mantém a própria regra.",
   "usage.inviteFriends": "Convide amigos",
   "usage.inviteCredits":
     "Ganhe {{amount}} créditos do Builder quando um amigo assinar.",

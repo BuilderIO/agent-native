@@ -1706,6 +1706,36 @@ const messages: ToolkitAgentChatTranslation = {
     "Referidos de créditos de Builder",
   "featureFlags.builderCreditReferrals.description":
     "Mostrar los detalles de referidos del espacio de trabajo de Builder conectado en Uso.",
+  "featureFlags.scope.appliesTo": "Se aplica a",
+  "featureFlags.scope.org": "Esta organización",
+  "featureFlags.scope.global": "Todas las organizaciones",
+  "featureFlags.scope.setForOrg": "Definido para esta organización",
+  "featureFlags.scope.setForGlobal": "Definido para todas las organizaciones",
+  "featureFlags.scope.overridesGlobal":
+    "Sustituye la regla de todas las organizaciones",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "La regla propia de esta organización sustituye la regla de todas las organizaciones, que es: {{audience}}.",
+  "featureFlags.scope.unreadable": "No se pudo leer",
+  "featureFlags.scope.enableForMeOrg":
+    "Te añade a la regla de esta organización",
+  "featureFlags.scope.enableForMeGlobal":
+    "Te añade a la regla de todas las organizaciones",
+  "featureFlags.scope.turnOffOrg": "Desactivar para esta organización",
+  "featureFlags.scope.turnOffGlobal":
+    "Desactivar para todas las organizaciones",
+  "featureFlags.scope.turnOffOrgTitle":
+    "¿Desactivar {{name}} para esta organización?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "¿Desactivar {{name}} para todas las organizaciones?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "Esto quita de inmediato el acceso a todas las personas de esta organización. Puedes configurar un nuevo despliegue más adelante.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "Esto quita de inmediato el acceso en todas las organizaciones que no tienen una regla propia. Puedes configurar un nuevo despliegue más adelante.",
+  "featureFlags.scope.summaryOrg": "En esta organización: {{audience}}.",
+  "featureFlags.scope.summaryGlobal":
+    "En todas las organizaciones: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule":
+    "Esta organización mantiene su propia regla.",
   "usage.inviteFriends": "Invita a tus amigos",
   "usage.inviteCredits":
     "Gana {{amount}} créditos de Builder cuando un amigo se suscriba.",

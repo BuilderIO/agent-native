@@ -1706,6 +1706,34 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder-Guthabenempfehlungen",
   "featureFlags.builderCreditReferrals.description":
     "Empfehlungsdetails des verbundenen Builder-Arbeitsbereichs unter „Nutzung“ anzeigen.",
+  "featureFlags.scope.appliesTo": "Gilt für",
+  "featureFlags.scope.org": "Diese Organisation",
+  "featureFlags.scope.global": "Alle Organisationen",
+  "featureFlags.scope.setForOrg": "Für diese Organisation festgelegt",
+  "featureFlags.scope.setForGlobal": "Für alle Organisationen festgelegt",
+  "featureFlags.scope.overridesGlobal":
+    "Ersetzt die Regel für alle Organisationen",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "Die eigene Regel dieser Organisation ersetzt die Regel für alle Organisationen. Diese lautet: {{audience}}.",
+  "featureFlags.scope.unreadable": "Konnte nicht gelesen werden",
+  "featureFlags.scope.enableForMeOrg":
+    "Fügt dich der Regel dieser Organisation hinzu",
+  "featureFlags.scope.enableForMeGlobal":
+    "Fügt dich der Regel für alle Organisationen hinzu",
+  "featureFlags.scope.turnOffOrg": "Für diese Organisation deaktivieren",
+  "featureFlags.scope.turnOffGlobal": "Für alle Organisationen deaktivieren",
+  "featureFlags.scope.turnOffOrgTitle":
+    "{{name}} für diese Organisation deaktivieren?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "{{name}} für alle Organisationen deaktivieren?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "Damit verlieren alle Personen in dieser Organisation sofort den Zugriff. Du kannst später einen neuen Rollout konfigurieren.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "Damit wird der Zugriff in jeder Organisation ohne eigene Regel sofort entfernt. Du kannst später einen neuen Rollout konfigurieren.",
+  "featureFlags.scope.summaryOrg": "In dieser Organisation: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "In allen Organisationen: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule":
+    "Diese Organisation behält ihre eigene Regel.",
   "usage.inviteFriends": "Freunde einladen",
   "usage.inviteCredits":
     "Erhalte {{amount}} Builder-Credits, wenn sich ein Freund anmeldet.",

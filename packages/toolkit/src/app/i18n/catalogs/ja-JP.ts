@@ -1652,6 +1652,31 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder クレジットの紹介",
   "featureFlags.builderCreditReferrals.description":
     "使用状況に接続済み Builder ワークスペースの紹介詳細を表示します。",
+  "featureFlags.scope.appliesTo": "適用範囲",
+  "featureFlags.scope.org": "この組織",
+  "featureFlags.scope.global": "すべての組織",
+  "featureFlags.scope.setForOrg": "この組織に設定",
+  "featureFlags.scope.setForGlobal": "すべての組織に設定",
+  "featureFlags.scope.overridesGlobal": "すべての組織のルールを上書き中",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "この組織独自のルールが、すべての組織のルールに代わって適用されます。すべての組織のルール：{{audience}}。",
+  "featureFlags.scope.unreadable": "読み取れません",
+  "featureFlags.scope.enableForMeOrg": "この組織のルールにあなたを追加します",
+  "featureFlags.scope.enableForMeGlobal":
+    "すべての組織のルールにあなたを追加します",
+  "featureFlags.scope.turnOffOrg": "この組織でオフにする",
+  "featureFlags.scope.turnOffGlobal": "すべての組織でオフにする",
+  "featureFlags.scope.turnOffOrgTitle":
+    "この組織で {{name}} をオフにしますか？",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "すべての組織で {{name}} をオフにしますか？",
+  "featureFlags.scope.turnOffOrgDescription":
+    "この組織のすべてのユーザーのアクセスがすぐに削除されます。新しいロールアウトは後で設定できます。",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "独自のルールを持たないすべての組織で、アクセスがすぐに削除されます。新しいロールアウトは後で設定できます。",
+  "featureFlags.scope.summaryOrg": "この組織：{{audience}}。",
+  "featureFlags.scope.summaryGlobal": "すべての組織：{{audience}}。",
+  "featureFlags.scope.orgKeepsOwnRule": "この組織は独自のルールを維持します。",
   "usage.inviteFriends": "友だちを招待",
   "usage.inviteCredits":
     "友だちが登録すると Builder クレジットを {{amount}} 獲得できます。",

@@ -1533,6 +1533,28 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder 點數推薦",
   "featureFlags.builderCreditReferrals.description":
     "在使用量中顯示已連結 Builder 工作區的推薦詳情。",
+  "featureFlags.scope.appliesTo": "適用範圍",
+  "featureFlags.scope.org": "此組織",
+  "featureFlags.scope.global": "所有組織",
+  "featureFlags.scope.setForOrg": "為此組織設定",
+  "featureFlags.scope.setForGlobal": "為所有組織設定",
+  "featureFlags.scope.overridesGlobal": "覆寫了所有組織的規則",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "此組織自己的規則會取代所有組織的規則，後者為：{{audience}}。",
+  "featureFlags.scope.unreadable": "無法讀取",
+  "featureFlags.scope.enableForMeOrg": "將您加入此組織的規則",
+  "featureFlags.scope.enableForMeGlobal": "將您加入所有組織的規則",
+  "featureFlags.scope.turnOffOrg": "為此組織關閉",
+  "featureFlags.scope.turnOffGlobal": "為所有組織關閉",
+  "featureFlags.scope.turnOffOrgTitle": "要為此組織關閉 {{name}} 嗎？",
+  "featureFlags.scope.turnOffGlobalTitle": "要為所有組織關閉 {{name}} 嗎？",
+  "featureFlags.scope.turnOffOrgDescription":
+    "這會立即移除此組織中所有人的存取權。您之後可以重新設定推出方式。",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "這會立即移除所有沒有自己規則的組織中的存取權。您之後可以重新設定推出方式。",
+  "featureFlags.scope.summaryOrg": "在此組織中：{{audience}}。",
+  "featureFlags.scope.summaryGlobal": "在所有組織中：{{audience}}。",
+  "featureFlags.scope.orgKeepsOwnRule": "此組織會保留自己的規則。",
   "usage.inviteFriends": "邀請朋友",
   "usage.inviteCredits": "朋友訂閱後可獲得 {{amount}} 點 Builder 點數。",
   "usage.copyInviteLink": "複製邀請連結",
