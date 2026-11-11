@@ -1079,6 +1079,90 @@ describe("integrations plugin routes", () => {
     });
   });
 
+  it("surfaces malformed JSON HTTP 200 responses from Telegram as dependency failures with 424", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
+    resolveSecretMock.mockImplementation((key: string) =>
+      key === "TELEGRAM_BOT_TOKEN"
+        ? "telegram-bot-token-example"
+        : key === "TELEGRAM_WEBHOOK_SECRET"
+          ? "telegram-webhook-secret-example"
+          : null,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ unexpected: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "telegram", label: "Telegram" }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/telegram/setup",
+      "POST",
+    );
+
+    expect(result.status).toBe(424);
+    expect(result.body).toEqual({
+      error: "Telegram setWebhook failed: invalid response",
+      upstreamStatus: 200,
+    });
+  });
+
+  it("caps retryAfterSeconds and Retry-After header to 300 seconds for Telegram 429", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
+    resolveSecretMock.mockImplementation((key: string) =>
+      key === "TELEGRAM_BOT_TOKEN"
+        ? "telegram-bot-token-example"
+        : key === "TELEGRAM_WEBHOOK_SECRET"
+          ? "telegram-webhook-secret-example"
+          : null,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: false,
+              description: "Too Many Requests: retry after 500",
+              error_code: 429,
+              parameters: { retry_after: 500 },
+            }),
+            {
+              status: 429,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+      ),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "telegram", label: "Telegram" }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/telegram/setup",
+      "POST",
+    );
+
+    expect(result.status).toBe(429);
+    expect(result.headers.get("retry-after")).toBe("300");
+    expect(result.body).toEqual({
+      error: "Telegram setWebhook failed: Too Many Requests: retry after 500",
+      upstreamStatus: 429,
+      retryAfterSeconds: 300,
+    });
+  });
+
   it("surfaces Telegram 429 rate limits as retryable 429 responses with upstreamStatus, retryAfterSeconds, and Retry-After header", async () => {
     getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
     resolveSecretMock.mockImplementation((key: string) =>

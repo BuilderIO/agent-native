@@ -995,12 +995,14 @@ export function createIntegrationsPlugin(
                 url: webhookUrl,
                 secret_token: webhookSecret,
               }),
+              signal: AbortSignal.timeout(10_000),
             },
           );
           const body = await res.text();
           type TelegramSetWebhookResponse = {
             ok?: boolean;
             description?: string;
+            error_code?: number;
             parameters?: {
               retry_after?: number;
               [key: string]: unknown;
@@ -1017,13 +1019,18 @@ export function createIntegrationsPlugin(
             // Keep provider and proxy failures distinguishable from a successful setup.
             data = null;
           }
+          const isMalformedPayload =
+            data === null || typeof data?.ok !== "boolean";
           if (!res.ok || data?.ok !== true) {
             console.error(
               `[telegram] setWebhook failed (${res.status}): ${data?.description ?? body}`,
             );
-            const isRateLimit = res.status === 429;
+            const isRateLimit = res.status === 429 || data?.error_code === 429;
             const isDependencyFailure =
-              res.status >= 500 || res.status === 408 || data === null;
+              res.status >= 500 ||
+              res.status === 408 ||
+              isMalformedPayload ||
+              (typeof data?.error_code === "number" && data.error_code >= 500);
             const statusCode = isRateLimit
               ? 429
               : isDependencyFailure
@@ -1031,15 +1038,19 @@ export function createIntegrationsPlugin(
                 : 422;
             const upstreamStatus =
               isRateLimit || isDependencyFailure ? res.status : undefined;
-            const retryAfterSeconds =
+            const rawRetryAfter =
               typeof data?.parameters?.retry_after === "number" &&
               Number.isInteger(data.parameters.retry_after) &&
               data.parameters.retry_after > 0
                 ? data.parameters.retry_after
                 : undefined;
+            const retryAfterSeconds =
+              rawRetryAfter !== undefined
+                ? Math.min(rawRetryAfter, 300)
+                : undefined;
             const description =
               data?.description ??
-              (data === null && res.ok
+              (isMalformedPayload && res.ok
                 ? "invalid response"
                 : `HTTP ${res.status}`);
             return {
