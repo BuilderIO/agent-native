@@ -7,7 +7,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
-- The command menu (Cmd+K) now opens as a short list for the page you're on: search inside it, copy its link, pin it, move it or add a sub-page, followed by your recent pages. Start typing and it widens into search, with filters and a preview of the highlighted result. Press Tab to search only the open page and Backspace to search everywhere again. When nothing fits, the last row asks the agent.
+- The command menu (Cmd+K) now opens as a short list for the page you're on: search inside it, copy its link, pin it, move it or add a sub-page, followed by your recent pages. Start typing and it widens into search, with filters and a preview of the highlighted result. Before you type, press Tab to search only the open page; Backspace goes back to the whole workspace. When nothing fits, the last row asks the agent.
 
 ## 2026-11-09
 

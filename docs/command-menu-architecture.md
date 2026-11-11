@@ -84,8 +84,8 @@ The repository already has the beginnings of this split:
   search in `ContentCommandSearch.tsx`. It opens compact and widens into
   search with a preview once there is a query. It uses the shell's opt-in
   hooks: `inputAdornment` for a scope chip in the search field,
-  `onInputKeyDown` so Tab scopes the search to the open page and Backspace
-  clears it, `closeOnSelect: false` for a command that changes the menu
+  `onInputKeyDown` so Tab in an empty field scopes the search to the open page
+  and Backspace clears it, `closeOnSelect: false` for a command that changes the menu
   instead of leaving it, and `selectedValue` from `renderContent` for the
   preview.
 
