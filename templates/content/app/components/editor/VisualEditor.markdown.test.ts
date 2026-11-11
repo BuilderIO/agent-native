@@ -13,6 +13,7 @@ import {
 import { suggestionTextPresentationForSource } from "@shared/suggestion-text";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor, getSchema, type JSONContent } from "@tiptap/core";
+import { closeHistory } from "@tiptap/pm/history";
 import {
   NodeSelection,
   TextSelection,
@@ -123,6 +124,12 @@ import {
   NotionToggle,
 } from "./extensions/NotionExtensions";
 import { setSuggestionHighlights } from "./extensions/SuggestionHighlight";
+import { ImageStorageUnavailableError } from "./image-upload";
+import {
+  holdImageUploadPreview,
+  releaseImageUploadPreviewsFor,
+  retryImageUpload,
+} from "./image-upload-previews";
 import { createPreviewDocumentSaveController } from "./previewDocumentSaveController";
 import { insertMediaPlaceholder } from "./SlashCommandMenu";
 import {
@@ -152,8 +159,10 @@ import {
   parseNfmForCollabReconcile,
   parseMarkdownClipboardSlice,
   ensurePendingImageUpload,
+  type PendingImagePicker,
   restorePendingImagePicker,
   runIfMediaCreationAllowed,
+  runImageUpload,
   uploadAndInsertAudioFiles,
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
@@ -544,7 +553,10 @@ const EMPTY_TOGGLE_BODY_SELECTOR =
 // React node views render only under a mounted EditorContent; a headless
 // editor gives them an empty placeholder element, so tests that read their DOM
 // must mount.
-async function mountVisualEditor(content: JSONContent) {
+async function mountVisualEditor(
+  content: JSONContent,
+  extensionOptions?: Parameters<typeof createVisualEditorExtensions>[0],
+) {
   const actEnvironment = globalThis as typeof globalThis & {
     IS_REACT_ACT_ENVIRONMENT?: boolean;
   };
@@ -555,7 +567,7 @@ async function mountVisualEditor(content: JSONContent) {
   const root = createRoot(container);
   const queryClient = new QueryClient();
   const editor = new Editor({
-    extensions: createVisualEditorExtensions(),
+    extensions: createVisualEditorExtensions(extensionOptions),
     content,
   });
   await act(async () =>
@@ -581,6 +593,44 @@ async function mountVisualEditor(content: JSONContent) {
       actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
     },
   };
+}
+
+// happy-dom doesn't draw images, so this has every image draw at 640 by 480.
+// Returns what puts the real behavior back.
+function pretendImagesDraw() {
+  const proto = HTMLImageElement.prototype;
+  const originals = (["complete", "naturalWidth"] as const).map((key) => ({
+    key,
+    descriptor: Object.getOwnPropertyDescriptor(proto, key),
+  }));
+  Object.defineProperty(proto, "complete", {
+    configurable: true,
+    get: () => true,
+  });
+  Object.defineProperty(proto, "naturalWidth", {
+    configurable: true,
+    get: () => 640,
+  });
+  const bounds = vi
+    .spyOn(Element.prototype, "getBoundingClientRect")
+    .mockReturnValue(new DOMRect(0, 0, 640, 480));
+  return () => {
+    for (const { key, descriptor } of originals) {
+      if (descriptor) Object.defineProperty(proto, key, descriptor);
+      else delete (proto as unknown as Record<string, unknown>)[key];
+    }
+    bounds.mockRestore();
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((settle, fail) => {
+    resolve = settle;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
 }
 
 describe("markdown clipboard parsing", () => {
@@ -3937,6 +3987,895 @@ describe("slash image picker lifecycle", () => {
   });
 });
 
+describe("image upload previews", () => {
+  const file = new File(["image-bytes"], "diagram.png", { type: "image/png" });
+  const uploadedSrc = "https://cdn.example.com/diagram.png";
+  const messages = {
+    added: "Image added",
+    addedMany: "Images added",
+    broken: "Image broken",
+    someFailed: (failed: number, total: number) =>
+      `${failed} of ${total} failed.`,
+  };
+
+  function images(editor: Editor) {
+    return editor.getJSON().content.filter((node) => node.type === "image");
+  }
+
+  async function withMountedEditor(
+    test: (editor: Editor) => Promise<void>,
+    content: JSONContent = { type: "doc", content: [{ type: "paragraph" }] },
+    extensionOptions?: Parameters<typeof createVisualEditorExtensions>[0],
+  ) {
+    const restoreImages = pretendImagesDraw();
+    let nextUrl = 0;
+    vi.spyOn(URL, "createObjectURL").mockImplementation(
+      () => `blob:preview-${++nextUrl}`,
+    );
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const mounted = await mountVisualEditor(content, extensionOptions);
+    try {
+      await test(mounted.editor);
+    } finally {
+      await mounted.dispose();
+      restoreImages();
+      vi.restoreAllMocks();
+    }
+  }
+
+  it("shows the picked file until the uploaded copy has drawn, then saves", async () => {
+    await withMountedEditor(async (editor) => {
+      const upload = deferred<string>();
+      const persist = vi.fn(() => true);
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(
+          editor.view,
+          [file],
+          0,
+          () => upload.promise,
+          { persist },
+        );
+      });
+
+      const dom = editor.view.dom;
+      expect(
+        dom.querySelector("img[data-upload-preview]")?.getAttribute("src"),
+      ).toBe("blob:preview-1");
+      expect(dom.querySelector('.media-block [role="status"]')).not.toBeNull();
+      // The preview never reaches the page, which waits to save the block.
+      expect(JSON.stringify(editor.getJSON())).not.toContain("blob:");
+      expect(serializeEditorDraftForPersistence(editor)).toBeNull();
+
+      await act(async () => {
+        upload.resolve(uploadedSrc);
+        await done;
+      });
+
+      expect(images(editor)).toHaveLength(1);
+      expect(images(editor)[0]?.attrs).toMatchObject({
+        src: uploadedSrc,
+        uploadId: null,
+      });
+      expect(persist).toHaveBeenCalledOnce();
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
+      expect(dom.querySelector("img[data-upload-preview]")).toBeNull();
+      const saved = serializeEditorDraftForPersistence(editor);
+      expect(saved).toContain(uploadedSrc);
+      expect(saved).not.toContain("blob:");
+    });
+  });
+
+  it("keeps a failed upload's pick in its block, and Retry finishes it", async () => {
+    await withMountedEditor(async (editor) => {
+      const attempts: Array<ReturnType<typeof deferred<string>>> = [];
+      const upload = vi.fn(() => {
+        const attempt = deferred<string>();
+        attempts.push(attempt);
+        return attempt.promise;
+      });
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file], 0, upload);
+      });
+      await act(async () => {
+        attempts[0]?.reject(new Error("Network down"));
+        await done;
+      });
+
+      expect(images(editor)[0]?.attrs?.src).toBeNull();
+      expect(images(editor)[0]?.attrs?.uploadId).toMatch(/^image-failed-/);
+      // A failed block doesn't hold the page's save, and saves no preview.
+      const saved = serializeEditorDraftForPersistence(editor);
+      expect(saved).not.toBeNull();
+      expect(saved).not.toContain("blob:");
+      const dom = editor.view.dom;
+      expect(dom.querySelector("img[data-upload-preview]")).not.toBeNull();
+      // Retry, then Remove.
+      expect(
+        dom.querySelectorAll(".media-block__upload-failure button"),
+      ).toHaveLength(2);
+      const retry = dom.querySelector<HTMLButtonElement>(
+        ".media-block__upload-failure button",
+      );
+
+      await act(async () => retry?.click());
+      expect(upload).toHaveBeenCalledTimes(2);
+      expect(images(editor)[0]?.attrs?.uploadId).toMatch(/^image-upload-/);
+      expect(dom.querySelector('.media-block [role="status"]')).not.toBeNull();
+
+      await act(async () => attempts[1]?.resolve(uploadedSrc));
+      await vi.waitFor(() =>
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: uploadedSrc,
+          uploadId: null,
+        }),
+      );
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
+    });
+  });
+
+  it("keeps a finished image when undo follows its upload", async () => {
+    await withMountedEditor(async (editor) => {
+      const upload = deferred<string>();
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(
+          editor.view,
+          [file],
+          0,
+          () => upload.promise,
+        );
+      });
+      // A later edit of the user's, which undo takes back on its own.
+      await act(async () => {
+        const { state } = editor.view;
+        expect(state.doc.lastChild?.type.name).toBe("paragraph");
+        editor.view.dispatch(
+          closeHistory(state.tr.insertText("Note", state.doc.content.size - 1)),
+        );
+      });
+      await act(async () => {
+        upload.resolve(uploadedSrc);
+        await done;
+      });
+
+      await act(async () => {
+        expect(editor.commands.undo()).toBe(true);
+      });
+      expect(editor.getText()).not.toContain("Note");
+      expect(images(editor)[0]?.attrs).toMatchObject({
+        src: uploadedSrc,
+        uploadId: null,
+      });
+    });
+  });
+
+  it("keeps a failed upload's pick and Retry when undo follows the failure", async () => {
+    await withMountedEditor(async (editor) => {
+      const upload = deferred<string>();
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(
+          editor.view,
+          [file],
+          0,
+          () => upload.promise,
+        );
+      });
+      // A later edit of the user's, which undo takes back on its own.
+      await act(async () => {
+        const { state } = editor.view;
+        expect(state.doc.lastChild?.type.name).toBe("paragraph");
+        editor.view.dispatch(
+          closeHistory(state.tr.insertText("Note", state.doc.content.size - 1)),
+        );
+      });
+      await act(async () => {
+        upload.reject(new Error("Network down"));
+        await done;
+      });
+
+      await act(async () => {
+        expect(editor.commands.undo()).toBe(true);
+      });
+      expect(editor.getText()).not.toContain("Note");
+      expect(images(editor)[0]?.attrs?.uploadId).toMatch(/^image-failed-/);
+      const dom = editor.view.dom;
+      expect(dom.querySelector("img[data-upload-preview]")).not.toBeNull();
+      expect(
+        dom.querySelectorAll(".media-block__upload-failure button"),
+      ).toHaveLength(2);
+    });
+  });
+
+  it("keeps a Retry going when undo follows it", async () => {
+    await withMountedEditor(async (editor) => {
+      const attempts: Array<ReturnType<typeof deferred<string>>> = [];
+      const upload = vi.fn(() => {
+        const attempt = deferred<string>();
+        attempts.push(attempt);
+        return attempt.promise;
+      });
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file], 0, upload);
+      });
+      await act(async () => {
+        attempts[0]?.reject(new Error("Network down"));
+        await done;
+      });
+      // A later edit of the user's, which undo takes back on its own.
+      await act(async () => {
+        const { state } = editor.view;
+        expect(state.doc.lastChild?.type.name).toBe("paragraph");
+        editor.view.dispatch(
+          closeHistory(state.tr.insertText("Note", state.doc.content.size - 1)),
+        );
+      });
+      const retry = editor.view.dom.querySelector<HTMLButtonElement>(
+        ".media-block__upload-failure button",
+      );
+      await act(async () => retry?.click());
+      expect(upload).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        expect(editor.commands.undo()).toBe(true);
+      });
+      expect(editor.getText()).not.toContain("Note");
+      expect(images(editor)[0]?.attrs?.uploadId).toMatch(/^image-upload-/);
+
+      await act(async () => attempts[1]?.resolve(uploadedSrc));
+      await vi.waitFor(() =>
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: uploadedSrc,
+          uploadId: null,
+        }),
+      );
+    });
+  });
+
+  // An empty image block, as the slash menu adds one, and an editor that
+  // records what it would hand the native file picker.
+  const emptyImageBlock: JSONContent = {
+    type: "doc",
+    content: [
+      { type: "image", attrs: { src: null, alt: "", uploadId: null } },
+      { type: "paragraph" },
+    ],
+  };
+
+  function recordPicks(picks: PendingImagePicker[]) {
+    return {
+      onImageFilePickerRequest: (request: PendingImagePicker) => {
+        picks.push(request);
+      },
+      usesPrivateImageUploads: () => true,
+    };
+  }
+
+  // Opens the empty block's file picker the way the user does.
+  async function openEmptyBlockPicker(editor: Editor) {
+    const dom = editor.view.dom;
+    await act(async () =>
+      dom
+        .querySelector<HTMLButtonElement>(".media-empty-block__trigger")
+        ?.click(),
+    );
+    await act(async () =>
+      dom
+        .querySelector<HTMLButtonElement>(".media-source-panel__body button")
+        ?.click(),
+    );
+  }
+
+  it("keeps a pick going when undo follows it", async () => {
+    const picks: PendingImagePicker[] = [];
+    await withMountedEditor(
+      async (editor) => {
+        // An earlier edit of the user's, which undo takes back on its own.
+        await act(async () => {
+          const { state } = editor.view;
+          editor.view.dispatch(
+            closeHistory(
+              state.tr.insertText("Note", state.doc.content.size - 1),
+            ),
+          );
+        });
+        await openEmptyBlockPicker(editor);
+        const request = picks.shift();
+        if (!request) throw new Error("The block didn't open the file picker.");
+        expect(request.pickerId).toMatch(/^image-picker-/);
+        expect(images(editor)[0]?.attrs?.uploadId).toBe(request.pickerId);
+
+        await act(async () => {
+          expect(editor.commands.undo()).toBe(true);
+        });
+        expect(editor.getText()).not.toContain("Note");
+        expect(images(editor)[0]?.attrs?.uploadId).toBe(request.pickerId);
+
+        // The file the user picks then uploads into the block.
+        holdImageUploadPreview("image-upload-test", file, {});
+        expect(
+          ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+        ).toBe(true);
+        let outcome: Awaited<ReturnType<typeof runImageUpload>> | undefined;
+        await act(async () => {
+          outcome = await runImageUpload({
+            view: editor.view,
+            file,
+            uploadId: "image-upload-test",
+            request,
+            upload: () => Promise.resolve(uploadedSrc),
+            persist: () => true,
+            messages,
+          });
+        });
+        expect(outcome?.status).not.toBe("failed");
+        expect(images(editor)).toHaveLength(1);
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: uploadedSrc,
+          uploadId: null,
+        });
+      },
+      emptyImageBlock,
+      recordPicks(picks),
+    );
+  });
+
+  it("doesn't bring a cancelled pick back on undo", async () => {
+    const picks: PendingImagePicker[] = [];
+    await withMountedEditor(
+      async (editor) => {
+        await act(async () => {
+          const { state } = editor.view;
+          editor.view.dispatch(
+            closeHistory(
+              state.tr.insertText("Note", state.doc.content.size - 1),
+            ),
+          );
+        });
+        await openEmptyBlockPicker(editor);
+        const request = picks.shift();
+        if (!request) throw new Error("The block didn't open the file picker.");
+        expect(request.pickerId).toMatch(/^image-picker-/);
+        await act(async () => {
+          expect(restorePendingImagePicker(editor.view, request)).toBe(true);
+        });
+        expect(images(editor)[0]?.attrs?.uploadId).toBeNull();
+
+        await act(async () => {
+          expect(editor.commands.undo()).toBe(true);
+        });
+        expect(editor.getText()).not.toContain("Note");
+        // A pick's id holds the page's saves, with nothing left to finish it.
+        expect(images(editor)[0]?.attrs?.uploadId).toBeNull();
+        expect(serializeEditorDraftForPersistence(editor)).not.toBeNull();
+      },
+      emptyImageBlock,
+      recordPicks(picks),
+    );
+  });
+
+  // A later delete, which undo takes back on its own.
+  function deleteFirstBlockAsUser(editor: Editor) {
+    const { state } = editor.view;
+    const image = state.doc.firstChild;
+    expect(image?.type.name).toBe("image");
+    editor.view.dispatch(
+      closeHistory(state.tr.delete(0, image?.nodeSize ?? 0)),
+    );
+  }
+
+  it("brings a deleted failed block back as the page holds it on undo", async () => {
+    await withMountedEditor(async (editor) => {
+      const upload = deferred<string>();
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(
+          editor.view,
+          [file],
+          0,
+          () => upload.promise,
+        );
+      });
+      await act(async () => {
+        upload.reject(new Error("Network down"));
+        await done;
+      });
+      await act(async () => deleteFirstBlockAsUser(editor));
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
+
+      await act(async () => {
+        expect(editor.commands.undo()).toBe(true);
+      });
+      await vi.waitFor(() =>
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: null,
+          uploadId: null,
+        }),
+      );
+      expect(editor.view.dom.querySelector("img[data-upload-preview]")).toBe(
+        null,
+      );
+    });
+  });
+
+  it("doesn't let a block deleted mid-upload come back holding the page's saves", async () => {
+    await withMountedEditor(async (editor) => {
+      const upload = deferred<string>();
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(
+          editor.view,
+          [file],
+          0,
+          () => upload.promise,
+        );
+      });
+      await act(async () => deleteFirstBlockAsUser(editor));
+      await act(async () => {
+        upload.resolve(uploadedSrc);
+        await done;
+      });
+      expect(images(editor)).toHaveLength(0);
+
+      // Undo brings back the block as it was deleted, mid-upload.
+      await act(async () => {
+        expect(editor.commands.undo()).toBe(true);
+      });
+      await vi.waitFor(() =>
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: null,
+          uploadId: null,
+        }),
+      );
+      expect(serializeEditorDraftForPersistence(editor)).not.toBeNull();
+      // Dropping the id left undo history alone, so undo goes on past it.
+      await act(async () => {
+        expect(editor.commands.undo()).toBe(true);
+      });
+      expect(images(editor)).toHaveLength(0);
+    });
+  });
+
+  it("keeps a deleted block deleted when its upload answers after a newer drop", async () => {
+    await withMountedEditor(async (editor) => {
+      const first = deferred<string>();
+      const second = deferred<string>();
+      let firstDone!: Promise<void>;
+      await act(async () => {
+        firstDone = uploadAndInsertImageFiles(
+          editor.view,
+          [file],
+          0,
+          () => first.promise,
+        );
+      });
+      await act(async () => {
+        const { state } = editor.view;
+        const image = state.doc.firstChild;
+        expect(image?.type.name).toBe("image");
+        editor.view.dispatch(state.tr.delete(0, image?.nodeSize ?? 0));
+      });
+      let secondDone!: Promise<void>;
+      await act(async () => {
+        secondDone = uploadAndInsertImageFiles(
+          editor.view,
+          [file],
+          0,
+          () => second.promise,
+        );
+      });
+
+      await act(async () => {
+        first.resolve("https://cdn.example.com/stale.png");
+        await firstDone;
+      });
+      expect(images(editor)).toHaveLength(1);
+      expect(images(editor)[0]?.attrs?.src).toBeNull();
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
+
+      await act(async () => {
+        second.resolve(uploadedSrc);
+        await secondDone;
+      });
+      expect(images(editor)).toHaveLength(1);
+      expect(images(editor)[0]?.attrs).toMatchObject({
+        src: uploadedSrc,
+        uploadId: null,
+      });
+    });
+  });
+
+  it("keeps a queued block deleted when it is removed behind an earlier upload", async () => {
+    await withMountedEditor(async (editor) => {
+      const first = deferred<string>();
+      const upload = vi.fn(() => first.promise);
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file, file], 0, upload);
+      });
+      expect(images(editor)).toHaveLength(2);
+      expect(upload).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        const { state } = editor.view;
+        const from = state.doc.child(0).nodeSize;
+        const queued = state.doc.child(1);
+        expect(queued.type.name).toBe("image");
+        editor.view.dispatch(state.tr.delete(from, from + queued.nodeSize));
+      });
+      expect(images(editor)).toHaveLength(1);
+
+      await act(async () => {
+        first.resolve(uploadedSrc);
+        await done;
+      });
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(images(editor)).toHaveLength(1);
+      expect(images(editor)[0]?.attrs).toMatchObject({
+        src: uploadedSrc,
+        uploadId: null,
+      });
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-2");
+    });
+  });
+
+  it("saves a dropped batch once its last upload settles", async () => {
+    await withMountedEditor(async (editor) => {
+      const first = deferred<string>();
+      const second = deferred<string>();
+      const upload = vi
+        .fn<(file: File) => Promise<string>>()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+      const persist = vi.fn(() => true);
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file, file], 0, upload, {
+          persist,
+        });
+      });
+
+      await act(async () => {
+        first.resolve(uploadedSrc);
+        await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
+      });
+      expect(images(editor)[0]?.attrs?.src).toBe(uploadedSrc);
+      expect(persist).not.toHaveBeenCalled();
+
+      await act(async () => {
+        second.resolve("https://cdn.example.com/second.png");
+        await done;
+      });
+      expect(persist).toHaveBeenCalledTimes(1);
+      expect(images(editor).map((image) => image.attrs?.uploadId)).toEqual([
+        null,
+        null,
+      ]);
+    });
+  });
+
+  it("saves an image retried while its batch runs, even when the rest fail", async () => {
+    await withMountedEditor(async (editor) => {
+      const second = deferred<string>();
+      const upload = vi
+        .fn<(file: File) => Promise<string>>()
+        .mockRejectedValueOnce(new Error("Network down"))
+        .mockReturnValueOnce(second.promise)
+        .mockResolvedValueOnce(uploadedSrc);
+      const persist = vi.fn(() => true);
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file, file], 0, upload, {
+          persist,
+        });
+      });
+      await act(async () => {
+        await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
+      });
+      const failedId = images(editor)[0]?.attrs?.uploadId;
+      expect(String(failedId)).toMatch(/^image-failed-/);
+
+      await act(async () => {
+        retryImageUpload(failedId);
+        await vi.waitFor(() =>
+          expect(images(editor)[0]?.attrs).toMatchObject({
+            src: uploadedSrc,
+            uploadId: null,
+          }),
+        );
+      });
+      // The Retry waits for the batch's save before it lets go of its pick.
+      expect(persist).not.toHaveBeenCalled();
+      expect(URL.revokeObjectURL).not.toHaveBeenCalledWith("blob:preview-1");
+
+      await act(async () => {
+        second.reject(new Error("Network down"));
+        await done;
+      });
+      expect(persist).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() =>
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1"),
+      );
+    });
+  });
+
+  it("settles a Retry waiting on its batch's save when that save throws", async () => {
+    await withMountedEditor(async (editor) => {
+      const second = deferred<string>();
+      const upload = vi
+        .fn<(file: File) => Promise<string>>()
+        .mockRejectedValueOnce(new Error("Network down"))
+        .mockReturnValueOnce(second.promise)
+        .mockResolvedValueOnce(uploadedSrc);
+      const persist = vi.fn(() => Promise.reject(new Error("Offline")));
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file, file], 0, upload, {
+          persist,
+        });
+      });
+      await act(async () => {
+        await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
+      });
+      const failedId = images(editor)[0]?.attrs?.uploadId;
+      await act(async () => {
+        retryImageUpload(failedId);
+        await vi.waitFor(() =>
+          expect(images(editor)[0]?.attrs?.uploadId).toBeNull(),
+        );
+      });
+
+      await act(async () => {
+        second.resolve(uploadedSrc);
+        await expect(done).resolves.toBeUndefined();
+      });
+      expect(persist).toHaveBeenCalledTimes(1);
+      // The Retry waiting on that save settles too, letting go of its pick.
+      await vi.waitFor(() =>
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1"),
+      );
+    });
+  });
+
+  it("uploads none of a batch's waiting files once the editor is blocked", async () => {
+    await withMountedEditor(async (editor) => {
+      const first = deferred<string>();
+      const upload = vi.fn(() => first.promise);
+      let suggesting = false;
+      let done!: Promise<void>;
+      await act(async () => {
+        done = uploadAndInsertImageFiles(editor.view, [file, file], 0, upload, {
+          isBlocked: () => suggesting,
+        });
+      });
+
+      suggesting = true;
+      await act(async () => {
+        first.resolve(uploadedSrc);
+        await done;
+      });
+      expect(upload).toHaveBeenCalledTimes(1);
+      expect(images(editor).map((image) => image.attrs?.uploadId)).toEqual([
+        null,
+        null,
+      ]);
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-2");
+    });
+  });
+
+  it("keeps the page's image when a replacement fails to upload", async () => {
+    const oldSrc = "https://cdn.example.com/old.png";
+    const request = {
+      pickerId: "image-picker-test",
+      position: 0,
+      attrs: { src: oldSrc, alt: "", uploadId: "image-picker-test" },
+    };
+    await withMountedEditor(
+      async (editor) => {
+        const owner = {};
+        holdImageUploadPreview("image-upload-test", file, owner);
+        let outcome: Awaited<ReturnType<typeof runImageUpload>> | undefined;
+        await act(async () => {
+          expect(
+            ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+          ).toBe(true);
+          outcome = await runImageUpload({
+            view: editor.view,
+            file,
+            uploadId: "image-upload-test",
+            request,
+            upload: () => Promise.reject(new Error("Network down")),
+            persist: () => true,
+            messages,
+          });
+        });
+
+        expect(outcome?.status).toBe("failed");
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: oldSrc,
+          uploadId: "image-failed-test",
+        });
+        expect(serializeEditorDraftForPersistence(editor)).toContain(oldSrc);
+        releaseImageUploadPreviewsFor(owner);
+      },
+      { type: "doc", content: [{ type: "image", attrs: request.attrs }] },
+    );
+  });
+
+  it("puts back the page image's alt and Assets ID when a replacement fails to draw", async () => {
+    const oldSrc = "https://cdn.example.com/old.png";
+    const request = {
+      pickerId: "image-picker-test",
+      position: 0,
+      attrs: {
+        src: oldSrc,
+        alt: "Old diagram",
+        assetId: "asset-old",
+        uploadId: "image-picker-test",
+      },
+    };
+    await withMountedEditor(
+      async (editor) => {
+        Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", {
+          configurable: true,
+          get: () => 0,
+        });
+        const owner = {};
+        holdImageUploadPreview("image-upload-test", file, owner);
+        let outcome: Awaited<ReturnType<typeof runImageUpload>> | undefined;
+        await act(async () => {
+          expect(
+            ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+          ).toBe(true);
+          outcome = await runImageUpload({
+            view: editor.view,
+            file,
+            uploadId: "image-upload-test",
+            request,
+            attrs: { alt: "New diagram", assetId: "asset-new" },
+            upload: () => Promise.resolve(uploadedSrc),
+            persist: () => true,
+            messages,
+          });
+        });
+
+        expect(outcome?.status).toBe("failed");
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: oldSrc,
+          alt: "Old diagram",
+          assetId: "asset-old",
+          uploadId: "image-failed-test",
+        });
+        releaseImageUploadPreviewsFor(owner);
+      },
+      { type: "doc", content: [{ type: "image", attrs: request.attrs }] },
+    );
+  });
+
+  it("keeps a picked image's Assets ID on its uploaded copy", async () => {
+    const request = {
+      pickerId: "image-picker-test",
+      position: 0,
+      attrs: { src: null, alt: "", uploadId: "image-picker-test" },
+    };
+    await withMountedEditor(
+      async (editor) => {
+        holdImageUploadPreview("image-upload-test", file, {});
+        await act(async () => {
+          expect(
+            ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+          ).toBe(true);
+          await runImageUpload({
+            view: editor.view,
+            file,
+            uploadId: "image-upload-test",
+            request,
+            attrs: { assetId: "asset-1" },
+            upload: () => Promise.resolve(uploadedSrc),
+            persist: () => true,
+            messages,
+          });
+        });
+
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: uploadedSrc,
+          assetId: "asset-1",
+          uploadId: null,
+        });
+      },
+      { type: "doc", content: [{ type: "image", attrs: request.attrs }] },
+    );
+  });
+
+  it("hands a picked image back to its fallback when no storage takes the copy", async () => {
+    const request = {
+      pickerId: "image-picker-test",
+      position: 0,
+      attrs: { src: null, alt: "", uploadId: "image-picker-test" },
+    };
+    await withMountedEditor(
+      async (editor) => {
+        holdImageUploadPreview("image-upload-test", file, {});
+        const onStorageUnavailable = vi.fn();
+        let outcome: Awaited<ReturnType<typeof runImageUpload>> | undefined;
+        await act(async () => {
+          expect(
+            ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+          ).toBe(true);
+          outcome = await runImageUpload({
+            view: editor.view,
+            file,
+            uploadId: "image-upload-test",
+            request,
+            attrs: { assetId: "asset-1" },
+            upload: () =>
+              Promise.reject(new ImageStorageUnavailableError("No storage")),
+            persist: () => true,
+            messages,
+            onStorageUnavailable,
+          });
+        });
+
+        expect(outcome?.status).toBe("stopped");
+        expect(onStorageUnavailable).toHaveBeenCalledOnce();
+        expect(images(editor)[0]?.attrs?.uploadId).toBeNull();
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
+      },
+      { type: "doc", content: [{ type: "image", attrs: request.attrs }] },
+    );
+  });
+
+  it("puts the block back as it was when the editor starts suggesting mid-upload", async () => {
+    const oldSrc = "https://cdn.example.com/old.png";
+    const request = {
+      pickerId: "image-picker-test",
+      position: 0,
+      attrs: { src: oldSrc, alt: "", uploadId: "image-picker-test" },
+    };
+    await withMountedEditor(
+      async (editor) => {
+        holdImageUploadPreview("image-upload-test", file, {});
+        const pending = deferred<string>();
+        let suggesting = false;
+        let done!: Promise<Awaited<ReturnType<typeof runImageUpload>>>;
+        await act(async () => {
+          expect(
+            ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+          ).toBe(true);
+          done = runImageUpload({
+            view: editor.view,
+            file,
+            uploadId: "image-upload-test",
+            request,
+            upload: () => pending.promise,
+            persist: () => true,
+            isBlocked: () => suggesting,
+            messages,
+          });
+        });
+
+        suggesting = true;
+        let outcome: Awaited<typeof done> | undefined;
+        await act(async () => {
+          pending.resolve(uploadedSrc);
+          outcome = await done;
+        });
+
+        expect(outcome?.status).toBe("stopped");
+        expect(images(editor)[0]?.attrs).toMatchObject({
+          src: oldSrc,
+          uploadId: null,
+        });
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
+      },
+      { type: "doc", content: [{ type: "image", attrs: request.attrs }] },
+    );
+  });
+});
+
 describe("media draft persistence", () => {
   it("denies stale media side effects in Suggesting and retains ordinary callbacks", () => {
     const sideEffect = vi.fn();
@@ -4564,44 +5503,58 @@ describe("VisualEditor markdown round-tripping", () => {
   });
 
   it("optimistically inserts a pending image block before upload resolves", async () => {
-    const editor = createFullEditor();
+    // The image must draw before the block takes it, which needs its node view.
+    const restoreImages = pretendImagesDraw();
+    const mounted = await mountVisualEditor({
+      type: "doc",
+      content: [{ type: "paragraph" }],
+    });
+    const editor = mounted.editor;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fetchCtx: { resolve: any } = { resolve: null };
+    // The mounted editor's own requests, such as its storage check, get an
+    // empty answer; only the upload waits.
     vi.stubGlobal(
       "fetch",
-      vi.fn(
-        () =>
-          new Promise((resolve) => {
-            fetchCtx.resolve = resolve;
-          }),
+      vi.fn((input: RequestInfo | URL) =>
+        String(input).endsWith("/_agent-native/file-upload")
+          ? new Promise((resolve) => {
+              fetchCtx.resolve = resolve;
+            })
+          : Promise.resolve({ ok: true, status: 200, json: async () => ({}) }),
       ),
     );
 
     try {
-      document.body.append(editor.view.dom);
       const file = new File(["image-bytes"], "diagram.png", {
         type: "image/png",
       });
-      const uploadPromise = uploadAndInsertImageFiles(editor.view, [file], 1);
+      let uploadPromise!: Promise<void>;
+      await act(async () => {
+        uploadPromise = uploadAndInsertImageFiles(editor.view, [file], 0);
+      });
 
       let json = editor.getJSON();
       let imageNode = json.content?.find((node) => node.type === "image");
       expect(imageNode?.attrs?.src).toBeNull();
       expect(imageNode?.attrs?.uploadId).toMatch(/^image-upload-/);
 
-      fetchCtx.resolve?.({
-        ok: true,
-        status: 201,
-        json: async () => ({ url: "https://cdn.example.com/diagram.png" }),
+      await act(async () => {
+        fetchCtx.resolve?.({
+          ok: true,
+          status: 201,
+          json: async () => ({ url: "https://cdn.example.com/diagram.png" }),
+        });
+        await uploadPromise;
       });
-      await uploadPromise;
 
       json = editor.getJSON();
       imageNode = json.content?.find((node) => node.type === "image");
       expect(imageNode?.attrs?.src).toBe("https://cdn.example.com/diagram.png");
       expect(imageNode?.attrs?.uploadId).toBeNull();
     } finally {
-      editor.destroy();
+      await mounted.dispose();
+      restoreImages();
     }
   });
 

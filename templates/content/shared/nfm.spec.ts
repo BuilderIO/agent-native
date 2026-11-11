@@ -124,6 +124,19 @@ const FIXTURES: Array<{ name: string; nfm: string }> = [
     ),
   },
   {
+    name: "columns with widths",
+    nfm: L(
+      "<columns>",
+      '\t<column ratio="62.5">',
+      "\t\tWide column text",
+      "\t</column>",
+      '\t<column ratio="37.5">',
+      "\t\tNarrow column text",
+      "\t</column>",
+      "</columns>",
+    ),
+  },
+  {
     name: "table with header row + column + cell color",
     nfm: L(
       '<table header-row="true" header-column="true">',
@@ -241,6 +254,121 @@ describe("nfm converter — canonical fixpoints", () => {
         ],
       }),
     ).toBe("Top\n<empty-block/>\nBottom");
+  });
+});
+
+describe("nfm converter — column widths", () => {
+  const columnRatios = (nfm: string) =>
+    nfmToDoc(nfm).content[0]?.content?.map((column) => column.attrs?.ratio);
+
+  it("reads each column's ratio as a number", () => {
+    expect(
+      columnRatios(
+        L(
+          "<columns>",
+          '\t<column ratio="60">',
+          "\t\tA",
+          "\t</column>",
+          '\t<column ratio="40%">',
+          "\t\tB",
+          "\t</column>",
+          "</columns>",
+        ),
+      ),
+    ).toEqual([60, 40]);
+  });
+
+  it("gives every column a width once one of them has one", () => {
+    const source = L(
+      "<columns>",
+      '\t<column ratio="50">',
+      "\t\tA",
+      "\t</column>",
+      "\t<column>",
+      "\t\tB",
+      "\t</column>",
+      "\t<column>",
+      "\t\tC",
+      "\t</column>",
+      "</columns>",
+    );
+    expect(columnRatios(source)).toEqual([50, 25, 25]);
+    expect(canonicalizeNfm(source)).toBe(
+      L(
+        "<columns>",
+        '\t<column ratio="50">',
+        "\t\tA",
+        "\t</column>",
+        '\t<column ratio="25">',
+        "\t\tB",
+        "\t</column>",
+        '\t<column ratio="25">',
+        "\t\tC",
+        "\t</column>",
+        "</columns>",
+      ),
+    );
+  });
+
+  it("scales widths that don't fill the row", () => {
+    expect(
+      columnRatios(
+        L(
+          "<columns>",
+          '\t<column ratio="30">',
+          "\t\tA",
+          "\t</column>",
+          '\t<column ratio="10">',
+          "\t\tB",
+          "\t</column>",
+          "</columns>",
+        ),
+      ),
+    ).toEqual([75, 25]);
+  });
+
+  it("reports a ratio it can't read and draws the column without it", () => {
+    const { doc, losses } = parseNfmWithLosses(
+      L(
+        "<columns>",
+        '\t<column ratio="wide">',
+        "\t\tA",
+        "\t</column>",
+        "\t<column>",
+        "\t\tB",
+        "\t</column>",
+        "</columns>",
+      ),
+    );
+    expect(losses).toEqual([
+      expect.objectContaining({ kind: "dropped-attribute" }),
+    ]);
+    expect(doc.content[0]?.content?.map((column) => column.attrs)).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("writes a column without a width as a bare tag", () => {
+    expect(
+      docToNfm({
+        type: "doc",
+        content: [
+          {
+            type: "notionColumns",
+            content: [
+              {
+                type: "notionColumn",
+                attrs: { ratio: null },
+                content: [
+                  { type: "paragraph", content: [{ type: "text", text: "A" }] },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe(L("<columns>", "\t<column>", "\t\tA", "\t</column>", "</columns>"));
   });
 });
 
@@ -2093,6 +2221,45 @@ describe("video block ids", () => {
   it("leaves the id out of the form Notion receives", () => {
     expect(canonicalizeNotionNfm(withId)).toBe(
       '<video src="https://example.com/demo.mp4">Demo</video>',
+    );
+  });
+});
+
+describe("images copied from Assets", () => {
+  const copied =
+    '![Hero](/api/private-media/media-1) {color="red" asset="asset-1"}';
+
+  it("keeps the asset an image was copied from through a round trip", () => {
+    const doc = nfmToDoc(copied);
+    expect(doc.content[0]).toMatchObject({
+      type: "image",
+      attrs: {
+        src: "/api/private-media/media-1",
+        alt: "Hero",
+        color: "red",
+        assetId: "asset-1",
+      },
+    });
+    expect(docToNfm(doc)).toBe(copied);
+    expect(inspectNfmFidelity(copied)).toMatchObject({
+      normalizedChanged: false,
+      unresolved: [],
+    });
+  });
+
+  it("writes the asset alone on an image with no color", () => {
+    const plain = '![Hero](/api/private-media/media-1) {asset="asset-1"}';
+    expect(canonicalizeNfm(plain)).toBe(plain);
+  });
+
+  it("drops an asset id that isn't one", () => {
+    const doc = nfmToDoc('![Hero](/x.png) {asset="a b"}');
+    expect(found(doc.content?.[0]).attrs).not.toHaveProperty("assetId");
+  });
+
+  it("leaves the asset out of the form Notion receives", () => {
+    expect(canonicalizeNotionNfm(copied)).toBe(
+      '![Hero](/api/private-media/media-1) {color="red"}',
     );
   });
 });

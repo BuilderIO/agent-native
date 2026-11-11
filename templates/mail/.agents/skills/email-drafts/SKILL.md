@@ -207,11 +207,25 @@ Mail expects. From the local host, upload the raw bytes directly:
 curl --fail-with-body --request PUT --header '<Authorization header>' --data-binary @/absolute/path/to/report.pdf '<uploadUrl>'
 ```
 
-Use the response's `attachment` object in the draft/send request. The upload
-Authorization header is a short-lived bearer credential: do not log, persist,
-reuse, or share it. Creating or consuming it does not send mail. Keep `send-email` behind its
-normal explicit-intent and human-approval gate; for drafting, pass the handle
-through `ask_app` or open the returned compose deep link.
+With several files, finish one PUT before starting the next: uploads running at
+the same time can lose each other's records.
+
+Pass the `attachment` object to `manage-draft` in `attachments`, on `create` or
+`update`. That list replaces the draft's files, so on `update` include the ones
+to keep, and `[]` removes them all. Forwarded files can share a filename: to
+keep just one of them, pass its `id` from the draft too. The upload
+Authorization header is a
+short-lived bearer credential: do not log, persist, reuse, or share it. Creating
+or consuming it does not send mail. Keep `send-email` behind its normal
+explicit-intent and human-approval gate.
+
+A failed PUT means the draft has no file. Tell the user the error it returned
+rather than saying the file is attached. A 503 with `storageSetupRequired` means
+the workspace's file storage needs fixing in Settings, so don't retry the upload.
+Its `error` says how, and `storageSetupReason` says why: `builder-refused`
+(reconnect Builder.io, or switch to the workspace's own bucket),
+`storage-refused` (the workspace's own bucket refused its keys), or
+`not-configured` (connect Builder.io or an S3-compatible bucket).
 
 Example:
 ```json

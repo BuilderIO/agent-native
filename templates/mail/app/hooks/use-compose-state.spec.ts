@@ -6,9 +6,12 @@ import type { ComposeState } from "@shared/types";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { AliasResolutionError } from "@/lib/alias-utils";
+
 import {
   applyDraftSaveResult,
   deleteCapturedDraftsAfterSaves,
+  failedOnAliasResolution,
   deleteSavedDraftAfterPendingSave,
   enqueueDraftMutation,
   enqueueCapturedDraftDeletions,
@@ -467,6 +470,67 @@ describe("saveDraftToEmailsBestEffort", () => {
       savedDraftBackend: "gmail",
       accountEmail: "secondary@example.com",
     });
+  });
+
+  it("saves alias recipients as the addresses they stand for", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify({ draftId: "local-1", backend: "local" }), {
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await saveDraftToEmailsBestEffort(
+      {
+        ...draft("compose-1"),
+        to: "alias:team, solo@example.com",
+        cc: "alias:team",
+        body: "Hi",
+      },
+      [
+        {
+          id: "team",
+          name: "Team",
+          emails: ["a@example.com", "b@example.com"],
+          createdAt: "2026-01-01T00:00:00Z",
+          updatedAt: "2026-01-01T00:00:00Z",
+        },
+      ],
+    );
+
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(JSON.parse(String(request?.body))).toMatchObject({
+      to: "a@example.com, b@example.com, solo@example.com",
+      cc: "a@example.com, b@example.com",
+    });
+  });
+
+  it("fails the save instead of dropping an unknown alias", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await saveDraftToEmailsBestEffort(
+      { ...draft("compose-1"), to: "alias:gone, solo@example.com", body: "Hi" },
+      [],
+    );
+
+    expect(result.status).toBe("failed");
+    expect(failedOnAliasResolution(result)).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("treats only alias resolution failures as keep-local-draft", () => {
+    expect(
+      failedOnAliasResolution({
+        status: "failed",
+        error: new AliasResolutionError("no aliases"),
+      }),
+    ).toBe(true);
+    expect(
+      failedOnAliasResolution({ status: "failed", error: new Error("500") }),
+    ).toBe(false);
+    expect(failedOnAliasResolution({ status: "unavailable" })).toBe(false);
   });
 
   it("does not accept a save response without backend/account metadata", async () => {

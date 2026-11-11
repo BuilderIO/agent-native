@@ -27,6 +27,7 @@ export interface PersistTweakSaveArgs {
   ) => DesignSaveOutboxEntry | null;
   id: string | undefined;
   journalTweakOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
+  noteSaveLeftQueued: () => void;
   pendingTweakSaveRef: RefObject<PendingTweakSave | null>;
   queryClient: QueryClient;
   setTweakSaveActive: Dispatch<SetStateAction<boolean>>;
@@ -46,6 +47,7 @@ export function runPersistTweakSave(
     createTweakSaveOutboxEntry,
     id,
     journalTweakOutboxEntry,
+    noteSaveLeftQueued,
     pendingTweakSaveRef,
     queryClient,
     setTweakSaveActive,
@@ -153,6 +155,13 @@ export function runPersistTweakSave(
           warnChangesWillRetry();
         } else {
           toast.error(t("designEditor.toasts.tweakSaveNotDurable"));
+        }
+        // A conflicting snapshot can never be replayed into a save, and the
+        // user was just told to redo it, so it must not wait in the outbox as
+        // an unsaved change. Any other failure leaves the entry for the replay.
+        if (journaled) {
+          if (failureKind === "conflict") await acknowledgeOutboxEntry(entry);
+          else noteSaveLeftQueued();
         }
       } finally {
         tweakSaveInFlightRef.current = false;

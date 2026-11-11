@@ -31,9 +31,10 @@ import {
   withLocalEmailMutationLock,
   writeLocalEmails,
 } from "../server/lib/local-email-store.js";
+import { attachmentFromUpload } from "../server/lib/media-upload.js";
 import { resolveExistingSavedDraftOwnership } from "../server/lib/saved-draft-ownership.js";
 import { appendSignatureToBody } from "../shared/signature.js";
-import type { ComposeState } from "../shared/types.js";
+import type { ComposeAttachment, ComposeState } from "../shared/types.js";
 
 // MCP Apps hosts embed the compact draft card; "Open in Mail" keeps the full
 // inbox deep link.
@@ -98,7 +99,109 @@ const draftFields = {
     .string()
     .optional()
     .describe("The 'from' account email address to send from"),
+  attachments: z
+    .array(
+      z.object({
+        filename: z
+          .string()
+          .min(1)
+          .max(255)
+          .describe("The `filename` from the upload's `attachment` object"),
+        id: z
+          .string()
+          .min(1)
+          .max(255)
+          .optional()
+          .describe(
+            "The `id` of a file already on the draft. Pass it to pick one of two files that share a filename.",
+          ),
+        originalName: z
+          .string()
+          .min(1)
+          .max(255)
+          .optional()
+          .describe("Name the recipient sees"),
+        mimeType: z.string().max(255).optional().describe("File type"),
+      }),
+    )
+    .max(25)
+    .optional()
+    .describe(
+      "Files on the draft. Pass the `attachment` object from the finished create-attachment-upload PUT. This replaces the draft's whole list, so on update include the files to keep; [] removes them all.",
+    ),
 };
+
+type DraftAttachmentHandle = NonNullable<
+  z.infer<z.ZodObject<typeof draftFields>>["attachments"]
+>[number];
+
+function handleNames(
+  handle: DraftAttachmentHandle,
+  attachment: Partial<ComposeAttachment> | undefined,
+): boolean {
+  return handle.id
+    ? attachment?.id === handle.id
+    : attachment?.filename === handle.filename;
+}
+
+/** Files already on the draft keep their entry, which holds forwarded Gmail parts. */
+async function resolveDraftAttachments(
+  handles: DraftAttachmentHandle[],
+  ownerEmail: string | null | undefined,
+  current: ComposeAttachment[] = [],
+): Promise<ComposeAttachment[]> {
+  if (!ownerEmail) throw new Error("Unauthenticated");
+  const attachments: ComposeAttachment[] = [];
+  // Forwarded parts keep their display name, so two can share a filename.
+  // An id names one exact entry, so those claim theirs before names do.
+  const unmatched = [...current];
+  const claimed = new Map<DraftAttachmentHandle, ComposeAttachment>();
+  for (const handle of [
+    ...handles.filter((handle) => handle.id),
+    ...handles.filter((handle) => !handle.id),
+  ]) {
+    const entry = unmatched.find((existing) => handleNames(handle, existing));
+    if (!entry) continue;
+    unmatched.splice(unmatched.indexOf(entry), 1);
+    claimed.set(handle, entry);
+  }
+  for (const handle of handles) {
+    const kept = claimed.get(handle);
+    // A name given for a file already on the draft renames it.
+    const attachment =
+      kept && handle.originalName
+        ? { ...kept, originalName: handle.originalName }
+        : (kept ?? (await attachmentFromUpload(ownerEmail, handle)));
+    if (!attachment)
+      fail(
+        `Attachment "${handle.filename}" isn't an upload Mail has for this account. Finish its create-attachment-upload PUT, then use the returned attachment object.`,
+        { errorCode: "draft_attachment_not_found", statusCode: 400 },
+      );
+    attachments.push(attachment);
+  }
+  return attachments;
+}
+
+function hasSameAttachments(
+  current: unknown,
+  handles: DraftAttachmentHandle[],
+): boolean {
+  // No list means no files. Anything else that isn't a list is corrupt, so it
+  // can't already hold this update.
+  if (current !== undefined && !Array.isArray(current)) return false;
+  const attachments = Array.isArray(current) ? current : [];
+  return (
+    attachments.length === handles.length &&
+    handles.every((handle, index) => {
+      const attachment = attachments[index];
+      return (
+        handleNames(handle, attachment) &&
+        (!handle.originalName ||
+          attachment?.originalName === handle.originalName)
+      );
+    })
+  );
+}
 
 const draftId = z
   .string()
@@ -523,6 +626,9 @@ export default defineAction({
       const signature = await readConfiguredSignature();
       const ownerEmail = getRequestUserEmail();
       const body = appendSignatureToBody(args.body || "", signature);
+      const attachments = args.attachments
+        ? await resolveDraftAttachments(args.attachments, ownerEmail)
+        : undefined;
       const savedGmailDraft = ownerEmail
         ? await beforeFirstWrite(() =>
             saveGmailDraft({
@@ -533,6 +639,7 @@ export default defineAction({
               bcc: args.bcc,
               subject: args.subject || "",
               body,
+              attachments,
               replyToId: args.replyToId,
               replyToThreadId: args.replyToThreadId,
             }),
@@ -554,6 +661,7 @@ export default defineAction({
       };
       if (args.cc) draft.cc = args.cc;
       if (args.bcc) draft.bcc = args.bcc;
+      if (attachments?.length) draft.attachments = attachments;
       if (args.replyToId) draft.replyToId = args.replyToId;
       if (args.replyToThreadId) draft.replyToThreadId = args.replyToThreadId;
       const accountEmail = savedGmailDraft?.accountEmail ?? args.accountEmail;
@@ -638,7 +746,9 @@ export default defineAction({
             (key) =>
               changes[key] === undefined ||
               isSameRecord(current[key], changes[key]),
-          ),
+          ) &&
+          (args.attachments === undefined ||
+            hasSameAttachments(current.attachments, args.attachments)),
       });
       if (decision === "already_applied") {
         // A retry also retries the mailbox copy an earlier attempt left behind.
@@ -717,6 +827,13 @@ export default defineAction({
       for (const key of DRAFT_UPDATE_FIELDS) {
         if ((args as any)[key] !== undefined)
           (draft as any)[key] = (args as any)[key];
+      }
+      if (args.attachments !== undefined) {
+        draft.attachments = await resolveDraftAttachments(
+          args.attachments,
+          ownerEmail,
+          draft.attachments,
+        );
       }
       if (ownership) {
         // Stored, so the mailbox sync needn't look the owner up again.

@@ -321,6 +321,40 @@ describe("useComposeState", () => {
     expect(mocks.callAction).not.toHaveBeenCalled();
   });
 
+  it("sends a saved group's addresses when the store refuses the draft", async () => {
+    const { id, sent, posted, answer, result } = await mounted();
+    mocks.callAction.mockImplementation(async (name: string) =>
+      name === "list-aliases"
+        ? [
+            {
+              id: "team",
+              name: "Team",
+              emails: ["a@example.com", "b@example.com"],
+              createdAt: "",
+              updatedAt: "",
+            },
+          ]
+        : undefined,
+    );
+
+    act(() => result.current.update(id, { to: "alias:team" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    await act(async () => {
+      answer(0, asJson({ error: "refused" }, 500));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+
+    // The handler takes addresses only, so a group's token would get a 400.
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toMatchObject({ to: "a@example.com, b@example.com" });
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "sync-draft-mailbox",
+      expect.anything(),
+    );
+  });
+
   it("saves the text on screen to the mailbox when the write never reaches the store", async () => {
     const { id, sent, posted, drop, result } = await mounted();
 
