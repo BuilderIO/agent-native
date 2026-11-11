@@ -611,6 +611,13 @@ const TypographyReplacements = Extension.create({
         props: {
           handleTextInput(view, from, to, text) {
             const { state } = view;
+            // Code keeps what was typed: `-->` is a Mermaid edge, not an arrow.
+            const $from = state.doc.resolve(from);
+            if (
+              $from.parent.type.spec.code ||
+              $from.marks().some((mark) => mark.type.spec.code)
+            )
+              return false;
             for (const [trigger, replacement] of ARROW_REPLACEMENTS) {
               const lastChar = trigger[trigger.length - 1];
               if (text !== lastChar) continue;

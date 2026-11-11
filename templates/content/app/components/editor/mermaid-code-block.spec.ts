@@ -2,8 +2,8 @@
 
 import { docToNfm } from "@shared/nfm";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { Editor } from "@tiptap/core";
 import { NodeSelection, TextSelection } from "@tiptap/pm/state";
+import type { Editor } from "@tiptap/react";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -11,6 +11,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+import { shouldShowBubbleToolbar } from "./BubbleToolbar";
 import { VisualEditor } from "./VisualEditor";
 
 // The real renderer needs a browser that lays out SVG. These tests are about
@@ -140,6 +141,22 @@ async function pressKey(editor: Editor, key: string) {
   await settle();
 }
 
+/** Types like a keyboard, through the editor's text input handlers. */
+async function typeText(editor: Editor, text: string) {
+  await act(async () => {
+    for (const character of text) {
+      const { from, to } = editor.state.selection;
+      const handled = editor.view.someProp("handleTextInput", (handler) =>
+        handler(editor.view, from, to, character, () => editor.state.tr),
+      );
+      if (!handled) {
+        editor.view.dispatch(editor.state.tr.insertText(character, from, to));
+      }
+    }
+  });
+  await settle();
+}
+
 describe("Mermaid code blocks", () => {
   it("draw the diagram at rest and hide the source", async () => {
     const { container } = await mountEditor(SOURCE);
@@ -194,6 +211,40 @@ describe("Mermaid code blocks", () => {
 
     expect(editor.state.selection).toBeInstanceOf(NodeSelection);
     expect(editor.state.selection.from).toBe(blockPos);
+  });
+
+  it("show no text toolbar for the selected drawing", async () => {
+    const { editor } = await mountEditor(SOURCE);
+    const blockPos = mermaidPosition(editor);
+
+    await act(async () => {
+      editor.chain().focus().setNodeSelection(blockPos).run();
+    });
+
+    const { state } = editor;
+    expect(
+      shouldShowBubbleToolbar({
+        editor,
+        element: document.createElement("div"),
+        state,
+        from: state.selection.from,
+        to: state.selection.to,
+      }),
+    ).toBe(false);
+  });
+
+  it("keep a typed arrow as Mermaid source", async () => {
+    const { editor } = await mountEditor(SOURCE);
+    const blockPos = mermaidPosition(editor);
+
+    await act(async () => {
+      editor.commands.setTextSelection(blockPos + 1 + DIAGRAM.length);
+    });
+    await typeText(editor, "\n  B --> C[Done]");
+
+    expect(docToNfm(editor.getJSON() as never)).toContain(
+      `${DIAGRAM}\n  B --> C[Done]\n\`\`\``,
+    );
   });
 
   it("keep the source open beside the error when it can't be drawn", async () => {
