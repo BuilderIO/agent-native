@@ -1063,7 +1063,7 @@ function ChatAgentFooter({ children }: { children: ReactNode }) {
     onSkipMessage: skipQuestions,
   });
   useRefetchGuidedQuestionsWhenAsked({
-    threadId,
+    tools: thread.tools,
     refetch: refetchPendingQuestion,
   });
 

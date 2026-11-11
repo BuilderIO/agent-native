@@ -35,8 +35,7 @@ export function slackInputRequestText(
 }
 
 function stringifyInboundValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  return JSON.stringify(value) ?? "";
+  return typeof value === "string" ? value : JSON.stringify(value);
 }
 
 function slackQuestionBlock(

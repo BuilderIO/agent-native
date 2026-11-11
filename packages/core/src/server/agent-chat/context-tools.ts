@@ -617,40 +617,40 @@ function createAskQuestionTool(): ActionEntry {
     endsTurn: true,
     tool: {
       description:
-        "Ask the user one to four multiple-choice clarifying questions, shown in a card above the message box. Use this ONLY when you are genuinely blocked on a decision you cannot resolve from context and a wrong guess would be costly — an ambiguous metric, date range, or grain; a real fork in approach. For one question pass `question` and `options`; when several decisions block you, ask them together in `questions` instead: the user steps through them one at a time and their answers arrive together in one message. Present 2-4 concrete options per question, each a one-line label that says what you would do, and mark the most likely one recommended. Do NOT use it for confirmations, for things the user already specified, or to dodge easy work you could just do. Calling this ends the turn: one call per turn, and any other tool call you emit alongside it will not run.",
+        "Ask 1-4 multiple-choice clarifying questions in a card above the message box. Use ONLY when blocked on a costly decision you cannot resolve from context (an ambiguous metric, date range or grain; a real fork in approach), never for confirmations, things already specified, or easy work. One question: `question` and `options`; several: `questions`, answered together in one message. Mark the likely option recommended. Ends the turn: other tool calls in the same response will not run.",
       parameters: {
         type: "object",
         properties: {
           question: {
             type: "string",
             description:
-              "The complete question, with the context the user needs to choose: what happened and why it needs their decision. Clear, specific, ends with a question mark. Leave it out when you pass `questions`.",
+              "The question, with the context needed to choose, ending in a question mark. Omit it with `questions`.",
           },
           questions: {
             type: "string",
             description:
-              'Instead of `question` and `options`: a JSON array of 2-4 questions asked together, each `{ "question": string, "header"?: string, "options": [{ "label": string, "value"?: string, "recommended"?: boolean }], "allowMultiple"?: boolean, "allowFreeText"?: boolean }` with the same meaning and label rules as the single-question fields.',
+              'Instead of `question` and `options`: a JSON array of 2-4 `{ "question", "header"?, "options", "allowMultiple"?, "allowFreeText"? }`, each field as below.',
           },
           header: {
             type: "string",
             description:
-              'Optional very short label (max ~12 chars) shown as a chip/heading above the question, e.g. "Date range", "Approach", "Library".',
+              'Optional short chip label (about 12 characters), e.g. "Date range".',
           },
           options: {
             type: "string",
             description:
-              'A JSON array of 2-4 distinct, mutually-exclusive options (unless `allowMultiple` is true), each `{ "label": string, "value"?: string, "recommended"?: boolean }`. The user sees only each label, on one line, so a label is the whole choice in plain words: what you would do, specific to this situation, in about 3-10 words. Write "Follow up on both in one new PR", "Checker fix only" or "Stop after #8997", not "Option A" or a bare "Both", and not a short name plus a separate explanation. Context every option shares belongs in the question, not repeated in each label. `value` defaults to `label` when omitted. Mark the most likely option `"recommended": true`. Do NOT add an "Other" option — free text is provided automatically when `allowFreeText` is on.',
+              'A JSON array of 2-4 distinct options (exclusive unless `allowMultiple`), each `{ "label", "value"?, "recommended"? }`. The user sees only the label, on one line, so it says what you would do, specific to this case, in 3-10 words ("Checker fix only", not "Option A"); context every option shares goes in the question. `value` defaults to `label`. Add no "Other" option: `allowFreeText` provides one.',
           },
           allowFreeText: {
             type: "string",
             description:
-              'Whether the user may also type a free-text "Other" answer. Keep this "true" (the default) for preferences and clarifying questions. Use "false" only when the underlying workflow can accept one of the enumerated values and cannot handle a custom answer.',
+              'Allow a typed "Other" answer. Keep "true" (the default) unless the workflow accepts only the listed values.',
             enum: ["true", "false"],
           },
           allowMultiple: {
             type: "string",
             description:
-              'Whether the user may select more than one option (multi-select). "true" or "false" (default).',
+              'Allow more than one option. "true" or "false" (the default).',
             enum: ["true", "false"],
           },
         },

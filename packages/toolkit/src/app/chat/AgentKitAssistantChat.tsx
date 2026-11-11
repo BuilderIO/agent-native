@@ -5100,7 +5100,7 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
     },
   });
   useRefetchGuidedQuestionsWhenAsked({
-    threadId,
+    tools: thread.tools,
     refetch: guided.refetchPendingQuestion,
   });
   const activeRunId = thread.activeRunIds.at(-1);

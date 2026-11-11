@@ -36,7 +36,6 @@ import {
 
 import { useVoiceDictation } from "../../../composer/useVoiceDictation.js";
 import { VoiceButton } from "../../../composer/VoiceButton.js";
-import { useAgentKitSelector } from "../../agentkit/react/context.js";
 import {
   QuestionCard as AgentKitQuestionCard,
   type AgentKitQuestion,
@@ -1721,23 +1720,20 @@ export function useGuidedQuestionFlow({
  * this the question waits for window focus or a reload.
  */
 export function useRefetchGuidedQuestionsWhenAsked({
-  threadId,
+  tools,
   refetch,
 }: {
-  threadId: string | undefined;
+  /** The thread's tool calls, read by the host from its own AgentKit context. */
+  tools: Readonly<Record<string, { name: string; status: string }>>;
   refetch: () => unknown;
 }) {
-  const askedIds = useAgentKitSelector((snapshot) => {
-    const tools = threadId ? snapshot.threads[threadId]?.tools : undefined;
-    if (!tools) return "";
-    return Object.values(tools)
-      .filter(
-        (tool) => tool.name === "ask-question" && tool.status === "completed",
-      )
-      .map((tool) => tool.id)
-      .sort()
-      .join("\n");
-  });
+  const askedIds = Object.entries(tools)
+    .filter(
+      ([, tool]) => tool.name === "ask-question" && tool.status === "completed",
+    )
+    .map(([id]) => id)
+    .sort()
+    .join("\n");
   const refetchRef = useRef(refetch);
   refetchRef.current = refetch;
   useEffect(() => {
