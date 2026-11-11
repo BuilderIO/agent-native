@@ -295,18 +295,18 @@ headless run stops it.
 
 ## Final report
 
-Lead with the app, in plain words:
+Lead with the app, plainly:
 
-1. Local: "Your app is open at <URL>" only if it opened; else where it
-   is and how to open it. Hosted: Dispatch's Builder link or status.
+1. Local: "Your app is open at <URL>" after an `--open` hand-off; else where
+   it is and how to open it. Hosted: Dispatch's Builder link or status.
 2. How to change it: ask this agent, in this folder (hosted: in Builder).
 3. What each control does, what changed from the brief (assumptions, gaps,
    silent choices), and one precise pending step, if any.
 4. One line on what is built in: integrations (Slack, Notion, GitHub, and
    more), automations, and an MCP server other AI tools can use, in Settings.
 
-Under a short **Details** heading: directory, PID, and stop command; absolute
-screenshot paths, rubric scores, and open criteria; verification with evidence
+Under a short **Details** heading: directory; PID and stop command, if running;
+absolute screenshot paths, rubric scores, and open criteria; verification with evidence
 labels, and what the review click left behind; a deployment URL only if real.
 
 Report what exists, not what was intended. Never claim the app exists without
