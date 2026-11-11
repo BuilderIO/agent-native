@@ -36,14 +36,20 @@ const MIC_DWELL: Duration = Duration::from_secs(3);
 /// app before it counts as a call.
 const MESSAGING_MIC_DWELL: Duration = Duration::from_secs(15);
 
+/// Slack huddles start notes quickly: capture plus playback for 5 s already
+/// rules out a voice clip, and users want the start of the huddle captured.
+/// An unanswered call that rings longer than this can start a short recording.
+const SLACK_HUDDLE_MIC_DWELL: Duration = Duration::from_secs(5);
+
 /// Platforms whose app records more than calls: they need capture and
 /// playback together and get no foreground fallback (Slack sits in front all
 /// day without being in a huddle; FaceTime can be open without a call).
 const DUPLEX_AUDIO_PLATFORMS: &[&str] = &["slack", "whatsapp", "phone"];
 
-/// Platforms whose app also records voice messages, so a call needs the
-/// longer `MESSAGING_MIC_DWELL` (also in the browser, for WhatsApp Web).
-const MESSAGING_PLATFORMS: &[&str] = &["slack", "whatsapp"];
+/// Browser platforms that auto-start in Auto mode even though CoreAudio only
+/// attributes the microphone to the whole browser process. WhatsApp Web has no
+/// native-app alternative for users who don't install the desktop app.
+const BROWSER_AUTO_START_PLATFORMS: &[&str] = &["whatsapp"];
 
 const FRONT_DWELL: Duration = Duration::from_secs(9);
 
@@ -213,9 +219,11 @@ fn requires_duplex_audio(platform: &str) -> bool {
 impl CallEvidence {
     fn for_platform(platform: &str) -> Self {
         CallEvidence {
-            mic_dwell: MESSAGING_PLATFORMS
-                .contains(&platform)
-                .then_some(MESSAGING_MIC_DWELL),
+            mic_dwell: match platform {
+                "slack" => Some(SLACK_HUDDLE_MIC_DWELL),
+                "whatsapp" => Some(MESSAGING_MIC_DWELL),
+                _ => None,
+            },
             ..Default::default()
         }
     }
@@ -679,12 +687,17 @@ fn adhoc_notification_plan(config: &crate::config::FeatureConfig) -> AdhocNotifi
 
 fn adhoc_notification_plan_for_evidence(
     config: &crate::config::FeatureConfig,
+    platform: &str,
     browser_process_mic_only: bool,
 ) -> AdhocNotificationPlan {
     let plan = adhoc_notification_plan(config);
     // CoreAudio reports browser microphone use per process, so Auto mode must
-    // ask before recording a candidate identified only by the focused URL.
-    if browser_process_mic_only && plan.auto_start {
+    // ask before recording a candidate identified only by the focused URL,
+    // except for platforms the user wants started directly (WhatsApp Web).
+    if browser_process_mic_only
+        && plan.auto_start
+        && !BROWSER_AUTO_START_PLATFORMS.contains(&platform)
+    {
         AdhocNotificationPlan {
             show_widget: true,
             auto_start: false,
@@ -953,7 +966,7 @@ async fn tick_macos(
     let AdhocNotificationPlan {
         show_widget,
         auto_start,
-    } = adhoc_notification_plan_for_evidence(config, browser_bundle_id.is_some());
+    } = adhoc_notification_plan_for_evidence(config, platform, browser_bundle_id.is_some());
 
     // Awaited, not spawned. `meetings:hide-notification` is dropped by the
     // overlay unless it already holds the matching payload, so auto-start
@@ -1297,10 +1310,10 @@ mod tests {
     }
 
     #[test]
-    fn a_slack_huddle_confirms_after_the_longer_dwell() {
+    fn a_slack_huddle_confirms_after_five_seconds() {
         let start = Instant::now();
         let mut evidence = CallEvidence::for_platform("slack");
-        for secs in (0..=14).step_by(2) {
+        for secs in (0..=4).step_by(2) {
             let at = start + Duration::from_secs(secs);
             evidence.observe(at, Some(true), false);
             assert_eq!(
@@ -1309,22 +1322,25 @@ mod tests {
                 "still pending at {secs}s"
             );
         }
-        let at = start + Duration::from_secs(16);
+        let at = start + Duration::from_secs(6);
         evidence.observe(at, Some(true), false);
         assert_eq!(evidence.classify(at, Some(true), false), CallState::Live);
+        assert_eq!(SLACK_HUDDLE_MIC_DWELL, Duration::from_secs(5));
         assert_eq!(MESSAGING_MIC_DWELL, Duration::from_secs(15));
     }
 
     #[test]
     fn a_short_slack_voice_message_never_becomes_a_huddle() {
-        // A 10 s voice message that somehow reads as duplex audio (e.g. a
-        // notification sound while recording) still falls short of the dwell.
+        // A short burst that reads as duplex audio (e.g. a notification sound
+        // while recording a voice message) still falls short of the dwell.
+        // Voice messages never play audio while recording, so only such a
+        // brief overlap can look like a huddle.
         let start = Instant::now();
         let mut evidence = CallEvidence::for_platform("slack");
-        for secs in (0..=10).step_by(2) {
+        for secs in (0..=4).step_by(2) {
             evidence.observe(start + Duration::from_secs(secs), Some(true), false);
         }
-        for secs in (12..=60).step_by(2) {
+        for secs in (6..=60).step_by(2) {
             let at = start + Duration::from_secs(secs);
             evidence.observe(at, Some(false), false);
             assert_ne!(
@@ -2171,6 +2187,7 @@ mod tests {
     fn auto_mode_asks_before_starting_a_browser_process_candidate() {
         let plan = adhoc_notification_plan_for_evidence(
             &config_with(MeetingTranscriptionMode::Auto, false),
+            "meet",
             true,
         );
 
@@ -2179,9 +2196,28 @@ mod tests {
     }
 
     #[test]
+    fn auto_mode_starts_whatsapp_web_without_asking() {
+        let plan = adhoc_notification_plan_for_evidence(
+            &config_with(MeetingTranscriptionMode::Auto, false),
+            "whatsapp",
+            true,
+        );
+        assert!(plan.show_widget);
+        assert!(plan.auto_start);
+
+        let ask = adhoc_notification_plan_for_evidence(
+            &config_with(MeetingTranscriptionMode::Ask, false),
+            "whatsapp",
+            true,
+        );
+        assert!(!ask.auto_start);
+    }
+
+    #[test]
     fn auto_mode_still_starts_native_meeting_candidates() {
         let plan = adhoc_notification_plan_for_evidence(
             &config_with(MeetingTranscriptionMode::Auto, false),
+            "zoom",
             false,
         );
 
