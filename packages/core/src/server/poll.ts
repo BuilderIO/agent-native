@@ -491,9 +491,15 @@ const defaultResolveAccessMany: ManyAccessResolver = async (
   ctx,
 ) => {
   const { resolveAccessMany } = await import("../sharing/access.js");
-  const access = await resolveAccessMany(resourceType, resourceIds, ctx, {
-    skipResourceBody: true,
-  });
+  const access = await resolveAccessMany(
+    resourceType,
+    resourceIds,
+    {
+      userEmail: ctx.userEmail,
+      ...(ctx.orgId === undefined ? {} : { orgId: ctx.orgId }),
+    },
+    { skipResourceBody: true },
+  );
   return new Set(access.keys());
 };
 
@@ -1068,10 +1074,10 @@ export class AppSyncState {
       this.setAccessCache(key, allowed, Date.now());
     };
     const ids = [...keys.keys()];
-    let settled = false;
-    let check: Promise<void> | undefined;
-    check = retainRequestDbPoolScope(
-      (async () => {
+    // The check starts on the next microtask, so it is registered as in flight
+    // below before any of it runs, and its `finally` always finds it there.
+    const check: Promise<void> = retainRequestDbPoolScope(
+      Promise.resolve().then(async () => {
         try {
           const visible = await resolveMany(resourceType, ids, {
             userEmail,
@@ -1106,14 +1112,11 @@ export class AppSyncState {
             );
           }
         } finally {
-          settled = true;
           for (const key of keys.values()) this.endAccessCheck(key, check);
         }
-      })(),
+      }),
     );
-    if (!settled) {
-      for (const key of keys.values()) this.accessInFlight.set(key, check);
-    }
+    for (const key of keys.values()) this.accessInFlight.set(key, check);
   }
 
   __resetAccessCacheForTests(): void {
