@@ -154,13 +154,27 @@ describe("AppSyncState read through other people's resources", () => {
   ) {
     process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
     const db = {
-      execute: vi.fn(async (query: string | { sql: string }) => {
-        const sql = typeof query === "string" ? query : query.sql;
-        return {
-          rows: sql.startsWith("SELECT id, version, event_json") ? rows : [],
-          rowsAffected: 0,
-        };
-      }),
+      execute: vi.fn(
+        async (query: string | { sql: string; args?: unknown[] }) => {
+          const sql = typeof query === "string" ? query : query.sql;
+          if (!sql.startsWith("SELECT id, version, event_json")) {
+            return { rows: [], rowsAffected: 0 };
+          }
+          // The rows after the read's cursor, up to its limit.
+          const args = typeof query === "string" ? [] : (query.args ?? []);
+          const version = Number(args[0]);
+          const id = String(args[2]);
+          const after = sql.includes("version = ?")
+            ? (row: (typeof rows)[number]) =>
+                row.version > version ||
+                (row.version === version && row.id > id)
+            : (row: (typeof rows)[number]) => row.version > version;
+          return {
+            rows: rows.filter(after).slice(0, Number(args.at(-1))),
+            rowsAffected: 0,
+          };
+        },
+      ),
     };
     return new AppSyncState({ getDb: () => db, ...options });
   }
@@ -171,6 +185,16 @@ describe("AppSyncState read through other people's resources", () => {
       resourceId: `others-${i}`,
     }));
   const readerDocument = { resourceType: "document", resourceId: "mine" };
+  // A sharing resolver's answer that the reader may view a resource.
+  const viewerOf = (id: string) => ({
+    role: "viewer" as const,
+    resource: {
+      id,
+      ownerEmail: "writer@example.com",
+      orgId: null,
+      visibility: "private" as const,
+    },
+  });
 
   it("passes a page of other people's resources in one poll", async () => {
     const rows = durableRows([...othersDocuments(240), readerDocument]);
@@ -179,7 +203,7 @@ describe("AppSyncState read through other people's resources", () => {
         new Promise((resolve) =>
           setTimeout(
             () => resolve(resourceId === "mine" ? { role: "viewer" } : null),
-            20,
+            5,
           ),
         ),
     );
@@ -445,15 +469,20 @@ describe("AppSyncState read through other people's resources", () => {
     const resolveAccess = vi.fn(() => new Promise(() => {}));
     const state = stateReading(rows, { resolveAccess, resolveAccessMany });
 
-    // Each reader's checks are their own.
-    for (let reader = 0; reader < 5; reader++) {
-      await state.getDurableChangesSinceForUser(
+    const read = (reader: number) =>
+      state.getDurableChangesSinceForUser(
         5,
         `reader-${reader}@example.com`,
         undefined,
         { version: 5, id: "" },
       );
-    }
+
+    // Each reader's checks are their own.
+    for (let reader = 0; reader < 4; reader++) await read(reader);
+    // Sharing changed on a resource every batch covers. Their answers about
+    // it no longer count, but their resolvers still run.
+    state.invalidateCollabAccessCache("document", "others-0");
+    await read(4);
 
     // Four reads' worth of checks fill the instance, so the fifth reader
     // checks only the change it stopped at.
@@ -569,6 +598,103 @@ describe("AppSyncState read through other people's resources", () => {
     expect(resolveAccessMany).toHaveBeenCalledTimes(5);
   });
 
+  it("gives up on a single resolver's check that never answers", async () => {
+    vi.useFakeTimers();
+    const rows = durableRows([{ resourceType: "document", resourceId: "a" }]);
+    // Only a single resolver is set, and its first check never answers.
+    const resolveAccess = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockImplementation(async () => ({ role: "viewer" }));
+    const state = stateReading(rows, { resolveAccess });
+    const read = () =>
+      state.getDurableChangesSinceForUser(5, "reader@example.com", undefined, {
+        version: 5,
+        id: "",
+      });
+
+    expect((await read()).events).toEqual([]);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await read();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect((await read()).events.map((event) => event.resourceId)).toEqual([
+      "a",
+    ]);
+    expect(resolveAccess).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not count a reset's old checks against the instance's limit", async () => {
+    const rows = durableRows(othersDocuments(300));
+    let finishEarly!: (visible: Set<string>) => void;
+    const resolveAccessMany = vi
+      .fn<(type: string, ids: string[]) => Promise<Set<string>>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishEarly = resolve;
+          }),
+      )
+      .mockImplementation(() => new Promise(() => {}));
+    const state = stateReading(rows, {
+      resolveAccess: () => new Promise(() => {}),
+      resolveAccessMany,
+    });
+    const read = (reader: string) =>
+      state.getDurableChangesSinceForUser(
+        5,
+        `${reader}@example.com`,
+        undefined,
+        { version: 5, id: "" },
+      );
+
+    await read("early");
+    state.__resetAccessCacheForTests();
+    // The batch from before the reset ends after it, which must not hand the
+    // instance room it never counted.
+    finishEarly(new Set());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    for (let reader = 0; reader < 5; reader++) await read(`reader-${reader}`);
+
+    // The early batch, then four reads' worth; the fifth reader starts none.
+    expect(resolveAccessMany).toHaveBeenCalledTimes(5);
+  });
+
+  it("limits a combined read's checks across memory and the log together", async () => {
+    const rows = durableRows(othersDocuments(250));
+    const resolveAccessMany = vi.fn(
+      async (_type: string, _ids: string[]) =>
+        new Promise<Set<string>>(() => {}),
+    );
+    const state = stateReading(rows, {
+      resolveAccess: () => new Promise(() => {}),
+      resolveAccessMany,
+    });
+    for (let i = 0; i < 150; i++) {
+      state.recordChange({
+        source: "action",
+        type: "change",
+        key: "edit-document",
+        owner: "writer@example.com",
+        resourceType: "document",
+        resourceId: `memory-${i}`,
+      });
+    }
+
+    await state.getCombinedChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 5, id: "" },
+    );
+
+    const checked = resolveAccessMany.mock.calls.flatMap(([, ids]) => ids);
+    expect(checked.some((id) => id.startsWith("memory-"))).toBe(true);
+    expect(checked.some((id) => id.startsWith("others-"))).toBe(true);
+    expect(checked.length).toBeLessThanOrEqual(250);
+  });
+
   it("loads whole rows for resource types a host resolver decides", async () => {
     vi.mocked(sharingAccess.resolveAccessMany).mockClear();
     // One type per read: of two dynamic imports of a mocked module started at
@@ -610,43 +736,100 @@ describe("AppSyncState read through other people's resources", () => {
     const ids = designs.map((design) => design.resourceId);
     const resolveAccessMany = vi.mocked(sharingAccess.resolveAccessMany);
     resolveAccessMany.mockClear();
-    // Builder answers the first eight designs at once and never the last two.
-    resolveAccessMany
-      .mockImplementationOnce(
-        async (_type, resourceIds) =>
-          new Map(
-            resourceIds.map((id) => [
-              id,
-              {
-                role: "viewer" as const,
-                resource: {
-                  id,
-                  ownerEmail: "writer@example.com",
-                  orgId: null,
-                  visibility: "private" as const,
-                },
-              },
-            ]),
-          ),
-      )
-      .mockImplementationOnce(() => new Promise(() => {}));
-
-    const result = await stateReading(
-      durableRows(designs),
-      {},
-    ).getCombinedChangesSinceForUser(5, "reader@example.com", undefined, true, {
-      version: 5,
-      id: "",
+    // Builder answers the first eight designs and never the last two.
+    resolveAccessMany.mockImplementation(async (_type, resourceIds) => {
+      const id = String(resourceIds[0]);
+      if (id === "design-8" || id === "design-9") {
+        return new Promise<never>(() => {});
+      }
+      return new Map([[id, viewerOf(id)]]);
     });
 
-    expect(resolveAccessMany.mock.calls).toEqual([
-      ["design", ids.slice(0, 8), { userEmail: "reader@example.com" }],
-      ["design", ids.slice(8), { userEmail: "reader@example.com" }],
-    ]);
-    expect(result.events.map((event) => event.resourceId)).toEqual(
-      ids.slice(0, 8),
-    );
-    expect(result.cursorLimited).toBe(true);
+    try {
+      const result = await stateReading(
+        durableRows(designs),
+        {},
+      ).getCombinedChangesSinceForUser(
+        5,
+        "reader@example.com",
+        undefined,
+        true,
+        { version: 5, id: "" },
+      );
+
+      // Each design is checked on its own.
+      expect(resolveAccessMany.mock.calls).toEqual(
+        ids.map((id) => ["design", [id], { userEmail: "reader@example.com" }]),
+      );
+      expect(result.events.map((event) => event.resourceId)).toEqual(
+        ids.slice(0, 8),
+      );
+      expect(result.cursorLimited).toBe(true);
+    } finally {
+      resolveAccessMany.mockImplementation(async () => new Map());
+    }
+  });
+
+  it("re-checks a host resolver's failed check only once the rest of its group ends", async () => {
+    const designs = Array.from({ length: 10 }, (_, i) => ({
+      resourceType: "design",
+      resourceId: `design-${i}`,
+    }));
+    const resolveAccessMany = vi.mocked(sharingAccess.resolveAccessMany);
+    resolveAccessMany.mockClear();
+    let releaseGroup!: () => void;
+    const groupHeld = new Promise<void>((resolve) => {
+      releaseGroup = resolve;
+    });
+    let running = 0;
+    let mostRunning = 0;
+    let failed = false;
+    // Builder fails the first design's check once and holds the others.
+    resolveAccessMany.mockImplementation(async (_type, resourceIds) => {
+      const id = String(resourceIds[0]);
+      running++;
+      mostRunning = Math.max(mostRunning, running);
+      try {
+        if (id === "design-0" && !failed) {
+          failed = true;
+          throw new Error("Builder unavailable");
+        }
+        if (id !== "design-0") await groupHeld;
+        return new Map([[id, viewerOf(id)]]);
+      } finally {
+        running--;
+      }
+    });
+
+    try {
+      await stateReading(
+        durableRows(designs),
+        {},
+      ).getDurableChangesSinceForUser(5, "reader@example.com", undefined, {
+        version: 5,
+        id: "",
+      });
+      await vi.waitFor(() =>
+        expect(resolveAccessMany).toHaveBeenCalledTimes(8),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      // The rest of the first group still runs, so neither the next group
+      // nor the failed design's second check has started.
+      expect(resolveAccessMany).toHaveBeenCalledTimes(8);
+
+      releaseGroup();
+      await vi.waitFor(() =>
+        expect(resolveAccessMany).toHaveBeenCalledTimes(11),
+      );
+      expect(resolveAccessMany.mock.calls.at(-1)).toEqual([
+        "design",
+        ["design-0"],
+        { userEmail: "reader@example.com" },
+      ]);
+      expect(mostRunning).toBeLessThanOrEqual(8);
+    } finally {
+      resolveAccessMany.mockImplementation(async () => new Map());
+    }
   });
 
   it("keeps a newer check running when an older batch for its resource ends", async () => {

@@ -94,18 +94,18 @@ const ACCESS_CACHE_DENY_TTL_MS = 5_000;
 // could evict a read's checks before that read used them.
 const ACCESS_CACHE_MAX = 5_000;
 // How many unchecked resources one read starts checks for. A batch check costs
-// a few queries whatever its size, but a resource checked on its own (when no
-// batch resolver is set) costs a query or two, so a tab far behind catches up
-// over several polls instead of checking a whole page of the log at once.
+// a few queries whatever its size, but a resource checked on its own (a type
+// with a host access resolver, or when only `resolveAccess` is set) costs a
+// query or two, so a tab far behind catches up over several polls instead of
+// checking a whole page of the log at once.
 const ACCESS_PRIME_LIMIT = 250;
 // How many resources of a failed batch are checked on their own.
 const ACCESS_RETRY_LIMIT = 8;
-// How many resources with a host access resolver one batch query checks.
-const HOST_ACCESS_CHUNK = 8;
-// How many checks reads may have running at once on an instance, across all
-// readers, counting batches past their deadline whose resolver still runs:
-// four reads' worth. Past it, a read starts no batch, and checks only the
-// change it stops at.
+// How many resources a batch checks at once when it checks them one at a time.
+const ACCESS_CHECKS_AT_ONCE = 8;
+// How many resources batch checks may cover at once on an instance, across all
+// readers, until each batch's resolver work ends: four reads' worth. Past it,
+// a read starts no batch, and checks only the change it stops at.
 const ACCESS_IN_FLIGHT_MAX = 1_000;
 // How long a batch check may run before the resources it hasn't answered go
 // back unchecked, for a later read to check again.
@@ -526,19 +526,68 @@ const defaultResolveAccessMany: ManyAccessResolver = async (
   // A host access resolver gets the loaded row and can read any column of it
   // (Design reads a design's data to find its Builder project), so these types
   // load whole rows, as a single check does. It can also ask another service
-  // about each resource, so they go a few at a time, each few's answers
-  // reported as they arrive.
+  // about each resource, so each is checked on its own.
+  return checkEachResource(
+    resourceIds,
+    async (resourceId) =>
+      (await resolveAccessMany(resourceType, [resourceId], accessCtx)).has(
+        resourceId,
+      ),
+    answered,
+  );
+};
+
+/** A batch resolver that asks `resolveAccess` about each resource. */
+function resolveEachWith(resolveAccess: AccessResolver): ManyAccessResolver {
+  return (resourceType, resourceIds, ctx, answered) =>
+    checkEachResource(
+      resourceIds,
+      async (resourceId) =>
+        (await resolveAccess(resourceType, resourceId, ctx)) != null,
+      answered,
+    );
+}
+
+/**
+ * Checks `resourceIds` one at a time, ACCESS_CHECKS_AT_ONCE at once, reporting
+ * each answer as it arrives. Each group's checks all end before the next group
+ * starts, so a failed check never leaves others running past the batch. Once
+ * every group has run, a failure rejects the batch, and the caller re-checks
+ * the resources left unanswered.
+ */
+async function checkEachResource(
+  resourceIds: string[],
+  check: (resourceId: string) => Promise<boolean>,
+  answered: ((resourceId: string, allowed: boolean) => void) | undefined,
+): Promise<ReadonlySet<string>> {
   const visible = new Set<string>();
-  for (let start = 0; start < resourceIds.length; start += HOST_ACCESS_CHUNK) {
-    const chunk = resourceIds.slice(start, start + HOST_ACCESS_CHUNK);
-    const access = await resolveAccessMany(resourceType, chunk, accessCtx);
-    for (const resourceId of chunk) {
-      if (access.has(resourceId)) visible.add(resourceId);
-      answered?.(resourceId, access.has(resourceId));
-    }
+  const failures: unknown[] = [];
+  for (
+    let start = 0;
+    start < resourceIds.length;
+    start += ACCESS_CHECKS_AT_ONCE
+  ) {
+    await Promise.all(
+      resourceIds
+        .slice(start, start + ACCESS_CHECKS_AT_ONCE)
+        .map(async (resourceId) => {
+          try {
+            const allowed = await check(resourceId);
+            if (allowed) visible.add(resourceId);
+            answered?.(resourceId, allowed);
+          } catch (error) {
+            failures.push(error);
+          }
+        }),
+    );
+  }
+  if (failures.length > 0) {
+    throw new Error(`${failures.length} access checks failed`, {
+      cause: failures[0],
+    });
   }
   return visible;
-};
+}
 
 /**
  * The resource whose access decides whether `event` reaches this user, or
@@ -581,8 +630,8 @@ export interface AppSyncStateOptions {
 export class AppSyncState {
   private readonly getDb: () => DbExec;
   private readonly resolveAccessFn: AccessResolver;
-  /** Unset when only `resolveAccess` was given: checks then go one by one. */
-  private readonly resolveAccessManyFn: ManyAccessResolver | undefined;
+  /** When only `resolveAccess` is given, batches ask it about each resource. */
+  private readonly resolveAccessManyFn: ManyAccessResolver;
   private readonly deterministicEventIds: boolean;
   private readonly dbAssignedVersions: boolean;
   private recordChain: Promise<void> = Promise.resolve();
@@ -623,9 +672,11 @@ export class AppSyncState {
     { allowed: boolean; checkedAt: number }
   >();
   private readonly accessInFlight = new Map<string, Promise<void>>();
-  // Resources whose batch check passed its deadline while its resolver still
-  // runs. They count against ACCESS_IN_FLIGHT_MAX until it ends.
-  private accessChecksPastDeadline = 0;
+  // Resources covered by batch checks whose resolver work hasn't ended, past
+  // any deadline or invalidation. They count against ACCESS_IN_FLIGHT_MAX.
+  private accessChecksRunning = 0;
+  // Bumped by the test reset, so work from before it doesn't uncount itself.
+  private accessGeneration = 0;
   private readonly accessInvalidationEpoch = new Map<string, number>();
   private readonly accessAllowTtlMs: number;
 
@@ -634,7 +685,9 @@ export class AppSyncState {
     this.resolveAccessFn = options.resolveAccess ?? defaultResolveAccess;
     this.resolveAccessManyFn =
       options.resolveAccessMany ??
-      (options.resolveAccess ? undefined : defaultResolveAccessMany);
+      (options.resolveAccess
+        ? resolveEachWith(options.resolveAccess)
+        : defaultResolveAccessMany);
     this.deterministicEventIds = options.deterministicEventIds ?? false;
     this.dbAssignedVersions = options.dbAssignedVersions ?? false;
     this.accessAllowTtlMs = options.accessAllowTtlMs ?? ACCESS_CACHE_TTL_MS;
@@ -1041,19 +1094,17 @@ export class AppSyncState {
     events: Iterable<ChangeEvent | null>,
     userEmail: string,
     orgId: string | undefined,
+    // Checks this read started or found still running, shared by the two
+    // halves of a combined read. Counting running ones keeps a slow check
+    // from letting each poll start another 250 behind it.
+    checking: Set<string> = new Set(),
   ): void {
     const normalizedUserEmail = userEmail.trim().toLowerCase();
     const now = Date.now();
     const keysByType = new Map<string, Map<string, string>>();
-    // Checks this read started or found still running. Counting running ones
-    // keeps a slow check from letting each poll start another 250 behind it.
-    const checking = new Set<string>();
-    // Every reader on the instance shares the running checks, so concurrent
-    // reads together stay under ACCESS_IN_FLIGHT_MAX.
-    const room =
-      ACCESS_IN_FLIGHT_MAX -
-      this.accessInFlight.size -
-      this.accessChecksPastDeadline;
+    // Every reader on the instance shares the limit, so concurrent reads
+    // together stay under ACCESS_IN_FLIGHT_MAX.
+    const room = ACCESS_IN_FLIGHT_MAX - this.accessChecksRunning;
     let started = 0;
     for (const event of events) {
       if (checking.size >= ACCESS_PRIME_LIMIT) break;
@@ -1080,16 +1131,6 @@ export class AppSyncState {
       if (started >= room) break;
       started++;
       checking.add(key);
-      if (!this.resolveAccessManyFn) {
-        this.scheduleAccessCheck(
-          key,
-          resource.resourceType,
-          resource.resourceId,
-          normalizedUserEmail,
-          orgId,
-        );
-        continue;
-      }
       let keys = keysByType.get(resource.resourceType);
       if (!keys) {
         keys = new Map();
@@ -1110,7 +1151,6 @@ export class AppSyncState {
     orgId: string | undefined,
   ): void {
     const resolveMany = this.resolveAccessManyFn;
-    if (!resolveMany) return;
     const epochs = new Map(
       [...keys.keys()].map((resourceId) => [
         resourceId,
@@ -1177,28 +1217,26 @@ export class AppSyncState {
     // always finds it there. The work keeps the request's database pool until
     // it ends, even past the deadline.
     const work = retainRequestDbPoolScope(Promise.resolve().then(run));
+    const generation = this.accessGeneration;
+    this.accessChecksRunning += keys.size;
+    const ended = () => {
+      if (this.accessGeneration === generation) {
+        this.accessChecksRunning -= keys.size;
+      }
+    };
+    void work.then(ended, ended);
     const check: Promise<void> = Promise.resolve().then(async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         // A resolver that never answers would hold these resources pending,
         // and every read stuck behind them, for good.
-        const outcome = await Promise.race([
-          work.then(() => "ended" as const),
-          new Promise<"past deadline">((resolve) => {
-            timer = setTimeout(
-              () => resolve("past deadline"),
-              ACCESS_BATCH_TIMEOUT_MS,
-            );
+        await Promise.race([
+          work,
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, ACCESS_BATCH_TIMEOUT_MS);
             (timer as { unref?: () => void }).unref?.();
           }),
         ]);
-        if (outcome === "past deadline") {
-          this.accessChecksPastDeadline += keys.size;
-          const ended = () => {
-            this.accessChecksPastDeadline -= keys.size;
-          };
-          void work.then(ended, ended);
-        }
       } finally {
         clearTimeout(timer);
         for (const key of keys.values()) this.endAccessCheck(key, check);
@@ -1210,7 +1248,8 @@ export class AppSyncState {
   __resetAccessCacheForTests(): void {
     this.accessCache.clear();
     this.accessInFlight.clear();
-    this.accessChecksPastDeadline = 0;
+    this.accessChecksRunning = 0;
+    this.accessGeneration++;
     this.accessInvalidationEpoch.clear();
   }
 
@@ -1591,6 +1630,8 @@ export class AppSyncState {
     userEmail: string,
     orgId: string | undefined,
     cursor?: SyncCursor,
+    /** @internal The access checks a combined read has started so far. */
+    accessChecks?: Set<string>,
   ): ChangeReadResult {
     const readCursor = cursor ?? { version: since, id: "" };
     if (
@@ -1609,7 +1650,7 @@ export class AppSyncState {
     const unread = this.buffer.filter((event) =>
       cursor ? isEventAfterCursor(event, readCursor) : event.version > since,
     );
-    this.primeAccessChecks(unread, userEmail, orgId);
+    this.primeAccessChecks(unread, userEmail, orgId, accessChecks);
     for (const event of unread) {
       const visibility = this.getChangeVisibilityForUser(
         event,
@@ -1649,6 +1690,8 @@ export class AppSyncState {
     userEmail: string,
     orgId: string | undefined,
     cursor?: SyncCursor,
+    /** @internal The access checks a combined read has started so far. */
+    accessChecks?: Set<string>,
   ): Promise<ChangeReadResult> {
     if (syncEventsDisabled()) {
       return { version: this.version, events: [] };
@@ -1721,6 +1764,7 @@ export class AppSyncState {
         parsedRows.map((row) => row.event),
         userEmail,
         orgId,
+        accessChecks,
       );
 
       for (const { rawVersion, rowId, event } of parsedRows) {
@@ -1845,7 +1889,15 @@ export class AppSyncState {
     useDurableEvents: boolean,
     cursor?: SyncCursor,
   ): Promise<ChangeReadResult> {
-    const memory = this.getChangesSinceForUser(since, userEmail, orgId, cursor);
+    // One read's limit on access checks covers both of its sources.
+    const accessChecks = new Set<string>();
+    const memory = this.getChangesSinceForUser(
+      since,
+      userEmail,
+      orgId,
+      cursor,
+      accessChecks,
+    );
     if (!useDurableEvents) return memory;
 
     const durable = await this.getDurableChangesSinceForUser(
@@ -1853,6 +1905,7 @@ export class AppSyncState {
       userEmail,
       orgId,
       cursor,
+      accessChecks,
     );
     const byIdentity = new Map<string, ChangeEvent>();
     for (const event of [...durable.events, ...memory.events]) {
