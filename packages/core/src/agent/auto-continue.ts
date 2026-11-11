@@ -30,6 +30,10 @@ export const CONTINUE_OF_RUN_METADATA_KEY = "agentNativeContinueOfRunId";
 // i18n-ignore: Internal continuation instruction sent to the agent, never shown as product copy.
 export const AUTO_CONTINUE_PROMPT = "Continue from where you left off.";
 
+// i18n-ignore: Internal continuation instruction sent to the agent after an approved tool call has already been executed, never shown as product copy.
+export const APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT =
+  "Approved. The requested action has already been run. Continue from its result; do not run that same action again.";
+
 export const AUTO_CONTINUE_REFUSAL_CODES = [
   /** The turn used its automatic continuations, or its wall-clock budget. */
   "auto_continue_cap_reached",
