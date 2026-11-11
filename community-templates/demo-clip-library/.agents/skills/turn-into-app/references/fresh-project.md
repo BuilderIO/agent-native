@@ -41,8 +41,9 @@ On a browser host the host is an orchestrator, not the build environment:
 3. Lead the report with what Dispatch actually returned. Only
    `mode: "builder"` started a build: its Builder link (`url`) is where the
    person can watch the app being built; then give its `status`, branch, and
-   path. Any other mode (`builder-managed`, an unavailable or taken result)
-   started nothing: quote its `message`, with its link if it has one. Then
+   path. Any other mode started no Builder build (`local-agent` hands it to
+   a local agent; `builder-managed` and unavailable or taken results start
+   nothing): quote its `message`, with its link if it has one. Then
    give the rest of the final report in SKILL.md. The browser host cannot run
    or inspect the app, and a returned path can 404 until the branch merges and
    deploys, so the report ends at pending or unverified unless a status or

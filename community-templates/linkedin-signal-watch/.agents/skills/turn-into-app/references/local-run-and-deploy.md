@@ -161,7 +161,9 @@ deployment.
 
 - **Hand-off.** After an interactive invocation (see "When to ask" in
   SKILL.md for what counts), start the server once more after `pnpm build`,
-  from the app directory with `--open`, and poll it as in Run:
+  from the app directory with `--open`, and poll it as in Run. First make
+  sure the earlier server's PID has exited and nothing answers on the port,
+  or the poll can pass on that stale server while the new one failed to bind:
 
   ```bash
   (nohup pnpm exec agent-native dev --port <port> --open > .tmp/dev.log 2>&1 & echo $! > .tmp/dev.pid)
