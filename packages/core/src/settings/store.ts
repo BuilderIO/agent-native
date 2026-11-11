@@ -141,16 +141,30 @@ export async function getSettings(
   keys: readonly string[],
   options?: StoreReadOptions,
 ): Promise<Map<string, Record<string, unknown> | null>> {
-  const uniqueKeys = [...new Set(keys)];
+  const raw = await getSettingsRaw(keys, options);
   const result = new Map<string, Record<string, unknown> | null>();
+  for (const [key, value] of raw)
+    result.set(key, value == null ? null : parseSettingValue(key, value));
+  return result;
+}
+
+/**
+ * Like `getSettings`, but returns each stored value unparsed, so a caller can
+ * tell a row that isn't JSON from a missing one.
+ */
+export async function getSettingsRaw(
+  keys: readonly string[],
+  options?: StoreReadOptions,
+): Promise<Map<string, string | null>> {
+  const uniqueKeys = [...new Set(keys)];
+  const result = new Map<string, string | null>();
   if (uniqueKeys.length === 0) return result;
 
   const cache = options?.transaction ? null : requestSettingsCache();
   const misses: string[] = [];
   for (const key of uniqueKeys) {
     if (!options?.bypassCache && cache?.has(key)) {
-      const cached = cache.get(key);
-      result.set(key, cached == null ? null : parseSettingValue(key, cached));
+      result.set(key, cache.get(key) ?? null);
     } else {
       misses.push(key);
     }
@@ -175,7 +189,7 @@ export async function getSettings(
   for (const key of misses) {
     const raw = rawByKey.get(key) ?? null;
     if (!options?.bypassCache) cache?.set(key, raw);
-    result.set(key, raw == null ? null : parseSettingValue(key, raw));
+    result.set(key, raw);
   }
   return result;
 }

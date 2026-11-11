@@ -1694,6 +1694,34 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Indicações de créditos Builder",
   "featureFlags.builderCreditReferrals.description":
     "Mostrar os detalhes de indicação do espaço de trabalho Builder conectado em Uso.",
+  "featureFlags.scope.appliesTo": "Aplica-se a",
+  "featureFlags.scope.org": "Esta organização",
+  "featureFlags.scope.global": "Todas as organizações",
+  "featureFlags.scope.setForOrg": "Definido para esta organização",
+  "featureFlags.scope.setForGlobal": "Definido para todas as organizações",
+  "featureFlags.scope.overridesGlobal":
+    "Substitui a regra de todas as organizações",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "A regra própria desta organização substitui a regra de todas as organizações, que é: {{audience}}.",
+  "featureFlags.scope.unreadable": "Não foi possível ler",
+  "featureFlags.scope.enableForMeOrg":
+    "Adiciona você à regra desta organização",
+  "featureFlags.scope.enableForMeGlobal":
+    "Adiciona você à regra de todas as organizações",
+  "featureFlags.scope.turnOffOrg": "Desativar para esta organização",
+  "featureFlags.scope.turnOffGlobal": "Desativar para todas as organizações",
+  "featureFlags.scope.turnOffOrgTitle":
+    "Desativar {{name}} para esta organização?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "Desativar {{name}} para todas as organizações?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "Isso remove imediatamente o acesso de todas as pessoas desta organização. Você pode configurar um novo lançamento depois.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "Isso remove imediatamente o acesso em todas as organizações que não têm uma regra própria. Você pode configurar um novo lançamento depois.",
+  "featureFlags.scope.summaryOrg": "Nesta organização: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "Em todas as organizações: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule":
+    "Esta organização mantém a própria regra.",
   "usage.inviteFriends": "Convide amigos",
   "usage.inviteCredits":
     "Ganhe {{amount}} créditos do Builder quando um amigo assinar.",
@@ -3037,6 +3065,95 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "Enviar um arquivo de habilidade",
   "settingsResources.skills.describePlaceholder":
     "Uma habilidade que revisa pull requests em busca de problemas de segurança",
+  "settingsResources.skills.personalHint": "Só você tem estas.",
+  "settingsResources.skills.orgHint":
+    "Compartilhadas com todas as pessoas em {{org}}. Seus botões valem só para você.",
+  "settingsResources.skills.orgAdminHint":
+    "Compartilhadas com todas as pessoas em {{org}}. Como você é admin, escolhe como cada uma começa para as pessoas.",
+  "settingsResources.skills.dispatchHint":
+    "O Dispatch é onde seu espaço de trabalho guarda as habilidades que todos os apps compartilham. Desativar uma aqui muda apenas {{app}}.",
+  "settingsResources.skills.thisApp": "este app",
+  "settingsResources.skills.forEveryone": "Para todos",
+  "settingsResources.skills.forYou": "Para você",
+  "settingsResources.skills.markRecommended": "Recomendada",
+  "settingsResources.skills.markRecommendedHint":
+    "Ativada a menos que alguém a desative.",
+  "settingsResources.skills.markOptional": "Opcional",
+  "settingsResources.skills.markOptionalHint":
+    "Desativada a menos que alguém a ative.",
+  "settingsResources.skills.markRequired": "Obrigatória",
+  "settingsResources.skills.markRequiredHint":
+    "Ativada para todos. Ninguém pode desativá-la nem usar a própria versão.",
+  "settingsResources.skills.recommendedBy": "Recomendada por {{org}}",
+  "settingsResources.skills.requiredBy": "Exigida por {{org}}",
+  "settingsResources.skills.requiredHidesOwn":
+    "Não usada: {{org}} exige que todos usem a versão compartilhada",
+  "settingsResources.skills.optionalOff":
+    "Opcional: desativada até você ativá-la",
+  "settingsResources.skills.optionalOn": "Opcional: você a ativou",
+  "settingsResources.skills.switchedOffOn": "Você a desativou em {{date}}",
+  "settingsResources.skills.alwaysOn": "Sempre ativada",
+  "settingsResources.skills.requiredLockHint":
+    "Exigida por {{org}}, por isso está sempre ativada",
+  "settingsResources.skills.dispatchClash":
+    "O Dispatch também tem uma {{name}}. O agente usa esta e ignora a do Dispatch. Renomeie uma para usar as duas.",
+  "settingsResources.skills.dispatchClashRequired":
+    "A {{name}} do Dispatch é obrigatória, então o agente usa ela e ignora esta. Renomeie uma para usar as duas.",
+  "settingsResources.skills.choicesLoadFailed":
+    "Não foi possível carregar quais habilidades estão ativadas para você, então os interruptores estão ocultos. Recarregue a página para tentar de novo.",
+  "settingsResources.skills.requireChecking": "Verificando quem isso afeta…",
+  "settingsResources.skills.requireCountsFailed":
+    "Não foi possível verificar quem isso afeta.",
+  "settingsResources.skills.requireTitle": "Tornar {{name}} obrigatória?",
+  "settingsResources.skills.makeRequired": "Tornar obrigatória",
+  "settingsResources.skills.switchFailed":
+    "Não foi possível salvar sua escolha para {{name}}.",
+  "settingsResources.skills.markFailed":
+    "Não foi possível mudar como {{name}} começa para as pessoas.",
+  "settingsResources.skills.addForMe": "Adicionar para mim",
+  "settingsResources.skills.addForEveryone": "Adicionar para todos",
+  "settingsResources.skills.offFor_one":
+    "Desativada para {{off}} de {{count}} pessoa",
+  "settingsResources.skills.offFor_many":
+    "Desativada para {{off}} de {{count}} pessoas",
+  "settingsResources.skills.offFor_other":
+    "Desativada para {{off}} de {{count}} pessoas",
+  "settingsResources.skills.onFor_one":
+    "Ativada para {{on}} de {{count}} pessoa",
+  "settingsResources.skills.onFor_many":
+    "Ativada para {{on}} de {{count}} pessoas",
+  "settingsResources.skills.onFor_other":
+    "Ativada para {{on}} de {{count}} pessoas",
+  "settingsResources.skills.ownVersions_one":
+    "{{count}} pessoa tem a própria versão",
+  "settingsResources.skills.ownVersions_many":
+    "{{count}} pessoas têm a própria versão",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}} pessoas têm a própria versão",
+  "settingsResources.skills.requireTurnsBackOn_one":
+    "Ela volta a ser ativada para a {{count}} pessoa que a desativou.",
+  "settingsResources.skills.requireTurnsBackOn_many":
+    "Ela volta a ser ativada para as {{count}} pessoas que a desativaram.",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "Ela volta a ser ativada para as {{count}} pessoas que a desativaram.",
+  "settingsResources.skills.requireTurnsOn_one":
+    "Ela é ativada para a {{count}} pessoa que não a tinha ativado.",
+  "settingsResources.skills.requireTurnsOn_many":
+    "Ela é ativada para as {{count}} pessoas que não a tinham ativado.",
+  "settingsResources.skills.requireTurnsOn_other":
+    "Ela é ativada para as {{count}} pessoas que não a tinham ativado.",
+  "settingsResources.skills.requireOwnVersions_one":
+    "A {{count}} pessoa com a própria versão recebe o texto de {{org}} no lugar. A versão dela é mantida e volta se você mudar isso depois.",
+  "settingsResources.skills.requireOwnVersions_many":
+    "As {{count}} pessoas com a própria versão recebem o texto de {{org}} no lugar. As versões delas são mantidas e voltam se você mudar isso depois.",
+  "settingsResources.skills.requireOwnVersions_other":
+    "As {{count}} pessoas com a própria versão recebem o texto de {{org}} no lugar. As versões delas são mantidas e voltam se você mudar isso depois.",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "A {{count}} pessoa com a própria versão recebe o texto de Dispatch no lugar. A versão dela é mantida e volta se você mudar isso depois.",
+  "settingsResources.skills.requireOwnVersionsDispatch_many":
+    "As {{count}} pessoas com a própria versão recebem o texto de Dispatch no lugar. As versões delas são mantidas e voltam se você mudar isso depois.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "As {{count}} pessoas com a própria versão recebem o texto de Dispatch no lugar. As versões delas são mantidas e voltam se você mudar isso depois.",
   "settingsResources.files.empty":
     "Adicione um arquivo para dar mais contexto ao seu agente.",
   "settingsResources.files.emptyTitle": "Nenhum arquivo ainda",

@@ -185,6 +185,7 @@ import {
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
+  sortResourceSkills,
 } from "../server/agent-chat/skill-frontmatter.js";
 import { captureError } from "../server/capture-error.js";
 import {
@@ -4115,26 +4116,59 @@ export async function resolveSkillReferenceContent(
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail || !ref.path) return null;
     try {
-      const { resourceEffectiveContext, resourceGet } =
-        await import("../resources/store.js");
+      const [
+        { resourceEffectiveContext, resourceGet },
+        {
+          readSkillChoices,
+          readSkillReference,
+          requiredSkillResource,
+          skillReferenceResource,
+        },
+        { getSkillNameFromPath },
+      ] = await Promise.all([
+        import("../resources/store.js"),
+        import("../resources/skill-choices.js"),
+        import("../resources/metadata.js"),
+      ]);
       const resourceOptions = {
         userEmail: ownerEmail,
         orgId: getRequestOrgId() ?? null,
       };
-      const effective = await resourceEffectiveContext(ownerEmail, ref.path, {
-        ...resourceOptions,
+      const choices = await readSkillChoices({
+        email: ownerEmail,
+        orgId: resourceOptions.orgId,
       });
-      if (!effective.effectiveResource) return null;
-      const full = await resourceGet(effective.effectiveResource.id, {
-        ...resourceOptions,
-      });
-      if (
-        !full?.content ||
-        !(await isRuntimeVisibleSkillContent(full.content, ownerEmail))
-      ) {
-        return null;
-      }
-      return full.content;
+      // The copy the prompt would use at a path: a Required organization or
+      // Dispatch skill, then the first one the person has on.
+      const readSkill = async (path: string) => {
+        const effective = await resourceEffectiveContext(ownerEmail, path, {
+          ...resourceOptions,
+        });
+        const chosen = skillReferenceResource(effective, choices);
+        const full = chosen
+          ? await resourceGet(chosen.id, { ...resourceOptions })
+          : null;
+        if (!chosen || !full?.content) return null;
+        const name =
+          parseSkillFrontmatter(full.content).name ||
+          getSkillNameFromPath(chosen.path);
+        return {
+          name,
+          content: full.content,
+          owner: chosen.owner,
+          path: chosen.path,
+          updatedAt: chosen.updatedAt,
+          required: chosen.id === requiredSkillResource(effective, choices)?.id,
+          visible: await isRuntimeVisibleSkillContent(full.content, ownerEmail),
+        };
+      };
+      // Same-named Required skills in the order the prompt keeps them.
+      return await readSkillReference(ref.path, choices, readSkill, (skills) =>
+        sortResourceSkills(skills, {
+          owner: ownerEmail,
+          orgId: resourceOptions.orgId,
+        }),
+      );
     } catch {
       return null;
     }

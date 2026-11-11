@@ -21,7 +21,11 @@ evals, agent experiments, and feedback.
 - Use `set-workspace-feature-flag` for app-qualified changes; target apps
   remain the source of truth and are resolved only through the trusted
   organization directory.
-- Treat only a versioned mutation response whose key, org scope, and
+- A change writes this organization's rule unless the admin asks for every
+  organization; then pass `scope: "global"`. An organization's own rule
+  replaces the global rule, so read the flag's `scopes.inEffect` before saying
+  who a global change reaches.
+- Treat only a versioned mutation response whose key, `scope.kind`, and
   requested rules match as success. Report a failed target mutation instead
   of claiming the rollout changed.
 - Flags are source-declared booleans; do not create variants, metrics,
