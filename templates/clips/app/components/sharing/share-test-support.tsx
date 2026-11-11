@@ -8,6 +8,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 const mocks = vi.hoisted(() => ({
   data: undefined as ShareButtonSharesResponse | undefined,
+  accessStatus: undefined as { state: string; role?: string } | undefined,
+  accessError: false,
   query: vi.fn(),
   refetch: vi.fn(async () => undefined),
   visibility: vi.fn(),
@@ -59,7 +61,15 @@ function mutation(name: string) {
 vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: (...args: unknown[]) => {
     mocks.query(...args);
-    return { data: mocks.data, refetch: mocks.refetch, isLoading: false };
+    return {
+      data:
+        args[0] === "get-resource-access-status"
+          ? mocks.accessStatus
+          : mocks.data,
+      isError: args[0] === "get-resource-access-status" && mocks.accessError,
+      refetch: mocks.refetch,
+      isLoading: false,
+    };
   },
   useActionMutation: (name: string) => mutation(name),
 }));
@@ -105,6 +115,8 @@ export function shareTestHarness() {
   let container: HTMLDivElement;
   let client: QueryClient;
   beforeEach(() => {
+    mocks.accessStatus = undefined;
+    mocks.accessError = false;
     vi.clearAllMocks();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal(

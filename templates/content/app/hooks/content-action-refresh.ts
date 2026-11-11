@@ -69,7 +69,11 @@ const DOCUMENT_MUTATIONS = new Set([
   "sync-manifest-local-folder-source",
   "transcribe-media",
   "undo-content-import",
+  // Row writes edit the row's page, which may be open.
+  "update-database-item",
+  "update-database-items",
   "update-document",
+  "upsert-database-item-by-key",
 ]);
 
 const DATABASE_RESULT_MUTATIONS = new Set([

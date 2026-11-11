@@ -50,10 +50,40 @@ describe("recording sharing adoption", () => {
     expect(document.getElementById("share-expiry")).toBeNull();
     mocks.data.role = "viewer";
     await render({ hasPassword: true, initialRole: "viewer" });
-    expect(
-      (document.getElementById("share-password-required") as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    expect(document.getElementById("share-password-required")).toBeNull();
+  });
+
+  it.each([undefined, "viewer", "commenter", "future-role"] as const)(
+    "keeps the library dialog link-only while role is %s",
+    async (role) => {
+      mocks.accessStatus = role ? { state: "allowed", role } : undefined;
+      await render({ initialRole: undefined });
+      expect(document.querySelector('input[role="combobox"]')).toBeNull();
+      expect(
+        mocks.query.mock.calls
+          .filter(([name]) => name === "list-resource-shares")
+          .every(([, , options]) => options.enabled === false),
+      ).toBe(true);
+      expect(button("Copy link")).toBeDefined();
+    },
+  );
+
+  it.each(["owner", "admin", "editor"] as const)(
+    "loads library sharing controls after confirming %s access",
+    async (role) => {
+      mocks.accessStatus = { state: "allowed", role };
+      await render({ initialRole: undefined });
+      expect(document.querySelector('input[role="combobox"]')).not.toBeNull();
+    },
+  );
+
+  it("offers retry when library access lookup fails without loading people", async () => {
+    mocks.accessError = true;
+    await render({ initialRole: undefined });
+    expect(document.querySelector('[role="alert"]')).not.toBeNull();
+    expect(document.querySelector('input[role="combobox"]')).toBeNull();
+    await click(button("agentChat.common.retry"));
+    expect(mocks.refetch).toHaveBeenCalled();
   });
 
   it("hides password controls as visibility changes away from public", async () => {
@@ -101,6 +131,7 @@ describe("recording sharing adoption", () => {
   });
 
   it("invites as Viewer with notifications and the recording notification link", async () => {
+    mocks.accessStatus = { state: "allowed", role: "owner" };
     await render({ initialRole: undefined, ownerEmail: "OWNER@example.test" });
     await input(
       document.querySelector<HTMLInputElement>('input[role="combobox"]')!,

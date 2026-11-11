@@ -1604,6 +1604,29 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder क्रेडिट रेफ़रल",
   "featureFlags.builderCreditReferrals.description":
     "उपयोग में कनेक्टेड Builder वर्कस्पेस के रेफ़रल विवरण दिखाएँ।",
+  "featureFlags.scope.appliesTo": "किस पर लागू",
+  "featureFlags.scope.org": "यह संगठन",
+  "featureFlags.scope.global": "सभी संगठन",
+  "featureFlags.scope.setForOrg": "इस संगठन के लिए सेट",
+  "featureFlags.scope.setForGlobal": "सभी संगठनों के लिए सेट",
+  "featureFlags.scope.overridesGlobal": "सभी संगठनों का नियम ओवरराइड करता है",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "इस संगठन का अपना नियम सभी संगठनों के नियम की जगह लेता है, जो यह है: {{audience}}।",
+  "featureFlags.scope.unreadable": "पढ़ा नहीं जा सका",
+  "featureFlags.scope.enableForMeOrg": "आपको इस संगठन के नियम में जोड़ता है",
+  "featureFlags.scope.enableForMeGlobal": "आपको सभी संगठनों के नियम में जोड़ता है",
+  "featureFlags.scope.turnOffOrg": "इस संगठन के लिए बंद करें",
+  "featureFlags.scope.turnOffGlobal": "सभी संगठनों के लिए बंद करें",
+  "featureFlags.scope.turnOffOrgTitle": "क्या इस संगठन के लिए {{name}} बंद करें?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "क्या सभी संगठनों के लिए {{name}} बंद करें?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "इससे इस संगठन के सभी लोगों की पहुँच तुरंत हट जाती है। आप बाद में नया रोलआउट कॉन्फ़िगर कर सकते हैं।",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "इससे उन सभी संगठनों में पहुँच तुरंत हट जाती है जिनका अपना नियम नहीं है। आप बाद में नया रोलआउट कॉन्फ़िगर कर सकते हैं।",
+  "featureFlags.scope.summaryOrg": "इस संगठन में: {{audience}}।",
+  "featureFlags.scope.summaryGlobal": "सभी संगठनों में: {{audience}}।",
+  "featureFlags.scope.orgKeepsOwnRule": "यह संगठन अपना नियम बनाए रखता है।",
   "usage.inviteFriends": "दोस्तों को आमंत्रित करें",
   "usage.inviteCredits": "दोस्त के सदस्यता लेने पर {{amount}} Builder क्रेडिट पाएं।",
   "usage.copyInviteLink": "आमंत्रण लिंक कॉपी करें",
@@ -2825,6 +2848,76 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "स्किल फ़ाइल अपलोड करें",
   "settingsResources.skills.describePlaceholder":
     "एक स्किल जो पुल रिक्वेस्ट में सुरक्षा समस्याओं की समीक्षा करती है",
+  "settingsResources.skills.personalHint": "ये सिर्फ़ आपके पास हैं।",
+  "settingsResources.skills.orgHint":
+    "{{org}} में सभी के साथ साझा। आपके स्विच सिर्फ़ आपके लिए हैं।",
+  "settingsResources.skills.orgAdminHint":
+    "{{org}} में सभी के साथ साझा। आप एडमिन हैं, इसलिए आप तय करते हैं कि हर एक लोगों के लिए कैसे शुरू हो।",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch वह जगह है जहाँ आपका वर्कस्पेस वे स्किल रखता है जो हर ऐप साझा करता है। यहाँ किसी को बंद करने से सिर्फ़ {{app}} बदलता है।",
+  "settingsResources.skills.thisApp": "यह ऐप",
+  "settingsResources.skills.forEveryone": "सभी के लिए",
+  "settingsResources.skills.forYou": "आपके लिए",
+  "settingsResources.skills.markRecommended": "सुझाया गया",
+  "settingsResources.skills.markRecommendedHint": "चालू, जब तक कोई इसे बंद न करे।",
+  "settingsResources.skills.markOptional": "वैकल्पिक",
+  "settingsResources.skills.markOptionalHint": "बंद, जब तक कोई इसे चालू न करे।",
+  "settingsResources.skills.markRequired": "ज़रूरी",
+  "settingsResources.skills.markRequiredHint":
+    "सभी के लिए चालू। कोई इसे बंद नहीं कर सकता या अपना वर्शन इस्तेमाल नहीं कर सकता।",
+  "settingsResources.skills.recommendedBy": "{{org}} द्वारा सुझाया गया",
+  "settingsResources.skills.requiredBy": "{{org}} के लिए ज़रूरी",
+  "settingsResources.skills.requiredHidesOwn":
+    "उपयोग में नहीं: {{org}} सभी से साझा संस्करण इस्तेमाल करवाता है",
+  "settingsResources.skills.optionalOff": "वैकल्पिक: जब तक आप चालू न करें, बंद",
+  "settingsResources.skills.optionalOn": "वैकल्पिक: आपने इसे चालू किया",
+  "settingsResources.skills.switchedOffOn": "आपने इसे {{date}} को बंद किया",
+  "settingsResources.skills.alwaysOn": "हमेशा चालू",
+  "settingsResources.skills.requiredLockHint":
+    "{{org}} के लिए ज़रूरी, इसलिए यह हमेशा चालू है",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch में भी {{name}} है। एजेंट यह वाला इस्तेमाल करता है और Dispatch वाला छोड़ देता है। दोनों इस्तेमाल करने के लिए एक का नाम बदलें।",
+  "settingsResources.skills.dispatchClashRequired":
+    "Dispatch का {{name}} ज़रूरी है, इसलिए एजेंट उसे इस्तेमाल करता है और यह वाला छोड़ देता है। दोनों इस्तेमाल करने के लिए एक का नाम बदलें।",
+  "settingsResources.skills.choicesLoadFailed":
+    "यह लोड नहीं हो सका कि आपके लिए कौन-सी स्किल चालू हैं, इसलिए स्विच छिपा दिए गए हैं। फिर से कोशिश करने के लिए पेज रीलोड करें।",
+  "settingsResources.skills.requireChecking":
+    "जाँच हो रही है कि इससे किस पर असर पड़ेगा…",
+  "settingsResources.skills.requireCountsFailed":
+    "यह जाँचा नहीं जा सका कि इससे किस पर असर पड़ेगा।",
+  "settingsResources.skills.requireTitle": "{{name}} को ज़रूरी बनाएँ?",
+  "settingsResources.skills.makeRequired": "ज़रूरी बनाएँ",
+  "settingsResources.skills.switchFailed":
+    "{{name}} के लिए आपकी पसंद सेव नहीं हो सकी।",
+  "settingsResources.skills.markFailed":
+    "{{name}} लोगों के लिए कैसे शुरू हो, यह नहीं बदला जा सका।",
+  "settingsResources.skills.addForMe": "मेरे लिए जोड़ें",
+  "settingsResources.skills.addForEveryone": "सभी के लिए जोड़ें",
+  "settingsResources.skills.offFor_one": "{{count}} व्यक्ति में से {{off}} के लिए बंद",
+  "settingsResources.skills.offFor_other":
+    "{{count}} लोगों में से {{off}} के लिए बंद",
+  "settingsResources.skills.onFor_one": "{{count}} व्यक्ति में से {{on}} के लिए चालू",
+  "settingsResources.skills.onFor_other": "{{count}} लोगों में से {{on}} के लिए चालू",
+  "settingsResources.skills.ownVersions_one":
+    "{{count}} व्यक्ति के पास अपना वर्शन है",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}} लोगों के पास अपना वर्शन है",
+  "settingsResources.skills.requireTurnsBackOn_one":
+    "यह उस {{count}} व्यक्ति के लिए फिर से चालू हो जाएगा जिसने इसे बंद किया था।",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "यह उन {{count}} लोगों के लिए फिर से चालू हो जाएगा जिन्होंने इसे बंद किया था।",
+  "settingsResources.skills.requireTurnsOn_one":
+    "यह उस {{count}} व्यक्ति के लिए चालू हो जाएगा जिसने इसे चालू नहीं किया था।",
+  "settingsResources.skills.requireTurnsOn_other":
+    "यह उन {{count}} लोगों के लिए चालू हो जाएगा जिन्होंने इसे चालू नहीं किया था।",
+  "settingsResources.skills.requireOwnVersions_one":
+    "अपने वर्शन वाले {{count}} व्यक्ति को इसके बजाय {{org}} का टेक्स्ट मिलेगा। उनका वर्शन रखा जाएगा, और अगर आप बाद में इसे बदलते हैं तो वापस आ जाएगा।",
+  "settingsResources.skills.requireOwnVersions_other":
+    "अपने वर्शन वाले {{count}} लोगों को इसके बजाय {{org}} का टेक्स्ट मिलेगा। उनके वर्शन रखे जाएँगे, और अगर आप बाद में इसे बदलते हैं तो वापस आ जाएँगे।",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "अपने वर्शन वाले {{count}} व्यक्ति को इसके बजाय Dispatch का टेक्स्ट मिलेगा। उनका वर्शन रखा जाएगा, और अगर आप बाद में इसे बदलते हैं तो वापस आ जाएगा।",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "अपने वर्शन वाले {{count}} लोगों को इसके बजाय Dispatch का टेक्स्ट मिलेगा। उनके वर्शन रखे जाएँगे, और अगर आप बाद में इसे बदलते हैं तो वापस आ जाएँगे।",
   "settingsResources.files.empty": "अपने एजेंट को अधिक संदर्भ देने के लिए एक फ़ाइल जोड़ें।",
   "settingsResources.files.emptyTitle": "अभी तक कोई फ़ाइल नहीं",
   "settingsResources.files.orgEmpty": "अभी कोई साझा फ़ाइल नहीं है",

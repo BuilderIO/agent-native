@@ -2060,7 +2060,7 @@ function IntegrationsEditor({
               : t("builder.integrations.addIntegration")}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="center" className="w-80 p-1.5">
+        <DropdownMenuContent align="center" className="w-80">
           {(
             Object.entries(integrationMeta) as [
               IntegrationType,

@@ -2,6 +2,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { apiBaseUrl, appPath } from "@agent-native/core/client/api-path";
 import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useActionQuery } from "@agent-native/core/client/use-action";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { JoinedShareControl } from "@agent-native/toolkit/sharing";
@@ -210,6 +211,22 @@ function RecordingShareButton({
 }) {
   const t = useT();
   const { session } = useSession();
+  const access = useActionQuery<{
+    state: string;
+    role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
+  }>(
+    "get-resource-access-status",
+    { resourceType: "recording", resourceId: recordingId },
+    { enabled: initialRole === undefined && !viewerReshareOnly },
+  );
+  const role =
+    initialRole ??
+    (!access.isError && access.data?.state === "allowed"
+      ? access.data.role
+      : undefined);
+  const canManageSharing =
+    role === "owner" || role === "admin" || role === "editor";
+  const linkOnly = Boolean(viewerReshareOnly || !canManageSharing);
   const createAgentLink = useActionMutation(
     "create-recording-agent-link" as any,
   );
@@ -217,9 +234,7 @@ function RecordingShareButton({
     try {
       const origin = apiBaseUrl();
       const result =
-        viewerReshareOnly &&
-        initialVisibility === "public" &&
-        hasPassword === false
+        linkOnly && initialVisibility === "public" && hasPassword === false
           ? {
               contextUrl: buildAgentApiUrls(
                 recordingId,
@@ -253,7 +268,7 @@ function RecordingShareButton({
   );
   useEffect(() => setPasswordProtected(Boolean(hasPassword)), [hasPassword]);
   const blockViewerHandoff = Boolean(
-    viewerReshareOnly &&
+    linkOnly &&
     initialVisibility !== "private" &&
     initialVisibility !== "org" &&
     (initialVisibility !== "public" || hasPassword !== false),
@@ -292,11 +307,28 @@ function RecordingShareButton({
           },
         },
       })}
-      {...(viewerReshareOnly !== undefined && { linkOnly: viewerReshareOnly })}
+      linkOnly={linkOnly}
+      accessNote={
+        initialRole === undefined && !viewerReshareOnly && access.isError ? (
+          <div role="alert" className="flex items-center justify-between gap-2">
+            <span className="text-xs text-muted-foreground">
+              {t("clipsSettings.loadFailed")}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => void access.refetch()}
+            >
+              {t("agentChat.common.retry")}
+            </Button>
+          </div>
+        ) : undefined
+      }
       hideSendTo={blockViewerHandoff}
       generalAccessExtras={(controller) => {
         const role = controller.data?.role ?? initialRole;
-        return !viewerReshareOnly && controller.visibility === "public" ? (
+        return !linkOnly && controller.visibility === "public" ? (
           <RecordingPasswordAccess
             key={`${recordingId}:${session?.userId ?? ""}`}
             recordingId={recordingId}

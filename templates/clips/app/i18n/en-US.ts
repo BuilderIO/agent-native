@@ -554,6 +554,8 @@ const messages = {
     them: "Them",
     me: "Me",
     regeneratingNotes: "Regenerating summary",
+    notesAlreadyGenerating:
+      "A summary is already being generated. It'll show here when it's ready.",
     meetingRemoved: "Meeting removed",
     couldNotRemoveMeeting: "Couldn't remove meeting",
     couldNotLoadMeeting: "Couldn't load this meeting.",

@@ -629,6 +629,8 @@ const messages = {
     them: "彼ら",
     me: "自分",
     regeneratingNotes: "要約を再生成中",
+    notesAlreadyGenerating:
+      "要約はすでに生成中です。完了するとここに表示されます。",
     meetingRemoved: "会議が削除されました",
     couldNotRemoveMeeting: "会議を削除できませんでした",
     couldNotLoadMeeting: "この会議を読み込めませんでした。",

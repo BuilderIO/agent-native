@@ -1562,7 +1562,7 @@ function BlockFieldTabMenu({
         onCloseAutoFocus={(event) => event.preventDefault()}
         data-block-field-menu
       >
-        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+        <DropdownMenuLabel className="font-normal text-muted-foreground">
           {t("editor.blockFieldMenuScope")}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
@@ -2210,22 +2210,39 @@ function AdditionalBlockEditor({
   // against its saved text, in place of that text.
   const suggestionEditor = useBlocksFieldSuggestionEditor(propertyId);
   const session = suggestionEditor?.session ?? null;
-  const needsSession = !!suggestionEditor?.suggesting && !session;
+  // Accepting suggestions shows the tab's text with them in it at once, and
+  // the tab takes no typing until it holds the text they wrote: its own copy
+  // takes that in a render or two after the page reads it, and would show
+  // the old text meanwhile.
+  const landed = suggestionEditor?.landed ?? null;
+  const preview =
+    suggestionEditor?.preview ??
+    (landed &&
+    blockFieldRevision(key, property.blocksField?.revision ?? 0).base <
+      landed.revision
+      ? landed
+      : null);
+  // A draft starts on the text accepting wrote, once the tab holds it.
+  const needsSession = !!suggestionEditor?.suggesting && !session && !preview;
   const startSession = suggestionEditor?.start;
   useEffect(() => {
     if (!needsSession) return;
     const base = suggestionBase();
     if (base) startSession?.(base);
   }, [needsSession, startSession, suggestionBase, suggestionBaseVersion]);
-  // The editor takes no newer text while it shows a draft, and the tab has
-  // no typing of its own to merge then, so newer saved text (an accepted
-  // suggestion) goes straight into the tab's own copy. Its word count stays
-  // current, and the editor shows that text once the draft ends.
-  const showsDraft = session !== null;
+  // The editor takes no newer text while it shows a draft or a preview, and
+  // the tab has no typing it hasn't reported to merge then, so newer saved
+  // text (an accepted suggestion) goes straight into the tab's own copy. Its
+  // word count stays current, and the editor shows that text afterwards.
+  const holdsEditor = session !== null || preview !== null;
   useEffect(() => {
-    if (showsDraft && externalContent) externalContent.merge(null, () => true);
-  }, [externalContent, showsDraft]);
-  const shownContent = session ? session.draft : content;
+    if (holdsEditor && externalContent) externalContent.merge(null, () => true);
+  }, [externalContent, holdsEditor]);
+  const shownContent = preview
+    ? preview.text
+    : session
+      ? session.draft
+      : content;
   const visualsFor = suggestionEditor?.visuals;
   const visuals = useMemo(
     () => visualsFor?.(shownContent),
@@ -2236,15 +2253,24 @@ function AdditionalBlockEditor({
     <VisualEditor
       documentId={documentId}
       content={shownContent}
-      contentResetKey={session ? `suggesting:${session.key}` : null}
-      externalContent={session ? null : externalContent}
+      contentResetKey={
+        preview
+          ? `preview:${preview.key}`
+          : session
+            ? `suggesting:${session.key}`
+            : null
+      }
+      externalContent={holdsEditor ? null : externalContent}
       onChange={(markdown) => {
+        if (preview) return;
         if (session) suggestionEditor?.change(markdown);
         else if (canEdit) onChange(markdown);
       }}
       onSaveContent={async (markdown) => {
-        // A suggestion draft is saved as suggestions, never as the tab's text.
-        if (session || isAcknowledgedContent(markdown)) return "unchanged";
+        // A suggestion draft is saved as suggestions, never as the tab's
+        // text, and a preview is the server's to write.
+        if (preview || session || isAcknowledgedContent(markdown))
+          return "unchanged";
         if (!canEdit && (!allowPendingSave || !isPendingContent(markdown)))
           return "failed";
         return (await onSaveContent(markdown)) ? "persisted" : "failed";
@@ -2252,7 +2278,9 @@ function AdditionalBlockEditor({
       // A decision on the tab's suggestions, or the page's last save before
       // Suggesting mode ends, ends its draft, so the tab takes no typing
       // until it restarts or leaves Suggesting mode.
-      editable={session ? !suggestionEditor?.readOnly : canEdit}
+      editable={
+        preview ? false : session ? !suggestionEditor?.readOnly : canEdit
+      }
       suggesting={!!session}
       suggestions={visuals}
       activeSuggestionId={suggestionEditor?.activeSuggestionId}

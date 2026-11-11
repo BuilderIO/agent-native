@@ -1,7 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
-import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   openMcpAppHostLink,
@@ -127,7 +126,10 @@ import {
 } from "@/hooks/use-notion";
 import { contentAgentPromptValues } from "@/lib/content-agent-prompt";
 import { documentQueryFilter } from "@/lib/document-query";
-import { filesNavigationPageParams } from "@/lib/files-navigation";
+import {
+  filesNavigationPageParams,
+  useFilesNavigationPage,
+} from "@/lib/files-navigation";
 import {
   localSourceAbsolutePath,
   revealLinkedLocalSourceFile,
@@ -683,7 +685,6 @@ function ToolbarBreadcrumbMenuEntry({
   return (
     <DropdownMenuItem
       ref={itemRef}
-      className="gap-2"
       disabled={menuItem.id === currentDocumentId}
       onSelect={() => onOpen(menuItem.id, menuItem.filesDatabaseId)}
     >
@@ -707,15 +708,18 @@ function useBreadcrumbSiblingPage(
   siblings: ToolbarBreadcrumbSiblings,
   options: { enabled: boolean; cursor?: string },
 ) {
-  return useActionQuery<ContentDatabaseNavigationPageResponse>(
-    "query-content-database-items",
+  const page = useFilesNavigationPage(
     filesNavigationPageParams({
       databaseId: siblings.filesDatabaseId,
       parentId: siblings.parentId,
       cursor: options.cursor,
     }),
+    undefined,
     { enabled: options.enabled },
   );
+  const data: ContentDatabaseNavigationPageResponse | undefined =
+    page.data && !("available" in page.data) ? page.data : undefined;
+  return { data, isError: page.isError, refetch: page.refetch };
 }
 
 // Reads the sidebar's cached page for the branch without fetching, so an item
@@ -2113,7 +2117,7 @@ export function DocumentToolbar({
               ) : null}
               {isLocalFileDocument ? (
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  <DropdownMenuLabel className="text-muted-foreground">
                     {t("editor.toolbar.localFile")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem disabled className="min-w-0">

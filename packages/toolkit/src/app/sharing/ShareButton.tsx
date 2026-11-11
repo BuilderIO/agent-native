@@ -635,7 +635,10 @@ function SharePanel(
   );
 
   const sharePanel = props.linkOnly ? (
-    <div className="flex flex-col gap-4">{footer}</div>
+    <div className="flex flex-col gap-4">
+      {props.accessNote}
+      {footer}
+    </div>
   ) : loadFailed ? (
     <div className="flex flex-col gap-4">
       <div

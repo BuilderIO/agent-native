@@ -15,13 +15,18 @@ import {
   parseFrontmatter,
 } from "../../resources/metadata.js";
 import {
+  applySkillChoices,
+  readSkillChoices,
+  requiredSkillPaths,
+} from "../../resources/skill-choices.js";
+import {
   ensurePersonalDefaults,
   isWorkspaceResourceOwner,
   organizationIdFromResourceOwner,
   resourceGet,
   resourceGetByPath,
   resourceList,
-  resourceListAccessible,
+  resourceListAccessibleLayers,
   SHARED_OWNER,
   sharedResourceOwner,
   type Resource,
@@ -765,6 +770,20 @@ class RequiredSkillLabsReadError extends Error {
   }
 }
 
+class SkillChoicesReadError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "SkillChoicesReadError";
+  }
+}
+
+class RequiredSkillReadError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = "RequiredSkillReadError";
+  }
+}
+
 async function loadResourceSkillPromptEntries(
   owner: string,
   orgId?: string | null,
@@ -776,19 +795,44 @@ async function loadResourceSkillPromptEntries(
   hasOmittedSkills: boolean;
 }> {
   try {
-    const resources =
+    // Without an orgId, each read falls back to the request's organization.
+    const inOrg = orgId === undefined ? {} : { orgId };
+    // Each person's switches and the organization's marks decide which
+    // skills the agent sees; Required ones come first so they win. Without
+    // them the prompt would leave out a Required skill or include one the
+    // person switched off, so a failed read fails the prompt, as labs do.
+    const choices = await readSkillChoices({
+      email: owner === SHARED_OWNER ? null : owner,
+      orgId: orgId === undefined ? (getRequestOrgId() ?? null) : orgId,
+    }).catch((error) => {
+      throw new SkillChoicesReadError(error);
+    });
+    const listLayers = async () =>
       owner === SHARED_OWNER
-        ? [
-            ...(await resourceList(SHARED_OWNER, "skills/")),
-            ...(await resourceList(WORKSPACE_OWNER, "skills/", { orgId })),
-          ]
-        : await resourceListAccessible(owner, "skills/", { orgId });
-    const sorted = sortResourceSkills(
+        ? {
+            personal: [],
+            organization: await resourceList(SHARED_OWNER, "skills/"),
+            workspace: await resourceList(WORKSPACE_OWNER, "skills/", inOrg),
+          }
+        : await resourceListAccessibleLayers(owner, "skills/", inOrg);
+    const layers = await listLayers().catch((error) => {
+      // An unlisted catalog would leave out skills marked Required, which
+      // are meant to be always on; without marks it stays empty, as before.
+      if (requiredSkillPaths(choices).length > 0) {
+        throw new RequiredSkillReadError(error);
+      }
+      throw error;
+    });
+    const { required, rest } = applySkillChoices(layers, choices);
+    const listed = (resources: typeof required) =>
       includeSupportingFiles
         ? resources
-        : resources.filter((resource) => isSkillPath(resource.path)),
-      { owner, ...(orgId !== undefined ? { orgId } : {}) },
-    );
+        : resources.filter((resource) => isSkillPath(resource.path));
+    const sorted = [
+      ...sortResourceSkills(listed(required), { owner, ...inOrg }),
+      ...sortResourceSkills(listed(rest), { owner, ...inOrg }),
+    ];
+    const requiredIds = new Set(required.map((resource) => resource.id));
     const seen = new Set<string>();
     const entries: ResourceSkillPromptEntry[] = [];
     let metadataRead = 0;
@@ -810,9 +854,15 @@ async function loadResourceSkillPromptEntries(
       const loaded = await Promise.all(
         skillCandidates.map(async (resource) => ({
           resource,
-          full: await resourceGet(resource.id, {
-            ...(orgId !== undefined ? { orgId } : {}),
-          }).catch(() => null), // coercion-ok: an unreadable optional skill is absent from Jev's catalog, not a required prompt failure.
+          full: await resourceGet(resource.id, inOrg).catch((error) => {
+            // Without a Required skill's name, someone's same-named skill
+            // could stand in for it, so it fails the prompt, as choices do.
+            if (requiredIds.has(resource.id)) {
+              throw new RequiredSkillReadError(error);
+            }
+            // coercion-ok: an unreadable optional skill is absent from Jev's catalog, not a required prompt failure.
+            return null;
+          }),
         })),
       );
       const parsed = loaded.map(({ resource, full }) => ({
@@ -839,11 +889,19 @@ async function loadResourceSkillPromptEntries(
         : new Set<string>();
       for (const { resource, full, meta } of parsed) {
         if (!full?.content || !meta) continue;
-        if (meta.userInvocable === false) continue;
-        if (!isRuntimeVisibleScope(meta.scope)) continue;
-        if (meta.requiresLab && !enabledLabs.has(meta.requiresLab)) continue;
         const name = meta.name || getSkillNameFromPath(resource.path);
         if (!name || seen.has(name)) continue;
+        // A Required skill holds its name even when it isn't listed, so a
+        // same-named one of the person's own stays unused, as references and
+        // Settings have it.
+        if (requiredIds.has(resource.id)) seen.add(name);
+        if (
+          !isRuntimeVisibleScope(meta.scope) ||
+          (meta.requiresLab && !enabledLabs.has(meta.requiresLab)) ||
+          meta.userInvocable === false
+        ) {
+          continue;
+        }
         if (entries.length >= PROMPT_SKILL_SUMMARY_LIMIT) {
           hasOmittedSkills = true;
           continue;
@@ -859,7 +917,13 @@ async function loadResourceSkillPromptEntries(
     }
     return { entries, total: sorted.length, metadataRead, hasOmittedSkills };
   } catch (error) {
-    if (error instanceof RequiredSkillLabsReadError) throw error;
+    if (
+      error instanceof RequiredSkillLabsReadError ||
+      error instanceof SkillChoicesReadError ||
+      error instanceof RequiredSkillReadError
+    ) {
+      throw error;
+    }
     return { entries: [], total: 0, metadataRead: 0, hasOmittedSkills: false };
   }
 }
