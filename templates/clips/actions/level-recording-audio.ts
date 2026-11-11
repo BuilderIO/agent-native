@@ -60,6 +60,8 @@ const outputSchema = z.object({
   repairsRemaining: z.number().int().optional(),
   /** Set when the pending repairs could not be read; the sweep ran without them. */
   repairListError: z.string().optional(),
+  /** Stale repair markers (clip gone) that could not be removed; they still count in `repairsRemaining`. */
+  staleRepairClearFailed: z.array(z.string()).optional(),
   /** True when the sweep has more clips; call again (with nextBefore if set). */
   moreRemaining: z.boolean().optional(),
   /** Clips that failed in a retryable way; pass them as `ids` to try again. */
@@ -369,6 +371,7 @@ export default defineAction({
     const repairStatus = new Map(results.map((r) => [r.recordingId, r.status]));
     // A listed repair whose clip is gone is the caller's own stale marker
     // (application state is per user): drop it so it cannot stay pending.
+    const staleRepairClearFailed: string[] = [];
     for (const id of repairIds) {
       if (repairStatus.get(id) !== "not-found") continue;
       try {
@@ -379,6 +382,7 @@ export default defineAction({
           err,
         });
         repairStatus.delete(id);
+        staleRepairClearFailed.push(id);
       }
     }
     const repairsRemaining =
@@ -398,6 +402,7 @@ export default defineAction({
       ...(unprocessedIds.length > 0 ? { unprocessedIds } : {}),
       ...(repairsRemaining > 0 ? { repairsRemaining } : {}),
       ...(repairListError ? { repairListError } : {}),
+      ...(staleRepairClearFailed.length > 0 ? { staleRepairClearFailed } : {}),
       ...(retryIds.length > 0 ? { retryIds } : {}),
       ...(args.all &&
       (sweepPending || sweepFilledBatch || reachedCount < sweepRows.length)
