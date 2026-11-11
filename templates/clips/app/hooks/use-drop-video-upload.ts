@@ -350,9 +350,16 @@ export function useDropVideoUpload(
                 : {}),
               ...(httpStatus ? { httpStatus } : {}),
             }),
-          }).catch((abortError) => {
-            console.warn("[clips] dropped-upload cleanup failed", abortError);
-          });
+          })
+            .catch((abortError) => {
+              console.warn("[clips] dropped-upload cleanup failed", abortError);
+            })
+            .finally(() => {
+              // The abort is what gives the clip back.
+              void queryClient.invalidateQueries({
+                queryKey: VIDEO_STORAGE_STATUS_KEY,
+              });
+            });
         }
         toast.error(t("recordRoute.uploadFailed"), {
           description: t("recordRoute.tryAgain"),
@@ -365,6 +372,11 @@ export function useDropVideoUpload(
         });
       } finally {
         remove();
+        // A failed create or a cleaned-up upload can give its clip back, so
+        // the count is read again whatever happened.
+        void queryClient.invalidateQueries({
+          queryKey: VIDEO_STORAGE_STATUS_KEY,
+        });
       }
     },
     [invalidateRecordings, queryClient, t],
