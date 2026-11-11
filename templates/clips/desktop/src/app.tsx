@@ -1500,10 +1500,17 @@ export function App({
     return probe === "configured";
   }, [authStatus, serverUrl, signedInAs, videoStorageIdentity]);
 
-  // Read again as each recording starts and ends: a hosted one uses a free
-  // clip, so the next Start has to see the new count.
   useEffect(() => {
     void refreshVideoStorageStatus();
+  }, [refreshVideoStorageStatus]);
+
+  // A hosted recording uses a free clip, so read the count again once it
+  // ends. Not as it starts: the last clip would read as used up mid-take.
+  const wasRecordingRef = useRef(isRecording);
+  useEffect(() => {
+    const ended = wasRecordingRef.current && !isRecording;
+    wasRecordingRef.current = isRecording;
+    if (ended) void refreshVideoStorageStatus();
   }, [isRecording, refreshVideoStorageStatus]);
 
   useEffect(() => {

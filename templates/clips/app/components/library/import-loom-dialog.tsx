@@ -2,6 +2,7 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { isYouTubeUrl } from "@shared/youtube";
 import { IconLink, IconLoader2, IconUpload } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 
@@ -17,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useSonnerLifecycleToast } from "@/hooks/use-sonner-lifecycle-toast";
 import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
+import { VIDEO_STORAGE_STATUS_KEY } from "@/hooks/use-video-storage-status";
 
 export interface ImportLoomDialogProps {
   open: boolean;
@@ -43,6 +45,7 @@ export function ImportLoomDialog({
 }: ImportLoomDialogProps) {
   const t = useT();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { input, openUploadPicker } = useUploadVideoPicker();
   const {
     error: failImportToast,
@@ -93,6 +96,11 @@ export function ImportLoomDialog({
       if (!result.recordingId) {
         throw new Error(failureTitle);
       }
+      // The import used a free clip; the count and the gates read it from
+      // the shared status.
+      void queryClient.invalidateQueries({
+        queryKey: VIDEO_STORAGE_STATUS_KEY,
+      });
 
       if (result.storageSetupRequired || result.status === "waiting_storage") {
         infoImportToast(t("recordRoute.storageNeededToFinishLoomImport"), {

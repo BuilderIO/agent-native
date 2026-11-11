@@ -15,6 +15,7 @@ import {
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 
 import { FreeClipsLimitCard } from "./free-clips-limit-card";
+import { trackFreeClipsOffer } from "./use-builder-storage-activation";
 
 const LAST_CLIP_PROMPT_SEEN_KEY = "clips:last-clip-prompt-seen";
 
@@ -54,8 +55,8 @@ export function useFreeClipsGate(action: "record" | "upload") {
   const storage = useVideoStorageStatus();
   const [open, setOpen] = useState(false);
   const [promptSeen, setPromptSeen] = useState(lastClipPromptSeen);
-  // Every action held while the prompt is open; a second drop onto the open
-  // prompt mustn't replace the first.
+  // The actions held while the prompt is open. A repeat of the same control
+  // replaces its action; `queue` keeps each one, for drops of separate files.
   const pendingRef = useRef<(() => void)[]>([]);
   const openRef = useRef(false);
   const status = storage.data;
@@ -63,12 +64,14 @@ export function useFreeClipsGate(action: "record" | "upload") {
   const lastClip =
     !promptSeen && status?.mode === "hosted" && status.hostedRemaining === 1;
 
-  const guard = (proceed: () => void): boolean => {
+  const guard = (
+    proceed: () => void,
+    { queue = false }: { queue?: boolean } = {},
+  ): boolean => {
     if (!status || (!usedUp && !lastClip)) return false;
     if (lastClip) markLastClipPromptSeen();
-    pendingRef.current = openRef.current
-      ? [...pendingRef.current, proceed]
-      : [proceed];
+    pendingRef.current =
+      queue && openRef.current ? [...pendingRef.current, proceed] : [proceed];
     openRef.current = true;
     // After the click settles, so a menu closing on it can't close this too.
     setTimeout(() => setOpen(true), 0);
@@ -93,8 +96,21 @@ export function useFreeClipsGate(action: "record" | "upload") {
     <Popover
       open={open}
       onOpenChange={(next) => {
-        if (!next) close();
-        else setOpen(true);
+        if (next) {
+          setOpen(true);
+          return;
+        }
+        // Escape or a click outside; the card's own buttons track themselves.
+        if (status) {
+          trackFreeClipsOffer("clips_free_clips_offer_dismissed", {
+            surface: "library_limit_popover",
+            milestone: usedUp ? "used_up" : "last_clip_intent",
+            remaining: usedUp ? 0 : 1,
+            limit: status.hostedLimit,
+            action,
+          });
+        }
+        close();
       }}
     >
       {children}

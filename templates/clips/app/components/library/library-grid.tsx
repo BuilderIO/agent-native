@@ -707,7 +707,7 @@ export function LibraryGrid({
           toast.error(t("recordRoute.uploadFailed"));
         });
     };
-    if (dropGate.guard(proceed)) return;
+    if (dropGate.guard(proceed, { queue: true })) return;
     proceed();
   };
 
