@@ -1358,7 +1358,6 @@ class SyncTransport {
         void this.poll(true);
       } else if (
         readNextPage &&
-        !this.stopped &&
         !isDocumentHidden() &&
         this.backlogPages < MAX_BACKLOG_PAGES
       ) {
