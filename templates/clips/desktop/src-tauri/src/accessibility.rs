@@ -202,15 +202,27 @@ pub async fn read_focused_field_text() -> Result<String, String> {
     }
 }
 
-pub fn focused_text_field_available() -> bool {
+/// Whether the focused UI element takes text. `None` means Accessibility could
+/// not answer (the app did not reply in time, which happens on a busy Mac); the
+/// caller should then try to paste rather than give up.
+pub fn focused_text_field_state() -> Option<bool> {
     #[cfg(target_os = "macos")]
     {
-        macos::focused_text_field_available_impl()
+        macos::focused_text_field_state_impl()
     }
     #[cfg(not(target_os = "macos"))]
     {
-        false
+        Some(false)
     }
+}
+
+/// Paste unless Accessibility positively says the focus is not a text field.
+pub fn should_paste(state: Option<bool>) -> bool {
+    state.unwrap_or(true)
+}
+
+pub fn focused_text_field_available() -> bool {
+    should_paste(focused_text_field_state())
 }
 
 #[tauri::command]
@@ -240,6 +252,13 @@ pub async fn accessibility_request_permission() -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pastes_unless_accessibility_says_no_text_field() {
+        assert!(should_paste(Some(true)));
+        assert!(should_paste(None));
+        assert!(!should_paste(Some(false)));
+    }
 
     #[test]
     fn ax_text_is_bounded_and_budgeted() {
@@ -486,23 +505,49 @@ pub(crate) mod macos {
         }
     }
 
-    pub fn focused_text_field_available_impl() -> bool {
+    /// AX errors that mean "the app did not answer", not "nothing is focused".
+    fn ax_error_is_unanswered(error: AXError) -> bool {
+        // kAXErrorCannotComplete, kAXErrorFailure, kAXErrorNotImplemented.
+        matches!(error, -25204 | -25200 | -25208)
+    }
+
+    pub fn focused_text_field_state_impl() -> Option<bool> {
         unsafe {
             if !is_trusted(false) {
-                return false;
+                return Some(false);
             }
 
             let system = AXUIElementCreateSystemWide();
             if system.is_null() {
-                return false;
+                return None;
             }
-            let focused = copy_ax_element_attribute(system, "AXFocusedUIElement");
+            let attribute = cfstr("AXFocusedUIElement");
+            if attribute.is_null() {
+                CFRelease(system as CFTypeRef);
+                return None;
+            }
+            let mut value = ptr::null();
+            let error = AXUIElementCopyAttributeValue(system, attribute, &mut value);
+            CFRelease(attribute as CFTypeRef);
             CFRelease(system as CFTypeRef);
-            let Some(focused) = focused else {
-                return false;
-            };
+            if error != AX_ERROR_SUCCESS || value.is_null() {
+                eprintln!("[accessibility] focused element lookup failed (AXError {error})");
+                return if ax_error_is_unanswered(error) {
+                    None
+                } else {
+                    Some(false)
+                };
+            }
+            let focused = value as AXUIElementRef;
 
             let role = ax_string_attribute(focused, "AXRole");
+            if role.is_none() {
+                // The element exists but did not say what it is: an app too busy
+                // to answer, not proof that there is no text field.
+                CFRelease(focused as CFTypeRef);
+                eprintln!("[accessibility] focused element has no readable role");
+                return None;
+            }
             let has_text_role = matches!(
                 role.as_deref(),
                 Some("AXTextField")
@@ -521,7 +566,15 @@ pub(crate) mod macos {
             let has_value = ax_string_attribute(focused, "AXValue").is_some();
             CFRelease(focused as CFTypeRef);
 
-            has_text_role || (is_web_area && is_editable && (has_selected_range || has_value))
+            let takes_text =
+                has_text_role || (is_web_area && is_editable && (has_selected_range || has_value));
+            if !takes_text {
+                eprintln!(
+                    "[accessibility] focused element is not a text field (role {})",
+                    role.as_deref().unwrap_or("-")
+                );
+            }
+            Some(takes_text)
         }
     }
 

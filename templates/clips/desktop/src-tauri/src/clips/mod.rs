@@ -2681,7 +2681,17 @@ pub fn remember_voice_target(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
         let target = frontmost_bundle_identifier();
-        let has_text_field = crate::accessibility::focused_text_field_available();
+        let state = crate::accessibility::focused_text_field_state();
+        let has_text_field = crate::accessibility::should_paste(state);
+        eprintln!(
+            "[clips-tray] voice target {}: text field {}",
+            target.as_deref().unwrap_or("-"),
+            match state {
+                Some(true) => "yes",
+                Some(false) => "no",
+                None => "unknown (Accessibility did not answer; will paste)",
+            }
+        );
         if let Some(state) = app.try_state::<VoiceTargetBundle>() {
             if let Ok(mut g) = state.0.lock() {
                 *g = target;
