@@ -412,6 +412,14 @@ describe("comment Markdown and the box's document", () => {
     expect(chips(commentMarkdownToDoc("@Samantha mail@Sam", people))).toEqual(
       [],
     );
+    // The `_` of `@Sam_`, saved escaped, still runs on from the name.
+    const typed = commentDocToMarkdown(lines("Hi @Sam_ there"));
+    expect(typed).toBe("Hi @Sam\\_ there");
+    expect(chips(commentMarkdownToDoc(typed, people))).toEqual([]);
+    expect(roundTrip(typed)).toBe(typed);
+    expect(chips(commentMarkdownToDoc("Hi @Sam\\* there", people))).toEqual([
+      "Sam",
+    ]);
     expect(
       chips(
         commentMarkdownToDoc(

@@ -872,7 +872,7 @@ class MentionLabels<M extends CommentMentionCandidate> {
       if (!node) break;
       end += char.length;
       if (node.mention === undefined) continue;
-      const next = codePointAt(body, end);
+      const next = readCharAt(body, end);
       const endsWord = !(NAME_CHAR.test(char) && next && NAME_CHAR.test(next));
       if (endsWord) longest = node.mention;
     }
@@ -928,6 +928,16 @@ function codePointBefore(text: string, index: number): string | undefined {
 function codePointAt(text: string, index: number): string | undefined {
   const codePoint = text.codePointAt(index);
   return codePoint === undefined ? undefined : String.fromCodePoint(codePoint);
+}
+
+/**
+ * The character at `index` as the comment shows it: for a backslash escape,
+ * such as the `\_` the box saves after `@Sam` in `@Sam_`, the one escaped.
+ */
+function readCharAt(text: string, index: number): string | undefined {
+  const char = codePointAt(text, index);
+  const escaped = text.charAt(index + 1);
+  return char === "\\" && /[!-/:-@[-`{-~]/.test(escaped) ? escaped : char;
 }
 
 function safeDecodeURIComponent(value: string): string {
