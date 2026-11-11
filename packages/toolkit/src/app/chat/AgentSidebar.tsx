@@ -1892,6 +1892,10 @@ export function AgentSidebar({
 
   const hostedPanelHeld =
     Boolean(hostedPanel) && shouldRenderPanel && !hostedPanelSettled;
+  // Focus inside a held chat, from its tab's key or Tab, shows it at once
+  // rather than leaving someone typing into a box they can't see. The head's
+  // controls render from inside the chat, so their focus arrives here too.
+  const revealHostedPanel = useCallback(() => setHostedPanelSettled(true), []);
   // A chat that never says it has settled still shows, just in parts.
   useEffect(() => {
     if (!hostedPanelHeld) return;
@@ -1911,6 +1915,7 @@ export function AgentSidebar({
           data-agent-sidebar-state={panelOpen ? "open" : "closed"}
           aria-busy={hostedPanelHeld || undefined}
           inert={!panelOpen || undefined}
+          onFocus={hostedPanelHeld ? revealHostedPanel : undefined}
         >
           <div
             ref={panelElementRef}

@@ -386,6 +386,9 @@ function IconTooltip({
  * trigger of its own, so when it closes with focus nowhere, focus comes back
  * here rather than to the page.
  */
+/** The chat picker's button in a host's panel head, sized to its title. */
+const HEADER_HOST_PICKER_CLASS = "h-8 ps-1.5 text-sm font-semibold";
+
 function AgentPanelHistoryToggle({
   open,
   onToggle,
@@ -1724,7 +1727,7 @@ function AgentPanelInner({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-        {onCollapse && showCollapseButton && (
+        {onCollapse && showCollapseButton && !headerHost && (
           <IconTooltip content={t("agentPanel.collapseSidebar")}>
             <button
               type="button"
@@ -2074,10 +2077,11 @@ function AgentPanelInner({
           </AgentPanelTabList>
         </div>
       );
-      const renderUnifiedSurfaceTabs = () =>
+      const renderUnifiedSurfaceTabs = (triggerClassName?: string) =>
         mode === "cli" ? (
           <AgentPanelThreadNav
             layout={sidebarTabLayout}
+            triggerClassName={triggerClassName}
             tabListLabel={t("agentChat.agentPanel.terminalTabs")}
             items={cliTabs.map((id, index) => ({
               id,
@@ -2099,6 +2103,7 @@ function AgentPanelInner({
         ) : (
           <AgentPanelThreadNav
             layout={sidebarTabLayout}
+            triggerClassName={triggerClassName}
             tabListLabel={t("agentChat.agentPanel.chatTabs")}
             items={chatThreadItems()}
             activeTabRef={activeTabRefCb}
@@ -2135,7 +2140,10 @@ function AgentPanelInner({
                 data-agent-panel-head=""
               >
                 <div className="flex min-w-0 flex-1 items-center">
-                  {mode === "chat" ? (
+                  {/* Terminals keep their picker, which also leads back to chat. */}
+                  {mode === "cli" ? (
+                    renderUnifiedSurfaceTabs(HEADER_HOST_PICKER_CLASS)
+                  ) : mode === "chat" ? (
                     <AgentPanelThreadSwitcher
                       tabListLabel={t("agentChat.agentPanel.chatTabs")}
                       items={chatThreadItems()}
@@ -2143,7 +2151,7 @@ function AgentPanelInner({
                       onClose={closeTab}
                       newLabel={newChatLabel}
                       closeLabel={t("agentPanel.closeTab")}
-                      triggerClassName="h-8 ps-1.5 text-sm font-semibold"
+                      triggerClassName={HEADER_HOST_PICKER_CLASS}
                     />
                   ) : null}
                 </div>

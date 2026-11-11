@@ -455,10 +455,15 @@ export function AgentPanelThreadTabStrip(props: AgentPanelThreadNavProps) {
 
 export function AgentPanelThreadNav({
   layout,
+  triggerClassName,
   ...props
-}: AgentPanelThreadNavProps & { layout: AgentPanelTabLayout }) {
+}: AgentPanelThreadNavProps & {
+  layout: AgentPanelTabLayout;
+  /** Classes for the switcher's button; tabs ignore it. */
+  triggerClassName?: string;
+}) {
   return layout === "switcher" ? (
-    <AgentPanelThreadSwitcher {...props} />
+    <AgentPanelThreadSwitcher {...props} triggerClassName={triggerClassName} />
   ) : (
     <AgentPanelThreadTabStrip {...props} />
   );

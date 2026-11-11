@@ -2,7 +2,7 @@
 
 import { AssistantRuntimeProvider, useLocalRuntime } from "@assistant-ui/react";
 import React, { act } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -90,6 +90,12 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       mockPanel.headerHost = headerHost;
       mockPanel.suggestionLayout = suggestionLayout;
       mockPanel.onSettledChange = onSettledChange;
+      const headTool = headerHost
+        ? createPortal(
+            <button type="button" data-testid="head-tool" />,
+            headerHost,
+          )
+        : null;
       React.useEffect(() => {
         mockPanel.onNavigationChange = onNavigationChange;
         const record = (event: Event) => {
@@ -123,6 +129,7 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       return (
         <div data-agent-sidebar-panel-loaded="true">
           {mockPanel.composer ?? <textarea aria-label="Chat composer" />}
+          {headTool}
         </div>
       );
     },
@@ -2485,6 +2492,34 @@ describe("AgentSidebar panel", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it("shows the chat at once when focus goes into its box", async () => {
+      mockPanel.resolveImport();
+      const host = renderHosted();
+      await act(async () => {});
+
+      await act(async () => host.querySelector("textarea")?.focus());
+      expect(placeholder(host)).toBeNull();
+      host.remove();
+    });
+
+    it("shows the chat at once when focus goes into its head", async () => {
+      mockPanel.resolveImport();
+      const head = document.createElement("div");
+      document.body.appendChild(head);
+      const host = renderHosted(true, head);
+      await act(async () => {});
+
+      const tool = head.querySelector<HTMLButtonElement>(
+        "[data-testid='head-tool']",
+      );
+      expect(tool).toBeTruthy();
+      expect(placeholder(host)).toBeTruthy();
+      await act(async () => tool?.focus());
+      expect(placeholder(host)).toBeNull();
+      host.remove();
+      head.remove();
     });
 
     it("puts the chat's tools in the host's panel head, hidden with the chat", async () => {

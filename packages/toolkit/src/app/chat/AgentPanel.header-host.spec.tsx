@@ -153,6 +153,34 @@ describe("AgentPanel in a host's panel head", () => {
     expect(document.activeElement).toBe(toggle);
   });
 
+  it("leaves closing to the host, with no collapse button of its own", async () => {
+    await render();
+
+    expect(document.querySelector('[aria-label="Collapse sidebar"]')).toBe(
+      null,
+    );
+  });
+
+  it("keeps the terminal picker there in terminal mode", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <AgentPanel
+            storageKey="header-host-cli-test"
+            onCollapse={() => {}}
+            headerHost={head}
+            defaultMode="cli"
+            renderCliTab={() => <div />}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    const picker = head.querySelector("[data-agent-thread-switcher]");
+    expect(picker?.textContent).toContain("Terminal 1");
+    expect(picker?.className).toContain("h-8");
+  });
+
   it("leaves focus that has moved on when the list closes", async () => {
     header.showHistory = true;
     await render();

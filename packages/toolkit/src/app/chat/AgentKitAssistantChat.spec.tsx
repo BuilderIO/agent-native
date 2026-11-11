@@ -3290,6 +3290,20 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(onSettledChange).toHaveBeenLastCalledWith(false);
     });
 
+    it("does not wait for suggestions it shows only after the agent replies", async () => {
+      chatMocks.dynamicSuggestionsLoading = true;
+      const onSettledChange = vi.fn();
+      await mount(
+        baseProps({
+          suggestionPlacement: "context-chips",
+          suggestionVisibility: "after-agent-response",
+          onSettledChange,
+        }),
+      );
+
+      expect(onSettledChange).toHaveBeenLastCalledWith(true);
+    });
+
     it("does not wait for suggestions it will not show", async () => {
       chatMocks.dynamicSuggestionsLoading = true;
       const onSettledChange = vi.fn();
