@@ -63,10 +63,15 @@ const COMPACT_MENU_CLASS =
 const WIDE_MENU_CLASS =
   "h-[min(680px,calc(85vh-1rem))] w-[calc(100vw-1rem)] max-w-5xl [&_[cmdk-list]]:min-h-0 [&_[cmdk-list]]:max-h-none [&_[cmdk-list]]:flex-1 [&_[cmdk-root]]:h-full";
 
-const THEME_ORDER = ["system", "light", "dark"] as const;
 const THEME_PREFERENCE_STORAGE_KEY = "content-theme-preference";
 
-type ThemeOption = (typeof THEME_ORDER)[number];
+type ThemeOption = "system" | "light" | "dark";
+
+const NEXT_THEME: Record<ThemeOption, ThemeOption> = {
+  system: "light",
+  light: "dark",
+  dark: "system",
+};
 
 function isThemeOption(value: string | null | undefined): value is ThemeOption {
   return value === "light" || value === "system" || value === "dark";
@@ -98,7 +103,7 @@ function writeStoredThemePreference(theme: ThemeOption) {
 }
 
 function nextTheme(theme: ThemeOption): ThemeOption {
-  return THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length];
+  return NEXT_THEME[theme];
 }
 
 function useThemeToggle() {
@@ -259,16 +264,21 @@ export function contentCommandGroups({
         const parentTitle = known?.parentId
           ? titleById.get(known.parentId)?.title
           : undefined;
+        const description = [parentTitle, entry.viewName]
+          .filter(Boolean)
+          .join(" · ");
         return {
           id: recentCommandId(entry),
           order: index,
           label: entry.title || t("sidebar.untitled"),
-          description:
-            [parentTitle, entry.viewName].filter(Boolean).join(" · ") ||
-            undefined,
-          metadata: known?.updatedAt
-            ? t("root.searchModified", { date: formatDate(known.updatedAt) })
-            : undefined,
+          ...(description ? { description } : {}),
+          ...(known?.updatedAt
+            ? {
+                metadata: t("root.searchModified", {
+                  date: formatDate(known.updatedAt),
+                }),
+              }
+            : {}),
           deferSelect: false,
           onSelect: () => actions.openRecent(entry),
         };

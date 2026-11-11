@@ -239,8 +239,8 @@ export function DateSearchChoice({
 }: {
   label: string;
   triggerLabel: string;
-  presetValue?: DatePreset;
-  selectedDay?: Date;
+  presetValue?: DatePreset | undefined;
+  selectedDay?: Date | undefined;
   onSelectPreset: (value: DatePreset) => void;
   onPickDay: (day: Date) => void;
   focusInput: () => void;
@@ -407,7 +407,7 @@ function CommandPreviewPane({
   selectedValue: string | undefined;
   documents: CommandSearchDocumentResult[];
   needles: string[];
-  commandPreview?: (value: string) => ReactNode;
+  commandPreview?: ((value: string) => ReactNode) | undefined;
 }) {
   const t = useT();
   const { formatDate } = useFormatters();
@@ -509,8 +509,8 @@ export function SearchPage({
   renderList: (results?: ReactNode) => ReactNode;
   staticItems: ReactNode;
   titleIndex: NormalizedTitleCandidate<CommandSearchDocumentResult>[];
-  selectedValue?: string;
-  commandPreview?: (value: string) => ReactNode;
+  selectedValue?: string | undefined;
+  commandPreview?: ((value: string) => ReactNode) | undefined;
 }) {
   const t = useT();
   const navigate = useNavigate();
@@ -737,12 +737,12 @@ export function ContentCommandSearchResults({
   renderList: (results?: ReactNode) => ReactNode;
   staticItems: ReactNode;
   /** The chosen scope, when the menu owns it; otherwise kept here. */
-  scope?: string | null;
-  onScopeChange?: (scope: string | null) => void;
+  scope?: string | null | undefined;
+  onScopeChange?: ((scope: string | null) => void) | undefined;
   /** The highlighted row, for the preview pane. */
-  selectedValue?: string;
+  selectedValue?: string | undefined;
   /** Preview for a highlighted row that isn't a page result. */
-  commandPreview?: (value: string) => ReactNode;
+  commandPreview?: ((value: string) => ReactNode) | undefined;
 }) {
   const t = useT();
   const { formatDate } = useFormatters();

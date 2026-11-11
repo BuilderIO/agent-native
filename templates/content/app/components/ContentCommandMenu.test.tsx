@@ -87,9 +87,13 @@ import {
 const t = (key: string, options?: Record<string, unknown>) =>
   options ? `${key} ${JSON.stringify(options)}` : key;
 
-function required<T>(element: T | null): T {
+function required<T>(element: T | null | undefined): T {
   if (!element) throw new Error("Expected the command menu to render it");
   return element;
+}
+
+function at<T>(list: readonly T[], index: number): T {
+  return required(list[index]);
 }
 
 function recentEntry(documentId: string, title: string): ContentRecentResult {
@@ -143,7 +147,9 @@ describe("contentCommandGroups", () => {
   it("leads with commands for the open page, then create and app actions", () => {
     const groups = groupsFor();
     expect(groups.map((group) => group.id)).toEqual(["page", "create", "app"]);
-    expect(groups[0].heading).toBe('root.commandOnPage {"title":"Roadmap"}');
+    expect(at(groups, 0).heading).toBe(
+      'root.commandOnPage {"title":"Roadmap"}',
+    );
     expect(commandIds("page", groups)).toEqual([
       "search-in-page",
       "copy-link",
@@ -151,7 +157,7 @@ describe("contentCommandGroups", () => {
       "move",
       "add-sub-page",
     ]);
-    const searchInPage = groups[0].commands[0];
+    const searchInPage = at(at(groups, 0).commands, 0);
     expect(searchInPage.shortcutHint).toBe("Tab");
     expect(searchInPage.closeOnSelect).toBe(false);
   });
@@ -166,7 +172,7 @@ describe("contentCommandGroups", () => {
         scoped: false,
       },
     });
-    const pin = groups[0].commands.find((command) => command.id === "pin");
+    const pin = at(groups, 0).commands.find((command) => command.id === "pin");
     expect(pin?.label).toBe("sidebar.removeFromFavorites");
   });
 
@@ -197,7 +203,7 @@ describe("contentCommandGroups", () => {
         scoped: false,
       },
     });
-    expect(groups[0].heading).toBe("root.searchThisPage");
+    expect(at(groups, 0).heading).toBe("root.searchThisPage");
     expect(commandIds("page", groups)).toEqual(["search-in-page", "copy-link"]);
   });
 
@@ -267,8 +273,8 @@ describe("contentCommandGroups", () => {
       "c",
       "d",
     ]);
-    expect(recent?.commands[0].description).toBe("Parent");
-    expect(recent?.commands[0].metadata).toBe(
+    expect(at(required(recent).commands, 0).description).toBe("Parent");
+    expect(at(required(recent).commands, 0).metadata).toBe(
       'root.searchModified {"date":"2026-11-03"}',
     );
   });
@@ -284,7 +290,7 @@ describe("contentCommandGroups", () => {
       "app",
       "agent",
     ]);
-    const ask = groups[groups.length - 1].commands[0];
+    const ask = at(at(groups, groups.length - 1).commands, 0);
     expect(ask.label).toBe('root.commandAskAgent {"query":"launch plan"}');
   });
 
