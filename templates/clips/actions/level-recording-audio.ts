@@ -53,6 +53,8 @@ const outputSchema = z.object({
   message: z.string().optional(),
   nextBefore: z.string().optional(),
   unprocessedIds: z.array(z.string()).optional(),
+  /** Clips still waiting for a retry after a rejected leveling dispatch; call again with `all: true`. */
+  repairsRemaining: z.number().int().optional(),
   /** True when the sweep has more clips; call again (with nextBefore if set). */
   moreRemaining: z.boolean().optional(),
   /** Clips that failed in a retryable way; pass them as `ids` to try again. */
@@ -219,19 +221,18 @@ export default defineAction({
     }
 
     const targetIds = [...explicitIds];
+    let repairsRemaining = 0;
     if (args.all) {
       // Clips whose leveling job could not be queued come first, so a failed
       // dispatch is retried by the next sweep.
-      const repairIds = await listAudioLevelRepairIds(
+      const repairs = await listAudioLevelRepairIds(
         MAX_TARGETS_PER_CALL - targetIds.length,
-      ).catch(
-        (err: unknown) => {
-          console.warn("[level-recording-audio] could not list repairs", err);
-          return [] as string[];
-        },
-      );
-      for (const id of repairIds) {
-        if (targetIds.length >= MAX_TARGETS_PER_CALL) break;
+      ).catch((err: unknown) => {
+        console.warn("[level-recording-audio] could not list repairs", err);
+        return { ids: [] as string[], remaining: 0 };
+      });
+      repairsRemaining = repairs.remaining;
+      for (const id of repairs.ids) {
         if (!targetIds.includes(id)) targetIds.push(id);
       }
     }
@@ -359,6 +360,7 @@ export default defineAction({
       results,
       ...(nextBefore ? { nextBefore } : {}),
       ...(unprocessedIds.length > 0 ? { unprocessedIds } : {}),
+      ...(repairsRemaining > 0 ? { repairsRemaining } : {}),
       ...(retryIds.length > 0 ? { retryIds } : {}),
       ...(args.all &&
       (sweepPending || sweepFilledBatch || reachedCount < sweepRows.length)

@@ -60,17 +60,19 @@ export async function clearAudioLevelRepairPending(
 }
 
 /**
- * Up to `limit` recording ids with a pending repair marker, oldest first.
- * Application state is scoped to the signed-in user, so this lists only the
- * caller's own markers.
+ * Up to `limit` recording ids with a pending repair marker, oldest first, and
+ * how many pending markers are left after them. Application state is scoped to
+ * the signed-in user, so this lists only the caller's own markers.
  */
-export async function listAudioLevelRepairIds(limit: number): Promise<string[]> {
-  if (limit <= 0) return [];
+export async function listAudioLevelRepairIds(
+  limit: number,
+): Promise<{ ids: string[]; remaining: number }> {
   const entries = await listAppState(AUDIO_LEVEL_REPAIR_STATE_PREFIX);
-  return entries
+  const pending = entries
     .map((entry) => parseAudioLevelRepairMarker(entry.value))
     .filter((marker): marker is AudioLevelRepairMarker => marker !== null)
     .sort((a, b) => Date.parse(a.markedAt) - Date.parse(b.markedAt))
-    .slice(0, limit)
     .map((marker) => marker.recordingId);
+  const ids = pending.slice(0, Math.max(0, limit));
+  return { ids, remaining: pending.length - ids.length };
 }
