@@ -991,13 +991,14 @@ function lastWord(text: string): string {
   while (start > 0 && !/[\s<]/.test(text.charAt(start - 1))) start -= 1;
   return text.slice(start);
 }
-/** Where a web address the renderer links can start. */
-const ADDRESS_START = /https?:\/\/|www\./i;
+/** Where a web or email address the renderer links can start. */
+const ADDRESS_START = /https?:\/\/|www\.|[\w.+-]+@/i;
 
 /**
  * Links a typed address that formatting, a chip or code runs right up to, as
  * the renderer would link it. Written bare, the address would run on through
- * the `*`s or `~`s between them and take what follows into the link.
+ * the `*`s or `~`s between them and take what follows into the link, or lose
+ * its last letter to a character reference before them.
  */
 function linkTypedAddresses(
   nodes: readonly CommentDocNode[],
@@ -1235,8 +1236,18 @@ const MENTION_REACH = 201;
 function typedMentionBefore(node: CommentDocNode | undefined): string {
   const text =
     node?.type === "text" && !linkedOrCode(node) ? (node.text ?? "") : "";
-  return text.slice(-MENTION_REACH).includes("@") ? text : "";
+  const at = text.lastIndexOf("@");
+  // As the finder reads them, a mention's `@` starts a word, unlike an
+  // email address's.
+  return at !== -1 &&
+    text.length - at <= MENTION_REACH &&
+    !ENDS_IN_NAME.test(text.slice(Math.max(0, at - 2), at))
+    ? text
+    : "";
 }
+
+/** Text ending in a letter, number or `_`, which an `@` after continues. */
+const ENDS_IN_NAME = /[\p{L}\p{M}\p{N}_]$/u;
 
 function marksMissingFrom(
   marks: readonly CommentDocMark[],

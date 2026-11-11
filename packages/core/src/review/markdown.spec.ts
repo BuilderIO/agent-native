@@ -302,6 +302,11 @@ describe("comment Markdown and the box's document", () => {
         content: [linked, text("."), text("now", "bold")],
         saved: "<https://example.com>.**now**",
       },
+      // An email address isn't a mention, and keeps its link and the marks.
+      {
+        content: [text("reach joe@example.com"), text("!x", "bold")],
+        saved: "reach <joe@example.com>**!x**",
+      },
       {
         content: [text("https://example.com\\"), text("now", "bold")],
         saved: "[https://example.com\\\\](https://example.com\\\\)**now**",
