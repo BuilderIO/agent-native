@@ -101,12 +101,17 @@ export function useFreeClipsGate(action: "record" | "upload") {
     setPromptSeen(lastClipPromptSeen());
   };
 
+  // Storage that became usable under the prompt (Builder.io connected) lets
+  // the held actions go ahead; anything else just closes it.
+  const storageUsable = status?.configured === true;
   useEffect(() => {
     if (!open || promptApplies) return;
+    const pending = storageUsable ? pendingRef.current : [];
     pendingRef.current = [];
     openRef.current = false;
     setOpen(false);
-  }, [open, promptApplies]);
+    for (const proceed of pending) proceed();
+  }, [open, promptApplies, storageUsable]);
 
   const anchor = (control: ReactElement) => (
     <PopoverAnchor asChild>{control}</PopoverAnchor>
