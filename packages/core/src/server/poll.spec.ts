@@ -128,6 +128,7 @@ describe("AppSyncState read through other people's resources", () => {
     vi.useRealTimers();
   });
   afterEach(() => {
+    vi.useRealTimers();
     delete process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS;
   });
 
@@ -435,6 +436,56 @@ describe("AppSyncState read through other people's resources", () => {
     // The read after the wait found 250 checks running and started no more.
     expect(resolveAccessMany).toHaveBeenCalledOnce();
     expect(resolveAccessMany.mock.calls[0]?.[1]).toHaveLength(250);
+  });
+
+  it("starts no batch once an instance has many checks running", async () => {
+    const rows = durableRows(othersDocuments(300));
+    // No check ever finishes.
+    const resolveAccessMany = vi.fn(() => new Promise<Set<string>>(() => {}));
+    const resolveAccess = vi.fn(() => new Promise(() => {}));
+    const state = stateReading(rows, { resolveAccess, resolveAccessMany });
+
+    // Each reader's checks are their own.
+    for (let reader = 0; reader < 5; reader++) {
+      await state.getDurableChangesSinceForUser(
+        5,
+        `reader-${reader}@example.com`,
+        undefined,
+        { version: 5, id: "" },
+      );
+    }
+
+    // Four reads' worth of checks fill the instance, so the fifth reader
+    // checks only the change it stopped at.
+    expect(resolveAccessMany).toHaveBeenCalledTimes(4);
+    for (const [, ids] of resolveAccessMany.mock.calls) {
+      expect(ids).toHaveLength(250);
+    }
+    expect(resolveAccess).toHaveBeenCalledOnce();
+  });
+
+  it("checks again after a batch that never answers runs out of time", async () => {
+    vi.useFakeTimers();
+    const rows = durableRows(othersDocuments(2));
+    const resolveAccessMany = vi.fn(() => new Promise<Set<string>>(() => {}));
+    const state = stateReading(rows, {
+      resolveAccess: () => new Promise(() => {}),
+      resolveAccessMany,
+    });
+    const read = () =>
+      state.getDurableChangesSinceForUser(5, "reader@example.com", undefined, {
+        version: 5,
+        id: "",
+      });
+
+    await read();
+    await vi.advanceTimersByTimeAsync(29_999);
+    await read();
+    expect(resolveAccessMany).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await read();
+    expect(resolveAccessMany).toHaveBeenCalledTimes(2);
   });
 
   it("loads whole rows for resource types a host resolver decides", async () => {

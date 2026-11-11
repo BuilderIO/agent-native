@@ -102,6 +102,13 @@ const ACCESS_PRIME_LIMIT = 250;
 const ACCESS_RETRY_LIMIT = 8;
 // How many resources with a host access resolver one batch query checks.
 const HOST_ACCESS_CHUNK = 8;
+// How many checks reads may have running at once on an instance, across all
+// readers: four reads' worth. Past it, a read starts no batch, and checks only
+// the change it stops at.
+const ACCESS_IN_FLIGHT_MAX = 1_000;
+// How long a batch check may run before the resources it hasn't answered go
+// back unchecked, for a later read to check again.
+const ACCESS_BATCH_TIMEOUT_MS = 30_000;
 const ACCESS_CHECK_WAIT_MS = 1_000;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SCREEN_REFRESH_QUERY_LIMIT = 256;
@@ -1037,6 +1044,10 @@ export class AppSyncState {
     // Checks this read started or found still running. Counting running ones
     // keeps a slow check from letting each poll start another 250 behind it.
     const checking = new Set<string>();
+    // Every reader on the instance shares the running checks, so concurrent
+    // reads together stay under ACCESS_IN_FLIGHT_MAX.
+    const room = ACCESS_IN_FLIGHT_MAX - this.accessInFlight.size;
+    let started = 0;
     for (const event of events) {
       if (checking.size >= ACCESS_PRIME_LIMIT) break;
       if (!event) continue;
@@ -1059,6 +1070,8 @@ export class AppSyncState {
         now - cached.checkedAt < this.accessCacheTtl(cached.allowed)
       )
         continue;
+      if (started >= room) break;
+      started++;
       checking.add(key);
       if (!this.resolveAccessManyFn) {
         this.scheduleAccessCheck(
@@ -1114,46 +1127,62 @@ export class AppSyncState {
       answeredIds.add(resourceId);
       cacheUnlessInvalidated(resourceId, allowed);
     };
-    // The check starts on the next microtask, so it is registered as in flight
-    // below before any of it runs, and its `finally` always finds it there.
-    const check: Promise<void> = retainRequestDbPoolScope(
-      Promise.resolve().then(async () => {
-        try {
-          const visible = await resolveMany(
-            resourceType,
-            ids,
-            { userEmail, orgId },
-            answer,
-          );
-          for (const id of ids) {
-            if (!answeredIds.has(id)) answer(id, visible.has(id));
-          }
-        } catch {
-          // The batch fails as a whole when any one resource's check fails.
-          // Check the first few still unanswered on their own, in log order:
-          // a failure then hides only its own resource, and the read moves
-          // past them. The rest stay unchecked for a later read, so a failing
-          // batch costs a few single checks, not one per resource. Each goes
-          // through the same batch resolver, so the same rules decide it.
-          const unanswered = ids.filter((id) => !answeredIds.has(id));
-          await Promise.all(
-            unanswered.slice(0, ACCESS_RETRY_LIMIT).map(async (id) => {
-              let allowed = false;
-              try {
-                allowed = (
-                  await resolveMany(resourceType, [id], { userEmail, orgId })
-                ).has(id);
-              } catch {
-                // Fails closed, like a single check.
-              }
-              cacheUnlessInvalidated(id, allowed);
-            }),
-          );
-        } finally {
-          for (const key of keys.values()) this.endAccessCheck(key, check);
+    const run = async () => {
+      try {
+        const visible = await resolveMany(
+          resourceType,
+          ids,
+          { userEmail, orgId },
+          answer,
+        );
+        for (const id of ids) {
+          if (!answeredIds.has(id)) answer(id, visible.has(id));
         }
-      }),
-    );
+      } catch {
+        // The batch fails as a whole when any one resource's check fails.
+        // Check the first few still unanswered on their own, in log order:
+        // a failure then hides only its own resource, and the read moves
+        // past them. The rest stay unchecked for a later read, so a failing
+        // batch costs a few single checks, not one per resource. Each goes
+        // through the same batch resolver, so the same rules decide it.
+        const unanswered = ids.filter((id) => !answeredIds.has(id));
+        await Promise.all(
+          unanswered.slice(0, ACCESS_RETRY_LIMIT).map(async (id) => {
+            let allowed = false;
+            try {
+              allowed = (
+                await resolveMany(resourceType, [id], { userEmail, orgId })
+              ).has(id);
+            } catch {
+              // Fails closed, like a single check.
+            }
+            cacheUnlessInvalidated(id, allowed);
+          }),
+        );
+      }
+    };
+    // The work and the check start on the next microtask, so the check is
+    // registered as in flight below before any of it runs, and its `finally`
+    // always finds it there. The work keeps the request's database pool until
+    // it ends, even past the deadline.
+    const work = retainRequestDbPoolScope(Promise.resolve().then(run));
+    const check: Promise<void> = Promise.resolve().then(async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        // A resolver that never answers would hold these resources pending,
+        // and every read stuck behind them, for good.
+        await Promise.race([
+          work,
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, ACCESS_BATCH_TIMEOUT_MS);
+            (timer as { unref?: () => void }).unref?.();
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+        for (const key of keys.values()) this.endAccessCheck(key, check);
+      }
+    });
     for (const key of keys.values()) this.accessInFlight.set(key, check);
   }
 
