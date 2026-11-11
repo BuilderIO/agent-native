@@ -70,6 +70,7 @@ import {
   configureCloudflareModuleWorkerOutput,
   copyInstalledBrowserRuntimePackages,
   copyInstalledExternalSsrPackages,
+  shouldCopyExternalSsrRuntimePackages,
   copyDrizzleMigrationAssets,
   copyDir,
   createCloudflareModuleStubPlugin,
@@ -8156,5 +8157,23 @@ describe("serverless bundle trimming", () => {
 
     expect(fs.existsSync(path.join(pkg, "index.d.ts"))).toBe(false);
     expect(fs.existsSync(path.join(pkg, "index.js"))).toBe(true);
+  });
+});
+
+describe("shouldCopyExternalSsrRuntimePackages", () => {
+  it("copies external SSR runtime packages for the node presets", () => {
+    expect(shouldCopyExternalSsrRuntimePackages("node")).toBe(true);
+    expect(shouldCopyExternalSsrRuntimePackages("node-server")).toBe(true);
+  });
+
+  it("keeps the serverless presets covered", () => {
+    expect(shouldCopyExternalSsrRuntimePackages("netlify")).toBe(true);
+    expect(shouldCopyExternalSsrRuntimePackages("vercel")).toBe(true);
+    expect(shouldCopyExternalSsrRuntimePackages("aws-lambda")).toBe(true);
+    expect(shouldCopyExternalSsrRuntimePackages("aws_amplify")).toBe(true);
+  });
+
+  it("does not copy for presets that bundle the runtime instead", () => {
+    expect(shouldCopyExternalSsrRuntimePackages("cloudflare_module")).toBe(false);
   });
 });
