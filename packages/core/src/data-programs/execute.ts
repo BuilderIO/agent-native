@@ -485,6 +485,9 @@ async function resolveCacheHit(
 ): Promise<DataProgramSuccess | null> {
   const latestSuccess = await getLatestSuccessfulRun(program.id, paramsHash);
   if (!latestSuccess || !latestSuccess.rowsJson) return null;
+  // A save can change the code, so rows from a run started before it aren't
+  // fresh, however young or manual.
+  if (latestSuccess.startedAt < Date.parse(program.updatedAt)) return null;
 
   const now = Date.now();
   const asOf = latestSuccess.finishedAt ?? latestSuccess.startedAt;

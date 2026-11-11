@@ -240,6 +240,43 @@ describe("data-programs/execute", () => {
       );
     });
 
+    it("treats a run from before the program's last save as a cache miss and re-executes", async () => {
+      storeMocks.getDataProgram.mockResolvedValue(
+        makeProgram({
+          refreshMode: "manual",
+          updatedAt: new Date(Date.now() - 500).toISOString(),
+        }),
+      );
+      storeMocks.getLatestSuccessfulRun.mockResolvedValue(
+        makeRun({
+          startedAt: Date.now() - 60_100,
+          finishedAt: Date.now() - 60_000,
+        }),
+      );
+      vi.doMock("../coding-tools/run-code.js", () => ({
+        executeSandboxCode: vi.fn().mockResolvedValue({
+          stdout:
+            DATA_PROGRAM_SENTINEL + JSON.stringify({ rows: [{ fresh: true }] }),
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+          bridgeToolsUsed: [],
+        }),
+      }));
+      const { runDataProgram } = await loadExecute();
+
+      const result = await runDataProgram({
+        programId: PROGRAM_ID,
+        ctx: { userEmail: OWNER },
+        triggeredBy: "agent",
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.cacheHit).toBe(false);
+      expect(result.rows).toEqual([{ fresh: true }]);
+    });
+
     it("manual refreshMode treats any prior success as fresh regardless of age", async () => {
       storeMocks.getDataProgram.mockResolvedValue(
         makeProgram({ refreshMode: "manual" }),
@@ -1056,6 +1093,53 @@ describe("data-programs/execute", () => {
         message: "The panels haven't been saved yet",
       });
       expect(result.lastGoodRun?.rows).toEqual([{ a: 1 }]);
+    });
+
+    it("queues an edited program over a failed refresh and serves the rows from before the edit as stale", async () => {
+      storeMocks.getDataProgram.mockResolvedValue(
+        makeProgram({
+          background: true,
+          updatedAt: new Date(Date.now() - 500).toISOString(),
+        }),
+      );
+      accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+      storeMocks.getLatestSuccessfulRun.mockResolvedValue(
+        makeRun({
+          startedAt: Date.now() - 60_100,
+          finishedAt: Date.now() - 60_000,
+        }),
+      );
+      storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(
+        makeRun({
+          id: "dpr_refresh",
+          status: "failed",
+          rowsJson: null,
+          errorCode: "program_error",
+          errorMessage: "The panels haven't been saved yet",
+          startedAt: Date.now() - 1_100,
+          finishedAt: Date.now() - 1_000,
+        }),
+      );
+      const enqueueSandboxExecution = vi.fn().mockResolvedValue({
+        execution: { id: "exec_new" },
+      });
+      vi.doMock("../coding-tools/sandbox/index.js", () => ({
+        enqueueSandboxExecution,
+        getSandboxExecutionForOwner: vi.fn(),
+      }));
+      const { runDataProgram } = await loadExecute();
+
+      const result = await runDataProgram({
+        programId: PROGRAM_ID,
+        ctx: { userEmail: OWNER },
+        triggeredBy: "panel_view",
+      });
+
+      expect(enqueueSandboxExecution).toHaveBeenCalledTimes(1);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.stale).toBe(true);
+      expect(result.rows).toEqual([{ a: 1 }]);
     });
 
     it.each([
