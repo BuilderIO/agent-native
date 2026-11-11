@@ -1127,6 +1127,7 @@ const AUTOLINKS = new Map<
   { length: number; url: string } | undefined
 >();
 const LINK_READS = new Map<string, boolean>();
+const SHOWN_TEXTS = new Map<string, string>();
 /** How many reads each keeps, past which it starts again. */
 const REMEMBERED_READS = 2_000;
 
@@ -1191,13 +1192,13 @@ function punctuationAfterMentions(
   const result: CommentDocNode[] = [];
   nodes.forEach((node, index) => {
     const previous = index > 0 ? itemAt(nodes, index - 1) : undefined;
-    const mention =
-      previous?.type === COMMENT_DOC_MENTION
-        ? mentionMarkdown(
-            stringAttr(previous.attrs, "label"),
-            stringAttr(previous.attrs, "mailto"),
-          )
-        : "";
+    const chip = previous?.type === COMMENT_DOC_MENTION;
+    const mention = chip
+      ? mentionMarkdown(
+          stringAttr(previous.attrs, "label"),
+          stringAttr(previous.attrs, "mailto"),
+        )
+      : typedMentionBefore(previous);
     const opening =
       attentionKind(mention.slice(-1)) === "letter" &&
       node.type === "text" &&
@@ -1206,9 +1207,11 @@ function punctuationAfterMentions(
         : [];
     const text = node.text ?? "";
     let end = 0;
+    // A `_` runs on from a typed name, so that's no mention to keep.
     while (
       opening.length &&
-      attentionKind(text.charAt(end)) === "punctuation"
+      attentionKind(text.charAt(end)) === "punctuation" &&
+      (chip || text.charAt(end) !== "_")
     ) {
       end += 1;
     }
@@ -1220,6 +1223,19 @@ function punctuationAfterMentions(
     if (end < text.length) result.push({ ...node, text: text.slice(end) });
   });
   return result;
+}
+
+/** An `@` and the longest name the mention finder reads after it. */
+const MENTION_REACH = 201;
+
+/**
+ * Text that may end in a mention typed without the picker, which the renderer
+ * finds as it would a chip's, else nothing.
+ */
+function typedMentionBefore(node: CommentDocNode | undefined): string {
+  const text =
+    node?.type === "text" && !linkedOrCode(node) ? (node.text ?? "") : "";
+  return text.slice(-MENTION_REACH).includes("@") ? text : "";
 }
 
 function marksMissingFrom(
@@ -1250,8 +1266,8 @@ function withoutMarks(
 const NEEDLESS_ESCAPE =
   /\\\\|(?<=[\p{L}\p{N}])\\_(?=[\p{L}\p{N}])|(?<=[ \t])\\\*(?=[ \t])/gu;
 
-const writeText: Handle = (node, parent, state, info) =>
-  typedAddressesAsTyped(
+const writeText: Handle = (node, parent, state, info) => {
+  const written = typedAddressesAsTyped(
     defaultHandlers
       .text(node, parent, state, info)
       .replace(NEEDLESS_ESCAPE, (escape) =>
@@ -1259,6 +1275,12 @@ const writeText: Handle = (node, parent, state, info) =>
       ),
     info.before,
   );
+  // A `_` would run on from a mention's name, `\_` too, so right after one
+  // it's spelled as a reference, which the mention finder reads as its end.
+  return followsMention(parent, state)
+    ? written.replace(/^\\?_/, "&#x5F;")
+    : written;
+};
 
 /** A web address typed as text, which the renderer links as it's written. */
 const TYPED_ADDRESS = /(?:https?:\/\/|www\.)[^\s<]+/g;
@@ -1284,6 +1306,10 @@ function typedAddressesAsTyped(written: string, before: string): string {
 
 /** The text Markdown shows, links and all. */
 function shownText(markdown: string): string {
+  return remembered(SHOWN_TEXTS, markdown, () => readShownText(markdown));
+}
+
+function readShownText(markdown: string): string {
   let text = "";
   const visit = (node: Nodes) => {
     if (node.type === "text" || node.type === "inlineCode") text += node.value;
@@ -1443,16 +1469,20 @@ function writeAttention(kind: "strong" | "emphasis"): Handle {
  * after a mention is moved outside such marks first, so this is rare.
  */
 function keepMentionBefore(parent: Parents | undefined, state: State): void {
+  const encoding = state.attentionEncodeSurroundingInfo;
+  if (encoding?.before && followsMention(parent, state)) {
+    state.attentionEncodeSurroundingInfo = { ...encoding, before: false };
+  }
+}
+
+/** Whether the node being written comes right after a mention. */
+function followsMention(parent: Parents | undefined, state: State): boolean {
   const index = state.indexStack.at(-1) ?? 0;
   const previous =
     index > 0 ? itemAt(parent?.children ?? [], index - 1) : undefined;
-  const encoding = state.attentionEncodeSurroundingInfo;
-  if (
-    encoding?.before &&
+  return (
     (previous as { type: string } | undefined)?.type === COMMENT_DOC_MENTION
-  ) {
-    state.attentionEncodeSurroundingInfo = { ...encoding, before: false };
-  }
+  );
 }
 
 /**

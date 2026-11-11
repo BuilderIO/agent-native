@@ -397,11 +397,22 @@ describe("comment Markdown and the box's document", () => {
       [[sam(), text("!x", "strike")], "@Sam!~~x~~"],
       [[sam("bold"), text("!", "italic")], "**@Sam**!"],
       [[sam(), text("x", "bold")], "@Sam**x**"],
+      // A `_`, even escaped, would run on from the name, so it's spelled.
+      [[sam(), text("_x")], "@Sam&#x5F;x"],
+      [[sam(), text("_x", "bold")], "@Sam&#x5F;**x**"],
+      // A name typed without the picker is found the same way.
+      [[text("hi @Sam"), text("!x", "bold")], "hi @Sam!**x**"],
     ] as const) {
       expect(commentDocToMarkdown(inline(...content))).toBe(saved);
       expect(chips(commentMarkdownToDoc(saved, people))).toEqual(["Sam"]);
       expect(roundTrip(saved)).toBe(saved);
     }
+    // Where a `_` runs on from it, it's no mention, and keeps its marks.
+    const runOn = commentDocToMarkdown(
+      inline(text("hi @Sam"), text("_x", "bold")),
+    );
+    expect(runOn).toBe("hi @Sa&#x6D;**\\_x**");
+    expect(chips(commentMarkdownToDoc(runOn, people))).toEqual([]);
   });
 
   it("chips listed mentions as whole words, longest name first", () => {
