@@ -56,6 +56,10 @@ re-run."
    `data-programs` skill if you want a concrete UI wiring reference.)
 5. Iterate without persisting via `preview-data-program({ code, params? })` —
    same dry-run path, no stored row.
+6. Read a result without running anything via
+   `get-data-program({ programId, includeRows? })`. Its `lastRun` is the
+   newest finished run, never one still queued; when that run failed,
+   `lastGoodRun` holds the newest successful one.
 
 ## The sandbox surface
 
@@ -95,8 +99,9 @@ Every `(programId, paramsHash)` pair has its own run history:
 | `refreshMode: "manual"` | Only refreshes on explicit `forceRefresh: true` |
 | No cache yet | Executes synchronously like a normal first fetch |
 | `background: true` program with no fresh cache | Serves the last good run with `stale: true` and enqueues a durable background execution; a later call finalizes it once complete |
+| Background run has just finished | The next read finalizes it, even while older rows are fresh, and serves its rows as a fresh hit, queueing nothing until the TTL lapses or a refresh is forced; a failed one answers reads with its failure for that same window |
 | Background program still running, no prior success | `background_pending` failure — surface an explicit "still computing" state, never a blank result |
-| Execution fails | Structured `{ code, message }` failure; a previous success is attached as `lastGoodRun` for stale-serve |
+| Execution fails | Structured `{ code, message }` failure; a previous success is attached as `lastGoodRun` for stale-serve. A script that throws reports `program_error` with its own message; `sandbox_error` means the sandbox itself failed |
 | Program archived (soft-deleted) | Explicit `archived` failure |
 
 Use `background: true` only for scripts that routinely exceed the foreground

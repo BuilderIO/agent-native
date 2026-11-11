@@ -604,7 +604,7 @@ function IntegrationRow({
                     {canManageMcpSetup && (
                       <DropdownMenuItem
                         onClick={mcpConnected ? onManage : onConfigure}
-                        className="text-[12px] text-foreground/70"
+                        className="text-foreground/70"
                       >
                         {mcpConnected
                           ? t("mail.toolbar.settings")
@@ -615,7 +615,7 @@ function IntegrationRow({
                       <>
                         <DropdownMenuItem
                           onClick={onLegacyConfigure}
-                          className="text-[12px] text-foreground/70"
+                          className="text-foreground/70"
                         >
                           {t("mail.integrations.updateKey")}
                         </DropdownMenuItem>

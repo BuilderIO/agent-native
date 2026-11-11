@@ -78,7 +78,7 @@ export function SourceRow({
           align="start"
           sideOffset={6}
           data-popover-resize-overlay="true"
-          className="recorder-menu w-[216px] rounded-[10px]"
+          className="recorder-menu w-[216px]"
         >
           <DropdownMenuRadioGroup
             value={value}

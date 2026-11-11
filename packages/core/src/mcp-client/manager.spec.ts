@@ -10,6 +10,7 @@ import { runWithRequestContext } from "../server/request-context.js";
 import { mcpToolsToActionEntries } from "./index.js";
 import {
   McpClientManager,
+  fetchMcpOriginBound,
   parseMcpToolName,
   MCP_TOOL_PREFIX,
 } from "./manager.js";
@@ -47,6 +48,10 @@ const orgContextMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../org/context.js", () => orgContextMocks);
+
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn().mockResolvedValue([{ address: "93.184.216.34", family: 4 }]),
+}));
 
 const workspaceConnectionBearer = vi.hoisted(() => vi.fn());
 vi.mock("./workspace-connection-servers.js", async (importOriginal) => ({
@@ -244,14 +249,19 @@ describe("McpClientManager", () => {
           },
         );
       }
-      httpCallHeaders.push(
-        headersFromUnknown((init as { headers?: unknown })?.headers),
+      const recordedHeaders = headersFromUnknown(
+        (init as { headers?: unknown })?.headers,
       );
+      if (recordedHeaders.authorization) {
+        recordedHeaders.Authorization = recordedHeaders.authorization;
+      }
+      httpCallHeaders.push(recordedHeaders);
       return new Response(null, { status: 204 });
     }) as any;
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     globalThis.fetch = originalFetch;
     if (originalOrgDirectoryUrl === undefined) {
       delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
@@ -285,7 +295,7 @@ describe("McpClientManager", () => {
       fetchImpl("https://93.184.216.35/collect", {
         headers: transport.requestInit?.headers,
       }),
-    ).rejects.toThrow("Workspace MCP destination changed origin");
+    ).rejects.toThrow("MCP destination changed origin");
 
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(
       new Response(null, {
@@ -293,11 +303,353 @@ describe("McpClientManager", () => {
         headers: { location: "https://93.184.216.35/collect" },
       }),
     );
-    const response = (await fetchImpl(`${origin}/mcp`, {
+    await expect(
+      fetchImpl(`${origin}/mcp`, {
+        headers: transport.requestInit?.headers,
+      }),
+    ).rejects.toThrow("MCP destination changed origin");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: `${origin}/mcp/next` },
+      }),
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(null, { status: 204 }),
+    );
+    const sameOrigin = (await fetchImpl(`${origin}/mcp`, {
       headers: transport.requestInit?.headers,
     })) as Response;
-    expect(response.status).toBe(302);
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(sameOrigin.status).toBe(204);
+    await mgr.stop();
+  });
+
+  it("guards headerless HTTP MCP requests on their configured origin", async () => {
+    const origin = "https://mcp.example.test";
+    const mgr = new McpClientManager({
+      servers: { plain: { type: "http", url: `${origin}/mcp` } },
+    });
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeHttp;
+    expect(transport.fetchImpl).toBeDefined();
+    expect(
+      (await transport.fetchImpl!(`${origin}/mcp`)) as Response,
+    ).toHaveProperty("status", 204);
+    await expect(
+      transport.fetchImpl!("https://other.example.test/mcp"),
+    ).rejects.toThrow("MCP destination changed origin");
+    await mgr.stop();
+  });
+
+  it.each(["localhost", "127.0.0.1"])(
+    "keeps a directly configured %s MCP dev server reachable",
+    async (host) => {
+      vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "local");
+      vi.stubEnv("NODE_ENV", "test");
+      const origin = `http://${host}:3000`;
+      const mgr = new McpClientManager({
+        servers: { local: { type: "http", url: `${origin}/mcp` } },
+      });
+      await mgr.start();
+      const transport = fakeClients[0]!.getTransport() as FakeHttp;
+      expect(
+        (await transport.fetchImpl!(`${origin}/mcp`)) as Response,
+      ).toHaveProperty("status", 204);
+      await mgr.stop();
+    },
+  );
+
+  it.each(["localhost", "127.0.0.1"])(
+    "blocks a directly configured %s MCP server in hosted runtime",
+    async (host) => {
+      vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production");
+      const origin = `http://${host}:3000`;
+      const mgr = new McpClientManager({
+        servers: { local: { type: "http", url: `${origin}/mcp` } },
+      });
+      await mgr.start();
+      const transport = fakeClients[0]!.getTransport() as FakeHttp;
+      await expect(transport.fetchImpl!(`${origin}/mcp`)).rejects.toThrow(
+        "SSRF blocked",
+      );
+      await mgr.stop();
+    },
+  );
+
+  it("keeps first-party metadata from expanding private MCP fetch access", async () => {
+    const origin = "https://10.0.0.8";
+    vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+      if (String(input).includes("/_agent-native/org/apps")) {
+        return Response.json({
+          apps: [{ id: "assets", url: origin, a2aUrl: origin }],
+        });
+      }
+      return new Response(null, { status: 204 });
+    });
+    const mgr = new McpClientManager({
+      servers: {
+        "org_org-internal_assets": {
+          type: "http",
+          url: `${origin}/mcp`,
+          firstParty: true,
+          firstPartyOrgId: "org-internal",
+        },
+      },
+    });
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeHttp;
+    await expect(transport.fetchImpl!(`${origin}/mcp`)).rejects.toThrow(
+      "SSRF blocked",
+    );
+    await mgr.stop();
+  });
+
+  it("replays an SDK-style POST body across same-origin redirects", async () => {
+    const origin = "https://93.184.216.34";
+    const received: Array<{ url: string; body: string; auth: string | null }> =
+      [];
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const request = new Request(input, init);
+      received.push({
+        url: request.url,
+        body: await request.text(),
+        auth: request.headers.get("authorization"),
+      });
+      return received.length === 1
+        ? new Response(null, {
+            status: 307,
+            headers: { location: `${origin}/mcp/next` },
+          })
+        : new Response("ok");
+    }) as typeof fetch;
+
+    const response = await fetchMcpOriginBound(
+      `${origin}/mcp`,
+      {
+        method: "POST",
+        headers: { Authorization: "Bearer fake-token" },
+        body: '{"method":"tools/list"}',
+      },
+      origin,
+    );
+    expect(await response.text()).toBe("ok");
+    expect(received).toEqual([
+      {
+        url: `${origin}/mcp`,
+        body: '{"method":"tools/list"}',
+        auth: "Bearer fake-token",
+      },
+      {
+        url: `${origin}/mcp/next`,
+        body: '{"method":"tools/list"}',
+        auth: "Bearer fake-token",
+      },
+    ]);
+  });
+
+  it("does not replay a POST body to another origin", async () => {
+    const origin = "https://93.184.216.34";
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(null, {
+          status: 307,
+          headers: { location: "https://93.184.216.35/mcp" },
+        }),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(
+      fetchMcpOriginBound(
+        new Request(`${origin}/mcp`, {
+          method: "POST",
+          body: "test request",
+        }),
+        undefined,
+        origin,
+      ),
+    ).rejects.toThrow("cross-origin redirect with a non-GET request");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends normal MCP payloads larger than 8 MiB", async () => {
+    const origin = "https://93.184.216.34";
+    const payload = "x".repeat(8 * 1024 * 1024 + 1);
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.body).toBe(payload);
+        return new Response(null, { status: 204 });
+      },
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(
+      fetchMcpOriginBound(
+        `${origin}/mcp`,
+        {
+          method: "POST",
+          body: payload,
+        },
+        origin,
+      ),
+    ).resolves.toMatchObject({ status: 204 });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it.each([307, 308])(
+    "streams Request bodies and refuses to replay them after a %s",
+    async (status) => {
+      const origin = "https://93.184.216.34";
+      const received: string[] = [];
+      const fetchMock = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          received.push(await new Request(input, init).text());
+          return new Response(null, {
+            status,
+            headers: { location: `${origin}/next` },
+          });
+        },
+      );
+      globalThis.fetch = fetchMock as typeof fetch;
+
+      await expect(
+        fetchMcpOriginBound(
+          new Request(`${origin}/mcp`, {
+            method: "POST",
+            body: "one-shot body",
+          }),
+          undefined,
+          origin,
+        ),
+      ).rejects.toThrow(/one-shot streamed request body/);
+      expect(received).toEqual(["one-shot body"]);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("sends a ReadableStream body without buffering it first", async () => {
+    const origin = "https://93.184.216.34";
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("streamed body"));
+        controller.close();
+      },
+    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(init?.body).toBeInstanceOf(ReadableStream);
+        expect(await new Request(input, init).text()).toBe("streamed body");
+        return new Response(null, { status: 204 });
+      },
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(
+      fetchMcpOriginBound(
+        `${origin}/mcp`,
+        {
+          method: "POST",
+          body: stream,
+          duplex: "half",
+        } as RequestInit,
+        origin,
+      ),
+    ).resolves.toMatchObject({ status: 204 });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes a saved OAuth request on its configured origin", async () => {
+    const origin = "https://93.184.216.34";
+    const refresh = vi.fn().mockResolvedValue("new-fake-token");
+    const mgr = new McpClientManager({
+      servers: {
+        oauth: {
+          type: "http",
+          url: `${origin}/mcp`,
+          headers: { Authorization: "Bearer old-fake-token" },
+          secretRequestOrigin: origin,
+          oauthAccessRefresh: { identity: "grant-1", refresh },
+        },
+      },
+    });
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeHttp;
+    vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const response = (await transport.fetchImpl!(origin + "/mcp", {
+      headers: transport.requestInit?.headers,
+      method: "POST",
+      body: '{"method":"tools/list"}',
+    })) as Response;
+
+    expect(response.status).toBe(204);
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(
+      vi.mocked(globalThis.fetch).mock.calls.map(([, init]) => init?.body),
+    ).toEqual(['{"method":"tools/list"}', '{"method":"tools/list"}']);
+    expect(
+      new Headers(vi.mocked(globalThis.fetch).mock.calls[1]?.[1]?.headers).get(
+        "authorization",
+      ),
+    ).toBe("Bearer new-fake-token");
+    await mgr.stop();
+  });
+
+  it("retries a Request body after OAuth refresh without consuming the retry branch first", async () => {
+    const origin = "https://93.184.216.34";
+    const refresh = vi.fn().mockResolvedValue("new-fake-token");
+    const mgr = new McpClientManager({
+      servers: {
+        oauth: {
+          type: "http",
+          url: `${origin}/mcp`,
+          headers: { Authorization: "Bearer old-fake-token" },
+          oauthAccessRefresh: { identity: "grant-1", refresh },
+        },
+      },
+    });
+    await mgr.start();
+    const transport = fakeClients[0]!.getTransport() as FakeHttp;
+    const received: Array<{ body: string; authorization: string | null }> = [];
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const request = new Request(input, init);
+      received.push({
+        body: await request.text(),
+        authorization: request.headers.get("authorization"),
+      });
+      return new Response(null, { status: received.length === 1 ? 401 : 204 });
+    }) as typeof fetch;
+
+    const response = (await transport.fetchImpl!(
+      new Request(`${origin}/mcp`, {
+        method: "POST",
+        headers: { Authorization: "Bearer old-fake-token" },
+        body: "request body",
+      }),
+    )) as Response;
+
+    expect(response.status).toBe(204);
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(received).toEqual([
+      { body: "request body", authorization: "Bearer old-fake-token" },
+      { body: "request body", authorization: "Bearer new-fake-token" },
+    ]);
+
+    globalThis.fetch = vi.fn(
+      async () => new Response(null, { status: 204 }),
+    ) as typeof fetch;
+    await expect(
+      transport.fetchImpl!(
+        new Request(`${origin}/mcp`, {
+          method: "POST",
+          body: "unread request body",
+        }),
+      ),
+    ).resolves.toMatchObject({ status: 204 });
     await mgr.stop();
   });
 
@@ -315,7 +667,7 @@ describe("McpClientManager", () => {
     const mgr = new McpClientManager(configFor());
     await mgr.start();
     const initial = fakeClients[0]!.getTransport() as FakeHttp;
-    expect(initial.fetchImpl).toBeUndefined();
+    expect(initial.fetchImpl).toBeDefined();
 
     for (const [index, origin] of [
       "https://mcp.example.test",
@@ -330,7 +682,7 @@ describe("McpClientManager", () => {
       const replacement = fakeClients[index + 1]!.getTransport() as FakeHttp;
       expect(previous.closed).toBe(true);
       expect(replacement).not.toBe(previous);
-      expect(Boolean(replacement.fetchImpl)).toBe(Boolean(origin));
+      expect(replacement.fetchImpl).toBeDefined();
     }
 
     await mgr.stop();
@@ -725,7 +1077,7 @@ describe("McpClientManager", () => {
 
   it("reconnects once and replays concurrent calls after an HTTP session expires", async () => {
     let calls = 0;
-    serverFixtures["http https://example.com/mcp"] = {
+    serverFixtures["http https://93.184.216.34/mcp"] = {
       tools: [{ name: "ping" }],
       callImpl: () => {
         calls += 1;
@@ -736,7 +1088,7 @@ describe("McpClientManager", () => {
       },
     };
     const mgr = new McpClientManager({
-      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+      servers: { remote: { type: "http", url: "https://93.184.216.34/mcp" } },
     });
     await mgr.start();
     const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;
@@ -762,7 +1114,7 @@ describe("McpClientManager", () => {
     const secondCallStarted = new Promise<void>((resolve) => {
       secondStarted = resolve;
     });
-    serverFixtures["http https://example.com/mcp"] = {
+    serverFixtures["http https://93.184.216.34/mcp"] = {
       tools: [{ name: "ping" }],
       callImpl: async () => {
         calls += 1;
@@ -783,7 +1135,7 @@ describe("McpClientManager", () => {
       },
     };
     const mgr = new McpClientManager({
-      servers: { remote: { type: "http", url: "https://example.com/mcp" } },
+      servers: { remote: { type: "http", url: "https://93.184.216.34/mcp" } },
     });
     await mgr.start();
     const staleTransport = fakeClients[0]!.getTransport() as FakeHttp;

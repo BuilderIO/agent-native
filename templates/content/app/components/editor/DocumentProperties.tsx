@@ -1873,7 +1873,7 @@ export function PropertyManagementPopover({
         >
           {view === "quick" && hasColumnMenu ? (
             <>
-              <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
+              <DropdownMenuLabel className="truncate text-muted-foreground">
                 {property.definition.name}
               </DropdownMenuLabel>
               <DropdownMenuItem
@@ -2151,7 +2151,7 @@ export function PropertyManagementPopover({
                 >
                   <DropdownMenuLabel
                     id={visibilityScopeId}
-                    className="py-1.5 font-normal"
+                    className="font-normal"
                   >
                     {t("editor.properties.visibilityScope")}
                   </DropdownMenuLabel>
@@ -2284,7 +2284,7 @@ export function PropertyManagementPopover({
                     )}
                     {bindableSourceFields.length > 0 ? (
                       <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="mt-0.5">
+                        <DropdownMenuSubTrigger>
                           {t("database.bindAFieldFromASource")}
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent
