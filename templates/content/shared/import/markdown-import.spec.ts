@@ -774,6 +774,25 @@ describe("Markdown import", () => {
     expectEditorAccepts(page);
   });
 
+  it.each([
+    ['{asset="asset-1"}', {}],
+    ['{color="red" asset="asset-1"}', { color: "red" }],
+    ['{asset="asset-1" color="red"}', { color: "red" }],
+  ])("reads an image saved with %s as saved Markdown", (suffix, color) => {
+    const page = importMarkdown(
+      `![Hero](https://example.com/hero.png) ${suffix}`,
+    );
+
+    expect(page.dialect).toBe("nfm");
+    expect(nodesOfType(page.doc, "image")).toEqual([
+      expect.objectContaining({
+        attrs: expect.objectContaining({ assetId: "asset-1", ...color }),
+      }),
+    ]);
+    expect(JSON.stringify(page.doc)).not.toContain("{asset=");
+    expectEditorAccepts(page);
+  });
+
   it("indents an untabbed NFM container body instead of dropping it", () => {
     const page = importMarkdown(UNTABBED_CALLOUT_NFM);
 

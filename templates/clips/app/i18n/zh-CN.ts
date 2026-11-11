@@ -578,6 +578,7 @@ const messages = {
     them: "他们",
     me: "我",
     regeneratingNotes: "正在重新生成摘要",
+    notesAlreadyGenerating: "摘要已在生成中，完成后会显示在这里。",
     meetingRemoved: "会议已删除",
     couldNotRemoveMeeting: "无法删除会议",
     couldNotLoadMeeting: "无法加载该会议。",
