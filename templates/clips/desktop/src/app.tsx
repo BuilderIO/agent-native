@@ -5009,7 +5009,8 @@ export function App({
       lastClipFocusOwedRef.current = false;
       return;
     }
-    if (recordingStartPending) return;
+    // Still deciding: a start in flight, or the mic-off check it opened.
+    if (recordingStartPending || micOffConfirmOpen) return;
     const target =
       document.querySelector<HTMLElement>("[data-recovery-focus-fallback]") ??
       document.querySelector<HTMLElement>(".hosted-clips-limit button");
@@ -5018,6 +5019,7 @@ export function App({
     target.focus();
   }, [
     isRecording,
+    micOffConfirmOpen,
     recordingStartPending,
     showHostedClipsLimit,
     showLastClipPrompt,
