@@ -86,8 +86,8 @@ type Listed = {
   team: Array<{ id: string; term: string }>;
   canManageTeam: boolean;
 };
-const list = (email: string) =>
-  as(email, () => listVocabulary.run({ limit: 500 }) as Promise<Listed>);
+const list = (email: string, limit = 500) =>
+  as(email, () => listVocabulary.run({ limit }) as Promise<Listed>);
 const add = (
   email: string,
   args: { term: string; replacement: string; scope?: "personal" | "team" },
@@ -102,6 +102,12 @@ describe("team vocabulary", () => {
         `create table ${quote(config.name)} (${config.columns.map((column) => `${quote(column.name)} ${column.getSQLType()}`).join(", ")})`,
       );
     }
+  });
+  beforeAll(async () => {
+    // Same index as the team-vocabulary-unique-term migration in server/plugins/db.ts.
+    await client.exec(
+      `create unique index clips_vocabulary_team_term_idx on clips_vocabulary (org_id, lower(term)) where visibility = 'org'`,
+    );
   });
   beforeEach(async () => {
     await db.delete(schema.vocabulary);
@@ -222,6 +228,18 @@ describe("team vocabulary", () => {
       }),
     );
     expect(result).toMatchObject({ created: 2, updated: 1, skipped: 0 });
+    // Importing the same list again changes nothing.
+    expect(
+      await as("admin@acme.test", () =>
+        importTeam.run({
+          entries: [
+            { term: "zoe", replacement: "Zoë" },
+            { term: "Ines" },
+            { term: "Linnea" },
+          ],
+        }),
+      ),
+    ).toMatchObject({ created: 0, updated: 0, unchanged: 3 });
     const zoe = await list("zoe@acme.test");
     expect(
       zoe.vocabulary.map((entry) => [entry.term, entry.replacement]),
@@ -237,5 +255,43 @@ describe("team vocabulary", () => {
         importTeam.run({ entries: [{ term: "Nope" }] }),
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it("keeps team words in the list however many personal words there are", async () => {
+    await add("admin@acme.test", {
+      term: "Priya",
+      replacement: "Priya",
+      scope: "team",
+    });
+    for (const term of ["one", "two", "three"]) {
+      await add("zoe@acme.test", { term, replacement: term.toUpperCase() });
+    }
+    const zoe = await list("zoe@acme.test", 2);
+    expect(
+      zoe.vocabulary.filter((entry) => entry.scope === "team"),
+    ).toMatchObject([{ term: "Priya" }]);
+    expect(zoe.team).toHaveLength(1);
+  });
+
+  it("stores one team word when two admins add it at the same time", async () => {
+    const results = await Promise.all([
+      add("admin@acme.test", {
+        term: "Ines",
+        replacement: "Ines",
+        scope: "team",
+      }),
+      add("owner@acme.test", {
+        term: "ines",
+        replacement: "Ines",
+        scope: "team",
+      }),
+      add("owner@acme.test", {
+        term: "INES",
+        replacement: "Ines",
+        scope: "team",
+      }),
+    ]);
+    expect(new Set(results.map((result) => result.id)).size).toBe(1);
+    expect(await db.select().from(schema.vocabulary)).toHaveLength(1);
   });
 });

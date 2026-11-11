@@ -1416,6 +1416,16 @@ export const migrations = runMigrations(
       name: "recording-transcript-earlier-audio-removed-at",
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
     },
+    {
+      version: 103,
+      name: "team-vocabulary-unique-term",
+      // One team word per organization and lowercased term, so two admins
+      // adding the same word at once can't create two rows
+      // (server/lib/vocabulary.ts upserts on this).
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS clips_vocabulary_team_term_idx
+        ON clips_vocabulary (org_id, lower(term))
+        WHERE visibility = 'org'`,
+    },
   ]),
   { table: "clips_migrations" },
 );

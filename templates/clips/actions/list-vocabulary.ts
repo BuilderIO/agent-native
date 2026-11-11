@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -10,9 +10,9 @@ import {
   getOrganizationRoleForEmail,
 } from "../server/lib/recordings.js";
 import {
+  MAX_TEAM_VOCABULARY,
   TEAM_VOCABULARY_EDITOR_ROLES,
   mergeVocabulary,
-  vocabularyScope,
 } from "../server/lib/vocabulary.js";
 
 async function canManageTeamVocabulary(): Promise<boolean> {
@@ -40,14 +40,25 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
-    const rows = await db
-      .select()
-      .from(schema.vocabulary)
-      .where(and(accessFilter(schema.vocabulary, schema.vocabularyShares)))
-      .orderBy(desc(schema.vocabulary.usesCount))
-      .limit(args.limit);
-    const team = rows
-      .filter((row) => vocabularyScope(row) === "team")
+    const visible = accessFilter(schema.vocabulary, schema.vocabularyShares);
+    // Personal and team words are read apart, so a long personal list can't
+    // use up the limit and push team words out (and the other way round).
+    const [personal, teamRows] = await Promise.all([
+      db
+        .select()
+        .from(schema.vocabulary)
+        .where(and(visible, ne(schema.vocabulary.visibility, "org")))
+        .orderBy(desc(schema.vocabulary.usesCount))
+        .limit(args.limit),
+      db
+        .select()
+        .from(schema.vocabulary)
+        .where(and(visible, eq(schema.vocabulary.visibility, "org")))
+        .orderBy(desc(schema.vocabulary.usesCount))
+        .limit(MAX_TEAM_VOCABULARY),
+    ]);
+    const rows = [...personal, ...teamRows];
+    const team = teamRows
       .map((row) => ({ ...row, scope: "team" as const }))
       .sort((a, b) => a.term.localeCompare(b.term));
     return {

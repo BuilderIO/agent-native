@@ -6,7 +6,7 @@ import { z } from "zod";
 import { requireOrganizationAccess } from "../server/lib/recordings.js";
 import {
   TEAM_VOCABULARY_EDITOR_ROLES,
-  upsertVocabularyTerm,
+  importTeamVocabulary,
 } from "../server/lib/vocabulary.js";
 
 export default defineAction({
@@ -36,22 +36,11 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(undefined, [
       ...TEAM_VOCABULARY_EDITOR_ROLES,
     ]);
-    let created = 0;
-    let updated = 0;
-    let skipped = 0;
-    for (const entry of args.entries) {
-      const result = await upsertVocabularyTerm({
-        scope: "team",
-        ownerEmail,
-        orgId: organizationId,
-        term: entry.term,
-        replacement: entry.replacement ?? entry.term,
-        confidence: 1,
-      });
-      if ("created" in result) created += 1;
-      else if ("updated" in result) updated += 1;
-      else skipped += 1;
-    }
-    return { organizationId, created, updated, skipped };
+    const result = await importTeamVocabulary({
+      orgId: organizationId,
+      ownerEmail,
+      entries: args.entries,
+    });
+    return { organizationId, ...result };
   },
 });
