@@ -991,8 +991,25 @@ function lastWord(text: string): string {
   while (start > 0 && !/[\s<]/.test(text.charAt(start - 1))) start -= 1;
   return text.slice(start);
 }
-/** Where a web or email address the renderer links can start. */
-const ADDRESS_START = /https?:\/\/|www\.|[\w.+-]+@/i;
+/** Where a web address the renderer links can start. */
+const WEB_ADDRESS_START = /https?:\/\/|www\./i;
+/** A character of an email address's name, before its `@`. */
+const EMAIL_NAME_CHAR = /[\w.+-]/;
+
+/**
+ * Where the first web or email address the renderer links can start in a
+ * word, or -1. An email address's name is read back from its `@`, as a
+ * pattern for it would try every start of a long word.
+ */
+function addressStart(word: string): number {
+  const web = word.search(WEB_ADDRESS_START);
+  const at = word.indexOf("@");
+  let name = at;
+  while (name > 0 && EMAIL_NAME_CHAR.test(word.charAt(name - 1))) name -= 1;
+  const email = name < at ? name : -1;
+  if (web === -1 || email === -1) return Math.max(web, email);
+  return Math.min(web, email);
+}
 
 /**
  * Links a typed address that formatting, a chip or code runs right up to, as
@@ -1015,7 +1032,7 @@ function linkTypedAddresses(
     }
     const text = node.text ?? "";
     const word = lastWord(text);
-    const at = word.search(ADDRESS_START);
+    const at = addressStart(word);
     if (at === -1) return [node];
     const start = text.length - word.length + at;
     const typed = text.slice(start);
@@ -1199,7 +1216,7 @@ function punctuationAfterMentions(
           stringAttr(previous.attrs, "label"),
           stringAttr(previous.attrs, "mailto"),
         )
-      : typedMentionBefore(previous);
+      : typedMentionBefore(nodes, index - 1);
     const opening =
       attentionKind(mention.slice(-1)) === "letter" &&
       node.type === "text" &&
@@ -1230,20 +1247,35 @@ function punctuationAfterMentions(
 const MENTION_REACH = 201;
 
 /**
- * Text that may end in a mention typed without the picker, which the renderer
- * finds as it would a chip's, else nothing.
+ * The text at `index`, if it may end in a mention typed without the picker,
+ * which the renderer finds as it would a chip's, else nothing.
  */
-function typedMentionBefore(node: CommentDocNode | undefined): string {
+function typedMentionBefore(
+  nodes: readonly CommentDocNode[],
+  index: number,
+): string {
+  const node = itemAt(nodes, index);
   const text =
     node?.type === "text" && !linkedOrCode(node) ? (node.text ?? "") : "";
   const at = text.lastIndexOf("@");
+  if (at === -1 || text.length - at > MENTION_REACH) return "";
   // As the finder reads them, a mention's `@` starts a word, unlike an
-  // email address's.
-  return at !== -1 &&
-    text.length - at <= MENTION_REACH &&
-    !ENDS_IN_NAME.test(text.slice(Math.max(0, at - 2), at))
-    ? text
-    : "";
+  // email address's, where the text before may end the word.
+  const before = at
+    ? text.slice(Math.max(0, at - 2), at)
+    : shownEnd(itemAt(nodes, index - 1));
+  return ENDS_IN_NAME.test(before) ? "" : text;
+}
+
+/** The last characters a node shows, where they could run on into a word. */
+function shownEnd(node: CommentDocNode | undefined): string {
+  if (node?.type === COMMENT_DOC_MENTION) {
+    return mentionMarkdown(
+      stringAttr(node.attrs, "label"),
+      stringAttr(node.attrs, "mailto"),
+    ).slice(-2);
+  }
+  return node && !linkedOrCode(node) ? (node.text ?? "").slice(-2) : "";
 }
 
 /** Text ending in a letter, number or `_`, which an `@` after continues. */

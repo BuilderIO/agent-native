@@ -412,6 +412,14 @@ describe("comment Markdown and the box's document", () => {
       expect(chips(commentMarkdownToDoc(saved, people))).toEqual(["Sam"]);
       expect(roundTrip(saved)).toBe(saved);
     }
+    // An `@` whose formatting starts at it can still run on from a word.
+    const email = commentDocToMarkdown(
+      inline(text("joe"), text("@example.com", "bold"), text("!", "italic")),
+    );
+    expect(commentMarkdownToDoc(email).content?.[0]?.content?.at(-1)).toEqual(
+      text("!", "italic"),
+    );
+    expect(roundTrip(email)).toBe(email);
     // Where a `_` runs on from it, it's no mention, and keeps its marks.
     const runOn = commentDocToMarkdown(
       inline(text("hi @Sam"), text("_x", "bold")),
@@ -482,6 +490,20 @@ describe("comment Markdown and the box's document", () => {
     expect(chips(commentMarkdownToDoc("@Sam ".repeat(2_100), people))).toEqual(
       [],
     );
+  });
+
+  it("saves a long unbroken word before formatting in linear time", () => {
+    const ordinary = lines(
+      "Words and more words, with some punctuation. ".repeat(440),
+    );
+    const ordinaryMs = fastestSave(ordinary, 3);
+    for (const word of ["a".repeat(19_990), `${"a".repeat(19_000)}@x`]) {
+      const doc = inline(
+        { type: "text", text: word },
+        { type: "text", text: "x", marks: [{ type: "bold" }] },
+      );
+      expect(fastestSave(doc, 2) / ordinaryMs, word.slice(-2)).toBeLessThan(20);
+    }
   });
 
   it("opens what the renderer draws as text the way it draws it", () => {
@@ -557,6 +579,16 @@ describe("comment Markdown and the box's document", () => {
     expect(commentDocToMarkdown(lines(""))).toBe("");
   });
 });
+
+function fastestSave(doc: CommentDocNode, runs: number): number {
+  let best = Infinity;
+  for (let run = 0; run < runs; run += 1) {
+    const started = performance.now();
+    commentDocToMarkdown(doc);
+    best = Math.min(best, performance.now() - started);
+  }
+  return best;
+}
 
 function fastest(markdown: string, runs: number): number {
   let best = Infinity;
