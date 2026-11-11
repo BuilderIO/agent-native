@@ -262,6 +262,23 @@ describe("comment Markdown and the box's document", () => {
     expect(roundTrip(code)).toBe(code);
   });
 
+  it("never shows or saves a mention's stand-in link", () => {
+    const named = [...people, { label: "a`b<c", email: "ab@example.com" }];
+    const shown = (markdown: string) =>
+      JSON.stringify(commentMarkdownToDoc(markdown, named));
+    // A name holding a backtick or "<" stays one chip beside code.
+    const beside = "@a`b<c and `code` <i>x</i>";
+    expect(chips(commentMarkdownToDoc(beside, named))).toEqual(["a`b<c"]);
+    expect(roundTrip(beside, named)).toBe("@a`b<c and `code` \\<i>x\\</i>");
+    // `!` would make its link an image, so that one opens as written.
+    const bang = "Hi!@Sam and @Sam";
+    expect(chips(commentMarkdownToDoc(bang, named))).toEqual(["Sam"]);
+    expect(roundTrip(bang, named)).toBe(bang);
+    for (const markdown of [beside, bang, "`x @a`b<c y`", "`@Sam`"]) {
+      expect(shown(markdown)).not.toContain("comment-mention.invalid");
+    }
+  });
+
   it("chips listed mentions as whole words, longest name first", () => {
     expect(chips(commentMarkdownToDoc("@Sam Lee and @Sam", people))).toEqual([
       "Sam Lee",

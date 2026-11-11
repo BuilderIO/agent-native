@@ -82,10 +82,7 @@ export function commentMarkdownToDoc(
   const { markdown: head, rest } = splitCommentAtMarkdownLimit(text);
   let blocks: CommentDocNode[];
   try {
-    const reader = new DocReader(head, mentions);
-    const tree = fromMarkdown(reader.source, PARSE_OPTIONS);
-    reader.collect(tree);
-    blocks = reader.flow(tree.children);
+    blocks = readBlocks(head, mentions);
   } catch {
     // coercion-ok: should the parser fail, the renderer shows the comment as
     // written, so the box opens it as written too.
@@ -96,6 +93,31 @@ export function commentMarkdownToDoc(
     blocks.push(...plainLines(rest));
   }
   return doc(blocks);
+}
+
+/**
+ * The blocks a comment opens as. Should the text around a mention take its
+ * link apart, as `!` before it makes an image or code can, that mention opens
+ * as written; should that tangle another, they all do.
+ */
+function readBlocks(
+  markdown: string,
+  mentions: readonly ReviewMention[],
+): CommentDocNode[] {
+  const dropped = new Set<number>();
+  for (let attempt = 0; ; attempt += 1) {
+    const reader = new DocReader(
+      markdown,
+      attempt < 2 ? mentions : [],
+      dropped,
+    );
+    const tree = fromMarkdown(reader.source, PARSE_OPTIONS);
+    reader.collect(tree);
+    const blocks = reader.flow(tree.children);
+    const lost = reader.lostMentions();
+    if (!lost.length) return blocks;
+    for (const at of lost) dropped.add(at);
+  }
 }
 
 /**
@@ -230,14 +252,20 @@ class DocReader {
   private readonly mentionLinkText: RegExp;
   private readonly definitions = new Map<string, string>();
   private readonly footnotes = new Set<string>();
+  /** The mentions read back, as chips or as code shows them, by index. */
+  private readonly placed = new Set<number>();
 
-  constructor(markdown: string, mentions: readonly ReviewMention[]) {
+  constructor(
+    markdown: string,
+    mentions: readonly ReviewMention[],
+    dropped: ReadonlySet<number>,
+  ) {
     // Found and swapped for links as the renderer does, so Markdown in a
     // label stays part of the chip. One written `@[Name](mailto:…)` stays the
     // link it's written as, which saves it as it was. Too many, or a swap that
     // tangles the text, and the renderer shows them as written, as here.
     const found = findCommentMentions(markdown, mentions).filter(
-      (mention) => !mention.inline,
+      (mention) => !mention.inline && !dropped.has(mention.at),
     );
     // A run of x's the comment doesn't hold, so code the comment holds can't
     // pass for a mention's link.
@@ -245,7 +273,7 @@ class DocReader {
     while (markdown.includes(`${MENTION_HOST}${run}`)) run += "x";
     this.mentionLink = `https://${MENTION_HOST}${run}/`;
     this.mentionLinkText = new RegExp(
-      String.raw`\[(?:\\[\\[\]]|[^\\[\]])*\]\(${this.mentionLink.replace(/[./]/g, "\\$&")}(\d+)\)`,
+      String.raw`\[(?:\\[\\[\]<${"`"}]|[^\\[\]])*\]\(${this.mentionLink.replace(/[./]/g, "\\$&")}(\d+)\)`,
       "g",
     );
     const swapped = withMentionLinks(markdown, found, this.mentionLink);
@@ -272,10 +300,22 @@ class DocReader {
 
   /** Text a mention's link stands in for, as written, as code shows it. */
   private written(text: string): string {
-    return text.replace(
-      this.mentionLinkText,
-      (link, index: string) => this.found[Number(index)]?.source ?? link,
-    );
+    return text.replace(this.mentionLinkText, (link, index: string) => {
+      const mention = itemAt(this.found, Number(index));
+      if (!mention) return link;
+      this.placed.add(Number(index));
+      return mention.source;
+    });
+  }
+
+  /** Where each mention swapped in starts that didn't come back. */
+  lostMentions(): number[] {
+    const swapped = new Set(this.mentionLinks.values());
+    return this.found
+      .filter(
+        (_mention, index) => swapped.has(index) && !this.placed.has(index),
+      )
+      .map(({ at }) => at);
   }
 
   /**
@@ -288,6 +328,7 @@ class DocReader {
     if (index === undefined || link.url !== `${this.mentionLink}${index}`) {
       return undefined;
     }
+    this.placed.add(index);
     return this.found[index]?.mention;
   }
 
@@ -470,7 +511,8 @@ function withMentionLinks(
   const links = new Map<number, number>();
   found.forEach(({ at, source: written, mention }, index) => {
     if (at < cursor) return;
-    const label = `@${mention.label}`.replace(/[\\[\]]/g, "\\$&");
+    // Escaped where code, an autolink or HTML could start and run past it.
+    const label = `@${mention.label}`.replace(/[\\[\]<`]/g, "\\$&");
     source += markdown.slice(cursor, at);
     links.set(source.length, index);
     source += `[${label}](${mentionLink}${index})`;
