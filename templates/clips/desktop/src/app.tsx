@@ -5022,6 +5022,15 @@ export function App({
     showHostedClipsLimit,
     showLastClipPrompt,
   ]);
+
+  // The used-up card can replace a focused Start at any time (a refused
+  // start, a clip used on another device); focus left on nothing goes to it.
+  useEffect(() => {
+    if (!showHostedClipsLimit) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    document.querySelector<HTMLElement>(".hosted-clips-limit button")?.focus();
+  }, [showHostedClipsLimit]);
   const startButtonLoading =
     (recordingReadinessPending || recordingStartPending) &&
     !recordingStopFinalizing;
