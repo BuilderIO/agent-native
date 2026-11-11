@@ -942,12 +942,18 @@ export async function registerMessagingChannelWebhook(
   }
   const registration = await mounted.registerWebhook(platform, baseUrl);
   if (registration.ok === false) {
+    const details: Record<string, unknown> = {
+      ...(registration.upstreamStatus !== undefined
+        ? { upstreamStatus: registration.upstreamStatus }
+        : {}),
+      ...(registration.retryAfter !== undefined
+        ? { retryAfter: registration.retryAfter }
+        : {}),
+    };
     fail(registration.error, {
       statusCode: registration.statusCode,
       errorCode: "webhook_registration_failed",
-      ...(registration.upstreamStatus !== undefined
-        ? { details: { upstreamStatus: registration.upstreamStatus } }
-        : {}),
+      ...(Object.keys(details).length > 0 ? { details } : {}),
     });
   }
   const channel = await readChannelStatus(mounted, adapter, access, baseUrl);

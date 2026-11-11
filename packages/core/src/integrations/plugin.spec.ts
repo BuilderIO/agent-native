@@ -1038,7 +1038,7 @@ describe("integrations plugin routes", () => {
     });
   });
 
-  it("surfaces Telegram 429 rate limits as retryable 429 responses with upstreamStatus", async () => {
+  it("surfaces Telegram 429 rate limits as retryable 429 responses with upstreamStatus and retryAfter", async () => {
     getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
     resolveSecretMock.mockImplementation((key: string) =>
       key === "TELEGRAM_BOT_TOKEN"
@@ -1056,6 +1056,7 @@ describe("integrations plugin routes", () => {
               ok: false,
               description: "Too Many Requests: retry after 30",
               error_code: 429,
+              parameters: { retry_after: 30 },
             }),
             {
               status: 429,
@@ -1079,6 +1080,44 @@ describe("integrations plugin routes", () => {
     expect(result.body).toEqual({
       error: "Telegram setWebhook failed: Too Many Requests: retry after 30",
       upstreamStatus: 429,
+      retryAfter: 30,
+    });
+  });
+
+  it("surfaces upstream Telegram 408 request timeouts as dependency failures with 424", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
+    resolveSecretMock.mockImplementation((key: string) =>
+      key === "TELEGRAM_BOT_TOKEN"
+        ? "telegram-bot-token-example"
+        : key === "TELEGRAM_WEBHOOK_SECRET"
+          ? "telegram-webhook-secret-example"
+          : null,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("Request Timeout", {
+            status: 408,
+            headers: { "Content-Type": "text/plain" },
+          }),
+      ),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "telegram", label: "Telegram" }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/telegram/setup",
+      "POST",
+    );
+
+    expect(result.status).toBe(424);
+    expect(result.body).toEqual({
+      error: "Telegram setWebhook failed: HTTP 408",
+      upstreamStatus: 408,
     });
   });
 

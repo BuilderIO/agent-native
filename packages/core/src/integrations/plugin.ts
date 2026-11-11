@@ -1001,6 +1001,10 @@ export function createIntegrationsPlugin(
           type TelegramSetWebhookResponse = {
             ok?: boolean;
             description?: string;
+            parameters?: {
+              retry_after?: number;
+              [key: string]: unknown;
+            };
             [key: string]: unknown;
           };
           let data: TelegramSetWebhookResponse | null = null;
@@ -1018,15 +1022,24 @@ export function createIntegrationsPlugin(
               `[telegram] setWebhook failed (${res.status}): ${data?.description ?? body}`,
             );
             const isRateLimit = res.status === 429;
-            const isUpstreamOutage = res.status >= 500;
-            const statusCode = isRateLimit ? 429 : isUpstreamOutage ? 424 : 422;
+            const isDependencyFailure = res.status >= 500 || res.status === 408;
+            const statusCode = isRateLimit
+              ? 429
+              : isDependencyFailure
+                ? 424
+                : 422;
             const upstreamStatus =
-              isRateLimit || isUpstreamOutage ? res.status : undefined;
+              isRateLimit || isDependencyFailure ? res.status : undefined;
+            const retryAfter =
+              typeof data?.parameters?.retry_after === "number"
+                ? data.parameters.retry_after
+                : undefined;
             return {
               ok: false,
               statusCode,
               error: `Telegram setWebhook failed: ${data?.description ?? `HTTP ${res.status}`}`,
               ...(upstreamStatus !== undefined ? { upstreamStatus } : {}),
+              ...(retryAfter !== undefined ? { retryAfter } : {}),
             };
           }
           return { ok: true, webhookUrl, result: data };
@@ -3635,8 +3648,11 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, registration.statusCode);
             return {
               error: registration.error,
-              ...(registration.upstreamStatus
+              ...(registration.upstreamStatus !== undefined
                 ? { upstreamStatus: registration.upstreamStatus }
+                : {}),
+              ...(registration.retryAfter !== undefined
+                ? { retryAfter: registration.retryAfter }
                 : {}),
             };
           }
