@@ -170,6 +170,33 @@ describe("Terminal", () => {
     expect(onShowAll).toHaveBeenCalledTimes(1);
   });
 
+  it("leaves showAll to the host when it also passes onShowAll", async () => {
+    const output = ["one", "two", "three"].join("\n");
+    const pre = () => container.querySelector("pre")?.textContent;
+    const onShowAll = vi.fn();
+    const renderWith = (showAll: boolean) =>
+      render(
+        <TerminalOutput
+          output={output}
+          maxLines={1}
+          showAll={showAll}
+          onShowAll={onShowAll}
+        />,
+      );
+    await renderWith(false);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(".agentkit-terminal-earlier")
+        ?.click(),
+    );
+    expect(onShowAll).toHaveBeenCalledTimes(1);
+    expect(pre()).toBe("three");
+    await renderWith(true);
+    expect(pre()).toBe(output);
+    await renderWith(false);
+    expect(pre()).toBe("three");
+  });
+
   it("copies the whole output without color codes", async () => {
     const writeText = vi.fn(async () => undefined);
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });

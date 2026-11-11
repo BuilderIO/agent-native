@@ -166,15 +166,18 @@ export function TerminalOutput({
   maxLines?: number;
   /** Hides the output from session replays. */
   masked?: boolean;
-  /** Shows every line, such as after a remount once the user revealed them. */
+  /** Shows every line. Pass with `onShowAll` to control it. */
   showAll?: boolean;
   /** Called when the user reveals the earlier lines. */
   onShowAll?: () => void;
 }) {
   const labels = useAgentKitLabels();
-  // Revealing is one-way: a `showAll` from the host or the button press.
   const [revealed, setRevealed] = useState(false);
-  const showAll = controlledShowAll === true || revealed;
+  // With both props the host owns it; with one, a press still reveals.
+  const showAll =
+    onShowAll && controlledShowAll !== undefined
+      ? controlledShowAll
+      : controlledShowAll === true || revealed;
   const setShowAll = () => {
     setRevealed(true);
     onShowAll?.();
