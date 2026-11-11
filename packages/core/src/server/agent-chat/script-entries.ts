@@ -452,7 +452,7 @@ export async function createResourceScriptEntries(): Promise<
               path: {
                 type: "string",
                 description:
-                  "Resource path (e.g. 'LEARNINGS.md', 'notes/ideas.md'). Required for read/write/delete.",
+                  "Resource path (e.g. 'notes/ideas.md'). Required for read/write/delete.",
               },
               content: {
                 type: "string",
@@ -479,8 +479,7 @@ export async function createResourceScriptEntries(): Promise<
               },
               mime: {
                 type: "string",
-                description:
-                  "MIME type for write (default: inferred from extension)",
+                description: "write: MIME type (default: from extension)",
               },
               format: {
                 type: "string",
@@ -499,7 +498,7 @@ export async function createResourceScriptEntries(): Promise<
               },
               includeAgentScratch: {
                 type: "boolean",
-                description: "Include hidden agent scratch files when listing.",
+                description: "list: include hidden agent scratch files.",
               },
             },
             required: ["action"],
