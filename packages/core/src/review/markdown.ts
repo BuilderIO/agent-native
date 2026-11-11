@@ -1042,24 +1042,23 @@ function linkTypedAddresses(
     const at = addressStart(word);
     if (at === -1) return [node];
     const start = text.length - word.length + at;
-    const typed = text.slice(start);
-    const link = autolinkAt(
-      typed,
+    const link = lastAutolinkIn(
+      text.slice(start),
       start ? text.charAt(start - 1) : writtenLast(itemAt(nodes, index - 1)),
     );
     if (!link) return [node];
+    const from = start + link.offset;
+    const to = from + link.length;
     const marks = node.marks ?? [];
     const linked: CommentDocNode = {
       ...node,
-      text: typed.slice(0, link.length),
+      text: text.slice(from, to),
       marks: [...marks, { type: "link", attrs: { href: link.url } }],
     };
     return [
-      ...(start ? [{ ...node, text: text.slice(0, start) }] : []),
+      ...(from ? [{ ...node, text: text.slice(0, from) }] : []),
       linked,
-      ...(link.length < typed.length
-        ? [{ ...node, text: typed.slice(link.length) }]
-        : []),
+      ...(to < text.length ? [{ ...node, text: text.slice(to) }] : []),
     ];
   });
 }
@@ -1086,35 +1085,51 @@ function writtenLast(node: CommentDocNode | undefined): string {
   return "*";
 }
 
+/** An address GFM links in a text: where it starts, its length, its link. */
+interface Autolink {
+  offset: number;
+  length: number;
+  url: string;
+}
+
 /**
- * The link GFM reads from the start of `text`, written after `before`, and
- * how much of `text` it takes.
+ * The last address GFM links in `text`, written after `before`: where it
+ * starts in `text`, how much it takes and where it goes. An earlier `@` can
+ * look like an address's start without being one, so the parser decides.
  */
-function autolinkAt(
-  text: string,
-  before: string,
-): { length: number; url: string } | undefined {
+function lastAutolinkIn(text: string, before: string): Autolink | undefined {
   return remembered(AUTOLINKS, JSON.stringify([text, before]), () =>
-    readAutolinkAt(text, before),
+    readLastAutolinkIn(text, before),
   );
 }
 
-function readAutolinkAt(
+function readLastAutolinkIn(
   text: string,
   before: string,
-): { length: number; url: string } | undefined {
-  const block = itemAt(
-    fromMarkdown(`${before}${text}`, PARSE_OPTIONS).children,
-    0,
-  );
-  const link =
-    block?.type === "paragraph"
-      ? block.children.find((child): child is Link => child.type === "link")
-      : undefined;
-  const end = link?.position?.end.offset;
-  return link && link.position?.start.offset === before.length && end
-    ? { length: end - before.length, url: link.url }
-    : undefined;
+): Autolink | undefined {
+  const source = `${before}${text}`;
+  const block = itemAt(fromMarkdown(source, PARSE_OPTIONS).children, 0);
+  let found: Autolink | undefined;
+  for (const child of block?.type === "paragraph" ? block.children : []) {
+    const start = child.position?.start.offset ?? -1;
+    const end = child.position?.end.offset ?? -1;
+    const shown = child.type === "link" ? itemAt(child.children, 0) : undefined;
+    // An address shows as it's typed; a `[text](url)` link doesn't.
+    if (
+      child.type === "link" &&
+      start >= before.length &&
+      child.children.length === 1 &&
+      shown?.type === "text" &&
+      shown.value === source.slice(start, end)
+    ) {
+      found = {
+        offset: start - before.length,
+        length: end - start,
+        url: child.url,
+      };
+    }
+  }
+  return found;
 }
 
 /**
@@ -1147,10 +1162,7 @@ function readAsLink(text: string, href: string, after: string): boolean {
  * What the parser lately made of each address. The box saves the whole
  * comment as each key is typed, so most addresses are read again unchanged.
  */
-const AUTOLINKS = new Map<
-  string,
-  { length: number; url: string } | undefined
->();
+const AUTOLINKS = new Map<string, Autolink | undefined>();
 const LINK_READS = new Map<string, boolean>();
 const SHOWN_TEXTS = new Map<string, string>();
 /** How many reads each keeps, past which it starts again. */
