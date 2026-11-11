@@ -1226,7 +1226,7 @@ function CollapsedProperties({
   const [open, setOpen] = useState(false);
   if (withoutLine && !open) setOpen(true);
   // Keyed on which Property holds the Comment, so a different one opens a line
-  // that was closed by hand.
+  // that was closed by hand, as does Info asking back the new Comment in it.
   const heldHere = (id: string | null | undefined) =>
     id && opensForProperties.some((property) => property.definition.id === id)
       ? id
@@ -1234,9 +1234,10 @@ function CollapsedProperties({
   const pendingHere = heldHere(comments?.pendingPropertyId);
   const selectedHere = heldHere(comments?.selectedPropertyId);
   const inlineHere = heldHere(comments?.inline?.openPropertyId);
+  const revealKey = comments?.inline?.revealKey;
   useEffect(() => {
     if (pendingHere || selectedHere || inlineHere) setOpen(true);
-  }, [pendingHere, selectedHere, inlineHere]);
+  }, [pendingHere, selectedHere, inlineHere, revealKey]);
   const Chevron = open ? IconChevronDown : IconChevronRight;
 
   return (

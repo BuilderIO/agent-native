@@ -2903,6 +2903,21 @@ export function documentPagePanelTab(args: {
     : null;
 }
 
+/**
+ * What Comment on a Property in Info does with the new Comment already
+ * started. One is written at a time, and its words aren't dropped for another:
+ * Comment goes back to them, under their Property in Info or beside the Page's
+ * text. One started on this Property opens again as it was.
+ */
+export function infoPropertyCommentStart(
+  pending: { propertyId?: string | undefined; written: boolean } | null,
+  propertyId: string,
+): "start" | "reopen" | "returnToProperty" | "returnToPage" {
+  if (pending?.propertyId === propertyId) return "reopen";
+  if (!pending?.written) return "start";
+  return pending.propertyId ? "returnToProperty" : "returnToPage";
+}
+
 /** The page editor an event belongs to, by its path or else by focus. */
 function documentEditorEventOwner(event: KeyboardEvent) {
   const pathOwner = event
@@ -9770,6 +9785,7 @@ function PageEditorSessionBody({
     [clearCommentFocus, replyDrafts.setOpenReply],
   );
 
+  const hasPendingComment = !!pendingComment;
   const pendingPropertyId = pendingComment?.property?.propertyId;
   const pendingWritten =
     !!pendingComment &&
@@ -9777,37 +9793,65 @@ function PageEditorSessionBody({
       !!pendingComment.text.trim() ||
       pendingComment.mentions.length > 0 ||
       !!pendingComment.aiDraft);
-  // Back to the new Comment with words in it under another Property.
-  const returnToInfoPendingComment = useCallback((propertyId: string) => {
-    const box = pagePanelRef.current?.querySelector<HTMLElement>(
-      `[data-property-threads="${CSS.escape(propertyId)}"]`,
-    );
-    if (!box) return;
-    box.scrollIntoView({ block: "nearest" });
-    pulseShownSubject([box]);
-    box
-      .querySelector<HTMLElement>(
-        '[data-comment-pending] [contenteditable="true"]',
-      )
-      ?.focus({ preventScroll: true });
-  }, []);
+  // A new Comment with words in it, asked back: under its Property in Info,
+  // where a folded line holding it opens, or beside the Page's text. It then
+  // comes into view with the caret in it.
+  const [pendingReveal, setPendingReveal] = useState<{
+    propertyId: string | null;
+    key: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!pendingReveal) return;
+    const { propertyId } = pendingReveal;
+    // The line opens, or the panel changes, a render later.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        const composer =
+          propertyId === null
+            ? globalThis.document.querySelector<HTMLElement>(
+                "[data-comment-pending]",
+              )
+            : pagePanelRef.current?.querySelector<HTMLElement>(
+                `[data-property-threads="${CSS.escape(propertyId)}"] [data-comment-pending]`,
+              );
+        if (!composer) return;
+        composer.scrollIntoView({ block: "nearest" });
+        pulseShownSubject([composer]);
+        composer
+          .querySelector<HTMLElement>('[contenteditable="true"]')
+          ?.focus({ preventScroll: true });
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingReveal]);
   // Info keeps a Property's Comments under its row, so starting one, opening
   // its threads, or replying leaves Info open.
   const startInfoPropertyComment = useCallback(
     (property: DocumentProperty) => {
       const propertyId = property.definition.id;
-      // One new Comment at a time, and words written under another Property
-      // aren't dropped for this one: Comment goes back to them instead.
-      if (
-        pendingPropertyId &&
-        pendingPropertyId !== propertyId &&
-        pendingWritten
-      ) {
-        returnToInfoPendingComment(pendingPropertyId);
+      const start = infoPropertyCommentStart(
+        hasPendingComment
+          ? { propertyId: pendingPropertyId, written: pendingWritten }
+          : null,
+        propertyId,
+      );
+      if (start === "returnToPage") {
+        // Its words wait beside the Page's text, so Info gives way to them.
+        setCommentsBrowseOpen(false);
+        setDiscussionPeekThreadId(null);
+        setUtilityPanel("comments");
+        setSelectedSuggestionId(null);
+        setSelectedThreadId(null);
+        setHoveredThreadId(null);
+      }
+      if (start === "returnToPage" || start === "returnToProperty") {
+        setPendingReveal((current) => ({
+          propertyId: pendingPropertyId ?? null,
+          key: (current?.key ?? 0) + 1,
+        }));
         return;
       }
-      // One already started on this Property opens again as it was.
-      if (pendingPropertyId !== propertyId) {
+      if (start === "start") {
         setPendingComment({
           quotedText: "",
           offsetTop: 0,
@@ -9821,10 +9865,10 @@ function PageEditorSessionBody({
       setHoveredThreadId(null);
     },
     [
+      hasPendingComment,
       pagePropertiesDatabaseId,
       pendingPropertyId,
       pendingWritten,
-      returnToInfoPendingComment,
       setPendingComment,
     ],
   );
@@ -11256,6 +11300,7 @@ function PageEditorSessionBody({
             startComment: startInfoPropertyComment,
             inline: {
               openPropertyId: infoPropertyId,
+              revealKey: pendingReveal?.key,
               toggle: toggleInfoProperty,
               renderThreads: (propertyId) =>
                 renderCommentsSidebar(

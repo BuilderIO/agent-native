@@ -688,10 +688,10 @@ describe("new comment responsive draft", () => {
     expect(source).toMatch(
       /const pagePendingComment =\s*pendingComment\?\.property && !propertiesOnPage/,
     );
-    // Comment on another Property goes back to words written under one, and
-    // only the open Property's box holds the selected thread and its reply.
+    // Comment on a Property goes back to words written elsewhere, and only
+    // the open Property's box holds the selected thread and its reply.
     expect(source).toMatch(
-      /pendingPropertyId !== propertyId &&\s*pendingWritten\s*\)\s*\{\s*returnToInfoPendingComment\(pendingPropertyId\);/,
+      /const start = infoPropertyCommentStart\(\s*hasPendingComment/,
     );
     expect(source).toMatch(
       /selectedThreadId=\{\s*infoProperty && infoPropertyId !== infoProperty\s*\? null\s*: selectedThreadId\s*\}/,

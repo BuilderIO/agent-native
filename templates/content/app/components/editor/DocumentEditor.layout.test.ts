@@ -34,6 +34,7 @@ import {
   documentEditorHasFreshAiResolution,
   documentEditorShowsInlineComments,
   documentPagePanelTab,
+  infoPropertyCommentStart,
   dismissDocumentCommentFocus,
   documentEditorLoadState,
   collabDocHasText,
@@ -1416,6 +1417,34 @@ describe("document editor layout", () => {
     expect(printRoot).toContain("overflow: visible !important");
     expect(printRoot).toContain("height: auto !important");
     expect(printRoot).toContain("inset: 0 0 auto !important");
+  });
+
+  describe("infoPropertyCommentStart", () => {
+    it("starts one with none started, or over an empty one elsewhere", () => {
+      expect(infoPropertyCommentStart(null, "a")).toBe("start");
+      expect(
+        infoPropertyCommentStart({ propertyId: "b", written: false }, "a"),
+      ).toBe("start");
+      expect(infoPropertyCommentStart({ written: false }, "a")).toBe("start");
+    });
+
+    it("opens one already started on the Property as it was", () => {
+      expect(
+        infoPropertyCommentStart({ propertyId: "a", written: true }, "a"),
+      ).toBe("reopen");
+      expect(
+        infoPropertyCommentStart({ propertyId: "a", written: false }, "a"),
+      ).toBe("reopen");
+    });
+
+    it("goes back to words under another Property or beside the Page's text", () => {
+      expect(
+        infoPropertyCommentStart({ propertyId: "b", written: true }, "a"),
+      ).toBe("returnToProperty");
+      expect(infoPropertyCommentStart({ written: true }, "a")).toBe(
+        "returnToPage",
+      );
+    });
   });
 
   describe("documentPagePanelTab", () => {

@@ -41,6 +41,8 @@ export interface PropertyCommentsValue {
   inline?: {
     /** The Property whose threads, or new Comment, show under its row. */
     openPropertyId: string | null;
+    /** Changes each time Info asks back the new Comment waiting in it. */
+    revealKey?: number | undefined;
     toggle: (propertyId: string) => void;
     renderThreads: (propertyId: string) => ReactNode;
   };

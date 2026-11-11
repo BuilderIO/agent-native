@@ -586,6 +586,31 @@ describe("a row's Properties in its view", () => {
     expect(rowIds()).toEqual(["shown", "hidden", "always"]);
   });
 
+  it("opens a line closed by hand when Info asks back the Comment in it", async () => {
+    const rowView: DatabaseRowView = {
+      type: "board",
+      hiddenPropertyIds: ["hidden"],
+    };
+    mocks.response.properties = [property("hidden"), property("shown")];
+    const comments = (revealKey: number) => ({
+      pendingPropertyId: "hidden",
+      inline: {
+        openPropertyId: null,
+        revealKey,
+        toggle: vi.fn(),
+        renderThreads: () => null,
+      },
+    });
+    const { rerender } = renderProperties(rowView, { comments: comments(0) });
+    expect(rowIds()).toEqual(["shown", "hidden"]);
+
+    await openLine(moreLine());
+    expect(rowIds()).toEqual(["shown"]);
+
+    rerender(propertiesElement(rowView, { comments: comments(1) }));
+    expect(rowIds()).toEqual(["shown", "hidden"]);
+  });
+
   it("stays closed for a thread that is only hovered", () => {
     renderProperties(
       { type: "board", hiddenPropertyIds: ["a"] },
