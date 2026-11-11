@@ -22,6 +22,7 @@ import type {
   ListItem,
   Nodes,
   Paragraph,
+  Parents,
   PhrasingContent,
   Root,
   Strong,
@@ -34,6 +35,7 @@ import {
   toMarkdown,
   type Handle,
   type Options as ToMarkdownOptions,
+  type State,
 } from "mdast-util-to-markdown";
 import { gfm } from "micromark-extension-gfm";
 
@@ -128,14 +130,43 @@ function readBlocks(
  * typed.
  */
 export function commentDocToMarkdown(content: CommentDocNode): string {
-  const root: Root = {
-    type: "root",
-    children: flowToMarkdown(content.content ?? []),
-  };
-  return withPlainTail(
-    toMarkdown(root, WRITE_OPTIONS).replace(/\n+$/, ""),
-    content.content ?? [],
+  const blocks = content.content ?? [];
+  return withPlainTail(withFootnotes(escapedMarkdown(blocks)), blocks);
+}
+
+/** The box's blocks as Markdown, with text that would format escaped. */
+function escapedMarkdown(blocks: readonly CommentDocNode[]): string {
+  const root: Root = { type: "root", children: flowToMarkdown(blocks) };
+  return toMarkdown(root, WRITE_OPTIONS).replace(/\n+$/, "");
+}
+
+/** A footnote's mark, `[^1]`, as the writer escapes it. */
+const WRITTEN_FOOTNOTE = /\\\[\^([^\s\\\]]+)\]/g;
+/**
+ * A line that starts a footnote's note, `[^1]: `, as the writer escapes it,
+ * in a quote too.
+ */
+const WRITTEN_FOOTNOTE_NOTE = /^(?:> ?)*\\\[\^([^\s\\\]]+)\]:/gm;
+
+/**
+ * A cited footnote opens as the `[^1]` and `[^1]: note` it was written as,
+ * which the writer escapes, as it would typed. Where a comment still holds a
+ * note's lines, its marks are written unescaped again, should that open the
+ * same, so it stays a footnote.
+ */
+function withFootnotes(markdown: string): string {
+  const noted = new Set(
+    Array.from(markdown.matchAll(WRITTEN_FOOTNOTE_NOTE), ([, label]) => label),
   );
+  if (!noted.size) return markdown;
+  const cited = markdown.replace(
+    WRITTEN_FOOTNOTE,
+    (written: string, label: string) =>
+      noted.has(label) ? written.slice(1) : written,
+  );
+  return escapedMarkdown(commentMarkdownToDoc(cited).content ?? []) === markdown
+    ? cited
+    : markdown;
 }
 
 /**
@@ -279,6 +310,7 @@ const LINE_BLOCKS = new Set<Nodes["type"]>([
   "heading",
   "html",
   "table",
+  "footnoteDefinition",
 ]);
 
 /** The host of the links mentions stand in for while a comment is parsed. */
@@ -422,11 +454,19 @@ class DocReader {
         const html = withoutHtmlComments(this.written(node.value)).trim();
         return html ? plainLines(html) : [];
       }
-      // An unreferenced note is drawn as nothing.
-      case "footnoteDefinition":
-        return this.footnotes.has(node.identifier)
-          ? this.flow(node.children)
-          : [];
+      // An unreferenced note is drawn as nothing. A cited one opens as the
+      // `[^1]: note` it was written as, and saves so again.
+      case "footnoteDefinition": {
+        if (!this.footnotes.has(node.identifier)) return [];
+        const label = {
+          type: "text",
+          text: `[^${node.label ?? node.identifier}]: `,
+        };
+        const content = this.flow(node.children);
+        const first =
+          content[0]?.type === "paragraph" ? content.shift() : undefined;
+        return [paragraph([label, ...(first?.content ?? [])]), ...content];
+      }
       // A table shows as its cells' text, a row to a line.
       case "table":
         return node.children.map((row) =>
@@ -783,7 +823,9 @@ function phrasingToMarkdown(
 ): PhrasingContent[] {
   const root: { children: PhrasingContent[] } = { children: [] };
   const stack: MarkFrame[] = [];
-  const line = spacesOutsideMarks(bareAddresses(linkTypedAddresses(nodes)));
+  const line = punctuationAfterMentions(
+    spacesOutsideMarks(bareAddresses(linkTypedAddresses(nodes))),
+  );
   line.forEach((node, index) => {
     const marks = orderedMarks(node);
     // Marks still open stay open, from the outside in, so `***a**b*` isn't
@@ -1096,6 +1138,49 @@ function spacesOutsideMarks(
   return result;
 }
 
+/**
+ * Moves punctuation right after a mention outside the bold, italic or struck
+ * text it starts. Markdown can't open `**` between a letter and punctuation,
+ * as in `@Sam**!**`, and the writer can't spell the mention's last letter as
+ * a reference, as it would another's, or the renderer wouldn't find it.
+ */
+function punctuationAfterMentions(
+  nodes: readonly CommentDocNode[],
+): CommentDocNode[] {
+  const result: CommentDocNode[] = [];
+  nodes.forEach((node, index) => {
+    const previous = index > 0 ? itemAt(nodes, index - 1) : undefined;
+    const mention =
+      previous?.type === COMMENT_DOC_MENTION
+        ? mentionMarkdown(
+            stringAttr(previous.attrs, "label"),
+            stringAttr(previous.attrs, "mailto"),
+          )
+        : "";
+    const opening =
+      attentionKind(mention.slice(-1)) === "letter" &&
+      node.type === "text" &&
+      !node.marks?.some((mark) => mark.type === "code")
+        ? marksMissingFrom(node.marks ?? [], previous)
+        : [];
+    const text = node.text ?? "";
+    let end = 0;
+    while (
+      opening.length &&
+      attentionKind(text.charAt(end)) === "punctuation"
+    ) {
+      end += 1;
+    }
+    if (!end) {
+      result.push(node);
+      return;
+    }
+    result.push(withoutMarks(node, text.slice(0, end), opening));
+    if (end < text.length) result.push({ ...node, text: text.slice(end) });
+  });
+  return result;
+}
+
 function marksMissingFrom(
   marks: readonly CommentDocMark[],
   neighbour: CommentDocNode | undefined,
@@ -1208,7 +1293,7 @@ function characterReference(char: string): string {
  * Struck text, written as the writer writes bold: where `~~` beside a letter
  * couldn't open or close, that letter is spelled as a reference.
  */
-const writeStrike: Handle = (node: Delete, _parent, state, info) => {
+const writeStrike: Handle = (node: Delete, parent, state, info) => {
   const tracker = state.createTracker(info);
   const exit = state.enter("strikethrough");
   const before = tracker.move("~~");
@@ -1236,6 +1321,7 @@ const writeStrike: Handle = (node: Delete, _parent, state, info) => {
     after: close.outside,
     before: open.outside,
   };
+  keepMentionBefore(parent, state);
   return before + between + after;
 };
 
@@ -1244,20 +1330,159 @@ function lastCharacter(text: string): string {
   return /^[\uD800-\uDBFF][\uDC00-\uDFFF]$/.test(pair) ? pair : text.slice(-1);
 }
 
+function firstCharacter(text: string): string {
+  const code = text.codePointAt(0);
+  return code === undefined ? "" : String.fromCodePoint(code);
+}
+
+/**
+ * Bold or italic right beside the other writes their `*`s as one run, as in
+ * `**b.***x*`. That run closes the one and opens the other only where the
+ * characters either side of it are alike, two letters or two punctuation
+ * marks, so otherwise the letter is spelled as a reference, which Markdown
+ * reads as punctuation. Markdown reads each half of a surrogate pair, an
+ * emoji's say, as a letter, so these compare the halves beside the run.
+ */
+function writeAttention(kind: "strong" | "emphasis"): Handle {
+  const handle: Handle = defaultHandlers[kind];
+  return Object.assign(
+    ((node: Strong | Emphasis, parent, state, info) => {
+      const written = handle(node, parent, state, info);
+      const index = state.indexStack.at(-1) ?? 0;
+      const siblings = parent?.children ?? [];
+      const previous = index > 0 ? itemAt(siblings, index - 1) : undefined;
+      const next = itemAt(siblings, index + 1);
+      const spellStart =
+        attentionKind(insideAttention(previous, "end").slice(-1)) ===
+          "punctuation" &&
+        attentionKind(insideAttention(node, "start").charAt(0)) === "letter";
+      const spellEnd =
+        attentionKind(insideAttention(node, "end").slice(-1)) === "letter" &&
+        attentionKind(insideAttention(next, "start").charAt(0)) ===
+          "punctuation";
+      if (!spellStart && !spellEnd) {
+        keepMentionBefore(parent, state);
+        return written;
+      }
+      const opening = /^\*+/.exec(written)?.[0].length ?? 0;
+      const closing = /\*+$/.exec(written)?.[0].length ?? 0;
+      let between = written.slice(opening, written.length - closing);
+      if (spellStart) {
+        const head = firstCharacter(between);
+        between = characterReference(head) + between.slice(head.length);
+      }
+      if (spellEnd && attentionKind(between.slice(-1)) === "letter") {
+        const tail = lastCharacter(between);
+        between =
+          between.slice(0, between.length - tail.length) +
+          characterReference(tail);
+      }
+      // A letter outside may now need spelling too, as the writer would.
+      const open = attentionEncoding(info.before.slice(-1), between.charAt(0));
+      const close = attentionEncoding(info.after.charAt(0), between.slice(-1));
+      state.attentionEncodeSurroundingInfo = {
+        after: close.outside,
+        before: open.outside,
+      };
+      keepMentionBefore(parent, state);
+      return (
+        written.slice(0, opening) +
+        between +
+        written.slice(written.length - closing)
+      );
+    }) as Handle,
+    { peek: () => "*" },
+  );
+}
+
+/**
+ * Leaves the mention right before bold, italic or struck text as written. The
+ * writer would spell its last letter as a reference where the mark couldn't
+ * open after it, and then the renderer wouldn't find the mention. Punctuation
+ * after a mention is moved outside such marks first, so this is rare.
+ */
+function keepMentionBefore(parent: Parents | undefined, state: State): void {
+  const index = state.indexStack.at(-1) ?? 0;
+  const previous =
+    index > 0 ? itemAt(parent?.children ?? [], index - 1) : undefined;
+  const encoding = state.attentionEncodeSurroundingInfo;
+  if (
+    encoding?.before &&
+    (previous as { type: string } | undefined)?.type === COMMENT_DOC_MENTION
+  ) {
+    state.attentionEncodeSurroundingInfo = { ...encoding, before: false };
+  }
+}
+
+/**
+ * The character just inside bold or italic text's `*`s at one end, past any
+ * `*`s of bold or italic inside it; none for anything else.
+ */
+function insideAttention(
+  node: Nodes | undefined,
+  side: "start" | "end",
+): string {
+  if (node?.type !== "strong" && node?.type !== "emphasis") return "";
+  const child =
+    side === "start" ? itemAt(node.children, 0) : node.children.at(-1);
+  return child?.type === "strong" || child?.type === "emphasis"
+    ? insideAttention(child, side)
+    : writtenEdge(child, side);
+}
+
+/**
+ * The character a node is written starting or ending with. None for a
+ * mention's last letter, which can't be spelled as a reference: the renderer
+ * wouldn't find the mention.
+ */
+function writtenEdge(node: Nodes | undefined, side: "start" | "end"): string {
+  if (!node) return "";
+  const written = node as {
+    type: string;
+    value?: string;
+    label?: string;
+    mailto?: string;
+  };
+  switch (written.type) {
+    case "text":
+    case BARE_ADDRESS_NODE: {
+      const value = written.value ?? "";
+      return side === "start" ? firstCharacter(value) : lastCharacter(value);
+    }
+    case COMMENT_DOC_MENTION: {
+      if (side === "start") return "@";
+      const mention = mentionMarkdown(written.label ?? "", written.mailto);
+      return mention.endsWith(")") ? ")" : "";
+    }
+    case "inlineCode":
+      return "`";
+    case "delete":
+      return "~";
+    case "link":
+      return side === "start" ? "[" : ")";
+    default:
+      return "";
+  }
+}
+
 /** The name and address a written `@[Name](mailto:…)` can hold. */
 const MAILTO_NAME = /^[^[\]\r\n]+$/;
 const MAILTO_ADDRESS = /^[^()\s]+$/;
 
 /** A mention as `@label`, or as the `@[Name](mailto:…)` it was written as. */
+function mentionMarkdown(label: string, mailto = ""): string {
+  return MAILTO_NAME.test(label) && MAILTO_ADDRESS.test(mailto)
+    ? `@[${label}](mailto:${mailto})`
+    : `@${label}`;
+}
+
 const writeMention = Object.assign(
   ((node) => {
     const { label, mailto } = node as unknown as {
       label: string;
       mailto: string;
     };
-    return MAILTO_NAME.test(label) && MAILTO_ADDRESS.test(mailto)
-      ? `@[${label}](mailto:${mailto})`
-      : `@${label}`;
+    return mentionMarkdown(label, mailto);
   }) as Handle,
   { peek: () => "@" },
 );
@@ -1299,8 +1524,18 @@ const WRITE_OPTIONS: ToMarkdownOptions = {
   strong: "*",
   fences: true,
   listItemIndent: "one",
+  // The renderer draws GitHub's tables, so a line that could be a table's
+  // delimiter row, such as `-|-` under `a|b`, starts escaped, as GitHub's
+  // table writer escapes it.
+  unsafe: [
+    { atBreak: true, character: "|", after: "[\t :-]" },
+    { atBreak: true, character: ":", after: "-" },
+    { atBreak: true, character: "-", after: "[:|-]" },
+  ],
   handlers: {
     text: writeText,
+    strong: writeAttention("strong"),
+    emphasis: writeAttention("emphasis"),
     delete: writeStrike,
     listItem: writeListItem,
     reviewMention: writeMention,

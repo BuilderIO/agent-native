@@ -613,6 +613,38 @@ describe("ReviewCommentComposer", () => {
       expect(linkField()).toBeNull();
     });
 
+    // Selected text, and just the caret, where the link is typed in.
+    for (const [where, from, to, linked] of [
+      ["over selected text", 5, 9, "see [docs](https://example.com)"],
+      ["at the caret", 9, 9, "see docs[example.com](https://example.com)"],
+    ] as const) {
+      it(`keeps the link field open on an address a comment wouldn't link, ${where}`, async () => {
+        let state = { value: "", mentions: [] as ReviewMention[] };
+        await render(<Harness onState={(next) => (state = next)} />);
+        focusEditor();
+        typeText("see docs");
+        const submitLink = (field: HTMLInputElement) =>
+          act(() => {
+            field.form?.dispatchEvent(
+              new Event("submit", { bubbles: true, cancelable: true }),
+            );
+          });
+        placeCaret(from, to);
+        keydown("k", { ctrlKey: true });
+        const field = linkField();
+        if (!field) throw new Error("link field not open");
+        typeInto(field, "javascript:alert(1)");
+        submitLink(field);
+        expect(state.value).toBe("see docs");
+        expect(linkField()?.getAttribute("aria-invalid")).toBe("true");
+        typeInto(field, "example.com");
+        expect(linkField()?.hasAttribute("aria-invalid")).toBe(false);
+        submitLink(field);
+        expect(state.value).toBe(linked);
+        expect(linkField()).toBeNull();
+      });
+    }
+
     it("links the text the page shows selected, before the editor hears of it", async () => {
       let state = { value: "", mentions: [] as ReviewMention[] };
       await render(

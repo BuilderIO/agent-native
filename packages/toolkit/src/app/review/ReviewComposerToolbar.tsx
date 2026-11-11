@@ -17,7 +17,9 @@ import {
 import { posToDOMRect, type Editor } from "@tiptap/core";
 import { NodeSelection } from "@tiptap/pm/state";
 import { useEditorState } from "@tiptap/react";
-import { useMemo, type ComponentType } from "react";
+import { useMemo, useState, type ComponentType } from "react";
+
+import { commentLinkHref } from "./comment-link-href.js";
 
 export interface ReviewComposerFormatLabels {
   /** The toolbar's accessible name. */
@@ -88,6 +90,8 @@ export function ReviewComposerToolbar({
   onOpenLink: () => void;
 }) {
   const labels = { ...DEFAULT_LABELS, ...labelOverrides };
+  // The link field's text when it last couldn't be applied.
+  const [rejectedDraft, setRejectedDraft] = useState<string | null>(null);
   const state = useEditorState({
     editor,
     selector: ({ editor: instance }) => {
@@ -141,6 +145,12 @@ export function ReviewComposerToolbar({
     if (!editor.isEditable) return;
     const typed = (linkDraft ?? "").trim();
     const href = linkHref(typed);
+    // An address the posted comment wouldn't link, or the editor won't take,
+    // such as `javascript:`, stays in the field to fix.
+    if (href && !(commentLinkHref(href) && editor.can().setLink({ href }))) {
+      setRejectedDraft(linkDraft);
+      return;
+    }
     const chain = editor.chain().focus();
     if (!href) {
       chain.extendMarkRange("link").unsetLink().run();
@@ -215,8 +225,12 @@ export function ReviewComposerToolbar({
               aria-label={labels.linkField}
               placeholder={labels.linkPlaceholder}
               value={linkDraft}
+              aria-invalid={rejectedDraft === linkDraft || undefined}
               onChange={(event) => onLinkDraftChange(event.target.value)}
-              className="h-7 min-w-0 flex-1 rounded-md bg-transparent px-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+              className={cn(
+                "h-7 min-w-0 flex-1 rounded-md bg-transparent px-2 text-sm text-foreground outline-none placeholder:text-muted-foreground",
+                rejectedDraft === linkDraft && "text-destructive",
+              )}
             />
             {state.link ? (
               <ToolbarButton

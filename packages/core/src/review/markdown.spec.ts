@@ -62,6 +62,8 @@ describe("comment Markdown and the box's document", () => {
       "**`bold code`** and [`linked code`](https://example.com)",
       "ask @[Sam](mailto:sam@example.com)",
       "999999999. first\n999999999. second",
+      "a note[^1] and another[^n]\n\n[^1]: the *first*\n\n[^n]: a second",
+      "cited[^1]\n\n> [^1]: in a quote",
     ]) {
       expect(roundTrip(markdown)).toBe(markdown);
     }
@@ -80,6 +82,7 @@ describe("comment Markdown and the box's document", () => {
       "1. not a list",
       "<b>a tag</b>",
       "a\\b and a\\_b",
+      "a footnote's mark[^1] alone",
     ]) {
       const saved = commentDocToMarkdown(lines(typed));
       expect(commentPlainText(saved)).toBe(typed);
@@ -88,6 +91,17 @@ describe("comment Markdown and the box's document", () => {
     const second = commentDocToMarkdown(lines("first", "- second"));
     expect(second).toBe("first\n\\- second");
     expect(commentPlainText(second)).toBe("first\n- second");
+    // Lines that would make a table, whose delimiter row shows as nothing.
+    for (const rows of [
+      ["a|b", "-|-"],
+      ["a | b", ":--|--"],
+      ["|a|b|", "|---|---|"],
+    ]) {
+      const saved = commentDocToMarkdown(lines(...rows));
+      expect(commentPlainText(saved)).toBe(rows.join("\n"));
+      expect(roundTrip(saved)).toBe(saved);
+    }
+    expect(commentDocToMarkdown(lines("a|b", "-|-"))).toBe("a|b\n\\-|-");
   });
 
   it("keeps a typed web address bare, so it still shows as a link", () => {
@@ -181,7 +195,7 @@ describe("comment Markdown and the box's document", () => {
     ).toBe("[**the site**](https://example.com) and ``a`b``");
   });
 
-  it("keeps marks side by side as they were, beside letters too", () => {
+  it("keeps marks side by side as they were, beside letters and punctuation too", () => {
     const text = (value: string, ...marks: string[]): CommentDocNode => ({
       type: "text",
       text: value,
@@ -199,6 +213,16 @@ describe("comment Markdown and the box's document", () => {
       [text("y", "strike", "italic"), text("x")],
       [text("x"), text("(y)", "strike")],
       [text("x"), text("y", "bold", "strike"), text("z")],
+      // Bold and italic whose `*`s run together between punctuation and a
+      // letter, where the run wouldn't close the one and open the other.
+      [text("b.", "bold"), text("x", "italic")],
+      [text("b.", "italic"), text("x", "bold")],
+      [text("z"), text("b", "bold"), text("(x)", "italic"), text("y")],
+      [text("b.", "bold"), text("x", "italic"), text("y")],
+      [text("x", "italic"), text("y.", "bold", "italic"), text("z", "bold")],
+      [text("b", "bold", "code"), text("x", "italic")],
+      [text("b😀", "bold"), text("x", "italic")],
+      [text("b.", "bold"), text("😀x", "italic")],
     ]) {
       const saved = commentDocToMarkdown(inline(...content));
       expect(marksOf(commentMarkdownToDoc(saved))).toEqual(
@@ -211,6 +235,10 @@ describe("comment Markdown and the box's document", () => {
         inline(text("x", "bold", "italic"), text("y", "italic")),
       ),
     ).toBe("***x**y*");
+    // The letter beside the run is spelled as a reference.
+    expect(
+      commentDocToMarkdown(inline(text("b.", "bold"), text("x", "italic"))),
+    ).toBe("**b.***&#x78;*");
   });
 
   it("saves a typed web address as typed, which the renderer links", () => {
@@ -334,6 +362,32 @@ describe("comment Markdown and the box's document", () => {
     expect(roundTrip(bang, named)).toBe(bang);
     for (const markdown of [beside, bang, "`x @a`b<c y`", "`@Sam`"]) {
       expect(shown(markdown)).not.toContain("comment-mention.invalid");
+    }
+  });
+
+  it("keeps a chip's name whole before formatted punctuation", () => {
+    const sam = (...marks: string[]): CommentDocNode => ({
+      type: "reviewMention",
+      attrs: { label: "Sam", email: "sam@example.com", id: null },
+      ...(marks.length ? { marks: marks.map((type) => ({ type })) } : {}),
+    });
+    const text = (value: string, ...marks: string[]): CommentDocNode => ({
+      type: "text",
+      text: value,
+      ...(marks.length ? { marks: marks.map((type) => ({ type })) } : {}),
+    });
+    // Spelled as a character reference, the name's last letter would end the
+    // chip early, so the punctuation moves outside the marks instead.
+    for (const [content, saved] of [
+      [[sam(), text("!", "bold")], "@Sam!"],
+      [[sam(), text("(see)", "italic"), text(" ok")], "@Sam(*see)* ok"],
+      [[sam(), text("!x", "strike")], "@Sam!~~x~~"],
+      [[sam("bold"), text("!", "italic")], "**@Sam**!"],
+      [[sam(), text("x", "bold")], "@Sam**x**"],
+    ] as const) {
+      expect(commentDocToMarkdown(inline(...content))).toBe(saved);
+      expect(chips(commentMarkdownToDoc(saved, people))).toEqual(["Sam"]);
+      expect(roundTrip(saved)).toBe(saved);
     }
   });
 
