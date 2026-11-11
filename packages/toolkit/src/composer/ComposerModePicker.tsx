@@ -89,7 +89,7 @@ export function ComposerModePicker({
                   {...(option.disabled === undefined
                     ? {}
                     : { disabled: option.disabled })}
-                  className="agent-composer-mode-picker-option pe-3"
+                  className="agent-composer-mode-picker-option"
                 >
                   {option.icon}
                   <span className="min-w-0 flex-1 truncate">

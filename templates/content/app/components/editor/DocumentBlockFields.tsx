@@ -1562,7 +1562,7 @@ function BlockFieldTabMenu({
         onCloseAutoFocus={(event) => event.preventDefault()}
         data-block-field-menu
       >
-        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+        <DropdownMenuLabel className="font-normal text-muted-foreground">
           {t("editor.blockFieldMenuScope")}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
