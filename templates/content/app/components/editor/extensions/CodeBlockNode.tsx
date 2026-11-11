@@ -144,8 +144,15 @@ export const DrawingCodeBlock = CodeBlock.extend({
     const parentShortcuts = this.parent?.() ?? {};
     const parentEnter =
       "Enter" in parentShortcuts ? parentShortcuts["Enter"] : undefined;
+    const parentTab =
+      "Tab" in parentShortcuts ? parentShortcuts["Tab"] : undefined;
     return {
       ...parentShortcuts,
+      // The code block's Tab types a tab, which would replace a selected
+      // drawing as any other typing would.
+      Tab: (props) =>
+        isSelectedMermaidDrawing(props.editor.view) ||
+        (parentTab?.(props) ?? false),
       // Like a table cell, the first Escape from a Mermaid source only closes
       // it, leaving the drawing selected; the next one leaves the editor.
       Escape: ({ editor }) => {

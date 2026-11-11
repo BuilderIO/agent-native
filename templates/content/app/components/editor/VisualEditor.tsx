@@ -141,6 +141,7 @@ import {
   type CommentBlockTarget,
 } from "./comment-block-anchors";
 import { buildContentSelectionPayload } from "./content-selection";
+import { DrawDiagramsContext } from "./draw-diagrams";
 import {
   isEditorDraftSaveAccepted,
   type EditorDraftSaveResult,
@@ -6020,7 +6021,9 @@ export function VisualEditor({
             documentId={referenceDepth ? undefined : documentId}
           />
         ) : null}
-        <EditorContent editor={editor} hidden={showStoredBody} />
+        <DrawDiagramsContext.Provider value={drawDiagrams}>
+          <EditorContent editor={editor} hidden={showStoredBody} />
+        </DrawDiagramsContext.Provider>
       </RegistryBlockDataProvider>
       {collabState.initialSeedFailed ? (
         <div

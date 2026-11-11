@@ -209,6 +209,7 @@ describe("Mermaid code blocks", () => {
       editor.chain().focus().setNodeSelection(blockPos).run();
     });
     await pressKey(editor, "x");
+    await pressKey(editor, "Tab");
     await typeText(editor, "y");
 
     expect(docToNfm(editor.getJSON() as never)).toBe(before);
