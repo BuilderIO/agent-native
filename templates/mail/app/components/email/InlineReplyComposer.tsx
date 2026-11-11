@@ -40,6 +40,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAliases } from "@/hooks/use-aliases";
+import { useCanManageStorage } from "@/hooks/use-can-manage-storage";
 import { draftRevisionPromptArg } from "@/hooks/use-compose-state";
 import {
   useSendEmail,
@@ -102,6 +103,7 @@ export const InlineReplyComposer = forwardRef<
   ref,
 ) {
   const t = useT();
+  const canManageStorage = useCanManageStorage();
   const [showQuoted, setShowQuoted] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState("");
@@ -431,6 +433,10 @@ export const InlineReplyComposer = forwardRef<
     openStorageSettings: t("mail.toasts.openStorageSettings"),
     reconnectBuilder: t("mail.toasts.reconnectBuilderStorage"),
     useOwnStorage: t("mail.toasts.useOwnStorage"),
+    builderRefusedAskAdmin: t("mail.toasts.storageBuilderRefusedAskAdmin"),
+    storageRefusedAskAdmin: t("mail.toasts.storageRefusedAskAdmin"),
+    storageNotConfiguredAskAdmin: t("mail.toasts.storageNotConfiguredAskAdmin"),
+    connectBuilder: t("mail.toasts.connectBuilderStorage"),
   };
 
   const handleAttachFiles = async (files: File[]) => {
@@ -444,6 +450,7 @@ export const InlineReplyComposer = forwardRef<
         error,
         t("mail.toasts.failedToAttachFile"),
         storageSetupLabels,
+        canManageStorage,
       );
     }
   };
@@ -453,7 +460,9 @@ export const InlineReplyComposer = forwardRef<
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      if (!toastStorageSetupFailure(err, storageSetupLabels)) {
+      if (
+        !toastStorageSetupFailure(err, storageSetupLabels, canManageStorage)
+      ) {
         reportWriteFailure(err, {
           label: t("mail.toasts.failedToUploadImage"),
         });

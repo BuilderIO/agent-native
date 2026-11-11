@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useAliases } from "@/hooks/use-aliases";
+import { useCanManageStorage } from "@/hooks/use-can-manage-storage";
 import {
   draftRevisionPromptArg,
   FOCUS_COMPOSE_DRAFT_EVENT,
@@ -244,6 +245,7 @@ export function ComposeModal({
   onSendInMail,
 }: ComposeModalProps) {
   const t = useT();
+  const canManageStorage = useCanManageStorage();
   const formatters = useFormatters();
   const isMobile = useIsMobile();
   const isCard = presentation === "card";
@@ -791,6 +793,10 @@ export function ComposeModal({
     openStorageSettings: t("mail.toasts.openStorageSettings"),
     reconnectBuilder: t("mail.toasts.reconnectBuilderStorage"),
     useOwnStorage: t("mail.toasts.useOwnStorage"),
+    builderRefusedAskAdmin: t("mail.toasts.storageBuilderRefusedAskAdmin"),
+    storageRefusedAskAdmin: t("mail.toasts.storageRefusedAskAdmin"),
+    storageNotConfiguredAskAdmin: t("mail.toasts.storageNotConfiguredAskAdmin"),
+    connectBuilder: t("mail.toasts.connectBuilderStorage"),
   };
 
   const handleAttachFiles = async (files: File[]) => {
@@ -804,6 +810,7 @@ export function ComposeModal({
         error,
         t("mail.toasts.failedToAttachFile"),
         storageSetupLabels,
+        canManageStorage,
       );
     }
   };
@@ -813,7 +820,9 @@ export function ComposeModal({
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      if (!toastStorageSetupFailure(err, storageSetupLabels)) {
+      if (
+        !toastStorageSetupFailure(err, storageSetupLabels, canManageStorage)
+      ) {
         reportWriteFailure(err, {
           label: t("mail.toasts.failedToUploadImage"),
         });
