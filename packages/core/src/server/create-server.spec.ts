@@ -243,6 +243,34 @@ describe("createServer", () => {
     expect(JSON.stringify(body)).not.toContain("a".repeat(64));
   });
 
+  it("reports a required env var the app declared at build time", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DATABASE_URL", "postgres://deploy.example/db");
+    vi.stubEnv("BETTER_AUTH_SECRET", "a".repeat(64));
+    vi.stubEnv("AGENT_NATIVE_BUILD_REQUIRED_ENV", '["NOTION_API_KEY"]');
+    vi.stubEnv("NOTION_API_KEY", "");
+    const { app } = createServer();
+
+    const missing = await app.request(
+      "http://localhost/_agent-native/ping?configuration=1",
+    );
+    const { configuration } = await missing.json();
+    expect(configuration.issues).toEqual([
+      expect.objectContaining({
+        code: "missing-required-env",
+        envKeys: ["NOTION_API_KEY"],
+      }),
+    ]);
+
+    vi.stubEnv("NOTION_API_KEY", "secret-notion-value");
+    const configured = await app.request(
+      "http://localhost/_agent-native/ping?configuration=1",
+    );
+    const body = await configured.json();
+    expect(body.configuration.issues).toEqual([]);
+    expect(JSON.stringify(body)).not.toContain("secret-notion-value");
+  });
+
   describe("missing-settings line of the configuration probe", () => {
     // Cleared explicitly so ambient deploy markers and secrets in the shell or
     // a leaked stub cannot decide the answer.

@@ -35,7 +35,12 @@ import {
 } from "../server/lib/calendar-event-meetings.js";
 import { listEvents } from "../server/lib/google-calendar-client.js";
 import { booleanParam } from "./lib/cli-params.js";
-import { meetingRowHasContent } from "./lib/meeting-content.js";
+import {
+  AGENT_MEETINGS_PER_CALL,
+  isAgentMeetingCaller,
+  meetingRowForAgent,
+  meetingRowHasContent,
+} from "./lib/meeting-content.js";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_PERSISTED_ROWS_PER_QUERY = 1000;
@@ -54,7 +59,8 @@ function meetingHasContentFilter() {
 
 export default defineAction({
   description:
-    "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle.",
+    "List meetings (Granola-style) the current user has access to. Connected calendars are read live; use view='upcoming' / 'past' / 'all' / 'trash' to filter by lifecycle. For meetings that already have notes or a transcript, use view='past' with hasContent=true. Agent calls get at most 25 meetings per call, paged with offset and hasMore, each with summaryPreview, hasNotes and actionItemCount in place of its whole summary, notes, bullets and action items; get-meeting has those and the transcript. Live calendar events are merged into the first 1,000 saved meetings; historyCapped=true means older saved meetings remain past that, reachable with includeLiveCalendar=false and offset, or with search-meetings. calendarCapped=true means a connected calendar held more events in the window than one read returns, so some of its events are missing.",
+  mcpApp: { compactCatalog: true },
   schema: z.object({
     view: z
       .enum(["upcoming", "agenda", "past", "all", "trash"])
@@ -116,13 +122,17 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const currentUserEmail = getRequestUserEmail();
     const now = new Date();
     const nowIso = now.toISOString();
+    const forAgent = isAgentMeetingCaller(ctx?.caller);
+    const limit = forAgent
+      ? Math.min(args.limit, AGENT_MEETINGS_PER_CALL)
+      : args.limit;
 
-    const windowCount = args.offset + args.limit;
+    const windowCount = args.offset + limit;
     const upcomingWindowMaxIso = args.upcomingWithinMin
       ? new Date(
           now.getTime() + args.upcomingWithinMin * 60 * 1000,
@@ -203,25 +213,29 @@ export default defineAction({
         ];
 
     let persistedHasMore = false;
+    // Saved meetings exist past the ones the live calendar merge reads.
+    let persistedCapped = false;
     let rows: Array<typeof schema.meetings.$inferSelect>;
     if (willMergeLiveCalendar) {
-      rows = await db
+      const merged = await db
         .select()
         .from(schema.meetings)
         .where(and(...whereClauses))
         .orderBy(...orderBy)
-        .limit(Math.min(MAX_PERSISTED_ROWS_PER_QUERY, windowCount + 1))
+        .limit(Math.min(MAX_PERSISTED_ROWS_PER_QUERY + 1, windowCount + 1))
         .offset(0);
+      persistedCapped = merged.length > MAX_PERSISTED_ROWS_PER_QUERY;
+      rows = merged.slice(0, MAX_PERSISTED_ROWS_PER_QUERY);
     } else {
       const page = await db
         .select()
         .from(schema.meetings)
         .where(and(...whereClauses))
         .orderBy(...orderBy)
-        .limit(Math.min(MAX_PERSISTED_ROWS_PER_QUERY, args.limit + 1))
+        .limit(Math.min(MAX_PERSISTED_ROWS_PER_QUERY, limit + 1))
         .offset(args.offset);
-      persistedHasMore = page.length > args.limit;
-      rows = page.slice(0, args.limit);
+      persistedHasMore = page.length > limit;
+      rows = page.slice(0, limit);
     }
 
     const persistedIds = rows.map((m) => m.id);
@@ -252,6 +266,8 @@ export default defineAction({
 
     const liveMeetings: any[] = [];
     const calendarErrors: CalendarFetchError[] = [];
+    // A calendar still had pages when its read stopped.
+    let calendarCapped = false;
 
     const emittedLiveEventKeys = new Set<string>();
     const excludedLiveEventKeys = new Set<string>();
@@ -303,7 +319,7 @@ export default defineAction({
               : (upcomingWindowMaxIso ??
                 new Date(now.getTime() + THIRTY_DAYS_MS).toISOString());
 
-          const [{ items }, cachedEvents] = await Promise.all([
+          const [{ items, nextPageToken }, cachedEvents] = await Promise.all([
             listEvents({
               accessToken,
               calendarId: "primary",
@@ -316,6 +332,7 @@ export default defineAction({
               .from(schema.calendarEvents)
               .where(eq(schema.calendarEvents.calendarAccountId, account.id)),
           ]);
+          if (nextPageToken) calendarCapped = true;
 
           const cachedByExternalId = new Map(
             cachedEvents.map((event) => [event.externalId, event]),
@@ -441,9 +458,11 @@ export default defineAction({
 
     if (!willMergeLiveCalendar) {
       return {
-        meetings: combined,
+        meetings: forAgent ? combined.map(meetingRowForAgent) : combined,
         calendarErrors,
         hasMore: persistedHasMore,
+        historyCapped: false,
+        calendarCapped,
       };
     }
 
@@ -455,9 +474,18 @@ export default defineAction({
       return args.view === "past" ? safeB - safeA : safeA - safeB;
     });
 
-    const meetings = combined.slice(args.offset, args.offset + args.limit);
-    const hasMore = combined.length > args.offset + args.limit;
+    const meetings = combined.slice(args.offset, args.offset + limit);
+    const hasMore = combined.length > args.offset + limit;
+    // The merge reads at most MAX_PERSISTED_ROWS_PER_QUERY saved rows, so a
+    // page past them would end the list early without saying so.
+    const historyCapped = !hasMore && persistedCapped;
 
-    return { meetings, calendarErrors, hasMore };
+    return {
+      meetings: forAgent ? meetings.map(meetingRowForAgent) : meetings,
+      calendarErrors,
+      hasMore,
+      historyCapped,
+      calendarCapped,
+    };
   },
 });

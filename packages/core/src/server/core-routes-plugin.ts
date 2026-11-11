@@ -374,6 +374,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
+import { loadRequiredEnv } from "./required-env-config.js";
 import { startSandboxExecutionSweep } from "./sandbox-execution-sweep.js";
 import {
   findUnsupportedScopedKeyNames,
@@ -3515,7 +3516,7 @@ export function createCoreRoutesPlugin(
       if (!options.disablePing) {
         getH3App(nitroApp).use(
           `${P}/ping`,
-          defineEventHandler((event) => {
+          defineEventHandler(async (event) => {
             const message = getAppConfig().app.pingMessage;
             const configuration =
               event.url?.searchParams.get("configuration") === "1" ||
@@ -3529,6 +3530,7 @@ export function createCoreRoutesPlugin(
               ...(event.url?.searchParams.get("database") === "0"
                 ? { databaseRequired: false }
                 : {}),
+              requiredEnv: await loadRequiredEnv(),
             };
             return {
               message,

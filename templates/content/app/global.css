@@ -1724,6 +1724,65 @@ div[data-notion-column] > :last-child {
   width: 100%;
 }
 
+/* An image this tab is uploading, drawn from the picked file meanwhile. */
+.media-block__staged-upload {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.media-block__upload-status {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: hsl(0 0% 10% / 0.7);
+  backdrop-filter: blur(8px);
+  color: hsl(0 0% 95%);
+  pointer-events: none;
+}
+
+.media-block--upload[data-failed] .media-block__content {
+  opacity: 0.45;
+}
+
+.media-block__upload-failure {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+.media-block__upload-failure-text {
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: hsl(0 0% 10% / 0.75);
+  backdrop-filter: blur(8px);
+  color: hsl(0 0% 95%);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.media-block__upload-failure-actions {
+  display: flex;
+  gap: 4px;
+}
+
 .media-block__broken {
   display: flex;
   align-items: center;
@@ -2992,24 +3051,6 @@ audio.media-block__content {
 [data-comment-composer] [data-mention-reference] > [aria-hidden="true"] img {
   width: 12px;
   height: 12px;
-}
-
-/* A thread AI resolved folds into this mark, which holds briefly and fades. */
-@keyframes comment-ai-resolved-mark-fade {
-  0%,
-  80% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-.comment-ai-resolved-mark {
-  animation: comment-ai-resolved-mark-fade 8s ease-in forwards;
-}
-.comment-ai-resolved-mark:hover,
-.comment-ai-resolved-mark:focus-visible {
-  animation-play-state: paused;
 }
 
 /* A folded stack's new front comes up out of the sheets, over the card it
