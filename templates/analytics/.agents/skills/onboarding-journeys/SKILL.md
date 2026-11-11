@@ -155,7 +155,10 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   counts. When the time budget stopped it, a note gives an
   `observationWatermark`: call again with the same arguments plus that value
   within 5 minutes, and the pages and follow-ups that finished come from the
-  query cache, so each call gets further. Repeat until the note is gone. A
+  query cache, so each call gets further. Repeat until the note is gone. In
+  session mode the watermark pins event time but not receive time, so an event
+  that arrives between calls can still change pages; the read then reports
+  `may_have_shifted`. A
   note that a follow-up needed more than the 20 seconds one query may run means a
   retry will not finish it; ask for a shorter date range instead. A truncated event sample skips replay reads and
   returns `sessionsWithReplay: null` because replay availability is unknown. If

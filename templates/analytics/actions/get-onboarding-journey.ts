@@ -84,7 +84,7 @@ export default defineAction({
         .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/)
         .optional()
         .describe(
-          "A past UTC minute, such as 2026-11-10T22:38:00.000Z, to read as of instead of now. Pass the observationWatermark from a response whose notes say it stopped at its time budget: the queries it finished stay cached for at least 5 minutes, so the same request with this value continues from them.",
+          'A past UTC minute, such as 2026-11-10T22:38:00.000Z, to read as of instead of now. Pass the observationWatermark from a response whose notes say it stopped at its time budget: the queries it finished stay cached for at least 5 minutes, so the same request with this value continues from them. It pins event time in both follow-up modes; only followUpMode "person" also pins receive time, so in session mode an event that arrives between calls can change pages, which coverage reports as may_have_shifted.',
         ),
       format: z
         .enum(["tree", "summary"])
@@ -234,15 +234,25 @@ export default defineAction({
           message: "Person follow-up is not available with cohort splits.",
         });
       }
-      if (
-        args.observationWatermark !== undefined &&
-        Date.parse(args.observationWatermark) > Date.now()
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["observationWatermark"],
-          message: "observationWatermark must not be in the future.",
-        });
+      if (args.observationWatermark !== undefined) {
+        const watermarkMs = Date.parse(args.observationWatermark);
+        // Date.parse rolls an impossible day such as Feb 31 into the next month.
+        if (
+          !Number.isFinite(watermarkMs) ||
+          new Date(watermarkMs).toISOString() !== args.observationWatermark
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["observationWatermark"],
+            message: "observationWatermark must be a real UTC date and minute.",
+          });
+        } else if (watermarkMs > Date.now()) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["observationWatermark"],
+            message: "observationWatermark must not be in the future.",
+          });
+        }
       }
       if (args.splitDesignFirstTouch && args.app !== "design") {
         ctx.addIssue({

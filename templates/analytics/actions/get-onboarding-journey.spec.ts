@@ -133,6 +133,12 @@ describe("get-onboarding-journey read failures", () => {
         observationWatermark: "2026-10-02T09:15:30.000Z",
       }),
     ).toThrow();
+    expect(() =>
+      action.schema.parse({
+        ...args,
+        observationWatermark: "2026-02-31T09:15:00.000Z",
+      }),
+    ).toThrow(/must be a real UTC date and minute/);
   });
 
   it("forwards the action cancellation signal to the journey read", async () => {
