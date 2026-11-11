@@ -148,14 +148,17 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   plus one overflow row to detect truncation. Each BigQuery page keeps a 25 GB
   billed-byte cap; by default, `maxTotalBytesBilled` reserves that cap for 11
   pages (275 GB), and can be raised deliberately to 1.275 TB (51 pages). Event
-  page reads also stop after 15 seconds, and the whole request after 22, so a
-  hosted call answers before its gateway gives up. Pages after the first run up
+  page reads also stop after 15 seconds, and event and follow-up queries after
+  22 in all, leaving the rest of a hosted call's time before its gateway gives
+  up. Tree-format replay lookups run after that budget, so use
+  `format: "summary"` for long windows. Pages after the first run up
   to ten at a time. If the aggregate budget or time budget cuts a read,
   `coverage.truncated` and `notes` identify why; read them before interpreting
   counts. When the time budget stopped it, a note gives an
   `observationWatermark`: call again with the same arguments plus that value
-  within 5 minutes, and the pages and follow-ups that finished come from the
-  query cache, so each call gets further. Repeat until the note is gone. In
+  within 5 minutes, and the pages and follow-ups that finished normally come
+  from the query cache (writing to it is best-effort), so each call gets
+  further. Repeat until the note is gone. In
   session mode the watermark pins event time but not receive time, so an event
   that arrives between calls can still change pages; the read then reports
   `may_have_shifted`. A

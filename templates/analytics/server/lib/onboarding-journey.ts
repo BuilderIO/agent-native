@@ -2577,7 +2577,7 @@ export async function getOnboardingJourney(
     (followupTimedOut && followupCutShort)
   ) {
     notes.push(
-      `This request stopped at its time budget (${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000} seconds for the event read, ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000} in all). Call again with the same arguments and observationWatermark="${observation.observationWatermark}" within 5 minutes: the queries that finished are cached, so the next call continues from them.`,
+      `This request stopped at its time budget (${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000} seconds for the event read, ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000} in all). Call again with the same arguments and observationWatermark="${observation.observationWatermark}" within 5 minutes: queries that finished are normally kept in the query cache, so the next call usually continues from them instead of running them again.`,
     );
   } else if (followupTimedOut) {
     notes.push(
