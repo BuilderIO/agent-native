@@ -4990,23 +4990,38 @@ export function App({
     !isRecording && localRecordingMode === "off" && hostedClipsExhausted;
   const showLastClipPrompt =
     lastClipPromptOpen && !isRecording && hostedClipsRemaining === 1;
-  // The prompt takes Start's place, so it takes focus too, and hands it back
-  // to Start if it closes without recording.
+  // The prompt takes Start's place, so it takes focus too. When it closes,
+  // focus is owed back once any recording start it began has settled: to
+  // Start, or to the used-up card if the last clip went in the meantime.
   const lastClipPromptRef = useRef<HTMLElement>(null);
   const lastClipPromptShownRef = useRef(false);
+  const lastClipFocusOwedRef = useRef(false);
   useEffect(() => {
     const wasShown = lastClipPromptShownRef.current;
     lastClipPromptShownRef.current = showLastClipPrompt;
     if (showLastClipPrompt && !wasShown) {
       lastClipPromptRef.current?.focus();
-    } else if (!showLastClipPrompt && wasShown && !isRecording) {
-      // Start, or the used-up card's action if the last clip went elsewhere.
-      (
-        document.querySelector<HTMLElement>("[data-recovery-focus-fallback]") ??
-        document.querySelector<HTMLElement>(".hosted-clips-limit button")
-      )?.focus();
+    } else if (!showLastClipPrompt && wasShown) {
+      lastClipFocusOwedRef.current = true;
     }
-  }, [isRecording, showLastClipPrompt]);
+    if (!lastClipFocusOwedRef.current) return;
+    if (isRecording) {
+      lastClipFocusOwedRef.current = false;
+      return;
+    }
+    if (recordingStartPending) return;
+    const target =
+      document.querySelector<HTMLElement>("[data-recovery-focus-fallback]") ??
+      document.querySelector<HTMLElement>(".hosted-clips-limit button");
+    if (!target) return;
+    lastClipFocusOwedRef.current = false;
+    target.focus();
+  }, [
+    isRecording,
+    recordingStartPending,
+    showHostedClipsLimit,
+    showLastClipPrompt,
+  ]);
   const startButtonLoading =
     (recordingReadinessPending || recordingStartPending) &&
     !recordingStopFinalizing;
