@@ -139,7 +139,7 @@ export function ensureSemanticSearchTables(
 }
 
 async function ensureTables(injectedClient?: DbExec): Promise<void> {
-  const options = { injectedClient };
+  const options = injectedClient ? { injectedClient } : {};
   await ensureTableExists(
     SEARCH_EMBEDDINGS_TABLE,
     SEARCH_EMBEDDINGS_CREATE_SQL,
@@ -234,9 +234,10 @@ function resolveFamily(
     return options.resolveEmbeddingFamily(identity);
   }
   if (!identity) return resolveDefaultEmbeddingFamily();
+  const { userEmail, orgId } = identity;
   return Promise.resolve(
     runWithRequestContext(
-      { userEmail: identity.userEmail, orgId: identity.orgId },
+      { ...(userEmail ? { userEmail } : {}), ...(orgId ? { orgId } : {}) },
       resolveDefaultEmbeddingFamily,
     ),
   );
@@ -734,8 +735,11 @@ async function embedChanges(
     const orgId = document.audience?.orgId?.trim() || undefined;
     const userEmail = document.audience?.ownerEmail?.trim() || undefined;
     const groupKey = `${audienceId}\u0000${userEmail ?? ""}`;
-    const group = groups.get(groupKey) ?? {
-      identity: { userEmail, orgId },
+    const group: AudienceGroup = groups.get(groupKey) ?? {
+      identity: {
+        ...(userEmail ? { userEmail } : {}),
+        ...(orgId ? { orgId } : {}),
+      },
       audienceId,
       items: [],
     };
