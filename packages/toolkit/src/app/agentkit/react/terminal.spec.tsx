@@ -125,6 +125,11 @@ describe("Terminal", () => {
     expect(earlier?.textContent).toBe("Show 5 earlier lines");
     await act(async () => earlier?.click());
     expect(pre()).toBe(output);
+
+    // The body remounts on each toggle; the revealed lines stay revealed.
+    await act(async () => trigger()?.click());
+    await act(async () => trigger()?.click());
+    expect(pre()).toBe(output);
   });
 
   it("copies the whole output without color codes", async () => {

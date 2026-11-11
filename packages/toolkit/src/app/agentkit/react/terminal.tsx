@@ -66,6 +66,8 @@ export function Terminal({
   const hasOutput = Boolean(output?.trim());
   // Opens once when running output starts; never closes on its own.
   const [autoOpen, setAutoOpen] = useState(false);
+  // Outlives the body, which remounts on each toggle.
+  const [showAllOutput, setShowAllOutput] = useState(false);
   useEffect(() => {
     if (running && hasOutput) setAutoOpen(true);
   }, [running, hasOutput]);
@@ -139,6 +141,8 @@ export function Terminal({
               output={output ?? ""}
               maxLines={maxLines}
               masked={failed || !open}
+              showAll={showAllOutput}
+              onShowAll={() => setShowAllOutput(true)}
             />
           </TraceCollapsibleContent>
         </TraceCollapsible>
@@ -155,14 +159,24 @@ export function TerminalOutput({
   output,
   maxLines = DEFAULT_MAX_LINES,
   masked = false,
+  showAll: controlledShowAll,
+  onShowAll,
 }: {
   output: string;
   maxLines?: number;
   /** Hides the output from session replays. */
   masked?: boolean;
+  /** Pass with `onShowAll` to keep "show earlier lines" across remounts. */
+  showAll?: boolean;
+  onShowAll?: () => void;
 }) {
   const labels = useAgentKitLabels();
-  const [showAll, setShowAll] = useState(false);
+  const [uncontrolledShowAll, setUncontrolledShowAll] = useState(false);
+  const showAll = controlledShowAll ?? uncontrolledShowAll;
+  const setShowAll = () => {
+    if (onShowAll) onShowAll();
+    else setUncontrolledShowAll(true);
+  };
   const content = useRef<HTMLPreElement>(null);
   const lines = output.replace(/\n$/, "").split("\n");
   const hidden = showAll ? 0 : Math.max(0, lines.length - maxLines);
@@ -186,7 +200,7 @@ export function TerminalOutput({
           <button
             type="button"
             className="agentkit-terminal-earlier"
-            onClick={() => setShowAll(true)}
+            onClick={setShowAll}
           >
             {labels.workStepTerminalEarlierLines.replace(
               "{{count}}",
