@@ -588,6 +588,7 @@ export const meetings = table("clips_meetings", {
       "teams",
       "webex",
       "slack",
+      "whatsapp",
       "phone",
       "adhoc",
       "other",

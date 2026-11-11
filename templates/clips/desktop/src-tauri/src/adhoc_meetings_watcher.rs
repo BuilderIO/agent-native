@@ -30,16 +30,20 @@ const POLL_SECS: u64 = 2;
 
 const MIC_DWELL: Duration = Duration::from_secs(3);
 
-/// Slack also captures audio for voice and video messages. Those never play
-/// audio while recording, so Slack must capture and play at once
+/// Slack and WhatsApp also capture audio for voice and video messages. Those
+/// never play audio while recording, so the app must capture and play at once
 /// (`call_app_uses_duplex_audio`), and hold that for longer than a native call
-/// app before it counts as a huddle.
-const SLACK_MIC_DWELL: Duration = Duration::from_secs(15);
+/// app before it counts as a call.
+const MESSAGING_MIC_DWELL: Duration = Duration::from_secs(15);
 
 /// Platforms whose app records more than calls: they need capture and
-/// playback together, a longer dwell, and get no foreground fallback (Slack
-/// sits in front all day without being in a huddle).
-const DUPLEX_AUDIO_PLATFORMS: &[&str] = &["slack"];
+/// playback together and get no foreground fallback (Slack sits in front all
+/// day without being in a huddle; FaceTime can be open without a call).
+const DUPLEX_AUDIO_PLATFORMS: &[&str] = &["slack", "whatsapp", "phone"];
+
+/// Platforms whose app also records voice messages, so a call needs the
+/// longer `MESSAGING_MIC_DWELL` (also in the browser, for WhatsApp Web).
+const MESSAGING_PLATFORMS: &[&str] = &["slack", "whatsapp"];
 
 const FRONT_DWELL: Duration = Duration::from_secs(9);
 
@@ -77,6 +81,21 @@ const STRONG_VC_BUNDLES: &[(&str, &str, &str)] = &[
         "slack",
         "Slack huddle detected",
     ),
+    (
+        "net.whatsapp.WhatsApp",
+        "whatsapp",
+        "WhatsApp call detected",
+    ),
+    ("desktop.WhatsApp", "whatsapp", "WhatsApp call detected"),
+    // iPhone calls relayed to the Mac (Continuity) and FaceTime calls. The
+    // FaceTime window is the UI; the audio runs in the call daemons.
+    ("com.apple.FaceTime", "phone", "Phone call detected"),
+    ("com.apple.avconferenced", "phone", "Phone call detected"),
+    (
+        "com.apple.telephonyutilities.callservicesd",
+        "phone",
+        "Phone call detected",
+    ),
 ];
 
 const BROWSER_PLATFORM_TITLES: &[(&str, &str)] = &[
@@ -84,6 +103,7 @@ const BROWSER_PLATFORM_TITLES: &[(&str, &str)] = &[
     ("teams", "Teams meeting detected"),
     ("zoom", "Zoom meeting detected"),
     ("webex", "Webex meeting detected"),
+    ("whatsapp", "WhatsApp call detected"),
 ];
 
 #[derive(Default)]
@@ -193,7 +213,9 @@ fn requires_duplex_audio(platform: &str) -> bool {
 impl CallEvidence {
     fn for_platform(platform: &str) -> Self {
         CallEvidence {
-            mic_dwell: requires_duplex_audio(platform).then_some(SLACK_MIC_DWELL),
+            mic_dwell: MESSAGING_PLATFORMS
+                .contains(&platform)
+                .then_some(MESSAGING_MIC_DWELL),
             ..Default::default()
         }
     }
@@ -447,14 +469,14 @@ impl AdhocMeetingsWatcherInner {
                     pid: candidate.pid,
                     bundle_id: candidate.bundle_id,
                     platform: candidate.platform,
-                    evidence: CallEvidence::default(),
+                    evidence: CallEvidence::for_platform(candidate.platform),
                 });
             if association.pid != candidate.pid || association.bundle_id != candidate.bundle_id {
                 *association = BrowserCallAssociation {
                     pid: candidate.pid,
                     bundle_id: candidate.bundle_id,
                     platform: candidate.platform,
-                    evidence: CallEvidence::default(),
+                    evidence: CallEvidence::for_platform(candidate.platform),
                 };
             }
         }
@@ -580,8 +602,26 @@ fn platform_for_browser_host(host: &str) -> Option<&'static str> {
         _ if is_provider_host(&host, "webex.com") || is_provider_host(&host, "webex.us") => {
             Some("webex")
         }
+        "web.whatsapp.com" => Some("whatsapp"),
         _ => None,
     }
+}
+
+/// Settings key for the app a meeting runs in: its platform when that is a
+/// known call app, else the app its join link points at, else "other".
+pub(crate) fn call_app_for_meeting(platform: Option<&str>, join_url: Option<&str>) -> String {
+    const KNOWN: &[&str] = &[
+        "meet", "zoom", "teams", "webex", "slack", "phone", "whatsapp",
+    ];
+    if let Some(platform) = platform.map(|p| p.trim().to_ascii_lowercase()) {
+        if KNOWN.contains(&platform.as_str()) {
+            return platform;
+        }
+    }
+    join_url
+        .and_then(platform_for_browser_url)
+        .unwrap_or("other")
+        .to_string()
 }
 
 fn is_provider_host(host: &str, domain: &str) -> bool {
@@ -728,6 +768,16 @@ async fn tick_macos(
     let mut confirmed: Option<(&'static str, &'static str, Option<&'static str>)> = None;
     let mut deferred: Vec<&'static str> = Vec::new();
     for (platform, fallback) in platform_titles() {
+        if !config.call_app_enabled(platform) {
+            // Turned off in Settings: forget any half-built evidence so a
+            // call already running does not confirm the moment it is back on.
+            let state = app
+                .try_state::<AdhocMeetingsWatcherState>()
+                .ok_or_else(|| "no AdhocMeetingsWatcherState".to_string())?;
+            let mut g = state.inner.lock().map_err(|e| e.to_string())?;
+            g.evidence.remove(platform);
+            continue;
+        }
         let duplex = requires_duplex_audio(platform);
         let bundles = bundles_for_platform(platform);
         let mic = if duplex {
@@ -794,6 +844,7 @@ async fn tick_macos(
             .live_platforms
             .into_iter()
             .filter(|platform| !g.is_suppressed(platform, now_ts))
+            .filter(|platform| config.call_app_enabled(platform))
             .filter_map(|platform| {
                 BROWSER_PLATFORM_TITLES
                     .iter()
@@ -986,6 +1037,63 @@ mod tests {
     }
 
     #[test]
+    fn every_meeting_maps_to_a_settings_key() {
+        assert_eq!(call_app_for_meeting(Some("Slack"), None), "slack");
+        assert_eq!(call_app_for_meeting(Some("phone"), None), "phone");
+        assert_eq!(
+            call_app_for_meeting(Some("adhoc"), Some("https://meet.google.com/abc-defg-hij")),
+            "meet"
+        );
+        assert_eq!(
+            call_app_for_meeting(None, Some("https://acme.zoom.us/j/123")),
+            "zoom"
+        );
+        assert_eq!(call_app_for_meeting(Some("other"), None), "other");
+        assert_eq!(
+            call_app_for_meeting(None, Some("https://example.com/x")),
+            "other"
+        );
+    }
+
+    #[test]
+    fn turned_off_call_apps_stay_quiet() {
+        let config = crate::config::FeatureConfig {
+            disabled_call_apps: vec!["meet".into(), "Zoom".into(), "teams".into()],
+            ..Default::default()
+        };
+        assert!(!config.call_app_enabled("meet"));
+        assert!(!config.call_app_enabled("zoom"));
+        assert!(!config.call_app_enabled("teams"));
+        assert!(config.call_app_enabled("slack"));
+        assert!(config.call_app_enabled("phone"));
+        assert!(config.call_app_enabled("whatsapp"));
+        assert!(crate::config::FeatureConfig::default().call_app_enabled("zoom"));
+    }
+
+    #[test]
+    fn phone_and_whatsapp_calls_need_capture_and_playback() {
+        assert_eq!(
+            match_vc_bundle("com.apple.FaceTime").map(|m| m.0),
+            Some("phone")
+        );
+        assert_eq!(
+            match_vc_bundle("net.whatsapp.WhatsApp").map(|m| m.0),
+            Some("whatsapp")
+        );
+        assert!(requires_duplex_audio("phone"));
+        assert!(requires_duplex_audio("whatsapp"));
+        assert_eq!(
+            CallEvidence::for_platform("whatsapp").dwell(),
+            MESSAGING_MIC_DWELL
+        );
+        assert_eq!(CallEvidence::for_platform("phone").dwell(), MIC_DWELL);
+        assert_eq!(
+            platform_for_browser_url("https://web.whatsapp.com/"),
+            Some("whatsapp")
+        );
+    }
+
+    #[test]
     fn platform_bundles_do_not_vouch_for_each_other() {
         let zoom = bundles_for_platform("zoom");
         assert!(zoom.contains(&"us.zoom.xos".to_string()));
@@ -1165,7 +1273,9 @@ mod tests {
     #[test]
     fn every_platform_is_sampled_once() {
         let platforms = platform_titles();
-        assert_eq!(platforms.len(), 3);
+        assert_eq!(platforms.len(), 5);
+        assert!(platforms.iter().any(|(p, _)| *p == "phone"));
+        assert!(platforms.iter().any(|(p, _)| *p == "whatsapp"));
         assert!(platforms.iter().any(|(p, _)| *p == "zoom"));
         assert!(platforms.iter().any(|(p, _)| *p == "teams"));
         assert!(platforms.iter().any(|(p, _)| *p == "slack"));
@@ -1202,7 +1312,7 @@ mod tests {
         let at = start + Duration::from_secs(16);
         evidence.observe(at, Some(true), false);
         assert_eq!(evidence.classify(at, Some(true), false), CallState::Live);
-        assert_eq!(SLACK_MIC_DWELL, Duration::from_secs(15));
+        assert_eq!(MESSAGING_MIC_DWELL, Duration::from_secs(15));
     }
 
     #[test]

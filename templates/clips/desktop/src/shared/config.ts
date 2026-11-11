@@ -135,6 +135,8 @@ export interface FeatureConfig {
   screenMemory: ScreenMemoryConfig;
   whisperModelEnabled: boolean;
   whisperModelId: string;
+  /** Call apps that must not start meeting notes (see CALL_APP_CHOICES). */
+  disabledCallApps?: string[];
 }
 
 export function useFeatureConfig() {

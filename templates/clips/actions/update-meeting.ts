@@ -30,6 +30,7 @@ export default defineAction({
         "teams",
         "webex",
         "slack",
+        "whatsapp",
         "phone",
         "adhoc",
         "other",

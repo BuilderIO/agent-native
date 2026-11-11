@@ -18,6 +18,19 @@ describe("callAppBundleIdsForJoinUrl", () => {
     ]);
   });
 
+  it("watches the phone and WhatsApp call apps", () => {
+    expect(callAppBundleIdsForJoinUrl(null, "phone")).toContain(
+      "com.apple.avconferenced",
+    );
+    expect(callAppBundleIdsForJoinUrl(null, "whatsapp")).toEqual([
+      "net.whatsapp.WhatsApp",
+      "desktop.WhatsApp",
+    ]);
+    expect(
+      callAppBundleIdsForJoinUrl(null, "whatsapp", "com.google.Chrome"),
+    ).toEqual(["com.google.Chrome"]);
+  });
+
   it("watches browser microphone activity for Webex", () => {
     expect(
       callAppBundleIdsForJoinUrl("https://customer.webex.com/meet/abc"),

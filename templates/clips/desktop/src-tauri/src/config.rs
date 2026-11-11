@@ -135,6 +135,28 @@ pub struct FeatureConfig {
     pub whisper_model_enabled: bool,
     #[serde(default = "default_whisper_model_id")]
     pub whisper_model_id: String,
+    /// Call apps that must not start meeting notes: no call detection and no
+    /// calendar reminder for them. Keys: "meet", "zoom", "teams", "webex",
+    /// "slack", "phone", "whatsapp", and "other" for calendar meetings with
+    /// no known app. Empty (the default) means every app is on.
+    #[serde(default)]
+    pub disabled_call_apps: Vec<String>,
+}
+
+impl FeatureConfig {
+    /// Whether calls and meetings in this app may start meeting notes.
+    pub fn call_app_enabled(&self, platform: &str) -> bool {
+        let platform = platform.trim();
+        let platform = if platform.is_empty() {
+            "other"
+        } else {
+            platform
+        };
+        !self
+            .disabled_call_apps
+            .iter()
+            .any(|disabled| disabled.trim().eq_ignore_ascii_case(platform))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -241,6 +263,7 @@ impl Default for FeatureConfig {
             screen_memory: ScreenMemoryConfig::default(),
             whisper_model_enabled: default_whisper_model_enabled(),
             whisper_model_id: default_whisper_model_id(),
+            disabled_call_apps: Vec::new(),
         }
     }
 }
@@ -355,10 +378,7 @@ pub async fn get_feature_config(app: AppHandle) -> Result<FeatureConfig, String>
 }
 
 #[tauri::command]
-pub async fn set_feature_config(
-    app: AppHandle,
-    mut config: FeatureConfig,
-) -> Result<(), String> {
+pub async fn set_feature_config(app: AppHandle, mut config: FeatureConfig) -> Result<(), String> {
     config.config_version = FEATURE_CONFIG_VERSION;
     if !crate::whisper_model::is_supported_model_id(&config.whisper_model_id) {
         return Err(format!(

@@ -44,8 +44,15 @@ pub(crate) fn bundle_id_matches(bundle_id: &str, candidate: &str) -> bool {
 }
 
 /// Call apps that also capture audio outside calls (voice and video
-/// messages). A call in these apps both captures and plays audio.
-const DUPLEX_CALL_APP_BUNDLE_IDS: &[&str] = &["com.tinyspeck.slackmacgap"];
+/// messages, dictation). A call in these apps both captures and plays audio.
+const DUPLEX_CALL_APP_BUNDLE_IDS: &[&str] = &[
+    "com.tinyspeck.slackmacgap",
+    "net.whatsapp.whatsapp",
+    "desktop.whatsapp",
+    "com.apple.facetime",
+    "com.apple.avconferenced",
+    "com.apple.telephonyutilities.callservicesd",
+];
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn is_duplex_call_app(bundle_id: &str) -> bool {
@@ -381,9 +388,12 @@ mod tests {
     }
 
     #[test]
-    fn only_slack_is_a_duplex_call_app() {
+    fn only_chat_and_phone_apps_are_duplex_call_apps() {
         assert!(is_duplex_call_app("com.tinyspeck.slackmacgap"));
         assert!(is_duplex_call_app("com.tinyspeck.slackmacgap.helper"));
+        assert!(is_duplex_call_app("net.whatsapp.WhatsApp"));
+        assert!(is_duplex_call_app("com.apple.FaceTime"));
+        assert!(is_duplex_call_app("com.apple.avconferenced"));
         assert!(!is_duplex_call_app("us.zoom.xos"));
         assert!(!is_duplex_call_app("com.microsoft.teams2"));
         assert!(!is_duplex_call_app("com.google.chrome"));
