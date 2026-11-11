@@ -22,10 +22,16 @@ const INTERVAL_MS = 5_000;
 /**
  * A change feed `pages` pages deep. Each page is one cursor step of other
  * accounts' events, so it comes back empty; the last holds the tab's own
- * change. `stuck` answers every poll with a limited page that doesn't move.
+ * change. A cursor is `<version>.r<page>`, so with `sharedVersion` every row
+ * has one version and only the row id moves. `stuck` answers every poll with
+ * a limited page that doesn't move, as a read held at an access check does.
  */
-function backlogServer(pages: number, { stuck = false } = {}) {
+function backlogServer(
+  pages: number,
+  { stuck = false, sharedVersion = false } = {},
+) {
   const server = { polls: 0 };
+  const versionOf = (page: number) => (sharedVersion ? 1 : page);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -34,40 +40,36 @@ function backlogServer(pages: number, { stuck = false } = {}) {
         return { ok: true, json: async () => ({}) };
       }
       server.polls += 1;
-      const cursor = url.searchParams.get("cursor");
-      const from = cursor
-        ? Number(cursor.split(".")[0])
-        : Number(url.searchParams.get("since") ?? 0);
       if (stuck) {
         return {
           ok: true,
           json: async () => ({
-            version: from,
+            version: Number(url.searchParams.get("since") ?? 0),
             events: [],
             cursorLimited: true,
           }),
         };
       }
+      const from = Number(
+        /\.r(\d+)$/.exec(url.searchParams.get("cursor") ?? "")?.[1] ?? 0,
+      );
       if (from >= pages) {
-        return { ok: true, json: async () => ({ version: from, events: [] }) };
+        return {
+          ok: true,
+          json: async () => ({ version: versionOf(from), events: [] }),
+        };
       }
       const page = from + 1;
+      const version = versionOf(page);
       const events =
         page === pages
-          ? [
-              {
-                source: "action",
-                type: "change",
-                version: page,
-                cursorId: "own",
-              },
-            ]
+          ? [{ source: "action", type: "change", version, cursorId: "own" }]
           : [];
       return {
         ok: true,
         json: async () => ({
-          version: page,
-          cursor: `${page}.r${page}`,
+          version,
+          cursor: `${version}.r${String(page).padStart(4, "0")}`,
           events,
           ...(page < pages ? { cursorLimited: true } : {}),
         }),
@@ -121,6 +123,17 @@ describe("reading a change-feed backlog", () => {
     unsub();
   });
 
+  it("reads pages that share one version by their row ids", async () => {
+    const server = backlogServer(6, { sharedVersion: true });
+    const delivered: SyncEvent[] = [];
+    const unsub = subscribe((events) => delivered.push(...events));
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(server.polls).toBe(6);
+    expect(delivered.map((event) => event.cursorId)).toEqual(["own"]);
+    unsub();
+  });
+
   it("waits one interval after MAX_BACKLOG_PAGES pages, without growing its idle backoff", async () => {
     const server = backlogServer(Number.MAX_SAFE_INTEGER);
     const unsub = subscribe();
@@ -159,6 +172,9 @@ describe("reading a change-feed backlog", () => {
 
     await vi.advanceTimersByTimeAsync(100);
     expect(server.polls).toBe(1);
+    // A hidden tab polls at least every 10 seconds.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(server.polls).toBe(2);
     expect(delivered).toEqual([]);
 
     setVisibility("visible");

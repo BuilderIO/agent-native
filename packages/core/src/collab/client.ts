@@ -2518,11 +2518,11 @@ class CollabDocConnection {
 
       if (!this.isPollCurrent(generation)) return;
       const localState = this.awareness.getLocalState();
-      // Presence is exchanged once the backlog is read, not on every page.
+      // Presence rides every page, drain pages too: nothing else renews a
+      // still user's 30-second row, and the server throttles these writes.
       if (
         localState &&
         this.canPublishPresence &&
-        !readNextPage &&
         this.isPollCurrent(generation)
       ) {
         try {

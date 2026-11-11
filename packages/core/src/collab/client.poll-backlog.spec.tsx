@@ -4,7 +4,8 @@
  * The collab doc's own poll reads the same change feed as the shared
  * transport (see use-db-sync.backlog.spec.ts): while the server says more
  * is waiting past a page that moved the cursor, it reads the next page at
- * once and exchanges presence only once the backlog is read.
+ * once. Presence still rides every page: a slow backlog must not let a still
+ * user's 30-second presence row lapse.
  */
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -89,7 +90,7 @@ describe("collab poll reading a change-feed backlog", () => {
     vi.unstubAllGlobals();
   });
 
-  it("reads every page back to back and exchanges presence once", async () => {
+  it("reads every page back to back and renews presence on each", async () => {
     const { mock, counts } = backlogFetch();
     vi.stubGlobal("fetch", mock);
     container = document.createElement("div");
@@ -101,7 +102,7 @@ describe("collab poll reading a change-feed backlog", () => {
       await vi.advanceTimersByTimeAsync(200);
     });
     expect(counts.polls).toBe(PAGES);
-    expect(counts.awareness).toBe(1);
+    expect(counts.awareness).toBe(PAGES);
 
     // Caught up: one page per interval again.
     await act(async () => {
