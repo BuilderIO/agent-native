@@ -96,11 +96,6 @@ export function ImportLoomDialog({
       if (!result.recordingId) {
         throw new Error(failureTitle);
       }
-      // The import used a free clip; the count and the gates read it from
-      // the shared status.
-      void queryClient.invalidateQueries({
-        queryKey: VIDEO_STORAGE_STATUS_KEY,
-      });
 
       if (result.storageSetupRequired || result.status === "waiting_storage") {
         infoImportToast(t("recordRoute.storageNeededToFinishLoomImport"), {
@@ -127,6 +122,11 @@ export function ImportLoomDialog({
       });
     } finally {
       setBusy(false);
+      // Either way the free clips count may have moved: an import uses a
+      // clip, and a failed one can give its clip back.
+      void queryClient.invalidateQueries({
+        queryKey: VIDEO_STORAGE_STATUS_KEY,
+      });
     }
   };
 

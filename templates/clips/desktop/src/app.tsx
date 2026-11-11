@@ -1441,6 +1441,8 @@ export function App({
   const hostedClipsExhausted = storageDenial.reason === "exhausted";
   // The first Start with one free clip left asks once before recording it.
   const [lastClipPromptOpen, setLastClipPromptOpen] = useState(false);
+  // One used-up alert at a time, however often the shortcut fires.
+  const freeClipsAlertOpenRef = useRef(false);
   // The server and account the newest probe found configured. The cached
   // "configured" is enough to record, but saved files upload on their own
   // only after a probe of the current server and account.
@@ -4695,7 +4697,8 @@ export function App({
     // the popover when it is open, otherwise in a native alert, since the
     // shortcut can fire while the user is in another app.
     if (localRecordingMode === "off" && hostedClipsExhausted) {
-      if (popoverVisible) return;
+      if (popoverVisible || freeClipsAlertOpenRef.current) return;
+      freeClipsAlertOpenRef.current = true;
       void invoke<number>("show_native_alert", {
         title: t("freeClips.limitTitle", {
           count: storageDenial.hostedLimit,
@@ -4714,6 +4717,9 @@ export function App({
         .catch((error) => {
           console.warn("[clips] free clips alert unavailable:", error);
           invoke("show_popover").catch(() => {});
+        })
+        .finally(() => {
+          freeClipsAlertOpenRef.current = false;
         });
       return;
     }
@@ -5732,6 +5738,7 @@ export function App({
         ) : null}
         {!recError &&
         !showHostedClipsLimit &&
+        !isRecording &&
         localRecordingMode === "off" &&
         authStatus === "authed" &&
         videoStorageStatus === "missing" ? (
