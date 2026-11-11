@@ -189,6 +189,7 @@ function PageDetails({
       {blockFields === "loading" ? (
         <div
           className="h-4 w-24 animate-pulse rounded bg-muted/40"
+          role="status"
           aria-label={t("editor.properties.loadingContent")}
         />
       ) : onlyField ? (

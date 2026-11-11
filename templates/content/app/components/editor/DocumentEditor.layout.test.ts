@@ -35,6 +35,7 @@ import {
   documentEditorShowsInlineComments,
   documentPagePanelTab,
   infoPropertyCommentStart,
+  pendingCommentHeld,
   dismissDocumentCommentFocus,
   documentEditorLoadState,
   collabDocHasText,
@@ -1444,6 +1445,46 @@ describe("document editor layout", () => {
       expect(infoPropertyCommentStart({ written: true }, "a")).toBe(
         "returnToPage",
       );
+    });
+  });
+
+  describe("pendingCommentHeld", () => {
+    const page = {
+      properties: [
+        { definition: { id: "a", visibility: "always_show" } },
+        { definition: { id: "hidden", visibility: "always_hide" } },
+      ],
+    };
+
+    it("holds words under a Property Info lists, or beside the Page's text", () => {
+      expect(pendingCommentHeld({ propertyId: "a", written: true }, page)).toBe(
+        true,
+      );
+      expect(pendingCommentHeld({ written: true }, page)).toBe(true);
+      expect(
+        pendingCommentHeld(
+          { propertyId: "hidden", written: true },
+          { ...page, canManageSchema: true },
+        ),
+      ).toBe(true);
+    });
+
+    it("lets go of one with no words, or whose Property is gone from Info", () => {
+      expect(
+        pendingCommentHeld({ propertyId: "a", written: false }, page),
+      ).toBe(false);
+      expect(pendingCommentHeld({ propertyId: "b", written: true }, page)).toBe(
+        false,
+      );
+      expect(
+        pendingCommentHeld({ propertyId: "hidden", written: true }, page),
+      ).toBe(false);
+    });
+
+    it("holds one while the Properties aren't read yet", () => {
+      expect(
+        pendingCommentHeld({ propertyId: "a", written: true }, undefined),
+      ).toBe(true);
     });
   });
 

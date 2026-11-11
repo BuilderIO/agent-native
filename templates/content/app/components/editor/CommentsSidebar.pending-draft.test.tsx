@@ -711,6 +711,13 @@ describe("new comment responsive draft", () => {
     expect(
       source.match(/if \(returnToHeldPropertyComment\(\)\) return;/g),
     ).toHaveLength(4);
+    // Not one under a Property deleted meanwhile, which nothing can show.
+    expect(source).toMatch(
+      /const heldPropertyCommentId =\s*pendingHeld && !propertiesOnPage/,
+    );
+    expect(source).toContain(
+      "{ propertyId: pendingPropertyId, written: pendingHeld }",
+    );
     expect(
       source.match(
         /setPendingComment\(null, \{ keepWritten: holdsPropertyComment \}\);/g,

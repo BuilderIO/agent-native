@@ -2918,6 +2918,34 @@ export function infoPropertyCommentStart(
   return pending.propertyId ? "returnToProperty" : "returnToPage";
 }
 
+/**
+ * Whether the new Comment being written keeps its place when another starts:
+ * it has words in it, and its Property, if any, is one Info still lists. One
+ * whose Property was deleted, or hidden from someone who can't manage the
+ * schema, can't be shown or posted, so another replaces it. Properties not yet
+ * read keep it.
+ */
+export function pendingCommentHeld(
+  pending: { propertyId?: string | undefined; written: boolean },
+  page:
+    | {
+        canManageSchema?: boolean | undefined;
+        properties: readonly {
+          definition: { id: string; visibility?: string | undefined };
+        }[];
+      }
+    | undefined,
+): boolean {
+  if (!pending.written) return false;
+  if (!pending.propertyId || !page) return true;
+  return page.properties.some(
+    ({ definition }) =>
+      definition.id === pending.propertyId &&
+      (definition.visibility !== "always_hide" ||
+        page.canManageSchema === true),
+  );
+}
+
 /** The page editor an event belongs to, by its path or else by focus. */
 function documentEditorEventOwner(event: KeyboardEvent) {
   const pathOwner = event
@@ -8811,10 +8839,6 @@ function PageEditorSessionBody({
       !!pendingComment.text.trim() ||
       pendingComment.mentions.length > 0 ||
       !!pendingComment.aiDraft);
-  // A Property's new Comment with words in it, waiting in Info and out of
-  // sight once Info closes.
-  const heldPropertyCommentId =
-    pendingWritten && !propertiesOnPage ? pendingPropertyId : undefined;
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   // The Property whose threads, or new Comment, Info shows under its row.
@@ -9068,6 +9092,14 @@ function PageEditorSessionBody({
     : undefined;
   const pageProperties = pagePropertiesInScope?.properties;
   const pagePropertiesFailed = !pageProperties && pagePropertiesQuery.isError;
+  const pendingHeld = pendingCommentHeld(
+    { propertyId: pendingPropertyId, written: pendingWritten },
+    pagePropertiesInScope,
+  );
+  // A Property's new Comment with words in it, waiting in Info and out of
+  // sight once Info closes.
+  const heldPropertyCommentId =
+    pendingHeld && !propertiesOnPage ? pendingPropertyId : undefined;
   const addressRowView = useContentDatabaseRowView(
     pagePropertiesDatabaseId,
     databaseDocumentId ??
@@ -9863,7 +9895,7 @@ function PageEditorSessionBody({
       const propertyId = property.definition.id;
       const start = infoPropertyCommentStart(
         hasPendingComment
-          ? { propertyId: pendingPropertyId, written: pendingWritten }
+          ? { propertyId: pendingPropertyId, written: pendingHeld }
           : null,
         propertyId,
       );
@@ -9902,8 +9934,8 @@ function PageEditorSessionBody({
       blockFieldComments.showPendingField,
       hasPendingComment,
       pagePropertiesDatabaseId,
+      pendingHeld,
       pendingPropertyId,
-      pendingWritten,
       setPendingComment,
     ],
   );
