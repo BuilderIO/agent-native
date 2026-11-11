@@ -15,7 +15,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
-vi.mock("@/hooks/use-document-properties", () => ({
+vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
+  documentPropertiesReadFailed: (
+    await importOriginal<typeof import("@/hooks/use-document-properties")>()
+  ).documentPropertiesReadFailed,
   documentPropertiesPlaceholder: () => mocks.pagePropertiesPlaceholder,
   documentPropertiesResponseMatchesScope: (
     documentId: string,
@@ -34,7 +37,8 @@ vi.mock("@/hooks/use-document-properties", () => ({
   useSetDocumentProperty: () => ({ mutateAsync: mocks.save }),
 }));
 vi.mock("@/components/QueryErrorState", () => ({
-  QueryErrorState: () => createElement("div", { "data-query-error": "" }),
+  QueryErrorState: ({ onRetry }: { onRetry: () => void }) =>
+    createElement("button", { "data-query-error": "", onClick: onRetry }),
 }));
 vi.mock("./VisualEditor", async () => {
   const React = await import("react");
@@ -160,7 +164,7 @@ describe("DocumentBlockFields suggestion boundary", () => {
     expect(container.querySelector("[data-primary-editor]")).not.toBeNull();
     expect(availability).toHaveBeenLastCalledWith("doc-1:db-1:row-1", true);
 
-    mocks.query = { ...mocks.query, isError: true };
+    mocks.query = { ...mocks.query, isError: true, fetchStatus: "idle" };
     await render(true);
     expect(container.querySelector("[data-query-error]")).not.toBeNull();
     expect(availability).toHaveBeenLastCalledWith("doc-1:db-1:row-1", false);
@@ -211,6 +215,40 @@ describe("DocumentBlockFields suggestion boundary", () => {
     expect(
       container.querySelector('[data-block-fields-state="solo"]'),
     ).not.toBeNull();
+  });
+
+  it("keeps the editor when a refresh of a confirmed answer fails", async () => {
+    mocks.query = {
+      data: {
+        documentId: "doc-1",
+        databaseId: "db-1",
+        properties: [field("content", true)],
+      },
+      dataUpdatedAt: 1,
+      isError: true,
+      fetchStatus: "idle",
+    };
+    await render();
+
+    expect(container.querySelector("[data-query-error]")).toBeNull();
+    expect(container.querySelector("[data-primary-editor]")).not.toBeNull();
+    expect(availability).toHaveBeenLastCalledWith("doc-1:db-1:row-1", true);
+  });
+
+  it("retries a failed read in place, so the row stays open", async () => {
+    const refetch = vi.fn();
+    mocks.query = {
+      data: undefined,
+      isError: true,
+      fetchStatus: "idle",
+      refetch,
+    };
+    await render();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("[data-query-error]")?.click();
+    });
+    expect(refetch).toHaveBeenCalledOnce();
   });
 
   it("makes a secondary editor read-only during suggesting and restores editing afterward", async () => {
@@ -320,6 +358,11 @@ describe("DocumentBlockFields suggestion boundary", () => {
       onHoverSuggestion: vi.fn(),
       onAnchorsChange: vi.fn(),
       decidingFields: new Set<string>(),
+      previews: new Map<string, { key: string; text: string }>(),
+      landed: new Map<
+        string,
+        { key: string; text: string; revision: number }
+      >(),
       leaving: false,
     };
     const renderWith = async (suggesting: boolean) => {
@@ -444,6 +487,11 @@ describe("DocumentBlockFields suggestion boundary", () => {
       onHoverSuggestion: vi.fn(),
       onAnchorsChange: vi.fn(),
       decidingFields: new Set<string>(),
+      previews: new Map<string, { key: string; text: string }>(),
+      landed: new Map<
+        string,
+        { key: string; text: string; revision: number }
+      >(),
       leaving: false,
     };
     const renderWith = async (suggesting: boolean) => {
@@ -481,6 +529,211 @@ describe("DocumentBlockFields suggestion boundary", () => {
       externalContent: null,
       contentResetKey: null,
     });
+    await flushAllBlockFieldSaveControllersForDocument("doc-1");
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("shows a tab's preview while it accepts a suggestion, taking no typing, then the text the server wrote", async () => {
+    const outline = (value: string, revision: number) => ({
+      data: {
+        documentId: "doc-1",
+        databaseId: "db-1",
+        canEditValues: true,
+        properties: [
+          { ...field("outline", false), value, blocksField: { revision } },
+        ],
+      },
+      isError: false,
+    });
+    const provider = {
+      suggesting: true,
+      sessions: new Map([
+        ["outline", { key: "session-1", draft: "Original, suggested" }],
+      ]),
+      start: vi.fn(),
+      change: vi.fn(),
+      replacementIntent: vi.fn(),
+      visuals: vi.fn(() => []),
+      activeSuggestionId: null,
+      onActivateSuggestion: vi.fn(),
+      onHoverSuggestion: vi.fn(),
+      onAnchorsChange: vi.fn(),
+      decidingFields: new Set<string>(),
+      previews: new Map<string, { key: string; text: string }>(),
+      landed: new Map<
+        string,
+        { key: string; text: string; revision: number }
+      >(),
+      leaving: false,
+    };
+    const renderWith = async (suggesting: boolean) => {
+      await act(async () => {
+        root.render(
+          createElement(BlocksFieldSuggestionsProvider, {
+            value: { ...provider, suggesting } as never,
+            children: createElement(DocumentBlockFields, {
+              documentId: "doc-1",
+              databaseId: "db-1",
+              databaseDocumentId: "row-1",
+              canEdit: true,
+              suggesting,
+              primaryEditor: createElement("div"),
+            }),
+          }),
+        );
+      });
+    };
+
+    mocks.query = outline("Original", 3);
+    await renderWith(true);
+    // Accepting the tab's suggestion shows its text with the edit in it.
+    provider.previews = new Map([
+      ["outline", { key: "1", text: "Original, accepted" }],
+    ]);
+    await renderWith(true);
+    expect(mocks.editorProps).toMatchObject({
+      content: "Original, accepted",
+      contentResetKey: "preview:1",
+      externalContent: null,
+      editable: false,
+    });
+    expect(provider.visuals).toHaveBeenLastCalledWith(
+      "outline",
+      "Original, accepted",
+    );
+    await act(async () => {
+      (mocks.editorProps?.onChange as (value: string) => void)(
+        "Original, accepted and typed",
+      );
+    });
+    expect(provider.change).not.toHaveBeenCalled();
+    await expect(
+      (mocks.editorProps?.onSaveContent as (value: string) => Promise<string>)(
+        "Original, accepted",
+      ),
+    ).resolves.toBe("unchanged");
+
+    // The text the server wrote arrives while the preview shows.
+    mocks.query = outline("Original, accepted", 4);
+    await renderWith(true);
+    expect(mocks.editorProps).toMatchObject({
+      content: "Original, accepted",
+      contentResetKey: "preview:1",
+    });
+
+    // Outside Suggesting mode, a preview takes no typing either.
+    provider.sessions = new Map();
+    await renderWith(false);
+    expect(mocks.editorProps).toMatchObject({
+      content: "Original, accepted",
+      editable: false,
+    });
+
+    // Once the tab has read it, it shows its own copy, which has that text.
+    provider.previews = new Map();
+    await renderWith(false);
+    expect(mocks.editorProps).toMatchObject({
+      content: "Original, accepted",
+      contentResetKey: null,
+      editable: true,
+    });
+    await flushAllBlockFieldSaveControllersForDocument("doc-1");
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("keeps an accepted tab's preview until its own copy holds the text the server wrote", async () => {
+    const outline = (value: string, revision: number) => ({
+      data: {
+        documentId: "doc-1",
+        databaseId: "db-1",
+        canEditValues: true,
+        properties: [
+          { ...field("outline", false), value, blocksField: { revision } },
+        ],
+      },
+      isError: false,
+    });
+    const provider = {
+      suggesting: false,
+      sessions: new Map<string, { key: string; draft: string }>(),
+      start: vi.fn(),
+      change: vi.fn(),
+      replacementIntent: vi.fn(),
+      visuals: vi.fn(() => []),
+      activeSuggestionId: null,
+      onActivateSuggestion: vi.fn(),
+      onHoverSuggestion: vi.fn(),
+      onAnchorsChange: vi.fn(),
+      decidingFields: new Set<string>(),
+      previews: new Map<string, { key: string; text: string }>(),
+      landed: new Map<
+        string,
+        { key: string; text: string; revision: number }
+      >(),
+      leaving: false,
+    };
+    const renderWith = async (suggesting: boolean) => {
+      await act(async () => {
+        root.render(
+          createElement(BlocksFieldSuggestionsProvider, {
+            value: { ...provider, suggesting } as never,
+            children: createElement(DocumentBlockFields, {
+              documentId: "doc-1",
+              databaseId: "db-1",
+              databaseDocumentId: "row-1",
+              canEdit: true,
+              suggesting,
+              primaryEditor: createElement("div"),
+            }),
+          }),
+        );
+      });
+    };
+
+    for (const suggesting of [false, true]) {
+      __resetBlockFieldSaveRegistry();
+      mocks.query = outline("Original", 3);
+      await renderWith(suggesting);
+      provider.previews = new Map([
+        ["outline", { key: "1", text: "Original, accepted" }],
+      ]);
+      await renderWith(suggesting);
+
+      // The server accepted it, and the page read revision 4, before this
+      // tab's properties carry it: the tab keeps the new words, taking no
+      // typing, and starts no draft on its old text.
+      provider.start.mockClear();
+      provider.previews = new Map();
+      provider.landed = new Map([
+        ["outline", { key: "1", text: "Original, accepted", revision: 4 }],
+      ]);
+      await renderWith(suggesting);
+      expect(mocks.editorProps).toMatchObject({
+        content: "Original, accepted",
+        contentResetKey: "preview:1",
+        externalContent: null,
+        editable: false,
+      });
+      expect(provider.start).not.toHaveBeenCalled();
+
+      // Its properties carry revision 4, which its own copy takes in.
+      mocks.query = outline("Original, accepted", 4);
+      await renderWith(suggesting);
+      if (suggesting) {
+        expect(provider.start).toHaveBeenLastCalledWith("outline", {
+          content: "Original, accepted",
+          revision: 4,
+        });
+      } else {
+        expect(mocks.editorProps).toMatchObject({
+          content: "Original, accepted",
+          contentResetKey: null,
+          editable: true,
+        });
+      }
+      provider.landed = new Map();
+      await act(async () => root.render(createElement("div")));
+    }
     await flushAllBlockFieldSaveControllersForDocument("doc-1");
     expect(mocks.save).not.toHaveBeenCalled();
   });

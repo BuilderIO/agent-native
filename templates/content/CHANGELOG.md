@@ -3,7 +3,40 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-09
+
+### Improved
+
+- More save failures now say why, such as being offline or lacking permission.
+
+### Fixed
+
+- Keep app loading and offline caching compatible with privacy-safe script names
+
+## 2026-11-08
+
+### Fixed
+
+- A suggested replacement reads clearly: the old text stays struck through while selected, the new words start a little apart from it, and the card shows the new text whole instead of underlining scattered letters.
+
+## 2026-11-07
+
+### Fixed
+
+- A truncated collection column header shows its full name again when you reach it with the keyboard, not only on hover.
+- An AI reply in a comment thread shows as soon as the AI finishes, and so does a change it applied to the page, without waiting for another comment or a reload.
+
+## 2026-11-06
+
+### Fixed
+
+- Suggesting mode now shows edits other people make to the page, and the next suggestion saves instead of failing with "Could not create suggestion".
+
 ## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
 
 ### Fixed
 
@@ -17,11 +50,17 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Accepting an edit with a line break or a new block no longer shows a syncing line or moves the page.
+- Replacing a collection source avoids a false error after the change is saved
 - Agent block edits work on collection rows using live editing
 - Submitting an unchanged page body no longer makes it look newly edited.
 - Switching a page to live editing preserves unsaved text, including intentional clears.
 
 ## 2026-11-03
+
+### Improved
+
+- Clicking another row while a row's panel is open switches the panel to that row instead of closing it, and the panel's toolbar, title and properties stay in place as rows change.
 
 ### Fixed
 
@@ -45,6 +84,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Accepting suggested edits on a page an agent wrote no longer shows a false save error, and a new comment shows your profile name from the moment you send it.
 - One busy signed-out reader of a public page no longer stops its Clips playing for everyone else: each reader's network gets its own request budget.
 - Cleared pages stay empty when another editor opens them after a saved version has been synchronized.
 - Edited collection rows close without a save error after their changes have saved
@@ -59,6 +99,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Pages you've opened before appear at once and take typing right away, catching up with the server behind the scenes
+- Search forgives typos: when nothing matches, a misspelled word also finds pages whose titles or descriptions have the word you meant.
 - A suggestion that is still loading shows a placeholder in its thread, with a Retry if it fails to load, and the page slides over when the comment margin opens instead of jumping.
 - Agents sign their comment replies with their full model name, and the @ menu lists people first and each agent once.
 - When an agent rewrites most of a paragraph, its suggestion shows the old paragraph and the new one instead of a strike every few words.
@@ -85,6 +127,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Images you paste, drop or upload into a private page load only for people who can open that page
 - Large Collection tables stay responsive while agents write to them: filter chips open six to nine times faster, and a live update redraws only the rows that changed.
 - Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
 
@@ -108,6 +151,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Suggest edits works in every Blocks field tab, and accepting a tab's suggestion changes only that tab
 - A public page's link opens a read-only copy for people who aren't signed in, instead of asking them to sign in
 - An AI suggestion in a comment thread uses the same group as suggested changes in the margin: its summary, edit count, Accept all and Reject all come first, and opening it shows each edit with the usual check and X.
 
@@ -1232,49 +1276,5 @@ time from the command menu (Cmd+K → "What's new").
 - Builder source attachment now starts with a usable first batch of rows while larger docs/blog collections continue loading.
 - Builder source attachment now stays connected after large collections finish attaching.
 - Database pages now delete to Trash without leaving the app on a failed page route.
-
-## 2026-06-30
-
-### Improved
-
-- Builder source components now render as preserved preview blocks inside hydrated article bodies.
-- Cmd+K search now opens from the editor and finds real documents, databases, and local-file results.
-
-### Fixed
-
-- Builder article media now render as images and embeds when readable body content syncs from Builder.
-- /database once again creates an inline database in the current page instead of opening a child database page, and the sidebar restores Page/Database create menus plus inline database Trash controls.
-- Editor floating toolbars now use theme-aware colors in light and dark mode.
-- Sidebar favorites now keep long titles tidy and stay in sync with saved page titles.
-
-## 2026-06-29
-
-### Added
-
-- Builder CMS sources now sync article bodies into Content and push approved body edits through the Builder review flow.
-- Reusable MDX references now preview linked local documents inline.
-
-### Improved
-
-- Database sources can now be added as more rows or matched details, with an in-app role repair path and field picker.
-
-### Fixed
-
-- Builder review checks now preserve publish and unpublish choices before sending updates.
-- Database gallery layouts now adapt cleanly when the agent sidebar narrows the app.
-- Fixed loading the final rows in larger databases without breaking the table.
-- Read-only pages no longer try to autosave or open editor-only realtime connections.
-
-## 2026-06-28
-
-### Improved
-
-- Left sidebar collapse motion and footer controls now feel smoother and use less divider chrome.
-
-## 2026-06-27
-
-### Fixed
-
-- Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
 
 For the full list of updates, see the [changelog folder](./changelog/).

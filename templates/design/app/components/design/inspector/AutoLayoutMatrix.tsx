@@ -1606,19 +1606,17 @@ function GapField({
           </Tooltip>
           <DropdownMenuContent
             align="end"
-            className="min-w-[110px] text-[12px]"
+            className="min-w-[110px]"
             sideOffset={4}
           >
             <DropdownMenuCheckboxItem
               checked={!gapModeMixed && gapMode !== "auto"}
-              className="text-[12px]"
               onSelect={() => onGapModeChange?.("fixed", direction)}
             >
               {"Fixed" /* i18n-ignore design gap mode label */}
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={!gapModeMixed && gapMode === "auto"}
-              className="text-[12px]"
               onSelect={() => {
                 if (onGapModeChange) {
                   onGapModeChange("auto", direction);
@@ -2076,11 +2074,7 @@ export function SizingField({
   };
 
   const dropdownContent = (
-    <DropdownMenuContent
-      align="start"
-      className="min-w-[180px] text-[12px]"
-      sideOffset={4}
-    >
+    <DropdownMenuContent align="start" className="min-w-[180px]" sideOffset={4}>
       {/* ── Modes ── */}
       <SizingMenuItem
         icon={<IconSizingFixed />}
@@ -2305,7 +2299,6 @@ function SizingMenuItem({
       data-design-sizing-menu-item={label}
       disabled={disabled}
       onSelect={onSelect}
-      className="gap-2 pl-2 pr-2 text-[12px]"
     >
       <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
         {icon}

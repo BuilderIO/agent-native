@@ -96,10 +96,12 @@ describe("verifyAuth — connect-token revoke check", () => {
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
   });
   afterEach(() => {
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
   });
 
   it("does NOT query the revoke store for an ordinary A2A JWT (hot path untouched)", async () => {
@@ -986,7 +988,8 @@ describe("verifyAuth — connect-token revoke check", () => {
       "an-earlier-signing-key",
     );
     process.env.ACCESS_TOKEN = staticToken;
-    const res = await verifyAuth(`Bearer ${staticToken}`, "owner@example.com");
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    const res = await verifyAuth(`Bearer ${staticToken}`);
     expect(res).toMatchObject({
       authed: true,
       identity: { userEmail: "owner@example.com" },
@@ -1015,12 +1018,14 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
   });
   afterEach(() => {
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
   });
 
   it("connect-minted JWT → fullSurface true", async () => {
@@ -1051,7 +1056,8 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
 
   it("matching ACCESS_TOKEN → fullSurface true", async () => {
     process.env.ACCESS_TOKEN = "static-tok";
-    const res = await verifyAuth("Bearer static-tok", "owner@example.com");
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    const res = await verifyAuth("Bearer static-tok");
     expect(res.authed).toBe(true);
     expect(res.fullSurface).toBe(true);
     expect(res.identity?.userEmail).toBe("owner@example.com");
@@ -1059,16 +1065,16 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
 
   it("accepts bearer auth scheme case-insensitively with flexible spacing", async () => {
     process.env.ACCESS_TOKEN = "static-tok";
-    const res = await verifyAuth(
-      "  bearer   static-tok  ",
-      "owner@example.com",
-    );
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    const res = await verifyAuth("  bearer   static-tok  ");
     expect(res.authed).toBe(true);
     expect(res.identity?.userEmail).toBe("owner@example.com");
   });
 
-  it("no auth configured + forwarded owner header (mcp install) → authed, fullSurface true", async () => {
-    const res = await verifyAuth(undefined, "owner@example.com");
+  it("no auth configured + trusted local owner hint (mcp install) → authed, fullSurface true", async () => {
+    const res = await verifyAuth(undefined, "owner@example.com", {
+      allowLocalOwnerHint: true,
+    });
     expect(res.authed).toBe(true);
     expect(res.fullSurface).toBe(true);
   });

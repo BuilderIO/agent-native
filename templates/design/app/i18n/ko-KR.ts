@@ -2572,6 +2572,8 @@ export default {
     changesDiscarded:
       "파일이 더 이상 존재하지 않아 일부 변경사항을 저장하지 못하고 삭제했습니다.",
     offline: "오프라인",
+    unsaved: "저장되지 않음",
+    saveRetrying: "변경사항을 저장하지 못했습니다. 자동으로 다시 시도합니다.",
     saving: "저장 중...",
     clearedAllAnnotations: "모든 주석이 지워졌습니다",
     annotationsDiscardedOnViewChange:

@@ -2603,6 +2603,9 @@ export default {
     changesDiscarded:
       "Algunos cambios no se pudieron guardar porque el archivo ya no existe y se descartaron.",
     offline: "Sin conexión",
+    unsaved: "No guardado",
+    saveRetrying:
+      "No se pudieron guardar tus cambios. Reintentando automáticamente.",
     saving: "Guardando...",
     clearedAllAnnotations: "Se borraron todas las anotaciones",
     annotationsDiscardedOnViewChange:

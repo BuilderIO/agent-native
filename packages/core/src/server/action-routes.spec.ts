@@ -668,6 +668,48 @@ describe("mountActionRoutes", () => {
 
       expect(result.error).toContain("a service identity can never give it");
     });
+
+    it.each([
+      [
+        { oauthClientId: "client-1" },
+        "codex-mcp-client/0.167.0",
+        { userAgent: "codex-mcp-client/0.167.0", oauthClientId: "client-1" },
+      ],
+      [{}, "claude-code/2.1.308", { userAgent: "claude-code/2.1.308" }],
+      [{ oauthClientId: "client-1" }, undefined, { oauthClientId: "client-1" }],
+    ])(
+      "hands an MCP bearer %o with User-Agent %s its client facts",
+      async (credential, userAgent, mcpClient) => {
+        const { mountActionRoutes } = await import("./action-routes.js");
+        const mounted: Array<{ path: string; handler: any }> = [];
+        const run = vi.fn(async (_args: unknown, ctx: any) => ({
+          mcpClient: ctx?.mcpClient,
+        }));
+        const owner = "owner@example.com";
+        mountActionRoutes(
+          {
+            use: vi.fn((path: string, handler: any) =>
+              mounted.push({ path, handler }),
+            ),
+          },
+          { "read-thing": { run } as any },
+          { getOwnerFromEvent: async () => owner },
+        );
+        const event: any = {
+          _method: "POST",
+          _headers: {
+            host: "app.example.com",
+            ...(userAgent ? { "user-agent": userAgent } : {}),
+          },
+          context: {
+            __anVerifiedMcpCredential: { userEmail: owner, ...credential },
+          },
+          req: { json: async () => ({}) },
+        };
+
+        expect(await mounted.at(0)?.handler(event)).toEqual({ mcpClient });
+      },
+    );
   });
 
   it.each([
@@ -7479,6 +7521,65 @@ describe("action boundary error classification", () => {
       errorCode: "private_conflict",
     });
     expect(captured).not.toHaveBeenCalled();
+  });
+
+  it("answers a refused padded call with a 400 the caller can act on", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { registerErrorCaptureProvider } = await import("./capture-error.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const provider = vi.fn(() => "evt_padded");
+    const unregister = registerErrorCaptureProvider(
+      "padded-call-test",
+      provider,
+    );
+    const run = vi.fn(async () => ({ ok: true }));
+    mockCountActionFailure.mockClear();
+    try {
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "update-item": defineAction({
+            description: "Update an item.",
+            schema: z.object({
+              id: z.string(),
+              title: z.string().optional(),
+              label: z.string().optional(),
+            }),
+            http: { method: "POST" },
+            run,
+          }) as any,
+        },
+      );
+      // `title: null` is padding, but `label: ""` could be a real clear.
+      const event = {
+        _method: "POST",
+        req: { json: async () => ({ id: "a", title: null, label: "" }) },
+      };
+      const result = await mounted[0].handler(event);
+
+      expect((event as any)._status).toBe(400);
+      expect(result).toEqual({
+        error: expect.stringContaining(
+          "Retry the native tool with sparse JSON",
+        ),
+        errorCode: "ambiguous_tool_placeholders",
+      });
+      expect(run).not.toHaveBeenCalled();
+      expect(provider).not.toHaveBeenCalled();
+      expect(mockCountActionFailure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "update-item",
+          status: 400,
+          errorCode: "ambiguous_tool_placeholders",
+        }),
+      );
+    } finally {
+      unregister();
+    }
   });
 
   it("keeps a credential store outage a captured 500", async () => {
