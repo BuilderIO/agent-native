@@ -411,6 +411,26 @@ describe("private media references", () => {
     await expect(canRead(id, SHARED)).resolves.toBe(false);
   });
 
+  it("does not serve an image that only a computed value shows", async () => {
+    const id = mediaId();
+    await uploaded(id, OWNER);
+    const page = await document();
+    await share(page);
+    const propertyId = `private-media-property-${++count}`;
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: OWNER,
+      name: "Rolled up",
+      type: "rollup",
+    });
+    const valueJson = JSON.stringify([`/api/private-media/${id}`]);
+    await (await outsideBody(page, propertyId)).setValue(valueJson);
+    await save(page, valueJson);
+    expect(await references(page, id)).toHaveLength(1);
+    // get-document holds rollups back from a reader shared only the page.
+    await expect(canRead(id, SHARED)).resolves.toBe(false);
+  });
+
   it("serves an image on a public page without a session", async () => {
     const id = mediaId();
     await uploaded(id, OWNER);

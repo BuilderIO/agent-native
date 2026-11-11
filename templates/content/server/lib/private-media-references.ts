@@ -3,7 +3,17 @@ import {
   privateMedia,
   privateMediaStore,
 } from "@agent-native/core/private-media";
-import { and, asc, eq, exists, inArray, isNull, like, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  exists,
+  inArray,
+  isNull,
+  like,
+  notInArray,
+  or,
+} from "drizzle-orm";
 
 import { resolveDocumentAccess } from "../../actions/_document-access.js";
 import { softDeletedDatabaseDocumentExclusions } from "../../actions/_document-discovery-query.js";
@@ -12,6 +22,7 @@ import {
   privateMediaIdsInContent,
   privateMediaPath,
 } from "../../shared/private-media.js";
+import { COMPUTED_DOCUMENT_PROPERTY_TYPES } from "../../shared/properties.js";
 import { getDb, schema } from "../db/index.js";
 import { firstRow } from "./first-row.js";
 
@@ -129,9 +140,21 @@ function mentionsPrivateMedia(db: Database, mediaId: string) {
 }
 
 /**
- * The text a page keeps outside its body: its property values, with a
- * property that still exists, and its Blocks fields stored apart from the
- * body. Readers of the page see both.
+ * Property types whose values `get-document` holds back from a reader who
+ * can open the page but not its collection, because they come from other
+ * pages.
+ */
+const VALUES_FROM_OTHER_PAGES: string[] = [
+  "relation",
+  ...COMPUTED_DOCUMENT_PROPERTY_TYPES,
+];
+
+/**
+ * The text a page keeps outside its body that every reader of the page is
+ * shown: its stored property values and Blocks fields, for properties that
+ * still exist in a collection that hasn't been deleted. Relations and
+ * computed values are left out, since a reader shared only the page doesn't
+ * see them.
  */
 export async function documentTextOutsideBody(
   db: Database,
@@ -142,6 +165,13 @@ export async function documentTextOutsideBody(
     mediaIds?.length
       ? or(...mediaIds.map((id) => like(column, `%${privateMediaPath(id)}%`)))
       : like(column, `%${PRIVATE_MEDIA_PATH_PREFIX}%`);
+  const shownProperty = and(
+    notInArray(
+      schema.documentPropertyDefinitions.type,
+      VALUES_FROM_OTHER_PAGES,
+    ),
+    isNull(schema.contentDatabases.deletedAt),
+  );
   const values = await db
     .select({ text: schema.documentPropertyValues.valueJson })
     .from(schema.documentPropertyValues)
@@ -152,18 +182,41 @@ export async function documentTextOutsideBody(
         schema.documentPropertyValues.propertyId,
       ),
     )
+    .leftJoin(
+      schema.contentDatabases,
+      eq(
+        schema.contentDatabases.id,
+        schema.documentPropertyDefinitions.databaseId,
+      ),
+    )
     .where(
       and(
         eq(schema.documentPropertyValues.documentId, documentId),
+        shownProperty,
         mentions(schema.documentPropertyValues.valueJson),
       ),
     );
   const fields = await db
     .select({ text: schema.documentBlockFieldContents.content })
     .from(schema.documentBlockFieldContents)
+    .innerJoin(
+      schema.documentPropertyDefinitions,
+      eq(
+        schema.documentPropertyDefinitions.id,
+        schema.documentBlockFieldContents.propertyId,
+      ),
+    )
+    .leftJoin(
+      schema.contentDatabases,
+      eq(
+        schema.contentDatabases.id,
+        schema.documentPropertyDefinitions.databaseId,
+      ),
+    )
     .where(
       and(
         eq(schema.documentBlockFieldContents.documentId, documentId),
+        shownProperty,
         mentions(schema.documentBlockFieldContents.content),
       ),
     );
