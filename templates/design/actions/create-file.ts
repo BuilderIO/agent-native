@@ -559,7 +559,8 @@ export default defineAction({
       if (!isUniqueViolation(error)) throw error;
       // A writer that doesn't take the design's lock, such as an import,
       // claimed the name between the check and the insert. The unique index
-      // refused this file, so nothing was overwritten.
+      // refused this file, so nothing was overwritten. If the name is still
+      // free, some other key refused the insert, and that error stands.
       const taken = new Set(
         (
           await getDb()
@@ -568,6 +569,7 @@ export default defineAction({
             .where(eq(schema.designFiles.designId, designId))
         ).map((file) => file.filename),
       );
+      if (!taken.has(filename)) throw error;
       throw nameTaken("file", filename, nextFreeName(filename, taken), {
         hint: EDIT_INSTEAD_HINT,
       });

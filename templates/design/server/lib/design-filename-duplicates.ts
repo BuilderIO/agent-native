@@ -14,6 +14,7 @@ import { withDesignSourceMutationTransaction } from "../source-workspace.js";
  * Returns how many files were renamed.
  */
 export async function renameLaterDuplicateDesignFilenames(): Promise<number> {
+  // guard:allow-unbounded-read — boot repair that runs only while the unique index can't be created; it returns only designs with a duplicate name
   const duplicated = await getDb()
     .selectDistinct({ designId: schema.designFiles.designId })
     .from(schema.designFiles)

@@ -29,7 +29,10 @@ import {
 } from "@/pages/design-editor/canvas-primitive-insert";
 import {
   captureDesignFileIds,
+  contentIdentifiesCopy,
+  createMayHaveSaved,
   createdFileIdFromResult,
+  findPersistedFile,
   isPersistedFilePresent,
   reconcileCreatedFile,
   savedFilenameFromResult,
@@ -752,7 +755,23 @@ export function runDuplicateScreen(
     requestPreviewParses([annotateScreenHtmlForPersist(content, fileType)]);
   }, 0);
   const createPromise = !recoveryEntry
-    ? callCreateFile()
+    ? callCreateFile().catch((error: unknown) => {
+        // The response was lost, not refused, so the copy may be saved. The
+        // next duplicate of this screen looks for it before creating another,
+        // when the copy's markup can tell it apart from other copies.
+        if (createMayHaveSaved(error) && contentIdentifiesCopy(content)) {
+          recoveries.set(filename, {
+            sourceScreenId: screenId,
+            content,
+            fileType,
+            geometry: createdGeometry,
+            ...(screenMetadata ? { screenMetadata } : {}),
+            ...(localhostScreen ? { localhostScreen } : {}),
+            knownFileIds: [...knownFileIds],
+          });
+        }
+        throw error;
+      })
     : Promise.resolve().then(() => {
         if (!recoveredFileId) {
           return reconcileCreatedFile({
@@ -764,16 +783,19 @@ export function runDuplicateScreen(
             files,
             knownFileIds,
           }).then((reconciled) =>
-            reconciled ? { id: reconciled.id } : callCreateFile(),
+            reconciled
+              ? { id: reconciled.id, filename: reconciled.filename }
+              : callCreateFile(),
           );
         }
-        return isPersistedFilePresent({
+        return findPersistedFile({
           queryClient,
           designId: id,
           fileId: recoveredFileId,
-        }).then((present) => {
-          if (present === true) return { id: recoveredFileId };
-          if (present === false) {
+        }).then((persisted) => {
+          // The saved file, with the name it was saved under.
+          if (persisted) return persisted;
+          if (persisted === null) {
             recoveries.set(filename, {
               sourceScreenId: screenId,
               ...recoveryState,

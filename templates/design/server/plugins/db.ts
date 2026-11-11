@@ -1,6 +1,7 @@
 import {
   ensureAdditiveColumns,
   getDbExec,
+  isUniqueViolation,
   runMigrations,
 } from "@agent-native/core/db";
 
@@ -674,7 +675,11 @@ async function ensureDesignFilesUniqueIndex(): Promise<void> {
   } catch (err) {
     let repaired = false;
     try {
-      const renamed = await renameLaterDuplicateDesignFilenames();
+      // Only duplicates are worth a repair. Another failure, such as a
+      // missing permission, would just scan the table on every cold start.
+      const renamed = isUniqueViolation(err)
+        ? await renameLaterDuplicateDesignFilenames()
+        : 0;
       if (renamed > 0) {
         await createFilenameIndex();
         repaired = true;

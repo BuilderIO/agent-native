@@ -93,6 +93,25 @@ export function savedFilenameFromResult(
   return filename.trim().length > 0 ? filename : requested;
 }
 
+/**
+ * Whether a create that failed may still have saved its file. A 4xx answer is
+ * the server refusing, so nothing was written. A dropped connection, a client
+ * timeout (408) or a 5xx can come after the insert committed.
+ */
+export function createMayHaveSaved(error: unknown): boolean {
+  const status = Number(isRecord(error) ? error.status : undefined);
+  return !(status >= 400 && status < 500 && status !== 408);
+}
+
+/**
+ * A duplicate's markup carries fresh random node ids, so a file with that
+ * markup is this copy. Markup without node ids, such as a URL-backed screen's,
+ * is the same in every copy of a screen, so it proves nothing on its own.
+ */
+export function contentIdentifiesCopy(content: string): boolean {
+  return content.includes("data-agent-native-node-id=");
+}
+
 export function createdFileIdFromResult(result: unknown): string | undefined {
   const id = isRecord(result) && typeof result.id === "string" ? result.id : "";
   return id.trim().length > 0 ? id : undefined;
@@ -136,12 +155,13 @@ export async function reconcileCreatedFile({
   const cached = cachedDesignFiles(queryClient, queryKey);
   const beforeIds =
     knownFileIds ?? captureDesignFileIds({ queryClient, designId, files });
-  const fromCurrent = (candidates: readonly DesignFile[]) =>
-    candidates.find(
+  const identifies = contentIdentifiesCopy(content);
+  if (identifies) {
+    const cachedFile = [...(cached ?? []), ...files].find(
       (file) => !beforeIds.has(file.id) && matchesCreatedFile(file, expected),
     );
-  const cachedFile = fromCurrent(cached ?? []) ?? fromCurrent(files);
-  if (cachedFile) return cachedFile;
+    if (cachedFile) return cachedFile;
+  }
 
   const metadata = await readDesignMetadata(designId);
   const candidates = metadata.filter(
@@ -150,6 +170,7 @@ export async function reconcileCreatedFile({
       isFreeNameFor(file.filename, filename) &&
       file.fileType === fileType,
   );
+  const matches: DesignFile[] = [];
   for (const candidate of candidates) {
     const result = await callAction<{ files: DesignFile[] }>(
       "get-design",
@@ -157,25 +178,41 @@ export async function reconcileCreatedFile({
       { method: "GET" },
     );
     const file = result.files.find((item) => item.id === candidate.id);
-    if (file && matchesCreatedFile(file, expected)) return file;
+    if (!file || !matchesCreatedFile(file, expected)) continue;
+    if (identifies) return file;
+    matches.push(file);
   }
-  return undefined;
+  // Two new files with the same markup can't be told apart. Taking another
+  // tab's copy as this one's would let this one's cleanup delete it.
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
-export async function isPersistedFilePresent({
-  queryClient,
+/**
+ * The saved file with this id, null when the design no longer has it, or
+ * undefined when that couldn't be checked.
+ */
+export async function findPersistedFile({
   designId,
   fileId,
 }: {
   queryClient: QueryClient;
   designId: string;
   fileId: string;
-}): Promise<boolean | undefined> {
+}): Promise<FileMetadata | null | undefined> {
   try {
     const refreshed = await readDesignMetadata(designId);
-    return refreshed.some((file) => file.id === fileId);
+    return refreshed.find((file) => file.id === fileId) ?? null;
   } catch (error) {
     console.error("Unable to verify recovered file presence", error);
     return undefined;
   }
+}
+
+export async function isPersistedFilePresent(args: {
+  queryClient: QueryClient;
+  designId: string;
+  fileId: string;
+}): Promise<boolean | undefined> {
+  const file = await findPersistedFile(args);
+  return file === undefined ? undefined : file !== null;
 }

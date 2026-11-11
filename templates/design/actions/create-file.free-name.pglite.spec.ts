@@ -1,4 +1,8 @@
-import { closeDbExec, type DbExec } from "@agent-native/core/db";
+import {
+  closeDbExec,
+  isUniqueViolation,
+  type DbExec,
+} from "@agent-native/core/db";
 import { isNameTaken } from "@agent-native/core/free-name";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -129,6 +133,16 @@ describe("renameLaterDuplicateDesignFilenames", () => {
     await insert("oldest", "home.html", "2026-01-01T00:00:00.000Z");
     await insert("middle", "home.html", "2026-02-01T00:00:00.000Z");
     await insert("taken-two", "home-2.html", "2026-01-15T00:00:00.000Z");
+    const createIndex = () =>
+      exec.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS design_files_design_filename_unique_idx ON design_files (design_id, filename)",
+      );
+    // Boot repairs only when the index is blocked by duplicates.
+    const blocked = await createIndex().then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(isUniqueViolation(blocked)).toBe(true);
 
     expect(await renameLaterDuplicateDesignFilenames()).toBe(2);
 
@@ -143,9 +157,7 @@ describe("renameLaterDuplicateDesignFilenames", () => {
     expect(byId.newest?.content).toContain("<p>newest</p>");
     expect(byId["names-legacy:about.html"]?.filename).toBe("about.html");
 
-    await exec.execute(
-      "CREATE UNIQUE INDEX IF NOT EXISTS design_files_design_filename_unique_idx ON design_files (design_id, filename)",
-    );
+    await createIndex();
     expect(await renameLaterDuplicateDesignFilenames()).toBe(0);
   });
 });
