@@ -1,4 +1,5 @@
 import type { ReviewMention } from "@agent-native/core/review/types";
+import type { Editor } from "@tiptap/core";
 import Code from "@tiptap/extension-code";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Slice, type NodeType } from "@tiptap/pm/model";
@@ -141,6 +142,7 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
   const openLinkField = () => {
     const instance = editorRef.current;
     if (!instance || instance.isDestroyed || !instance.isEditable) return;
+    takePageSelection(instance.view);
     const href: unknown = instance.getAttributes("link").href;
     setLinkDraft(typeof href === "string" ? href : "");
   };
@@ -424,6 +426,35 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
     </>
   );
 });
+
+/**
+ * Takes up the page's selection in the editor. The browser tells the editor
+ * about a selection made with the keyboard a moment after making it, and the
+ * editor stops listening once the link field takes focus, so Cmd/Ctrl+K
+ * pressed right after Shift+Arrow would link where the caret had been.
+ */
+function takePageSelection(view: Editor["view"]) {
+  const page = view.dom.ownerDocument.getSelection();
+  if (!page?.anchorNode || !page.focusNode) return;
+  if (!view.dom.contains(page.anchorNode) || !view.dom.contains(page.focusNode))
+    return;
+  let anchor: number;
+  let head: number;
+  try {
+    anchor = view.posAtDOM(page.anchorNode, page.anchorOffset);
+    head = view.posAtDOM(page.focusNode, page.focusOffset);
+  } catch {
+    // A point the editor can't place in its document.
+    return;
+  }
+  const { doc, selection } = view.state;
+  if (selection.anchor === anchor && selection.head === head) return;
+  view.dispatch(
+    view.state.tr.setSelection(
+      TextSelection.between(doc.resolve(anchor), doc.resolve(head)),
+    ),
+  );
+}
 
 /** Text as its lines, each kept as typed. */
 function plainLinesDoc(text: string) {

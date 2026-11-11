@@ -613,6 +613,41 @@ describe("ReviewCommentComposer", () => {
       expect(linkField()).toBeNull();
     });
 
+    it("links the text the page shows selected, before the editor hears of it", async () => {
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness
+          initialValue="Make the button blue"
+          onState={(next) => (state = next)}
+        />,
+      );
+      focusEditor();
+      placeCaret(10);
+      // Shift+Arrow, then Cmd/Ctrl+K at once: the browser hasn't yet told the
+      // editor the selection moved.
+      const late = (event: Event) => event.stopImmediatePropagation();
+      document.addEventListener("selectionchange", late, true);
+      try {
+        const text = editorDom().querySelector("p")?.firstChild;
+        if (!text) throw new Error("no text in the box");
+        document.getSelection()?.setBaseAndExtent(text, 9, text, 15);
+        keydown("k", { ctrlKey: true });
+      } finally {
+        document.removeEventListener("selectionchange", late, true);
+      }
+      const field = linkField();
+      if (!field) throw new Error("link field not open");
+      typeInto(field, "example.com/docs");
+      act(() => {
+        field.form?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(state.value).toBe(
+        "Make the [button](https://example.com/docs) blue",
+      );
+    });
+
     it("goes on with a list on Enter, and sends once the list has ended", async () => {
       const onSubmit = vi.fn();
       let state = { value: "", mentions: [] as ReviewMention[] };
