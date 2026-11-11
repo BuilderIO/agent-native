@@ -3,7 +3,12 @@ export function slackInputRequestText(
   input: Record<string, unknown> | undefined,
 ): string | null {
   let items: unknown[] = [input];
-  if (input?.questions !== undefined && input.questions !== "") {
+  // Absent, null or empty `questions` means the single-question form, as in the tool.
+  if (
+    input?.questions !== undefined &&
+    input.questions !== null &&
+    input.questions !== ""
+  ) {
     try {
       const parsed: unknown = Array.isArray(input.questions)
         ? input.questions

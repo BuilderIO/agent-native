@@ -168,4 +168,16 @@ describe("slackInputRequestText", () => {
       "Only?\n\n1. Yes\n\nReply in this thread with your choice or a short answer.",
     );
   });
+
+  it("reads one question when `questions` is null", () => {
+    expect(
+      slackInputRequestText({
+        questions: null,
+        question: "Only?",
+        options: options("Yes"),
+      }),
+    ).toBe(
+      "Only?\n\n1. Yes\n\nReply in this thread with your choice or a short answer.",
+    );
+  });
 });
