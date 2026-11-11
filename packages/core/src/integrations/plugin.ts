@@ -1111,6 +1111,14 @@ export function createIntegrationsPlugin(
       }
     }
 
+    // A null orgId from getIntegrationOrgContext is verified Personal scope.
+    // Resolving it again by email can fail where that lookup did not.
+    function verifiedRequestScope(
+      orgId: string | null | undefined,
+    ): IntegrationRequestScope {
+      return orgId ? { orgId } : { orgId: null, orgScope: "personal" };
+    }
+
     async function requireSessionContext(
       event: any,
     ): Promise<({ ownerEmail: string } & IntegrationRequestScope) | null> {
@@ -1120,16 +1128,9 @@ export function createIntegrationsPlugin(
         return null;
       }
       const orgCtx = await getIntegrationOrgContext(event);
-      // The request's lookup already verified Personal scope; resolving it
-      // again by email can fail where this one did not.
       return {
         ownerEmail: session.email,
-        ...(await resolveIntegrationRequestScope({
-          ownerEmail: session.email,
-          orgId: orgCtx.orgId,
-          ...(orgCtx.orgId ? {} : { orgScope: "personal" as const }),
-          principalType: "user",
-        })),
+        ...verifiedRequestScope(orgCtx.orgId),
       };
     }
 
@@ -3115,18 +3116,7 @@ export function createIntegrationsPlugin(
             error: err instanceof Error ? err.message : "Slack access denied",
           };
         }
-        let requestScope: IntegrationRequestScope;
-        try {
-          requestScope = await resolveIntegrationRequestScope({
-            ownerEmail: session.email,
-            orgId: org.orgId ?? null,
-            principalType: "user",
-          });
-        } catch (error) {
-          console.error("[slack] Could not resolve install scope:", error);
-          setResponseStatus(event, 503);
-          return { error: "Could not verify your account scope." };
-        }
+        const requestScope = verifiedRequestScope(org.orgId);
         return await runWithRequestContext(
           {
             userEmail: session.email,
@@ -3221,11 +3211,7 @@ export function createIntegrationsPlugin(
             orgId: org.orgId ?? null,
             orgRole: org?.role ?? null,
           });
-          const requestScope = await resolveIntegrationRequestScope({
-            ownerEmail: access.ownerEmail,
-            orgId: access.orgId,
-            principalType: "user",
-          });
+          const requestScope = verifiedRequestScope(access.orgId);
           return await runWithRequestContext(
             {
               userEmail: access.ownerEmail,

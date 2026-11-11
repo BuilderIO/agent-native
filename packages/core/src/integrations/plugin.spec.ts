@@ -1,8 +1,9 @@
 import { createHmac } from "node:crypto";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetAppConfigForTests } from "../app-config/index.js";
+import { encodeOAuthState } from "../server/google-oauth.js";
 import { ForbiddenError } from "../sharing/errors.js";
 import { IntegrationIdentityDeclinedError } from "./identity.js";
 import { createIntegrationsPlugin } from "./plugin.js";
@@ -811,6 +812,66 @@ describe("integrations plugin routes", () => {
       },
       expect.any(Function),
     );
+  });
+
+  describe("with a verified Personal scope", () => {
+    beforeEach(() => {
+      getSessionMock.mockResolvedValue({
+        email: "alice+qa@agent-native.test",
+        orgId: "org-stale",
+      });
+      getOrgContextMock.mockResolvedValue({ orgId: null, role: null });
+      resolveOrgScopeForEmailMock.mockResolvedValue({
+        status: "unknown",
+        cause: Object.assign(new Error("permission denied"), {
+          code: "42501",
+        }),
+      });
+    });
+
+    it("starts a Slack install without looking the scope up again", async () => {
+      resolveSecretMock.mockImplementation(
+        (key: string) => `configured-${key}`,
+      );
+      const nitroApp = createNitroApp();
+      await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+      const result = await dispatch(
+        nitroApp,
+        "/_agent-native/integrations/slack/oauth/install?return=%2Fmessaging",
+      );
+
+      expect(result.status).toBe(200);
+      expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+      expect(runWithRequestContextMock).toHaveBeenCalledWith(
+        { userEmail: "alice+qa@agent-native.test", orgScope: "personal" },
+        expect.any(Function),
+      );
+    });
+
+    it("finishes a Slack callback without looking the scope up again", async () => {
+      const state = encodeOAuthState({
+        redirectUri:
+          "https://app.test/_agent-native/integrations/slack/oauth/callback",
+        owner: "alice+qa@agent-native.test",
+        app: "agent-native:slack",
+        addAccount: true,
+        returnUrl: "/messaging",
+      });
+      const nitroApp = createNitroApp();
+      await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+      await dispatch(
+        nitroApp,
+        `/_agent-native/integrations/slack/oauth/callback?code=fake-code&state=${encodeURIComponent(state)}`,
+      );
+
+      expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+      expect(runWithRequestContextMock).toHaveBeenCalledWith(
+        { userEmail: "alice+qa@agent-native.test", orgScope: "personal" },
+        expect.any(Function),
+      );
+    });
   });
 
   it("runs integration status checks in the signed-in request context", async () => {
