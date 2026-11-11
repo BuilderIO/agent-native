@@ -764,6 +764,103 @@ describe("exact Content database block actions", () => {
     expect(bound).toHaveLength(1);
   });
 
+  it("binds private images that a Blocks field or a Files & media value adds", async () => {
+    const state = await fixture("Primary");
+    const [inSetField, inMutation, inFiles] = [
+      "7b0e8c52-4f8a-4d1e-9c3a-2f6d5e4b3a31",
+      "7b0e8c52-4f8a-4d1e-9c3a-2f6d5e4b3a32",
+      "7b0e8c52-4f8a-4d1e-9c3a-2f6d5e4b3a33",
+    ];
+    for (const id of [inSetField, inMutation, inFiles]) {
+      await getDb().insert(privateMedia).values({
+        id,
+        ownerEmail,
+        mimeType: "image/png",
+        size: 3,
+        sha256: "0",
+        blobHandleJson: "{}",
+        createdAt: 0,
+      });
+    }
+    const addProperty = (name: string, type: "blocks" | "files_media") =>
+      asOwner(() =>
+        configureProperty.run({
+          documentId: state.databaseDocumentId,
+          databaseId: state.databaseId,
+          name,
+          type,
+        }),
+      ).then(
+        (added) =>
+          added.properties.find(
+            (property) => property.definition.name === name,
+          )!,
+      );
+    const notes = await addProperty("Image notes", "blocks");
+    const files = await addProperty("Attachments", "files_media");
+
+    await asOwner(() =>
+      setProperty.run({
+        databaseId: state.databaseId,
+        documentId: state.target.rowDocumentId,
+        propertyId: notes.definition.id,
+        value: `![](/api/private-media/${inSetField})`,
+        expectedBlocksFieldRevision: 0,
+      }),
+    );
+    await asOwner(() =>
+      setProperty.run({
+        databaseId: state.databaseId,
+        documentId: state.target.rowDocumentId,
+        propertyId: files.definition.id,
+        value: [`/api/private-media/${inFiles}`],
+      }),
+    );
+    const discovered = await asOwner(() =>
+      getDatabase.run({ databaseId: state.databaseId }),
+    );
+    if (!("database" in discovered) || !discovered.mutationContract) {
+      throw new Error("Fixture database disappeared.");
+    }
+    const notesTarget = {
+      ...discovered.mutationContract.target,
+      itemId: state.target.itemId,
+      rowDocumentId: state.target.rowDocumentId,
+      propertyId: notes.definition.id,
+    };
+    const before = await asOwner(() =>
+      listBlocks.run({ target: notesTarget, limit: 100 }),
+    );
+    await asOwner(() =>
+      mutateBlock.run({
+        target: notesTarget,
+        expectedSchemaRevision: before.schemaRevision,
+        expectedRowRevision: before.rowRevision,
+        expectedFieldRevision: before.fieldRevision,
+        idempotencyKey: "additional-private-image",
+        operation: "insert",
+        block: {
+          kind: "paragraph",
+          nfm: `See the [photo](/api/private-media/${inMutation}).`,
+        },
+        position: { placement: "end" },
+      }),
+    );
+
+    const bound = await getDb()
+      .select({ mediaId: schema.privateMediaReferences.mediaId })
+      .from(schema.privateMediaReferences)
+      .where(
+        eq(
+          schema.privateMediaReferences.documentId,
+          state.target.rowDocumentId,
+        ),
+      );
+    expect(bound.map((row) => row.mediaId).sort()).toEqual(
+      [inSetField, inMutation, inFiles].sort(),
+    );
+  });
+
   it("rejects a direct editor-body race without overwriting the newer body", async () => {
     const state = await fixture("Before\nSibling");
     await getDb()

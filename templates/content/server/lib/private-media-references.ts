@@ -3,7 +3,7 @@ import {
   privateMedia,
   privateMediaStore,
 } from "@agent-native/core/private-media";
-import { and, asc, eq, inArray, isNull, like } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNull, like, or } from "drizzle-orm";
 
 import { resolveDocumentAccess } from "../../actions/_document-access.js";
 import { softDeletedDatabaseDocumentExclusions } from "../../actions/_document-discovery-query.js";
@@ -38,14 +38,15 @@ export async function bindUploadedPrivateMedia(input: {
 
 /**
  * True when the current request's reader can view a live page that carries
- * this image: the page has a reference row and its body still links to it.
+ * this image: the page has a reference row and still links to it, in its
+ * body, a property value or a Blocks field kept apart from the body.
  * A page in Trash, or in a collection that was deleted, is not live, just as
  * `get-document` refuses it. Runs inside the caller's request context, so
  * space membership counts. Its queries run on `db`, and access rules on the
  * executor `withDbExec` scopes.
  *
- * The query skips pages in Trash or in a deleted collection and pages whose
- * body no longer mentions the image, so a refusal costs one access check per
+ * The query skips pages in Trash or in a deleted collection and pages that
+ * no longer mention the image, so a refusal costs one access check per
  * live page that links the image, and only people who can see an image can
  * add such pages.
  */
@@ -67,8 +68,7 @@ export async function canReadPrivateMediaThroughDocument(
           eq(schema.privateMediaReferences.mediaId, mediaId),
           isNull(schema.documents.trashedAt),
           ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
-          // The ID is a validated UUID, so it holds no LIKE wildcards.
-          like(schema.documents.content, `%${privateMediaPath(mediaId)}%`),
+          mentionsPrivateMedia(db, mediaId),
         ),
       )
       .orderBy(asc(schema.privateMediaReferences.documentId))
@@ -76,17 +76,107 @@ export async function canReadPrivateMediaThroughDocument(
       .offset(offset);
     for (const { documentId } of references) {
       const access = await resolveDocumentAccess(documentId, { db });
+      if (!access || access.resource.trashedAt) continue;
+      const body =
+        typeof access.resource.content === "string"
+          ? access.resource.content
+          : "";
       if (
-        access &&
-        !access.resource.trashedAt &&
-        typeof access.resource.content === "string" &&
-        privateMediaIdsInContent(access.resource.content).has(mediaId)
+        privateMediaIdsInContent(body).has(mediaId) ||
+        (await linkedOutsideBody(db, documentId, mediaId))
       ) {
         return true;
       }
     }
     if (references.length < REFERENCE_PAGE_SIZE) return false;
   }
+}
+
+/**
+ * Matches pages whose body, property values or stored Blocks fields mention
+ * the image. The ID is a validated UUID, so it holds no LIKE wildcards.
+ */
+function mentionsPrivateMedia(db: Database, mediaId: string) {
+  const pattern = `%${privateMediaPath(mediaId)}%`;
+  return or(
+    like(schema.documents.content, pattern),
+    exists(
+      db
+        .select({ documentId: schema.documentPropertyValues.documentId })
+        .from(schema.documentPropertyValues)
+        .where(
+          and(
+            eq(schema.documentPropertyValues.documentId, schema.documents.id),
+            like(schema.documentPropertyValues.valueJson, pattern),
+          ),
+        ),
+    ),
+    exists(
+      db
+        .select({ documentId: schema.documentBlockFieldContents.documentId })
+        .from(schema.documentBlockFieldContents)
+        .where(
+          and(
+            eq(
+              schema.documentBlockFieldContents.documentId,
+              schema.documents.id,
+            ),
+            like(schema.documentBlockFieldContents.content, pattern),
+          ),
+        ),
+    ),
+  );
+}
+
+/**
+ * The text a page keeps outside its body: its property values, with a
+ * property that still exists, and its Blocks fields stored apart from the
+ * body. Readers of the page see both.
+ */
+export async function documentTextOutsideBody(
+  db: Database,
+  documentId: string,
+  mediaIds?: readonly string[],
+): Promise<string[]> {
+  const mentions = (column: Parameters<typeof like>[0]) =>
+    mediaIds?.length
+      ? or(...mediaIds.map((id) => like(column, `%${privateMediaPath(id)}%`)))
+      : like(column, `%${PRIVATE_MEDIA_PATH_PREFIX}%`);
+  const values = await db
+    .select({ text: schema.documentPropertyValues.valueJson })
+    .from(schema.documentPropertyValues)
+    .innerJoin(
+      schema.documentPropertyDefinitions,
+      eq(
+        schema.documentPropertyDefinitions.id,
+        schema.documentPropertyValues.propertyId,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.documentPropertyValues.documentId, documentId),
+        mentions(schema.documentPropertyValues.valueJson),
+      ),
+    );
+  const fields = await db
+    .select({ text: schema.documentBlockFieldContents.content })
+    .from(schema.documentBlockFieldContents)
+    .where(
+      and(
+        eq(schema.documentBlockFieldContents.documentId, documentId),
+        mentions(schema.documentBlockFieldContents.content),
+      ),
+    );
+  return [...values, ...fields].map((row) => row.text);
+}
+
+async function linkedOutsideBody(
+  db: Database,
+  documentId: string,
+  mediaId: string,
+): Promise<boolean> {
+  const texts = await documentTextOutsideBody(db, documentId, [mediaId]);
+  return texts.some((text) => privateMediaIdsInContent(text).has(mediaId));
 }
 
 /** True when `userEmail` uploaded this image, read on `db`. */
