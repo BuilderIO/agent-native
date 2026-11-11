@@ -220,13 +220,11 @@ impl MicCapture {
         }
         let loss = summary.loss();
         eprintln!(
-            "[mic-capture] first buffer after {} ms; {:.2} s lost ({:.2} s late start, {:.2} s in {} gaps)",
+            "[mic-capture] startup latency {} ms (first buffer); {:.2} s lost in {} gaps",
             summary
                 .timeline
                 .first_buffer_after
                 .map_or_else(|| "-".to_string(), |d| d.as_millis().to_string()),
-            loss.total_secs(),
-            loss.late_start_secs,
             loss.missing_secs,
             summary.timeline.gaps,
         );
@@ -362,34 +360,19 @@ struct CaptureSummary {
     timeline: Timeline,
 }
 
-/// How much of a capture's audio never arrived.
+/// How much of a capture's audio never arrived: holes between buffers whose
+/// timestamps prove audio was dropped. A slow first buffer is startup latency
+/// (device warm-up, callback scheduling) and is logged, not counted here.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 struct CaptureLoss {
     /// Seconds dropped between buffers.
     missing_secs: f64,
-    /// Seconds between the session start and the first buffer.
-    late_start_secs: f64,
 }
-
-impl CaptureLoss {
-    fn total_secs(&self) -> f64 {
-        self.missing_secs + self.late_start_secs
-    }
-}
-
-/// A microphone normally delivers its first buffer well within this.
-const LATE_START_TOLERANCE: Duration = Duration::from_millis(300);
 
 impl CaptureSummary {
     fn loss(&self) -> CaptureLoss {
-        let late_start_secs = self
-            .timeline
-            .first_buffer_after
-            .map(|d| d.saturating_sub(LATE_START_TOLERANCE).as_secs_f64())
-            .unwrap_or(0.0);
         CaptureLoss {
             missing_secs: self.timeline.missing,
-            late_start_secs,
         }
     }
 }
@@ -986,14 +969,11 @@ mod tests {
     }
 
     #[test]
-    fn a_slow_first_buffer_counts_as_a_late_start() {
+    fn a_late_first_buffer_is_startup_latency_not_lost_audio() {
         let mut s = summary(10, 0.2, None);
         s.timeline.first_buffer_after = Some(Duration::from_millis(1_800));
+        assert_eq!(s.loss().missing_secs, 0.0);
         s.timeline.missing = 0.25;
-        let loss = s.loss();
-        assert!((loss.late_start_secs - 1.5).abs() < 1e-9);
-        assert!((loss.total_secs() - 1.75).abs() < 1e-9);
-        s.timeline.first_buffer_after = Some(Duration::from_millis(120));
-        assert_eq!(s.loss().late_start_secs, 0.0);
+        assert!((s.loss().missing_secs - 0.25).abs() < 1e-9);
     }
 }
