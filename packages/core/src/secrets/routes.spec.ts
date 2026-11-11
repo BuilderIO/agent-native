@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetSession = vi.fn();
 const mockGetOrgContext = vi.fn();
+const mockHasForbiddenOrgScope = vi.fn();
 const mockWriteAppSecret = vi.fn();
 const mockUpdateAppSecretUrlAllowlist = vi.fn();
 const mockDeleteAppSecret = vi.fn();
@@ -37,6 +38,8 @@ vi.mock("../server/auth.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
+  hasForbiddenOrgScope: () => mockHasForbiddenOrgScope(),
+  hasOrgScopeResolutionUnavailable: () => false,
   getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
 }));
 
@@ -103,6 +106,7 @@ describe("secrets routes", () => {
     vi.clearAllMocks();
     lastStatus = 200;
     mockGetSession.mockResolvedValue({ email: "alice+qa@example.com" });
+    mockHasForbiddenOrgScope.mockReturnValue(false);
     mockGetOrgContext.mockResolvedValue({
       orgId: "org-qa",
       email: "alice+qa@example.com",
@@ -258,6 +262,28 @@ describe("secrets routes", () => {
       scope: "workspace",
       scopeId: "org-qa",
     });
+  });
+
+  it("refuses a forbidden organization scope instead of writing a personal workspace key", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "ORG_TOKEN",
+      label: "Org token",
+      scope: "workspace",
+      kind: "api-key",
+    });
+    mockGetOrgContext.mockResolvedValue({
+      orgId: null,
+      email: "alice+qa@example.com",
+      role: null,
+    });
+    mockHasForbiddenOrgScope.mockReturnValue(true);
+
+    await expect(
+      createWriteSecretHandler()(
+        event("/ORG_TOKEN", "POST", { value: "workspace-secret" }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
   });
 
   it("writes registered org-scope secrets at the active org id when caller is admin", async () => {
@@ -447,17 +473,19 @@ describe("secrets routes", () => {
   });
 
   it("fails closed when shared-key authority disappears between scope resolution and policy edit", async () => {
+    const cause = new Error("organization lookup unavailable");
     mockGetOrgContext
       .mockResolvedValueOnce({ orgId: "org-qa", role: "owner" })
-      .mockRejectedValueOnce(new Error("organization lookup unavailable"));
-    await createAdHocSecretHandler()(
-      event("/WEBHOOK_TOKEN", "PATCH", {
-        scope: "workspace",
-        owner: "org",
-        urlAllowlist: ["https://api.example.test"],
-      }),
-    );
-    expect(lastStatus).toBe(403);
+      .mockRejectedValueOnce(cause);
+    await expect(
+      createAdHocSecretHandler()(
+        event("/WEBHOOK_TOKEN", "PATCH", {
+          scope: "workspace",
+          owner: "org",
+          urlAllowlist: ["https://api.example.test"],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 500, cause });
     expect(mockUpdateAppSecretUrlAllowlist).not.toHaveBeenCalled();
   });
 

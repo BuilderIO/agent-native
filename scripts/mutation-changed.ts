@@ -193,10 +193,9 @@ function importsModule(text: string, base: string): boolean {
 
 const SOURCE_TEXT_READ =
   /new URL\(\s*["'][^"']+\.tsx?["']\s*,\s*import\.meta\.url/;
-// These harnesses resolve the monorepo's `templates/` from their own location;
-// the sandbox holds only Core, so a spec importing one finds no templates.
-const REPO_ROOT_HARNESS =
-  /advertised-catalog\.harness|tool-search-benchmark\.harness/;
+// This harness resolves the monorepo's `templates/` from its own location;
+// the sandbox holds only Core, so a spec importing it finds no templates.
+const REPO_ROOT_HARNESS = /tool-search-benchmark\.harness/;
 const RELATIVE_SPECIFIER =
   /(?:\bfrom|\bimport)\s*\(?\s*["'](\.\.?\/[^"']+)["']/g;
 const RELATIVE_FILE_URL =
