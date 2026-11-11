@@ -1103,6 +1103,17 @@ export function DocumentProperties({
     ...emptyProperties,
     ...commentedHiddenProperties,
   ];
+  // A new Comment waiting under a Property in Info stays in reach when the
+  // rows give way to a failed read, named by the row's early copy, so its
+  // words are neither lost nor in the way of another Comment.
+  const waitingPropertyId = comments?.inline
+    ? comments.pendingPropertyId
+    : null;
+  const waitingPropertyName = loaded
+    ? data.properties.find(
+        (property) => property.definition.id === waitingPropertyId,
+      )?.definition.name
+    : undefined;
   const collapsedCount = moreProperties.length + alwaysHiddenProperties.length;
   const propertyRow = (property: DocumentProperty) => (
     <PropertyRow
@@ -1122,10 +1133,24 @@ export function DocumentProperties({
   return (
     <div className="mt-5 border-y border-transparent py-1">
       {readFailed && !leaveReadFailureToPage ? (
-        <QueryErrorState
-          compact
-          onRetry={() => void propertiesQuery.refetch()}
-        />
+        <>
+          <QueryErrorState
+            compact
+            onRetry={() => void propertiesQuery.refetch()}
+          />
+          {waitingPropertyId && comments?.inline ? (
+            <div className="mt-2" data-property-waiting-comment>
+              {waitingPropertyName ? (
+                <p className="px-2 pb-0.5 text-sm text-muted-foreground">
+                  {waitingPropertyName}
+                </p>
+              ) : null}
+              <PropertyThreadsBox propertyId={waitingPropertyId}>
+                {comments.inline.renderThreads(waitingPropertyId)}
+              </PropertyThreadsBox>
+            </div>
+          ) : null}
+        </>
       ) : readFailed && !loaded ? null : isLoading ||
         !loaded ||
         rowViewPending ? (
@@ -1416,13 +1441,28 @@ function PropertyRow({
   return (
     <>
       {row}
-      <div
-        className="mx-1 mb-2 mt-0.5 overflow-hidden rounded-lg border border-border"
-        data-property-threads={property.definition.id}
-      >
+      <PropertyThreadsBox propertyId={property.definition.id}>
         {commentState.inlineThreads}
-      </div>
+      </PropertyThreadsBox>
     </>
+  );
+}
+
+/** The box in Info holding a Property's threads and new Comment. */
+function PropertyThreadsBox({
+  propertyId,
+  children,
+}: {
+  propertyId: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="mx-1 mb-2 mt-0.5 overflow-hidden rounded-lg border border-border"
+      data-property-threads={propertyId}
+    >
+      {children}
+    </div>
   );
 }
 

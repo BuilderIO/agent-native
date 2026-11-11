@@ -1472,20 +1472,6 @@ describe("document editor layout", () => {
         pendingCommentHeld({ propertyId: "a", written: true }, undefined),
       ).toBe(true);
     });
-
-    it("lets go of one under a Property once the read fails", () => {
-      expect(
-        pendingCommentHeld({ propertyId: "a", written: true }, undefined, true),
-      ).toBe(false);
-      expect(
-        pendingCommentHeld(
-          { propertyId: "a", written: true },
-          properties,
-          true,
-        ),
-      ).toBe(false);
-      expect(pendingCommentHeld({ written: true }, undefined, true)).toBe(true);
-    });
   });
 
   describe("documentPagePanelTab", () => {

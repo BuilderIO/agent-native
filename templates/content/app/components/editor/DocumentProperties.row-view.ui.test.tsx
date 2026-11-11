@@ -212,6 +212,35 @@ describe("a row's failed Properties read", () => {
     expect(shows("empty.genericError")).toBe(false);
   });
 
+  it("keeps a new Comment waiting under a Property in reach below the error", () => {
+    failRead(mocks.response);
+    const inline = {
+      openPropertyId: null,
+      toggle: vi.fn(),
+      renderThreads: (propertyId: string) => (
+        <p data-threads-for={propertyId}>threads</p>
+      ),
+    };
+    renderProperties(null, { comments: { pendingPropertyId: "b", inline } });
+
+    expect(shows("empty.genericError")).toBe(true);
+    expect(rowIds()).toEqual([]);
+    const waiting = document.querySelector("[data-property-waiting-comment]");
+    expect(waiting?.textContent).toContain("b");
+    expect(
+      waiting?.querySelector(
+        '[data-property-threads="b"] [data-threads-for="b"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  it("leaves the error alone with no Comment waiting, or beside the page", () => {
+    failRead(mocks.response);
+    renderProperties(null, { comments: { pendingPropertyId: "b" } });
+    expect(shows("empty.genericError")).toBe(true);
+    expect(document.querySelector("[data-property-threads]")).toBeNull();
+  });
+
   it("shows nothing at all above a body that reports it", () => {
     failRead();
     renderProperties(null, { leaveReadFailureToPage: true });
