@@ -225,6 +225,7 @@
         "react-markdown",
         "react-router",
         "remark-gfm",
+        "shiki",
         "sonner",
         "tailwind-merge"
       ],

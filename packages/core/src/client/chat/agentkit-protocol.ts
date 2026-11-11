@@ -55,6 +55,10 @@ import {
   type AutoContinueRefusalCode,
 } from "../../agent/auto-continue.js";
 import type { AgentChatAttachment } from "../../agent/types.js";
+import {
+  RUN_CODE_TOOL_NAME,
+  runCodeResultFailure,
+} from "../../coding-tools/run-code-result.js";
 import { isPersistableAttachmentUrl } from "../../shared/attachments.js";
 import { parseBase64DataUrl } from "../../shared/data-url.js";
 import {
@@ -2825,10 +2829,16 @@ export function createAgentKitProtocolAdapter(
           },
         ];
       case "tool-done": {
-        const status = runtimeToolStatus(event.status);
+        const exitFailure =
+          event.status === "completed" && event.toolName === RUN_CODE_TOOL_NAME
+            ? runCodeResultFailure(event.resultText ?? event.result)
+            : undefined;
+        const status = exitFailure ? "failed" : runtimeToolStatus(event.status);
         const error = event.error
           ? protocolError(event.error, "tool_error")
-          : undefined;
+          : exitFailure
+            ? { code: "program_failed", message: exitFailure }
+            : undefined;
         const invocation = run.actions.get(event.toolCallId);
         const previousTool = run.activeTools.get(event.toolCallId);
         const metadata =

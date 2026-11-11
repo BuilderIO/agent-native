@@ -570,19 +570,66 @@ function parseAskQuestion(args: any) {
   return { question, header, allowMultiple, allowFreeText, options };
 }
 
+const MAX_ASK_QUESTIONS = 4;
+
+function parseAskQuestions(args: unknown) {
+  const raw =
+    typeof args === "object" && args !== null
+      ? (args as { questions?: unknown }).questions
+      : undefined;
+  if (raw === undefined || raw === null || raw === "") {
+    return { questions: [parseAskQuestion(args)] };
+  }
+  let parsed: unknown = raw;
+  if (!Array.isArray(raw)) {
+    try {
+      parsed = JSON.parse(String(raw));
+    } catch {
+      throw new ActionInputValidationError(
+        "'questions' must be a JSON array of { question, header?, options, allowMultiple?, allowFreeText? }.",
+      );
+    }
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length === 0 ||
+    parsed.length > MAX_ASK_QUESTIONS
+  ) {
+    throw new ActionInputValidationError(
+      `'questions' must be a JSON array of 1 to ${MAX_ASK_QUESTIONS} questions.`,
+    );
+  }
+  return {
+    questions: parsed.map((item) => {
+      const fields = (item ?? {}) as Record<string, unknown>;
+      return parseAskQuestion({
+        ...fields,
+        options: Array.isArray(fields.options)
+          ? JSON.stringify(fields.options)
+          : fields.options,
+      });
+    }),
+  };
+}
+
 function createAskQuestionTool(): ActionEntry {
   const entry = {
     endsTurn: true,
     tool: {
       description:
-        "Ask the user a multiple-choice clarifying question and render it inline in the chat. Use this ONLY when you are genuinely blocked on a decision you cannot resolve from context and a wrong guess would be costly — an ambiguous metric, date range, or grain; a real fork in approach. Present 2-5 concrete options and mark the most likely one recommended. Do NOT use it for confirmations, for things the user already specified, or to dodge easy work you could just do. Calling this ends the turn: one question per turn, and any other tool call you emit alongside it will not run.",
+        "Ask the user one to four multiple-choice clarifying questions, shown in a card above the message box. Use this ONLY when you are genuinely blocked on a decision you cannot resolve from context and a wrong guess would be costly — an ambiguous metric, date range, or grain; a real fork in approach. For one question pass `question` and `options`; when several decisions block you, ask them together in `questions` instead: the user steps through them one at a time and their answers arrive together in one message. Present 2-4 concrete options per question, each a one-line label that says what you would do, and mark the most likely one recommended. Do NOT use it for confirmations, for things the user already specified, or to dodge easy work you could just do. Calling this ends the turn: one call per turn, and any other tool call you emit alongside it will not run.",
       parameters: {
         type: "object",
         properties: {
           question: {
             type: "string",
             description:
-              "The complete question to ask the user. Clear, specific, ends with a question mark.",
+              "The complete question, with the context the user needs to choose: what happened and why it needs their decision. Clear, specific, ends with a question mark. Leave it out when you pass `questions`.",
+          },
+          questions: {
+            type: "string",
+            description:
+              'Instead of `question` and `options`: a JSON array of 2-4 questions asked together, each `{ "question": string, "header"?: string, "options": [{ "label": string, "value"?: string, "recommended"?: boolean }], "allowMultiple"?: boolean, "allowFreeText"?: boolean }` with the same meaning and label rules as the single-question fields.',
           },
           header: {
             type: "string",
@@ -592,7 +639,7 @@ function createAskQuestionTool(): ActionEntry {
           options: {
             type: "string",
             description:
-              'A JSON array of 2-4 distinct, mutually-exclusive options (unless `allowMultiple` is true), each `{ "label": string, "value"?: string, "description"?: string, "preview"?: string, "recommended"?: boolean }`. `label` is 1-5 words; `description` explains the trade-off; `preview` is optional content (mockup, code snippet, short comparison) rendered under the option. `value` defaults to `label` when omitted. Mark the most likely option `"recommended": true`. Do NOT add an "Other" option — free text is provided automatically when `allowFreeText` is on.',
+              'A JSON array of 2-4 distinct, mutually-exclusive options (unless `allowMultiple` is true), each `{ "label": string, "value"?: string, "recommended"?: boolean }`. The user sees only each label, on one line, so a label is the whole choice in plain words: what you would do, specific to this situation, in about 3-10 words. Write "Follow up on both in one new PR", "Checker fix only" or "Stop after #8997", not "Option A" or a bare "Both", and not a short name plus a separate explanation. Context every option shares belongs in the question, not repeated in each label. `value` defaults to `label` when omitted. Mark the most likely option `"recommended": true`. Do NOT add an "Other" option — free text is provided automatically when `allowFreeText` is on.',
           },
           allowFreeText: {
             type: "string",
@@ -607,12 +654,11 @@ function createAskQuestionTool(): ActionEntry {
             enum: ["true", "false"],
           },
         },
-        required: ["question", "options"],
+        required: [],
       },
     },
     run: async (args) => {
-      const { question, header, allowMultiple, allowFreeText, options } =
-        args as ReturnType<typeof parseAskQuestion>;
+      const { questions } = args as ReturnType<typeof parseAskQuestions>;
 
       const askingRunCtx = getRequestRunContext();
       const askingThreadId =
@@ -621,9 +667,12 @@ function createAskQuestionTool(): ActionEntry {
           : undefined;
       const payload = {
         ...(askingThreadId ? { threadId: askingThreadId } : {}),
-        questions: [
-          {
-            id: "q1",
+        questions: questions.map(
+          (
+            { question, header, allowMultiple, allowFreeText, options },
+            index,
+          ) => ({
+            id: `q${index + 1}`,
             type: "text-options" as const,
             question,
             ...(header ? { header } : {}),
@@ -633,8 +682,8 @@ function createAskQuestionTool(): ActionEntry {
             includeExplore: false,
             includeDecide: false,
             options,
-          },
-        ],
+          }),
+        ),
       };
 
       const { writeAppState } =
@@ -651,7 +700,7 @@ function createAskQuestionTool(): ActionEntry {
   } satisfies ActionEntry;
   const action = defineAction({
     description: entry.tool.description,
-    schema: z.unknown().transform(parseAskQuestion),
+    schema: z.unknown().transform(parseAskQuestions),
     endsTurn: true,
     run: entry.run,
   });

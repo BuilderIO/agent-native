@@ -1,7 +1,9 @@
 export { ContextMeterView } from "./ContextMeter.js";
 export {
   CONTEXT_USAGE_WARNING_FRACTION,
+  ContextUsagePanel,
   ContextUsagePanelView,
+  ContextUsageRing,
   ContextUsageRingView,
   contextUsagePercent,
   formatContextWindowTokens,
@@ -14,7 +16,11 @@ export {
 } from "./ContextSegmentRow.js";
 export { ContextTreemapView } from "./ContextTreemap.js";
 export { ContextXRayPanelView, contextGroupLabel } from "./ContextXRayPanel.js";
-export { contextGroupColor, formatContextTokens } from "./format.js";
+export {
+  contextGroupColor,
+  contextGroupFill,
+  formatContextTokens,
+} from "./format.js";
 export type {
   ContextManifestViewData,
   ContextSegmentStatus,

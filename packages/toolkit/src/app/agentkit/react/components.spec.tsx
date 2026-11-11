@@ -451,7 +451,7 @@ describe("AgentKitChat", () => {
     );
     expect(styles).toContain("overflow-anchor: none;");
     expect(styles).toMatch(
-      /\.agentkit-agent \{[\s\S]*min-block-size: 1\.5rem;\n\s+padding: 0 0\.5rem;[\s\S]*border: 1px solid var\(--agentkit-border\);[\s\S]*border-radius: 999px;[\s\S]*background: var\(--agentkit-subtle\);/,
+      /\.agentkit-agent \{[\s\S]*min-block-size: 1\.25rem;\n\s+padding: 0 0\.5rem;[\s\S]*border: 1px solid var\(--agentkit-border\);[\s\S]*border-radius: var\(--agentkit-radius-xs\);[\s\S]*background: var\(--agentkit-subtle\);/,
     );
     expect(styles).toContain("overscroll-behavior-block: contain;");
     expect(styles).toContain("max-block-size: 12.5rem;");
@@ -459,10 +459,10 @@ describe("AgentKitChat", () => {
     expect(styles).toContain(".agentkit-file-drop-overlay {");
     expect(styles).toContain("scrollbar-color: transparent transparent;");
     expect(styles).toMatch(
-      /\.agentkit-transcript\[data-scrollbar-visible="true"\][\s\S]*var\(--agentkit-text-muted\) 42%/,
+      /\.agentkit-transcript:is\(\[data-scrollbar-visible="true"\], :hover\)[\s\S]*var\(--agentkit-text-muted\) 42%/,
     );
     expect(styles).toMatch(
-      /\.agentkit-transcript\[data-scrollbar-visible="true"\]::\-webkit-scrollbar-thumb/,
+      /\.agentkit-transcript:is\([\s\S]*?\)::-webkit-scrollbar-thumb/,
     );
     expect(styles).toContain("grid-column: 1;");
     expect(styles.replace(/\s+/g, " ")).toContain(
@@ -750,20 +750,21 @@ describe("AgentKitChat", () => {
     );
 
     expect(html).toContain('data-agent-collaboration-feed="true"');
-    expect(html).toContain(
-      'class="agentkit-agent" data-agent-id="agent-planck"',
+    expect(html.match(/agentkit-subagent-step"/g)).toHaveLength(1);
+    // The run ended, so the agent it left "working" has finished.
+    expect(html).toMatch(
+      /class="agentkit-agent" data-agent-id="agent-planck"[^>]*data-status="completed"/,
     );
-    expect(html).toContain('data-agent-id="agent-unregistered"');
+    expect(html).not.toContain(">Running<");
     expect(html).not.toContain("agentkit-agent-avatar");
     expect(html).not.toContain("planck.png");
-    expect(html).toContain("Planck");
-    expect(html).toContain("started working");
-    expect(html).toContain("Read framework contracts");
-    expect(html).toContain("Agent-Native");
-    expect(html.match(/Read framework contracts/g)).toHaveLength(1);
+    expect(html.match(/Planck/g)).toHaveLength(1);
+    expect(html).toContain(">finished<");
+    // Its calls wait inside the collapsed step.
+    expect(html).not.toContain("Read framework contracts");
   });
 
-  it("names a delegated app once per interaction row and shows why it failed", async () => {
+  it("gives each delegated call one step and shows why it failed", async () => {
     const app = { id: "Brain", kind: "agent", label: "Brain" };
     const transport: AgentTransport = {
       capabilities: { multiAgentActivity: true },
@@ -862,24 +863,24 @@ describe("AgentKitChat", () => {
         <AgentKitChat composer={false} />
       </AgentKitProvider>,
     );
-    // Each row is a flat div, so its markup ends at the first closing tag.
-    const rows = html
-      .split('<div class="agentkit-agent-interaction"')
+    const steps = html
+      .split('agentkit-subagent-step"')
       .slice(1)
-      .map((markup) => markup.split("</div>")[0]);
+      .map((markup) => markup.split("agentkit-subagent-step", 1).join(""));
 
-    expect(rows).toHaveLength(3);
-    for (const row of rows) {
-      expect(row.match(/Brain/g)).toHaveLength(1);
-      expect(row).not.toContain("agentkit-object");
+    expect(steps).toHaveLength(2);
+    for (const step of steps) {
+      expect(step.match(/Brain/g)).toHaveLength(1);
+      expect(step).not.toContain("agentkit-object");
     }
-    expect(rows[0]).toContain("delegated work");
-    expect(rows[1]).toContain("finished");
-    expect(rows[2]).toContain("needs attention");
-    expect(rows[2]).toContain("Needs setup first");
+    expect(steps[0]).toContain('data-status="completed"');
+    expect(steps[0]).toContain("finished");
+    expect(steps[1]).toContain('data-status="failed"');
+    expect(steps[1]).toContain("needs attention");
+    expect(steps[1]).toContain("Needs setup first");
   });
 
-  it("names a delegated app once in its activity, task, and message rows", async () => {
+  it("folds a delegated app's message, progress, and task into one step", async () => {
     const app = { id: "Brain", kind: "agent", label: "Brain" };
     const transport: AgentTransport = {
       capabilities: { multiAgentActivity: true },
@@ -968,28 +969,18 @@ describe("AgentKitChat", () => {
         <AgentKitChat composer={false} />
       </AgentKitProvider>,
     );
-    // Each row is a flat div, so its markup ends at the first closing tag.
-    const row = (className: string) => {
-      const markup = html.match(
-        new RegExp(
-          `<div class="(?:[^"]* )?${className}(?: [^"]*)?"[^]*?</div>`,
-        ),
-      )?.[0];
-      expect(markup, className).toBeDefined();
-      return markup!;
-    };
-    const message = row("agentkit-agent-interaction");
-    const activity = row("agentkit-activity-row");
-    const task = row("agentkit-task-row");
+    const stepStart = html.indexOf('agentkit-subagent-step"');
+    expect(stepStart).toBeGreaterThanOrEqual(0);
+    const step = html.slice(stepStart);
 
-    for (const markup of [message, activity, task]) {
-      expect(markup.match(/Brain/g)).toHaveLength(1);
-      expect(markup).not.toContain("agentkit-object");
-    }
-    expect(message).toContain("sent a message");
-    expect(message).toContain("Found the runtime boundary");
-    expect(activity).toContain("Working");
-    expect(activity).toContain("Reading the contract");
+    expect(html.match(/agentkit-subagent-step"/g)).toHaveLength(1);
+    expect(step.match(/Brain/g)).toHaveLength(1);
+    expect(step).not.toContain("agentkit-object");
+    // Progress is a headline only while the agent works.
+    expect(step).toContain(">finished<");
+    expect(step).not.toContain("Reading the contract");
+    expect(html).not.toContain("agentkit-task-row");
+    expect(html).not.toContain("agentkit-tasks");
   });
 
   it("names a delegated app once in a repeated activity group", async () => {
