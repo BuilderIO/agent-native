@@ -5000,9 +5000,11 @@ export function App({
     if (showLastClipPrompt && !wasShown) {
       lastClipPromptRef.current?.focus();
     } else if (!showLastClipPrompt && wasShown && !isRecording) {
-      document
-        .querySelector<HTMLElement>("[data-recovery-focus-fallback]")
-        ?.focus();
+      // Start, or the used-up card's action if the last clip went elsewhere.
+      (
+        document.querySelector<HTMLElement>("[data-recovery-focus-fallback]") ??
+        document.querySelector<HTMLElement>(".hosted-clips-limit button")
+      )?.focus();
     }
   }, [isRecording, showLastClipPrompt]);
   const startButtonLoading =
