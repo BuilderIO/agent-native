@@ -31,28 +31,24 @@ Use `/sidecar <task>` for read-only investigations.
 
 ## Always-On Rules
 
-- Own the assigned outcome within its authorized scope. Use existing patterns
-  and fix what the outcome depends on; leave unrelated changes and active peer
-  work alone. If a tool fails, diagnose it and retry when safe. Check whether a
-  write landed before retrying it. Respect access and approval boundaries and
-  finish independent work. Verify the result before calling it done. Follow
-  `reporting-progress` for updates and how to report a blocker.
+- Own the assigned outcome within scope. Fix what it depends on, preserve
+  unrelated and peer work, and verify the result. Diagnose failures and retry
+  when safe; check whether an uncertain write landed before repeating it.
+  Respect access limits and finish independent work. See `reporting-progress`
+  for updates and blocker reports.
 - Scale effort: for small changes, read briefly, edit, and run existing checks;
   skip surveys, unrequested tests, and browser automation. Explore deeply only
   for ambiguous or cross-cutting work.
-- Keep routine replies concise: lead with the answer in 1–2 short sentences.
-  Include only the requested detail and any essential result, blocker, or next
-  step; omit recaps, process narration, and filler unless more detail is needed.
+- Lead routine replies with the answer. Include requested details and any
+  essential result, blocker, or next step.
 - Before finishing or handoff, close opened browser tabs/app sessions and stop
   started processes. Honor keep-open requests; stop only owned resources; report
   failures.
-- A user's task-scoped authorization persists across replies, heartbeats, and
-  compaction until complete or revoked. An affirmative answer resolves the
-  pending action; do not ask again. Revalidate live ownership and state before
-  writing; verification is not renewed approval. Ask only for scope beyond the
-  authorization, a user-reserved boundary such as production promotion or
-  contacting another person, a missing credential, a user-only decision, or a
-  destructive data change. See `ship` and `new-branch` for covered git/PR work.
+- Task authorization, including approval, persists across turns, heartbeats,
+  and compaction until completion or revocation. Revalidate ownership and state
+  before writing. Ask only for new scope, reserved actions (production promotion,
+  contacting others), destructive data changes, missing credentials, or decisions
+  only the user can make. See `ship` and `new-branch`.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - Branch without asking; in a shared checkout, use a new worktree. PRs are
   ready for review unless drafts are requested.
