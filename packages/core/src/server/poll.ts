@@ -107,9 +107,9 @@ const ACCESS_CHECKS_AT_ONCE = 8;
 // readers, until each batch's resolver work ends: four reads' worth. Past it,
 // a read starts no batch, and checks only the change it stops at.
 const ACCESS_IN_FLIGHT_MAX = 1_000;
-// How long a batch check may run before the resources it hasn't answered go
+// How long an access check may run before the resources it hasn't answered go
 // back unchecked, for a later read to check again.
-const ACCESS_BATCH_TIMEOUT_MS = 30_000;
+const ACCESS_CHECK_TIMEOUT_MS = 30_000;
 const ACCESS_CHECK_WAIT_MS = 1_000;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SCREEN_REFRESH_QUERY_LIMIT = 256;
@@ -1075,31 +1075,29 @@ export class AppSyncState {
     if (this.accessInFlight.has(key)) return;
     const resourceKey = accessResourceKey(resourceType, resourceId);
     const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
-    let settled = false;
-    let check: Promise<void> | undefined;
-    check = retainRequestDbPoolScope(
-      (async () => {
+    const work = retainRequestDbPoolScope(
+      Promise.resolve().then(async () => {
+        let allowed = false;
         try {
-          const access = await this.resolveAccessFn(resourceType, resourceId, {
-            userEmail,
-            orgId,
-          });
-          if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
-            return;
-          }
-          this.setAccessCache(key, access != null, Date.now());
+          allowed =
+            (await this.resolveAccessFn(resourceType, resourceId, {
+              userEmail,
+              orgId,
+            })) != null;
         } catch {
-          if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
-            return;
-          }
-          this.setAccessCache(key, false, Date.now());
-        } finally {
-          settled = true;
-          this.endAccessCheck(key, check);
+          // Fails closed.
         }
-      })(),
+        // The answer counts only if sharing didn't change meanwhile and this
+        // is still the resource's running check. Past the deadline, a newer
+        // check may have answered since.
+        if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
+          return;
+        }
+        if (this.accessInFlight.get(key) !== check) return;
+        this.setAccessCache(key, allowed, Date.now());
+      }),
     );
-    if (!settled) this.accessInFlight.set(key, check);
+    const check = this.trackAccessCheck([key], work);
   }
 
   /**
@@ -1239,10 +1237,9 @@ export class AppSyncState {
         );
       }
     };
-    // The work and the check start on the next microtask, so the check is
-    // registered as in flight below before any of it runs, and its `finally`
-    // always finds it there. The work keeps the request's database pool until
-    // it ends, even past the deadline.
+    // The work starts on the next microtask, after its check is registered as
+    // in flight below. It keeps the request's database pool until it ends,
+    // even past the deadline.
     const work = retainRequestDbPoolScope(Promise.resolve().then(run));
     const generation = this.accessGeneration;
     this.accessChecksRunning += keys.size;
@@ -1252,24 +1249,35 @@ export class AppSyncState {
       }
     };
     void work.then(ended, ended);
+    const check = this.trackAccessCheck([...keys.values()], work);
+  }
+
+  /**
+   * Registers a check as running for `keys` until `work` ends or
+   * ACCESS_CHECK_TIMEOUT_MS passes, whichever comes first. A resolver that
+   * never answers would otherwise hold these resources pending, and every
+   * read stuck behind them, for good. The check starts on the next microtask,
+   * so it is registered before any of it runs, and its `finally` always finds
+   * it there.
+   */
+  private trackAccessCheck(keys: string[], work: Promise<void>): Promise<void> {
     const check: Promise<void> = Promise.resolve().then(async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        // A resolver that never answers would hold these resources pending,
-        // and every read stuck behind them, for good.
         await Promise.race([
           work,
           new Promise<void>((resolve) => {
-            timer = setTimeout(resolve, ACCESS_BATCH_TIMEOUT_MS);
+            timer = setTimeout(resolve, ACCESS_CHECK_TIMEOUT_MS);
             (timer as { unref?: () => void }).unref?.();
           }),
         ]);
       } finally {
         clearTimeout(timer);
-        for (const key of keys.values()) this.endAccessCheck(key, check);
+        for (const key of keys) this.endAccessCheck(key, check);
       }
     });
-    for (const key of keys.values()) this.accessInFlight.set(key, check);
+    for (const key of keys) this.accessInFlight.set(key, check);
+    return check;
   }
 
   __resetAccessCacheForTests(): void {
@@ -1917,6 +1925,8 @@ export class AppSyncState {
         ACCESS_CHECK_WAIT_MS,
       );
     }
+    // The second read shares the first's limit, so one poll starts at most
+    // ACCESS_PRIME_LIMIT checks.
     const { accessPending: _pending, ...result } =
       await this.readCombinedChangesSinceForUser(
         since,
@@ -1924,7 +1934,7 @@ export class AppSyncState {
         orgId,
         useDurableEvents,
         cursor,
-        { checking: new Set(), blockedOn: new Set() },
+        accessRead,
       );
     return result;
   }

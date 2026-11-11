@@ -323,17 +323,15 @@ describe("AppSyncState read through other people's resources", () => {
       { version: 5, id: "" },
     );
 
-    // The read after the wait starts a batch for the last two, so only the
-    // single checks are counted here.
-    expect(
-      resolveAccessMany.mock.calls
-        .map(([, ids]) => ids)
-        .filter((ids) => ids.length === 1),
-    ).toEqual(
-      othersDocuments(12)
-        .slice(2, 10)
+    // The first eight still unanswered, then, in the read after the wait, the
+    // change it stopped at. That read starts no batch for the last two: the
+    // poll has used its limit on them.
+    expect(resolveAccessMany.mock.calls.map(([, ids]) => ids)).toEqual([
+      othersDocuments(12).map((resource) => resource.resourceId),
+      ...othersDocuments(11)
+        .slice(2)
         .map((resource) => [resource.resourceId]),
-    );
+    ]);
     expect(result.events.map((event) => event.resourceId)).toEqual(
       othersDocuments(10).map((resource) => resource.resourceId),
     );
@@ -862,6 +860,7 @@ describe("AppSyncState read through other people's resources", () => {
     expect(
       state.getChangeVisibilityForUser(event, "reader@example.com", undefined),
     ).toBe("pending");
+    await Promise.resolve();
     expect(resolveAccess).toHaveBeenCalledOnce();
 
     finishBatch(new Set(["a"]));
@@ -873,6 +872,63 @@ describe("AppSyncState read through other people's resources", () => {
       state.getChangeVisibilityForUser(event, "reader@example.com", undefined),
     ).toBe("pending");
     expect(resolveAccess).toHaveBeenCalledOnce();
+  });
+
+  it("gives up on a single check that never answers", async () => {
+    vi.useFakeTimers();
+    const resolveAccess = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockImplementation(async () => ({ role: "viewer" }));
+    const state = stateReading([], { resolveAccess });
+    const visibility = () =>
+      state.getChangeVisibilityForUser(
+        {
+          owner: "writer@example.com",
+          resourceType: "document",
+          resourceId: "a",
+        },
+        "reader@example.com",
+        undefined,
+      );
+
+    expect(visibility()).toBe("pending");
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(visibility()).toBe("pending");
+    expect(resolveAccess).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(1);
+    // The first check ran out of time, so this starts another.
+    expect(visibility()).toBe("pending");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(visibility()).toBe("visible");
+    expect(resolveAccess).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts no more checks when a read reads again after its wait", async () => {
+    const rows = durableRows(othersDocuments(600));
+    const resolveAccessMany = vi.fn(
+      async (_type: string, _ids: string[]) => new Set<string>(),
+    );
+    const state = stateReading(rows, {
+      resolveAccess: async () => null,
+      resolveAccessMany,
+    });
+
+    const result = await state.getCombinedChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 5, id: "" },
+    );
+
+    // The first 250 answered within the wait; the second read checks no
+    // more of the page in the same poll.
+    expect(resolveAccessMany.mock.calls.flatMap(([, ids]) => ids)).toEqual(
+      othersDocuments(250).map((resource) => resource.resourceId),
+    );
+    expect(result.cursorLimited).toBe(true);
   });
 
   it("checks a single resource through the batch resolver when only it is set", async () => {
