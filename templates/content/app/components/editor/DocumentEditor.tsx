@@ -11316,9 +11316,13 @@ function PageEditorSessionBody({
             </div>
           ) : null}
 
+          {/* isolate makes the scroller its own stacking context. Safari
+              misorders the layers inside a scroller that isn't one, so the
+              Blocks field's sticky tab row could paint across the comment
+              card even with the card on its own layer. */}
           <div
             ref={scrollContainerRef}
-            className="flex-1 min-h-0 min-w-0 overflow-auto flex flex-col"
+            className="isolate flex-1 min-h-0 min-w-0 overflow-auto flex flex-col"
             data-document-print-scroll
             onKeyDownCapture={cancelPaddingScrollRestore}
             onPointerDownCapture={cancelPaddingScrollRestore}
@@ -11964,11 +11968,12 @@ function PageEditorSessionBody({
                 </aside>
               ) : null}
 
-              {/* translateZ(0) gives the card its own layer: Safari otherwise
-                  can paint the Blocks field's sticky tab row (z-10) across it.
-                  compositing-ok: it mounts only while a thread is open. Its
-                  menus portal to the body, so the new containing block for
-                  fixed children moves nothing. */}
+              {/* translateZ(0) gives the card its own layer, so Safari can't
+                  leave it under the Blocks field's sticky tab row (z-10) when
+                  it misses their overlap; the scroller's isolate orders the
+                  two layers. compositing-ok: it mounts only while a thread is
+                  open. Its menus portal to the body, so the new containing
+                  block for fixed children moves nothing. */}
               {showAnchoredCommentPopover ? (
                 <aside
                   ref={anchoredCommentRef}
