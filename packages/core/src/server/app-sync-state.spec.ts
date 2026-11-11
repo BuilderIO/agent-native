@@ -572,13 +572,23 @@ describe("AppSyncState read through other people's resources", () => {
     }
   });
 
-  it("keeps a page's resources hidden when their batch check fails", async () => {
-    const rows = durableRows([...othersDocuments(200), readerDocument]);
-    const state = stateReading(rows, {
-      resolveAccessMany: async () => {
-        throw new Error("database unavailable");
-      },
+  it("hides only the failing resource when a batch check fails", async () => {
+    const rows = durableRows([
+      { resourceType: "document", resourceId: "shared" },
+      { resourceType: "document", resourceId: "broken" },
+      readerDocument,
+    ]);
+    // One resource's failure fails the whole batch.
+    const resolveAccessMany = vi.fn(async () => {
+      throw new Error("org membership lookup failed");
     });
+    const resolveAccess = vi.fn(async (_type: string, resourceId: string) => {
+      if (resourceId === "broken") {
+        throw new Error("org membership lookup failed");
+      }
+      return { role: "viewer" };
+    });
+    const state = stateReading(rows, { resolveAccess, resolveAccessMany });
 
     const result = await state.getCombinedChangesSinceForUser(
       5,
@@ -588,8 +598,56 @@ describe("AppSyncState read through other people's resources", () => {
       { version: 5, id: "" },
     );
 
-    expect(result.events).toEqual([]);
+    expect(result.events.map((event) => event.resourceId)).toEqual([
+      "shared",
+      "mine",
+    ]);
     expect(result.cursorLimited).toBeUndefined();
+    expect(resolveAccessMany).toHaveBeenCalledOnce();
+    expect(resolveAccess).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps a newer check running when an older batch for its resource ends", async () => {
+    const rows = durableRows([{ resourceType: "document", resourceId: "a" }]);
+    let finishBatch!: (visible: Set<string>) => void;
+    const resolveAccessMany = vi.fn(
+      () =>
+        new Promise<Set<string>>((resolve) => {
+          finishBatch = resolve;
+        }),
+    );
+    const resolveAccess = vi.fn(() => new Promise(() => {}));
+    const state = stateReading(rows, { resolveAccess, resolveAccessMany });
+    const event = {
+      owner: "writer@example.com",
+      resourceType: "document",
+      resourceId: "a",
+    };
+
+    await state.getDurableChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      { version: 5, id: "" },
+    );
+    expect(resolveAccessMany).toHaveBeenCalledOnce();
+    // Sharing changed while the batch ran: its answer is stale, and a fresh
+    // check replaces it.
+    state.invalidateCollabAccessCache("document", "a");
+    expect(
+      state.getChangeVisibilityForUser(event, "reader@example.com", undefined),
+    ).toBe("pending");
+    expect(resolveAccess).toHaveBeenCalledOnce();
+
+    finishBatch(new Set(["a"]));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The stale batch neither answered nor dropped the fresh check, so the
+    // next read waits on that check instead of starting another.
+    expect(
+      state.getChangeVisibilityForUser(event, "reader@example.com", undefined),
+    ).toBe("pending");
+    expect(resolveAccess).toHaveBeenCalledOnce();
   });
 
   it("does not check resources the reader owns or that are public", async () => {

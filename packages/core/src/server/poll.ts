@@ -93,10 +93,13 @@ const ACCESS_CACHE_DENY_TTL_MS = 5_000;
 // this instance shares the cache, so it holds many reads' worth: a smaller one
 // could evict a read's checks before that read used them.
 const ACCESS_CACHE_MAX = 5_000;
-// How many unchecked resources one read starts checks for. An app's access
-// check can cost a query or two per resource, so a tab far behind catches up
-// over several polls instead of checking a whole page of the log at once.
+// How many unchecked resources one read starts checks for. A batch check costs
+// a few queries whatever its size, but a resource checked on its own (no batch
+// resolver, or a batch that failed) costs a query or two, so a tab far behind
+// catches up over several polls instead of checking a whole page of the log.
 const ACCESS_PRIME_LIMIT = 250;
+// How many resources of a failed batch are checked on their own at once.
+const ACCESS_RETRY_CONCURRENCY = 8;
 const ACCESS_CHECK_WAIT_MS = 1_000;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SCREEN_REFRESH_QUERY_LIMIT = 256;
@@ -944,7 +947,8 @@ export class AppSyncState {
     const resourceKey = accessResourceKey(resourceType, resourceId);
     const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
     let settled = false;
-    const check = retainRequestDbPoolScope(
+    let check: Promise<void> | undefined;
+    check = retainRequestDbPoolScope(
       (async () => {
         try {
           const access = await this.resolveAccessFn(resourceType, resourceId, {
@@ -962,11 +966,20 @@ export class AppSyncState {
           this.setAccessCache(key, false, Date.now());
         } finally {
           settled = true;
-          this.accessInFlight.delete(key);
+          this.endAccessCheck(key, check);
         }
       })(),
     );
     if (!settled) this.accessInFlight.set(key, check);
+  }
+
+  /**
+   * Forgets `check` as the in-flight check for `key`. An invalidation while it
+   * ran can have replaced it with a newer check for the same key; that one
+   * stays, so other readers wait on it instead of starting another.
+   */
+  private endAccessCheck(key: string, check: Promise<void> | undefined): void {
+    if (this.accessInFlight.get(key) === check) this.accessInFlight.delete(key);
   }
 
   /**
@@ -1045,31 +1058,56 @@ export class AppSyncState {
         ) ?? 0,
       ]),
     );
-    const cacheUnlessInvalidated = (allowed: (id: string) => boolean) => {
-      const checkedAt = Date.now();
-      for (const [resourceId, key] of keys) {
-        const epoch =
-          this.accessInvalidationEpoch.get(
-            accessResourceKey(resourceType, resourceId),
-          ) ?? 0;
-        if (epoch !== epochs.get(resourceId)) continue;
-        this.setAccessCache(key, allowed(resourceId), checkedAt);
-      }
+    const cacheUnlessInvalidated = (resourceId: string, allowed: boolean) => {
+      const key = keys.get(resourceId);
+      const epoch =
+        this.accessInvalidationEpoch.get(
+          accessResourceKey(resourceType, resourceId),
+        ) ?? 0;
+      if (!key || epoch !== epochs.get(resourceId)) return;
+      this.setAccessCache(key, allowed, Date.now());
     };
+    const ids = [...keys.keys()];
     let settled = false;
-    const check = retainRequestDbPoolScope(
+    let check: Promise<void> | undefined;
+    check = retainRequestDbPoolScope(
       (async () => {
         try {
-          const visible = await resolveMany(resourceType, [...keys.keys()], {
+          const visible = await resolveMany(resourceType, ids, {
             userEmail,
             orgId,
           });
-          cacheUnlessInvalidated((resourceId) => visible.has(resourceId));
+          for (const id of ids) cacheUnlessInvalidated(id, visible.has(id));
         } catch {
-          cacheUnlessInvalidated(() => false);
+          // The batch fails as a whole when any one resource's check fails.
+          // Check each resource on its own instead, so a failure hides only
+          // its own resource, as it did before checks were batched.
+          for (
+            let start = 0;
+            start < ids.length;
+            start += ACCESS_RETRY_CONCURRENCY
+          ) {
+            await Promise.all(
+              ids
+                .slice(start, start + ACCESS_RETRY_CONCURRENCY)
+                .map(async (id) => {
+                  let allowed = false;
+                  try {
+                    allowed =
+                      (await this.resolveAccessFn(resourceType, id, {
+                        userEmail,
+                        orgId,
+                      })) != null;
+                  } catch {
+                    // Fails closed, like a single check.
+                  }
+                  cacheUnlessInvalidated(id, allowed);
+                }),
+            );
+          }
         } finally {
           settled = true;
-          for (const key of keys.values()) this.accessInFlight.delete(key);
+          for (const key of keys.values()) this.endAccessCheck(key, check);
         }
       })(),
     );
