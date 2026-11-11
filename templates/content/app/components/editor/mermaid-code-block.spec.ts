@@ -96,7 +96,7 @@ async function mountEditor(
             createElement(VisualEditor, {
               content: source,
               editable: props.editable ?? true,
-              drawDiagrams: props.drawDiagrams,
+              drawDiagrams: props.drawDiagrams ?? true,
               onChange: () => {},
             }),
           ),
@@ -203,9 +203,11 @@ describe("Mermaid code blocks", () => {
 
     const block = container.querySelector(".content-mermaid");
     expect(block?.querySelector("pre")?.hidden).toBe(false);
-    expect(block?.querySelector(".content-mermaid__error")?.textContent).toBe(
-      "Can't draw this diagram: Parse error on line 2",
-    );
+    // Without a locale provider the label is the message key's fallback, so
+    // only the renderer's error is checked.
+    expect(
+      block?.querySelector(".content-mermaid__error")?.textContent,
+    ).toContain("Parse error on line 2");
   });
 
   it("draw without an edit control in a read-only editor", async () => {

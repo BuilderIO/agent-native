@@ -154,7 +154,7 @@ import {
 } from "./editor-transaction-meta";
 import { AudioNode } from "./extensions/AudioNode";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
-import { CodeBlock } from "./extensions/CodeBlockNode";
+import { CodeBlock, DrawingCodeBlock } from "./extensions/CodeBlockNode";
 import {
   CommentHighlight,
   type CommentHighlightOptions,
@@ -3313,7 +3313,7 @@ export function createVisualEditorExtensions({
       CompatibleCode,
       EmptyLineParagraph,
       NotionBlockquote,
-      CodeBlock.configure({ drawMermaid: drawDiagrams }),
+      drawDiagrams ? DrawingCodeBlock : CodeBlock,
       VisualEditorPlaceholder.configure({
         emptyBlockPlaceholder,
       }),

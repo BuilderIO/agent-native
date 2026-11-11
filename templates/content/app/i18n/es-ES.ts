@@ -1768,6 +1768,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "Esta sugerencia cambió en otro lugar. Tu borrador sin guardar sigue aquí.",
     discardSuggestionDraft: "Descartar borrador",
+    mermaid: {
+      source: "Mermaid",
+      done: "Listo",
+      doneShortcut: "Cerrar el código (Esc)",
+      editDiagram: "Editar diagrama",
+      cantDraw: "No se puede dibujar este diagrama",
+    },
     failedToCreatePage: "No se pudo crear la página",
     slash: {
       blockEquation: "Ecuación en bloque",

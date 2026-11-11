@@ -1480,6 +1480,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "이 제안은 다른 곳에서 변경되었습니다. 저장하지 않은 초안은 여기에 그대로 있습니다.",
     discardSuggestionDraft: "초안 삭제",
+    mermaid: {
+      source: "Mermaid",
+      done: "완료",
+      doneShortcut: "소스 닫기 (Esc)",
+      editDiagram: "다이어그램 편집",
+      cantDraw: "이 다이어그램을 그릴 수 없습니다",
+    },
     failedToCreatePage: "페이지를 만들지 못했습니다",
     slash: {
       blockEquation: "블록 수식",

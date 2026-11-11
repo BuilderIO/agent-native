@@ -1536,6 +1536,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "此建议已在其他地方更改。你未保存的草稿仍保留在这里。",
     discardSuggestionDraft: "丢弃草稿",
+    mermaid: {
+      source: "Mermaid",
+      done: "完成",
+      doneShortcut: "关闭源代码 (Esc)",
+      editDiagram: "编辑图表",
+      cantDraw: "无法绘制此图表",
+    },
     failedToCreatePage: "创建页面失败",
     slash: {
       blockEquation: "块级公式",

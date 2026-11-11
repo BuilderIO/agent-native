@@ -210,7 +210,7 @@ export function useMermaidRender(
           const mermaidMessage = errorMessage(mermaidError);
           if (!cancelled) {
             setState((previous) => ({
-              svg: previous.svg,
+              ...previous,
               error:
                 excalidrawMessage === mermaidMessage
                   ? mermaidMessage

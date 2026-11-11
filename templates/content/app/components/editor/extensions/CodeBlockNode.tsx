@@ -1,7 +1,5 @@
-import {
-  CodeBlockLowlight,
-  type CodeBlockLowlightOptions,
-} from "@tiptap/extension-code-block-lowlight";
+import type { KeyboardShortcutCommand } from "@tiptap/core";
+import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
   NodeSelection,
@@ -18,14 +16,6 @@ import { MermaidCodeBlockView } from "./MermaidCodeBlockView";
 
 const lowlight = createLowlight(common);
 
-interface ContentCodeBlockOptions extends CodeBlockLowlightOptions {
-  /**
-   * Draw `mermaid` blocks as their diagrams. Off where document source must
-   * never run, like public pages, which keep the plain code block.
-   */
-  drawMermaid: boolean;
-}
-
 export function isMermaidCodeBlock(
   node: ProseMirrorNode | null | undefined,
 ): boolean {
@@ -37,12 +27,12 @@ export function isMermaidCodeBlock(
   );
 }
 
-const ARROW_DIRECTIONS = {
-  ArrowUp: "up",
-  ArrowDown: "down",
-  ArrowLeft: "left",
-  ArrowRight: "right",
-} as const;
+const ARROW_DIRECTIONS = new Map<string, "up" | "down" | "left" | "right">([
+  ["ArrowUp", "up"],
+  ["ArrowDown", "down"],
+  ["ArrowLeft", "left"],
+  ["ArrowRight", "right"],
+]);
 
 /**
  * A drawn Mermaid block at rest hides its source, so the browser's caret
@@ -53,7 +43,7 @@ function selectRestingMermaidOnArrow(
   view: EditorView,
   event: KeyboardEvent,
 ): boolean {
-  const dir = ARROW_DIRECTIONS[event.key as keyof typeof ARROW_DIRECTIONS];
+  const dir = ARROW_DIRECTIONS.get(event.key);
   if (!dir || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey)
     return false;
   const { doc, selection } = view.state;
@@ -84,17 +74,31 @@ function selectRestingMermaidOnArrow(
   return true;
 }
 
-export const CodeBlock = CodeBlockLowlight.extend<ContentCodeBlockOptions>({
-  addOptions() {
+export const CodeBlock = CodeBlockLowlight.extend({
+  addKeyboardShortcuts() {
     return {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      ...this.parent!(),
-      drawMermaid: true,
+      ...this.parent?.(),
+      Tab: ({ editor }) => {
+        if (editor.isActive("codeBlock")) {
+          editor.commands.insertContent("	");
+          return true;
+        }
+        return false;
+      },
     };
   },
+}).configure({
+  lowlight,
+  HTMLAttributes: { class: "content-code-block" },
+  defaultLanguage: null,
+});
 
+/**
+ * The code block that draws `mermaid` blocks as their diagrams. Public pages
+ * keep the plain {@link CodeBlock}, so they never run document source.
+ */
+export const DrawingCodeBlock = CodeBlock.extend({
   addNodeView() {
-    if (!this.options.drawMermaid) return null;
     const drawn = ReactNodeViewRenderer(MermaidCodeBlockView, {
       // A block that stops being Mermaid goes back to the plain code block.
       update: ({ newNode, updateProps }) => {
@@ -115,19 +119,13 @@ export const CodeBlock = CodeBlockLowlight.extend<ContentCodeBlockOptions>({
 
   addKeyboardShortcuts() {
     const parentShortcuts = this.parent?.() ?? {};
+    const parentEnter: KeyboardShortcutCommand | undefined =
+      parentShortcuts["Enter"];
     return {
       ...parentShortcuts,
-      Tab: ({ editor }) => {
-        if (editor.isActive("codeBlock")) {
-          editor.commands.insertContent("\t");
-          return true;
-        }
-        return false;
-      },
       // Like a table cell, the first Escape from a Mermaid source only closes
       // it, leaving the drawing selected; the next one leaves the editor.
       Escape: ({ editor }) => {
-        if (!this.options.drawMermaid) return false;
         const { selection } = editor.state;
         if (
           !(selection instanceof TextSelection) ||
@@ -139,30 +137,23 @@ export const CodeBlock = CodeBlockLowlight.extend<ContentCodeBlockOptions>({
       Enter: (props) => {
         const { selection } = props.editor.state;
         if (
-          this.options.drawMermaid &&
           selection instanceof NodeSelection &&
           isMermaidCodeBlock(selection.node)
         ) {
           return props.editor.commands.setTextSelection(selection.to - 1);
         }
-        return parentShortcuts.Enter?.(props) ?? false;
+        return parentEnter?.(props) ?? false;
       },
     };
   },
 
   addProseMirrorPlugins() {
-    const plugins = this.parent?.() ?? [];
-    if (!this.options.drawMermaid) return plugins;
     return [
-      ...plugins,
+      ...(this.parent?.() ?? []),
       new Plugin({
         key: new PluginKey("mermaidArrowSelect"),
         props: { handleKeyDown: selectRestingMermaidOnArrow },
       }),
     ];
   },
-}).configure({
-  lowlight,
-  HTMLAttributes: { class: "content-code-block" },
-  defaultLanguage: null,
 });
