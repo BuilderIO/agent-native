@@ -1085,7 +1085,7 @@ export class AppSyncState {
               orgId,
             })) != null;
         } catch {
-          // Fails closed.
+          // coercion-ok: a check that fails hides its change, as it always has.
         }
         // The answer counts only if sharing didn't change meanwhile and this
         // is still the resource's running check. Past the deadline, a newer
@@ -1230,7 +1230,7 @@ export class AppSyncState {
                 await resolveMany(resourceType, [id], { userEmail, orgId })
               ).has(id);
             } catch {
-              // Fails closed, like a single check.
+              // coercion-ok: fails closed, like a single check.
             }
             cacheUnlessInvalidated(id, allowed);
           }),
