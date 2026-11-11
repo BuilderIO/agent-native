@@ -37,8 +37,12 @@ import {
 import { gfm } from "micromark-extension-gfm";
 
 import {
+  COMMENT_MENTION_CHIP_LIMIT,
+  findCommentMentions,
+  isCommentMarkdownTangled,
   splitCommentAtMarkdownLimit,
   withoutHtmlComments,
+  type FoundCommentMention,
 } from "./plain-text.js";
 import type { ReviewMention } from "./types.js";
 
@@ -64,35 +68,32 @@ const PARSE_OPTIONS = {
   mdastExtensions: [gfmFromMarkdown()],
 };
 
-const NAME_CHAR = /[\p{L}\p{M}\p{N}_]/u;
-const ENDS_IN_NAME_CHAR = /[\p{L}\p{M}\p{N}_]$/u;
-
 /**
  * The box's document for a comment. Where the renderer stops reading Markdown,
  * past the limit or at a paragraph too tangled to read quickly, the rest opens
- * as the lines it shows as. A stored `@label` becomes a chip for a listed
- * mention, as a whole word, outside links and code.
+ * as the lines it shows as. A listed mention's `@label` becomes a chip where
+ * the renderer draws one: as a whole word, outside links and code.
  */
 export function commentMarkdownToDoc(
   markdown: string,
   mentions: readonly ReviewMention[] = [],
 ): CommentDocNode {
   const text = markdown.replace(/\r\n?/g, "\n");
-  const reader = new DocReader(mentions);
   const { markdown: head, rest } = splitCommentAtMarkdownLimit(text);
   let blocks: CommentDocNode[];
   try {
-    const tree = fromMarkdown(head, PARSE_OPTIONS);
-    reader.collectDefinitions(tree);
+    const reader = new DocReader(head, mentions);
+    const tree = fromMarkdown(reader.source, PARSE_OPTIONS);
+    reader.collect(tree);
     blocks = reader.flow(tree.children);
   } catch {
     // coercion-ok: should the parser fail, the renderer shows the comment as
     // written, so the box opens it as written too.
-    return doc(reader.plainLines(text));
+    return doc(plainLines(text));
   }
   if (rest) {
     if (blocks.length) blocks.push({ type: "paragraph" });
-    blocks.push(...reader.plainLines(rest));
+    blocks.push(...plainLines(rest));
   }
   return doc(blocks);
 }
@@ -108,8 +109,31 @@ export function commentDocToMarkdown(content: CommentDocNode): string {
     type: "root",
     children: flowToMarkdown(content.content ?? []),
   };
-  return toMarkdown(root, WRITE_OPTIONS).replace(/\n+$/, "");
+  return withPlainTail(toMarkdown(root, WRITE_OPTIONS).replace(/\n+$/, ""));
 }
+
+/**
+ * Past the Markdown limit the renderer shows a comment as written, where the
+ * escapes that keep text from formatting would show too, so that part saves
+ * without them. Not when it holds a backtick, which may open code whose
+ * backslashes are as typed, nor when dropping them would move where the
+ * limit cuts.
+ */
+function withPlainTail(markdown: string): string {
+  const { markdown: head, rest } = splitCommentAtMarkdownLimit(markdown);
+  if (!rest || rest.includes("`")) return markdown;
+  const plain = `${markdown.slice(0, markdown.length - rest.length)}${rest.replace(
+    WRITTEN_ESCAPE,
+    (_escape, escaped: string | undefined, hex: string | undefined) =>
+      escaped ?? String.fromCodePoint(Number.parseInt(hex ?? "", 16)),
+  )}`;
+  return splitCommentAtMarkdownLimit(plain).markdown === head
+    ? plain
+    : markdown;
+}
+
+/** A backslash escape, or a character reference, as the writer spells them. */
+const WRITTEN_ESCAPE = /\\([!-/:-@[-`{-~])|&#x([\dA-F]+);/gi;
 
 function doc(blocks: CommentDocNode[]): CommentDocNode {
   return {
@@ -137,27 +161,53 @@ const LINE_BLOCKS = new Set<Nodes["type"]>([
   "table",
 ]);
 
-class DocReader {
-  private readonly mentions: ReviewMention[];
-  private readonly definitions = new Map<string, string>();
+/** The link a mention stands in for while the comment is parsed. */
+const MENTION_LINK = "https://comment-mention.invalid/";
+const MENTION_LINK_TEXT =
+  /\[(?:\\[\\[\]]|[^\\[\]])*\]\(https:\/\/comment-mention\.invalid\/(\d+)\)/g;
 
-  constructor(mentions: readonly ReviewMention[]) {
-    // Longest first, so `@Sam` is not read inside `@Samantha`.
-    this.mentions = mentions
-      .filter((mention) => mention.label && !/[\r\n]/.test(mention.label))
-      .sort((a, b) => b.label.length - a.label.length);
+class DocReader {
+  /** The text the parser reads: the comment, each mention a link. */
+  readonly source: string;
+  private readonly found: FoundCommentMention<ReviewMention>[];
+  private readonly definitions = new Map<string, string>();
+  private readonly footnotes = new Set<string>();
+
+  constructor(markdown: string, mentions: readonly ReviewMention[]) {
+    // Found and swapped for links as the renderer does, so Markdown in a
+    // label stays part of the chip. One written `@[Name](mailto:…)` stays the
+    // link it's written as, which saves it as it was. Too many, or a swap that
+    // tangles the text, and the renderer shows them as written, as here.
+    const found = findCommentMentions(markdown, mentions).filter(
+      (mention) => !mention.inline,
+    );
+    const source = withMentionLinks(markdown, found);
+    const kept =
+      found.length <= COMMENT_MENTION_CHIP_LIMIT &&
+      !(found.length && isCommentMarkdownTangled(source));
+    this.found = kept ? found : [];
+    this.source = kept ? source : markdown;
   }
 
-  collectDefinitions(node: Nodes) {
+  collect(node: Nodes) {
     if (node.type === "definition") {
       if (!this.definitions.has(node.identifier)) {
         this.definitions.set(node.identifier, node.url);
       }
       return;
     }
+    if (node.type === "footnoteReference") this.footnotes.add(node.identifier);
     if ("children" in node) {
-      for (const child of node.children) this.collectDefinitions(child);
+      for (const child of node.children) this.collect(child);
     }
+  }
+
+  /** Text a mention's link stands in for, as written, as code shows it. */
+  private written(text: string): string {
+    return text.replace(
+      MENTION_LINK_TEXT,
+      (link, index: string) => this.found[Number(index)]?.source ?? link,
+    );
   }
 
   /**
@@ -200,11 +250,16 @@ class DocReader {
         return content.length ? [{ type: "blockquote", content }] : [];
       }
       case "code":
-        return [codeBlock(node)];
+        return [codeBlock({ ...node, value: this.written(node.value) })];
       case "html": {
-        const html = withoutHtmlComments(node.value).trim();
-        return html ? this.plainLines(html) : [];
+        const html = withoutHtmlComments(this.written(node.value)).trim();
+        return html ? plainLines(html) : [];
       }
+      // An unreferenced note is drawn as nothing.
+      case "footnoteDefinition":
+        return this.footnotes.has(node.identifier)
+          ? this.flow(node.children)
+          : [];
       // A table shows as its cells' text, a row to a line.
       case "table":
         return node.children.map((row) =>
@@ -223,7 +278,7 @@ class DocReader {
         return [];
       default:
         if ("children" in node) return this.flow(node.children);
-        if ("value" in node) return this.plainLines(node.value);
+        if ("value" in node) return plainLines(this.written(node.value));
         return [];
     }
   }
@@ -236,65 +291,57 @@ class DocReader {
     return { type: "listItem", content };
   }
 
-  /** Text that shows as written, a line to a paragraph. */
-  plainLines(text: string): CommentDocNode[] {
-    const lines: CommentDocNode[][] = [[]];
-    this.text(text, [], lines, false);
-    return lines.map(paragraph);
-  }
-
   /** Inline content split into lines at its line breaks. */
   private lines(
     nodes: readonly PhrasingContent[],
     marks: readonly CommentDocMark[],
     lines: CommentDocNode[][] = [[]],
-    inLink = false,
   ): CommentDocNode[][] {
     for (const node of nodes) {
       switch (node.type) {
         case "text":
-          this.text(node.value, marks, lines, inLink);
+          addText(node.value, marks, lines);
           break;
         case "break":
           lines.push([]);
           break;
         case "strong":
-          this.lines(node.children, withMark(marks, BOLD), lines, inLink);
+          this.lines(node.children, withMark(marks, BOLD), lines);
           break;
         case "emphasis":
-          this.lines(node.children, withMark(marks, ITALIC), lines, inLink);
+          this.lines(node.children, withMark(marks, ITALIC), lines);
           break;
         case "delete":
-          this.lines(node.children, withMark(marks, STRIKE), lines, inLink);
+          this.lines(node.children, withMark(marks, STRIKE), lines);
           break;
         case "inlineCode":
-          // Code takes no other mark in the box, so code inside a link keeps
-          // the link.
-          this.text(node.value, inLink ? marks : [CODE], lines, true);
+          addText(this.written(node.value), withMark(marks, CODE), lines);
           break;
-        case "link":
-          this.lines(node.children, withLink(marks, node.url), lines, true);
+        case "link": {
+          const mention = node.url.startsWith(MENTION_LINK)
+            ? this.found[Number(node.url.slice(MENTION_LINK.length))]?.mention
+            : undefined;
+          if (mention) {
+            lines[lines.length - 1]?.push(mentionNode(mention, marks));
+          } else {
+            this.lines(node.children, withLink(marks, node.url), lines);
+          }
           break;
+        }
         case "linkReference": {
           const url = this.definitions.get(node.identifier);
           this.lines(
             node.children,
             url === undefined ? marks : withLink(marks, url),
             lines,
-            inLink || url !== undefined,
           );
           break;
         }
         case "html":
-          this.text(withoutHtmlComments(node.value), marks, lines, inLink);
+          addText(withoutHtmlComments(this.written(node.value)), marks, lines);
           break;
         case "footnoteReference":
-          this.text(
-            `[^${node.label ?? node.identifier}]`,
-            marks,
-            lines,
-            inLink,
-          );
+          addText(`[^${node.label ?? node.identifier}]`, marks, lines);
           break;
         case "image":
         case "imageReference":
@@ -306,79 +353,67 @@ class DocReader {
             value?: string;
           };
           if (other.children) {
-            this.lines(other.children, marks, lines, inLink);
+            this.lines(other.children, marks, lines);
           } else if (typeof other.value === "string") {
-            this.text(other.value, marks, lines, inLink);
+            addText(other.value, marks, lines);
           }
         }
       }
     }
     return lines;
   }
+}
 
-  private text(
-    value: string,
-    marks: readonly CommentDocMark[],
-    lines: CommentDocNode[][],
-    plain: boolean,
-  ) {
-    value.split("\n").forEach((segment, index) => {
-      if (index > 0) lines.push([]);
-      const line = lines[lines.length - 1];
-      if (!line || !segment) return;
-      if (plain || !this.mentions.length) {
-        line.push(textNode(segment, marks));
-        return;
-      }
-      line.push(...this.withMentions(segment, marks));
-    });
-  }
+/**
+ * The comment with each mention swapped for a link, in one pass: replacing
+ * one at a time would find a shorter label again inside a longer one's link.
+ */
+function withMentionLinks(
+  markdown: string,
+  found: readonly FoundCommentMention<ReviewMention>[],
+): string {
+  let source = "";
+  let cursor = 0;
+  found.forEach(({ at, source: written, mention }, index) => {
+    if (at < cursor) return;
+    const label = `@${mention.label}`.replace(/[\\[\]]/g, "\\$&");
+    source += `${markdown.slice(cursor, at)}[${label}](${MENTION_LINK}${index})`;
+    cursor = at + written.length;
+  });
+  return source + markdown.slice(cursor);
+}
 
-  /** Text with each listed `@label` in it, as a whole word, as a chip. */
-  private withMentions(
-    text: string,
-    marks: readonly CommentDocMark[],
-  ): CommentDocNode[] {
-    const nodes: CommentDocNode[] = [];
-    let textStart = 0;
-    let index = text.indexOf("@");
-    while (index !== -1) {
-      const mention = this.mentionAt(text, index);
-      if (mention) {
-        if (index > textStart) {
-          nodes.push(textNode(text.slice(textStart, index), marks));
-        }
-        nodes.push({
-          type: COMMENT_DOC_MENTION,
-          attrs: {
-            label: mention.label,
-            email: mention.email ?? null,
-            id: mention.id ?? null,
-          },
-          ...(marks.length ? { marks: [...marks] } : {}),
-        });
-        textStart = index + 1 + mention.label.length;
-        index = text.indexOf("@", textStart);
-      } else {
-        index = text.indexOf("@", index + 1);
-      }
-    }
-    if (textStart < text.length) {
-      nodes.push(textNode(text.slice(textStart), marks));
-    }
-    return nodes;
-  }
+/** Text that shows as written, a line to a paragraph. */
+function plainLines(text: string): CommentDocNode[] {
+  const lines: CommentDocNode[][] = [[]];
+  addText(text, [], lines);
+  return lines.map(paragraph);
+}
 
-  private mentionAt(text: string, index: number): ReviewMention | undefined {
-    const previous = codePointBefore(text, index);
-    if (previous && NAME_CHAR.test(previous)) return undefined;
-    return this.mentions.find((mention) => {
-      const token = `@${mention.label}`;
-      if (!text.startsWith(token, index)) return false;
-      const next = codePointAt(text, index + token.length);
-      return !(ENDS_IN_NAME_CHAR.test(token) && next && NAME_CHAR.test(next));
-    });
-  }
+function addText(
+  value: string,
+  marks: readonly CommentDocMark[],
+  lines: CommentDocNode[][],
+) {
+  value.split("\n").forEach((segment, index) => {
+    if (index > 0) lines.push([]);
+    if (segment) lines[lines.length - 1]?.push(textNode(segment, marks));
+  });
+}
+
+function mentionNode(
+  mention: ReviewMention,
+  marks: readonly CommentDocMark[],
+): CommentDocNode {
+  return {
+    type: COMMENT_DOC_MENTION,
+    attrs: {
+      label: mention.label,
+      email: mention.email ?? null,
+      id: mention.id ?? null,
+    },
+    ...(marks.length ? { marks: [...marks] } : {}),
+  };
 }
 
 function textNode(
@@ -463,7 +498,11 @@ function blockToMarkdown(node: CommentDocNode): BlockContent[] {
           }),
         ),
       };
-      if (ordered) list.start = Number.isFinite(start) ? start : 1;
+      if (ordered) {
+        list.start = Number.isFinite(start)
+          ? Math.min(Math.max(Math.trunc(start), 0), MAX_LIST_NUMBER)
+          : 1;
+      }
       return list.children.length ? [list] : [];
     }
     case "blockquote": {
@@ -620,25 +659,31 @@ function leafToMarkdown(node: CommentDocNode): PhrasingContent | null {
       ? ({ type: "reviewMention", label } as unknown as PhrasingContent)
       : null;
   }
+  if (node.type === BARE_ADDRESS_NODE && node.text) {
+    return {
+      type: BARE_ADDRESS_NODE,
+      value: node.text,
+    } as unknown as PhrasingContent;
+  }
   if (node.type !== "text" || !node.text) return null;
   return node.marks?.some((mark) => mark.type === "code")
     ? { type: "inlineCode", value: node.text }
     : { type: "text", value: node.text };
 }
 
-/** A web or email address the renderer links when it's typed bare. */
+/** A web or email address the renderer may link when it's typed bare. */
 const BARE_ADDRESS =
   /^(?:https?:\/\/|www\.|[\w.+-]+@)[A-Za-z0-9.:/?#@!$&'()+,;=%_-]*[A-Za-z0-9/]$/;
-/** An underscore the writer would escape: one not between letters. */
-const ESCAPED_UNDERSCORE = /_(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])_/u;
 /** What may sit beside a bare address without joining it. */
 const BEFORE_BARE_ADDRESS = /^[\s(]?$/;
 const AFTER_BARE_ADDRESS = /^[.,;:!?]?(?:\s|$)/;
+/** A bare address, written exactly as it reads. */
+const BARE_ADDRESS_NODE = "bareAddress";
 
 /**
  * Drops the link from an address linked to itself, so it saves bare, as it
- * was typed: the renderer links it again. Kept only where the bare address
- * would read as the same link.
+ * was typed: the renderer links it again. Kept only where the address,
+ * written as it is, reads as the same link; escaped, it wouldn't.
  */
 function bareAddresses(nodes: readonly CommentDocNode[]): CommentDocNode[] {
   return nodes.map((node, index) => {
@@ -650,11 +695,7 @@ function bareAddresses(nodes: readonly CommentDocNode[]): CommentDocNode[] {
       href === text ||
       href === `mailto:${text}` ||
       (text.startsWith("www.") && href === `http://${text}`);
-    if (
-      !linksItself ||
-      !BARE_ADDRESS.test(text) ||
-      ESCAPED_UNDERSCORE.test(text)
-    ) {
+    if (!linksItself || !BARE_ADDRESS.test(text) || !readsAsLink(text, href)) {
       return node;
     }
     const before = nodes[index - 1];
@@ -676,8 +717,20 @@ function bareAddresses(nodes: readonly CommentDocNode[]): CommentDocNode[] {
       return node;
     }
     const marks = (node.marks ?? []).filter((mark) => mark !== link);
-    return marks.length ? { ...node, marks } : { type: "text", text };
+    return marks.length
+      ? { type: BARE_ADDRESS_NODE, text, marks }
+      : { type: BARE_ADDRESS_NODE, text };
   });
+}
+
+/** Whether `text`, written as it is, reads as a link to `href` showing it. */
+function readsAsLink(text: string, href: string): boolean {
+  const [block, ...blocks] = fromMarkdown(text, PARSE_OPTIONS).children;
+  if (blocks.length || block?.type !== "paragraph") return false;
+  const [link, ...others] = block.children;
+  if (others.length || link?.type !== "link" || link.url !== href) return false;
+  const [label, ...more] = link.children;
+  return !more.length && label?.type === "text" && label.value === text;
 }
 
 /**
@@ -690,7 +743,13 @@ function spacesOutsideMarks(
 ): CommentDocNode[] {
   const result: CommentDocNode[] = [];
   nodes.forEach((node, index) => {
-    if (node.type !== "text" || !node.text || !node.marks?.length) {
+    // Code's spaces sit inside its backticks, beside which a mark closes.
+    if (
+      node.type !== "text" ||
+      !node.text ||
+      !node.marks?.length ||
+      node.marks.some((mark) => mark.type === "code")
+    ) {
       result.push(node);
       return;
     }
@@ -750,6 +809,36 @@ const writeMention = Object.assign(
   { peek: () => "@" },
 );
 
+const writeBareAddress = Object.assign(
+  ((node) => (node as unknown as { value: string }).value) as Handle,
+  { peek: (node: unknown) => (node as { value: string }).value.charAt(0) },
+);
+
+/** The longest number a list item's marker can have: nine digits. */
+const MAX_LIST_NUMBER = 999_999_999;
+
+/**
+ * Numbers an ordered list's items on from its start, unless that runs past
+ * nine digits, where Markdown stops reading a marker. Then every item takes
+ * the start's number, which the renderer counts on from just the same.
+ */
+const writeListItem: Handle = (node, parent, state, info) => {
+  const list = parent?.type === "list" ? parent : undefined;
+  if (
+    !list?.ordered ||
+    (list.start ?? 1) + list.children.length - 1 <= MAX_LIST_NUMBER
+  ) {
+    return defaultHandlers.listItem(node, parent, state, info);
+  }
+  const increment = state.options.incrementListMarker;
+  state.options.incrementListMarker = false;
+  try {
+    return defaultHandlers.listItem(node, parent, state, info);
+  } finally {
+    state.options.incrementListMarker = increment;
+  }
+};
+
 const WRITE_OPTIONS: ToMarkdownOptions = {
   extensions: [gfmStrikethroughToMarkdown()],
   bullet: "-",
@@ -759,21 +848,8 @@ const WRITE_OPTIONS: ToMarkdownOptions = {
   listItemIndent: "one",
   handlers: {
     text: writeText,
+    listItem: writeListItem,
     reviewMention: writeMention,
+    [BARE_ADDRESS_NODE]: writeBareAddress,
   } as ToMarkdownOptions["handlers"],
 };
-
-function codePointBefore(text: string, index: number): string | undefined {
-  if (index <= 0) return undefined;
-  const last = text.charCodeAt(index - 1);
-  if (last >= 0xdc00 && last <= 0xdfff && index >= 2) {
-    const lead = text.charCodeAt(index - 2);
-    if (lead >= 0xd800 && lead <= 0xdbff) return text.slice(index - 2, index);
-  }
-  return text[index - 1];
-}
-
-function codePointAt(text: string, index: number): string | undefined {
-  const codePoint = text.codePointAt(index);
-  return codePoint === undefined ? undefined : String.fromCodePoint(codePoint);
-}

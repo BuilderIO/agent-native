@@ -1354,6 +1354,7 @@
         "@agent-native/core",
         "@tabler/icons-react",
         "@tiptap/core",
+        "@tiptap/extension-code",
         "@tiptap/extension-placeholder",
         "@tiptap/pm",
         "@tiptap/react",

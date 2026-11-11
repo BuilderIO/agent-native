@@ -661,6 +661,71 @@ describe("ReviewCommentComposer", () => {
       expect(onSubmit).toHaveBeenCalledWith("human");
     });
 
+    it("leaves a code block on a third Shift+Enter, as on a third Enter", async () => {
+      await render(<Harness initialValue={"```\na\n```"} />);
+      focusEditor();
+      placeCaret(editorDom().editor.state.doc.content.size - 1);
+      keydown("Enter", { shiftKey: true });
+      keydown("Enter", { shiftKey: true });
+      expect(editorDom().editor.isActive("codeBlock")).toBe(true);
+      keydown("Enter", { shiftKey: true });
+      expect(editorDom().editor.isActive("codeBlock")).toBe(false);
+    });
+
+    it("links code and keeps it code, as a comment can", async () => {
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness initialValue={"`hello`"} onState={(next) => (state = next)} />,
+      );
+      focusEditor();
+      placeCaret(1, 6);
+      keydown("k", { ctrlKey: true });
+      const field = linkField();
+      if (!field) throw new Error("link field not open");
+      typeInto(field, "example.com");
+      act(() => {
+        field.form?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(state.value).toBe("[`hello`](https://example.com)");
+    });
+
+    it("closes the link field once the box is disabled", async () => {
+      const onChange = vi.fn();
+      const props = { value: "hello", onChange, onSubmit: () => {} };
+      await render(<ReviewCommentComposer {...props} />);
+      focusEditor();
+      placeCaret(1, 6);
+      keydown("k", { ctrlKey: true });
+      expect(linkField()).not.toBeNull();
+      await render(<ReviewCommentComposer {...props} disabled />);
+      expect(linkField()).toBeNull();
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("sends on Cmd/Ctrl+Enter with the mention picker open, and Shift+Enter picks no one", async () => {
+      const onSubmit = vi.fn();
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness onSubmit={onSubmit} onState={(next) => (state = next)} />,
+      );
+      focusEditor();
+      keydown("@");
+      await act(async () => {});
+      expect(mentionListbox()).not.toBeNull();
+      keydown("Enter", { shiftKey: true });
+      expect(state.mentions).toEqual([]);
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      keydown("@");
+      await act(async () => {});
+      expect(mentionListbox()).not.toBeNull();
+      keydown("Enter", { ctrlKey: true });
+      expect(onSubmit).toHaveBeenCalledWith("human");
+      expect(state.mentions).toEqual([]);
+    });
+
     it("reads pasted text as Markdown, and Shift-pasted text as typed", async () => {
       let state = { value: "", mentions: [] as ReviewMention[] };
       await render(<Harness onState={(next) => (state = next)} />);

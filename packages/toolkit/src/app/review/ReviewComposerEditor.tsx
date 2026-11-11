@@ -1,4 +1,5 @@
 import type { ReviewMention } from "@agent-native/core/review/types";
+import Code from "@tiptap/extension-code";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Slice, type NodeType } from "@tiptap/pm/model";
 import { Selection, TextSelection } from "@tiptap/pm/state";
@@ -132,8 +133,8 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
   // The body the editor last said it holds, or was last given. A `value` equal
   // to it is the editor's own, so it never resets the editor and its caret.
   const lastValueRef = useRef(value);
-  // True while Shift+Enter replays Enter through the editor's own keymaps, so
-  // the host's Enter (send) stays out of it.
+  // True while Shift+Enter runs Enter through the editor's own keymaps, so the
+  // host's Enter (send) stays out of it.
   const replayingEnterRef = useRef(false);
   // The link field's text while it's open.
   const [linkDraft, setLinkDraft] = useState<string | null>(null);
@@ -146,9 +147,19 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
   const pressEnter = () => {
     const instance = editorRef.current;
     if (!instance || instance.isDestroyed) return;
+    const { view } = instance;
+    const enter = new KeyboardEvent("keydown", {
+      key: "Enter",
+      code: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
     replayingEnterRef.current = true;
     try {
-      instance.commands.keyboardShortcut("Enter");
+      // Run as a real key press, not through `keyboardShortcut`, which keeps
+      // only the steps of what Enter does and drops the caret's move, as when
+      // a third Enter leaves a code block.
+      view.someProp("handleKeyDown", (handle) => handle(view, enter));
     } finally {
       replayingEnterRef.current = false;
     }
@@ -167,6 +178,7 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
       // What a comment can show: bold, italic, struck, code and links, with
       // lists, quotes and code blocks. Markdown typed as you go formats.
       StarterKit.configure({
+        code: false,
         dropcursor: false,
         gapcursor: false,
         hardBreak: false,
@@ -182,6 +194,9 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
         trailingNode: false,
         underline: false,
       }),
+      // In a comment, code can be bold or a link, as **`x`** and [`x`](url)
+      // are; TipTap's code mark takes no other mark.
+      Code.extend({ excludes: "code" }),
       Placeholder.configure({
         placeholder: () => latest.current.placeholder ?? "",
         emptyEditorClass: "is-editor-empty",
@@ -263,6 +278,8 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
 
   useEffect(() => {
     if (editor && !editor.isDestroyed) editor.setEditable(!disabled, false);
+    // A box that can't change closes its link field.
+    if (disabled) setLinkDraft(null);
   }, [editor, disabled]);
 
   useEffect(() => {

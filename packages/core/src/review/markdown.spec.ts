@@ -59,6 +59,9 @@ describe("comment Markdown and the box's document", () => {
       "before\n\n- item\n\nafter",
       "snake_case, 2 * 3 and a@b.com",
       "Ask **@Sam** about `@Sam`",
+      "**`bold code`** and [`linked code`](https://example.com)",
+      "ask @[Sam](mailto:sam@example.com)",
+      "999999999. first\n999999999. second",
     ]) {
       expect(roundTrip(markdown)).toBe(markdown);
     }
@@ -110,6 +113,13 @@ describe("comment Markdown and the box's document", () => {
     expect(linked("example.com", "https://example.com")).toBe(
       "[example.com](https://example.com)",
     );
+    // Bare only where, written as it is, it reads back as the same link.
+    expect(
+      roundTrip(
+        "[https://example.com/a?x=1&y=2](https://example.com/a?x=1&y=2)",
+      ),
+    ).toBe("https://example.com/a?x=1&y=2");
+    expect(roundTrip("[a@b](mailto:a@b)")).toBe("<a@b>");
   });
 
   it("joins lines into a paragraph and breaks it at an empty line", () => {
@@ -195,19 +205,29 @@ describe("comment Markdown and the box's document", () => {
         ),
       ),
     ).toBe("hi @Sam *Lee*");
+    // Markdown in a label is part of the chip, as the renderer draws it.
+    const styled = [{ label: "Sam _Lee_", email: "sam@example.com" }];
+    expect(chips(commentMarkdownToDoc("Hey @Sam _Lee_", styled))).toEqual([
+      "Sam _Lee_",
+    ]);
+    expect(roundTrip("Hey @Sam _Lee_", styled)).toBe("Hey @Sam _Lee_");
   });
 
   it("chips mentions in a long line full of @ signs in linear time", () => {
     const unmatched = "x@".repeat(9_000);
-    const matched = "@Sam ".repeat(3_900);
+    const matched = "@Sam ".repeat(1_900);
     const started = performance.now();
     const unmatchedDoc = commentMarkdownToDoc(unmatched, people);
     const matchedDoc = commentMarkdownToDoc(matched, people);
     const elapsedMs = performance.now() - started;
 
     expect(chips(unmatchedDoc)).toEqual([]);
-    expect(chips(matchedDoc)).toHaveLength(3_900);
+    expect(chips(matchedDoc)).toHaveLength(1_900);
     expect(elapsedMs).toBeLessThan(1_000);
+    // Past the most the renderer draws, none are chips, there or here.
+    expect(chips(commentMarkdownToDoc("@Sam ".repeat(2_100), people))).toEqual(
+      [],
+    );
   });
 
   it("opens what the renderer draws as text the way it draws it", () => {
@@ -223,6 +243,9 @@ describe("comment Markdown and the box's document", () => {
       "[the brief](https://example.com/brief)",
     );
     expect(roundTrip("- [x] done\n- [ ] open")).toBe("- done\n- open");
+    expect(roundTrip("unreferenced\n\n[^note]: drawn as nothing")).toBe(
+      "unreferenced",
+    );
   });
 
   it("gives a list item that starts with a block an empty first line", () => {
@@ -242,6 +265,16 @@ describe("comment Markdown and the box's document", () => {
       { type: "paragraph", content: [{ type: "text", text: "**not bold**" }] },
       { type: "paragraph", content: [{ type: "text", text: "next" }] },
     ]);
+  });
+
+  it("saves the text past the Markdown limit as it shows, unescaped", () => {
+    const head = "a".repeat(COMMENT_MARKDOWN_LIMIT - 10);
+    const long = `${head}\n\n**not bold** \\_x_\nnext`;
+    expect(roundTrip(long)).toBe(long);
+    // Code's backslashes are as typed, so a tail holding code keeps escapes.
+    expect(roundTrip(`${head}\n\n*a* \`b\` past the limit`)).toBe(
+      `${head}\n\n\\*a\\* \\\`b\\\` past the limit`,
+    );
   });
 
   it("opens an empty comment as one empty line", () => {

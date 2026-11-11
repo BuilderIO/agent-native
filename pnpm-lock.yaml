@@ -54,6 +54,9 @@ catalogs:
     '@tiptap/extension-bubble-menu':
       specifier: 3.31.4
       version: 3.31.4
+    '@tiptap/extension-code':
+      specifier: 3.31.4
+      version: 3.31.4
     '@tiptap/extension-code-block-lowlight':
       specifier: 3.31.4
       version: 3.31.4
@@ -4038,6 +4041,9 @@ importers:
       '@tiptap/extension-bubble-menu':
         specifier: 'catalog:'
         version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
+      '@tiptap/extension-code':
+        specifier: 'catalog:'
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
       '@tiptap/extension-code-block-lowlight':
         specifier: 'catalog:'
         version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/extension-code-block@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(highlight.js@11.11.1)(lowlight@3.3.0)

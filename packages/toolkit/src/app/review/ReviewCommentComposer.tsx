@@ -341,7 +341,14 @@ export function ReviewCommentComposer({
         setMentionActiveIndex((activeMentionIndex + step + count) % count);
         return true;
       }
-      if (event.key === "Enter" || event.key === "Tab") {
+      // Shift+Enter still starts a line, and Cmd/Ctrl+Enter still sends.
+      if (
+        (event.key === "Enter" || event.key === "Tab") &&
+        !event.shiftKey &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey
+      ) {
         const mention = filteredMentionOptions.at(activeMentionIndex);
         if (mention) {
           event.preventDefault();

@@ -138,6 +138,7 @@ export function ReviewComposerToolbar({
     editor.commands.focus();
   };
   const applyLink = () => {
+    if (!editor.isEditable) return;
     const typed = (linkDraft ?? "").trim();
     const href = linkHref(typed);
     const chain = editor.chain().focus();
@@ -222,12 +223,14 @@ export function ReviewComposerToolbar({
                 label={labels.removeLink}
                 icon={IconUnlink}
                 onPress={() => {
-                  editor
-                    .chain()
-                    .focus()
-                    .extendMarkRange("link")
-                    .unsetLink()
-                    .run();
+                  if (editor.isEditable) {
+                    editor
+                      .chain()
+                      .focus()
+                      .extendMarkRange("link")
+                      .unsetLink()
+                      .run();
+                  }
                   onLinkDraftChange(null);
                 }}
               />

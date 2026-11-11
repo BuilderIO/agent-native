@@ -80,13 +80,14 @@ describe("review composer text", () => {
     const matchedDoc = parseReviewComposerText(matched, people);
     const elapsedMs = performance.now() - started;
 
-    // Past the Markdown limit the rest opens as plain lines, chips and all.
+    // Past the Markdown limit the rest opens as plain lines. Past the most
+    // chips the renderer draws, it draws none, and the box opens none.
     expect(textOf(ProseMirrorNode.fromJSON(schema, unmatchedDoc))).toBe(
       unmatched,
     );
-    expect(
-      chipLabels(ProseMirrorNode.fromJSON(schema, matchedDoc)),
-    ).toHaveLength(40_000);
+    expect(chipLabels(ProseMirrorNode.fromJSON(schema, matchedDoc))).toEqual(
+      [],
+    );
     expect(elapsedMs).toBeLessThan(1_000);
   });
 });
