@@ -40,6 +40,7 @@ const recording = {
   filmstripUrl: null,
   imageUrl: null,
   baseImageUrl: null,
+  richManifestUrl: null,
   kind: "video" as const,
   editsJson: "{}",
   status: "ready" as const,
@@ -88,6 +89,7 @@ beforeEach(async () => {
   await client.exec(`CREATE TABLE recordings (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, org_id TEXT, workspace_id TEXT NOT NULL, storage_mode TEXT, video_url TEXT, thumbnail_url TEXT, animated_thumbnail_url TEXT, filmstrip_url TEXT, image_url TEXT, base_image_url TEXT, edits_json TEXT NOT NULL DEFAULT '{}');
     CREATE TABLE recording_agent_frames (id TEXT PRIMARY KEY, recording_id TEXT, storage_url TEXT, storage_provider TEXT, storage_id TEXT);
     CREATE TABLE recording_browser_diagnostics (recording_id TEXT PRIMARY KEY, app_activity_blob_json TEXT);
+    CREATE TABLE recording_tracks (id TEXT PRIMARY KEY, recording_id TEXT, url TEXT);
     CREATE TABLE application_state (session_id TEXT, key TEXT, value TEXT, updated_at BIGINT, PRIMARY KEY (session_id,key));
     CREATE TABLE clips_hosted_clip_allowances (recording_id TEXT PRIMARY KEY, user_id TEXT, status TEXT, quota_bytes BIGINT);`);
   await client.exec(recordingMediaCleanupMigration);

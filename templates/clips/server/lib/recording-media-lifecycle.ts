@@ -263,6 +263,7 @@ type CleanupRecording = Pick<
   | "filmstripUrl"
   | "imageUrl"
   | "baseImageUrl"
+  | "richManifestUrl"
   | "editsJson"
   | "kind"
   | "status"
@@ -290,6 +291,7 @@ export async function captureRecordingMediaCleanup(
   const keys = [
     "recording-upload-",
     "recording-recovery-policy-",
+    "recording-rich-policy-",
     "recording-compression-",
     "recording-builder-compression-",
     "recording-blob-",
@@ -348,6 +350,11 @@ export async function captureRecordingMediaCleanup(
     })
     .from(schema.recordingAgentFrames)
     .where(eq(schema.recordingAgentFrames.recordingId, recording.id));
+  const tracks = await tx
+    .select({ url: schema.recordingTracks.url })
+    .from(schema.recordingTracks)
+    .where(eq(schema.recordingTracks.recordingId, recording.id));
+  for (const track of tracks) urls.add(track.url);
   const diagnostics = await tx
     .select({ blob: schema.recordingBrowserDiagnostics.appActivityBlobJson })
     .from(schema.recordingBrowserDiagnostics)
@@ -410,6 +417,9 @@ export async function captureRecordingMediaCleanup(
   await tx
     .delete(schema.recordingAgentFrames)
     .where(eq(schema.recordingAgentFrames.recordingId, recording.id));
+  await tx
+    .delete(schema.recordingTracks)
+    .where(eq(schema.recordingTracks.recordingId, recording.id));
   await tx.delete(stateTable).where(
     and(
       eq(stateTable.sessionId, ownerEmail),

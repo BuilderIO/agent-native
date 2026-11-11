@@ -70,6 +70,15 @@ export const CLIPS_SCREENSHOTS = defineLab({
   keywords: "screenshots screenshot capture image",
 });
 
+export const CLIPS_RICH_RECORDINGS = defineLab({
+  key: "clips.rich-recordings",
+  displayName: "Rich recordings",
+  description:
+    "Keep the cursor, page, camera and sound as separate tracks for editing.",
+  defaultEnabled: false,
+  keywords: "rich recording tracks cursor camera microphone system audio",
+});
+
 export const CLIPS_LABS = defineLabs([
   CLIPS_VIDEO_EDITING,
   CLIPS_MEETINGS,
@@ -77,4 +86,5 @@ export const CLIPS_LABS = defineLabs([
   CLIPS_RESILIENT_RECORDING,
   CLIPS_LOOKBACK_CONTEXT,
   CLIPS_SCREENSHOTS,
+  CLIPS_RICH_RECORDINGS,
 ]);

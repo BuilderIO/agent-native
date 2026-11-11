@@ -6,21 +6,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   rows: [] as unknown[],
+  trackRows: [] as unknown[],
   footageClipId: null as string | null,
+  tracksTable: { recordingId: "recording_tracks.recording_id" },
 }));
 
 vi.mock("../db/index.js", () => ({
   getDb: () => ({
     select: () => {
+      let rows = mocks.rows;
       const builder = {
-        from: () => builder,
+        from: (table: unknown) => {
+          if (table === mocks.tracksTable) rows = mocks.trackRows;
+          return builder;
+        },
         where: () => builder,
-        limit: async () => mocks.rows,
+        limit: async () => rows,
       };
       return builder;
     },
   }),
-  schema: { recordings: { id: "recordings.id" } },
+  schema: {
+    recordings: { id: "recordings.id" },
+    recordingTracks: mocks.tracksTable,
+  },
 }));
 
 vi.mock("./context-footage.js", () => ({
@@ -29,8 +38,11 @@ vi.mock("./context-footage.js", () => ({
 
 import {
   createRecordingDownloadGrant,
+  createRecordingTrackGrant,
   recordingDownloadRefusal,
+  recordingTracksRefusal,
   resolveRecordingDownloadAccess,
+  resolveRecordingTrackAccess,
 } from "./recording-download-link";
 
 const ready = {
@@ -69,6 +81,7 @@ function grantFor(recordingId = "rec-1", ownerEmail = "owner@example.com") {
 
 beforeEach(() => {
   mocks.rows = [ready];
+  mocks.trackRows = [];
   mocks.footageClipId = null;
 });
 
@@ -81,6 +94,18 @@ describe("resolveRecordingDownloadAccess", () => {
     await expect(
       resolveRecordingDownloadAccess("rec-1", grantFor()),
     ).resolves.toEqual({ ok: true, recording: ready });
+  });
+
+  it("still serves the flattened video of a rich recording", async () => {
+    const rich = {
+      ...ready,
+      mediaFormat: "rich",
+      richManifestUrl: "https://storage.example.com/clips/rec-1/manifest.json",
+    };
+    mocks.rows = [rich];
+    await expect(
+      resolveRecordingDownloadAccess("rec-1", grantFor()),
+    ).resolves.toEqual({ ok: true, recording: rich });
   });
 
   it("stops a link once it expires", async () => {
@@ -204,5 +229,121 @@ describe("recordingDownloadRefusal", () => {
       errorCode,
       statusCode,
     });
+  });
+});
+
+describe("resolveRecordingTrackAccess", () => {
+  const rich = {
+    ...ready,
+    mediaFormat: "rich",
+    richManifestUrl: "https://storage.example.com/clips/rec-1/manifest.json",
+  };
+  const screen = {
+    url: "https://storage.example.com/clips/rec-1.track-screen",
+    contentType: "video/mp4",
+  };
+  const trackGrant = (
+    file: "screen" | "mic" | "manifest",
+    ownerEmail = "owner@example.com",
+  ) =>
+    createRecordingTrackGrant({
+      recordingId: "rec-1",
+      ownerEmail,
+      file,
+      ttlSeconds: 600,
+    }).token;
+
+  beforeEach(() => {
+    mocks.rows = [rich];
+    mocks.trackRows = [screen];
+  });
+
+  it("serves the track a link was made for, with its stored type", async () => {
+    await expect(
+      resolveRecordingTrackAccess("rec-1", "screen", trackGrant("screen")),
+    ).resolves.toMatchObject({
+      ok: true,
+      url: screen.url,
+      contentType: "video/mp4",
+    });
+  });
+
+  it("serves the manifest from the recording row", async () => {
+    await expect(
+      resolveRecordingTrackAccess("rec-1", "manifest", trackGrant("manifest")),
+    ).resolves.toMatchObject({
+      ok: true,
+      url: rich.richManifestUrl,
+      contentType: "application/json",
+    });
+  });
+
+  it("refuses a link made for another track, another owner, or the video", async () => {
+    for (const token of [
+      trackGrant("mic"),
+      trackGrant("screen", "someone@example.com"),
+      grantFor(),
+    ]) {
+      await expect(
+        resolveRecordingTrackAccess("rec-1", "screen", token),
+      ).resolves.toMatchObject({ ok: false, errorCode: "link_invalid" });
+    }
+  });
+
+  it("does not open the video with a track link", async () => {
+    await expect(
+      resolveRecordingDownloadAccess("rec-1", trackGrant("screen")),
+    ).resolves.toMatchObject({ ok: false, errorCode: "link_invalid" });
+  });
+
+  it("stops a track link once it expires", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-26T12:00:00.000Z"));
+    const token = trackGrant("screen");
+    vi.setSystemTime(new Date("2026-10-26T12:10:01.000Z"));
+    await expect(
+      resolveRecordingTrackAccess("rec-1", "screen", token),
+    ).resolves.toMatchObject({ ok: false, errorCode: "link_expired" });
+  });
+
+  it("refuses a track the recording doesn't have", async () => {
+    mocks.trackRows = [];
+    await expect(
+      resolveRecordingTrackAccess("rec-1", "screen", trackGrant("screen")),
+    ).resolves.toMatchObject({ ok: false, errorCode: "no_tracks" });
+  });
+});
+
+describe("recordingTracksRefusal", () => {
+  const rich = {
+    mediaFormat: "rich",
+    richManifestUrl: "https://storage.example.com/clips/rec-1/manifest.json",
+    editsJson: null,
+  };
+
+  it("allows a rich recording", () => {
+    expect(recordingTracksRefusal(rich)).toBeNull();
+  });
+
+  it("refuses a flat recording, the Trash, and pending redactions", () => {
+    expect(
+      recordingTracksRefusal({ ...rich, mediaFormat: "flat" })?.errorCode,
+    ).toBe("no_tracks");
+    expect(
+      recordingTracksRefusal({ ...rich, trashedAt: "2026-10-26T12:00:00Z" })
+        ?.errorCode,
+    ).toBe("not_found");
+    expect(
+      recordingTracksRefusal({ ...rich, editsJson: withRedaction })?.errorCode,
+    ).toBe("redaction_pending");
+  });
+
+  it("refuses a recording with a burned redaction, even if a track was left behind", () => {
+    expect(
+      recordingTracksRefusal({
+        ...rich,
+        editsJson: JSON.stringify({ burnedRedactions: [{ id: "redact-1" }] }),
+      })?.errorCode,
+    ).toBe("no_tracks");
   });
 });

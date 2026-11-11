@@ -38,6 +38,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 import {
   getUploadRecoveryPolicy,
+  snapshotRichRecordingPolicy,
   snapshotUploadRecoveryPolicy,
 } from "./recording-policy";
 
@@ -100,5 +101,35 @@ describe("recording upload policy snapshot", () => {
     await expect(
       getUploadRecoveryPolicy("owner@example.com", "org-1", "rec-1"),
     ).rejects.toThrow("Stored recording recovery policy is unreadable");
+  });
+});
+
+describe("rich recording policy snapshot", () => {
+  beforeEach(() => {
+    state.labEnabled = true;
+    state.source = "choice";
+    state.saved = null;
+  });
+
+  it("keeps a recording's tracks after Labs is switched Off", async () => {
+    expect(
+      await snapshotRichRecordingPolicy("owner@example.com", "org-1", "rec-1"),
+    ).toBe(true);
+    expect(state.saved).toEqual({ version: 1, rich: true });
+    state.labEnabled = false;
+    expect(
+      await snapshotRichRecordingPolicy("owner@example.com", "org-1", "rec-1"),
+    ).toBe(true);
+  });
+
+  it("keeps tracks off for a recording made with the lab off", async () => {
+    state.labEnabled = false;
+    expect(
+      await snapshotRichRecordingPolicy("owner@example.com", "org-1", "rec-2"),
+    ).toBe(false);
+    state.labEnabled = true;
+    expect(
+      await snapshotRichRecordingPolicy("owner@example.com", "org-1", "rec-2"),
+    ).toBe(false);
   });
 });
