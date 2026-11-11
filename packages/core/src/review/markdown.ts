@@ -115,18 +115,13 @@ export function commentDocToMarkdown(content: CommentDocNode): string {
 /**
  * Past the Markdown limit the renderer shows a comment as written, where the
  * escapes that keep text from formatting would show too, so that part saves
- * without them. Not when it holds a backtick, which may open code whose
- * backslashes are as typed, nor when dropping them would move where the
- * limit cuts.
+ * without them, except in code, whose backslashes are as typed. Not when
+ * dropping them would move where the limit cuts.
  */
 function withPlainTail(markdown: string): string {
   const { markdown: head, rest } = splitCommentAtMarkdownLimit(markdown);
-  if (!rest || rest.includes("`")) return markdown;
-  const plain = `${markdown.slice(0, markdown.length - rest.length)}${rest.replace(
-    WRITTEN_ESCAPE,
-    (_escape, escaped: string | undefined, hex: string | undefined) =>
-      escaped ?? String.fromCodePoint(Number.parseInt(hex ?? "", 16)),
-  )}`;
+  if (!rest) return markdown;
+  const plain = `${markdown.slice(0, markdown.length - rest.length)}${withoutEscapesOutsideCode(rest)}`;
   return splitCommentAtMarkdownLimit(plain).markdown === head
     ? plain
     : markdown;
@@ -134,6 +129,66 @@ function withPlainTail(markdown: string): string {
 
 /** A backslash escape, or a character reference, as the writer spells them. */
 const WRITTEN_ESCAPE = /\\([!-/:-@[-`{-~])|&#x([\dA-F]+);/gi;
+/** A fence opening or closing a code block, after any quote or list marks. */
+const CODE_FENCE =
+  /^(?:[ \t]*(?:>|[-*+]|\d{1,9}[.)])(?=[ \t]|$))*[ \t]*(`{3,}|~{3,})/;
+
+/**
+ * Text without the writer's escapes, except in code: a fenced block, or the
+ * text between two backtick runs of one length.
+ */
+function withoutEscapesOutsideCode(text: string): string {
+  let fence = "";
+  return text
+    .split("\n")
+    .map((line) => {
+      const marker = CODE_FENCE.exec(line)?.[1] ?? "";
+      if (fence) {
+        if (marker.startsWith(fence)) fence = "";
+        return line;
+      }
+      fence = marker;
+      return marker ? line : withoutEscapesOutsideCodeSpans(line);
+    })
+    .join("\n");
+}
+
+function withoutEscapesOutsideCodeSpans(line: string): string {
+  const tokens = /\\([!-/:-@[-`{-~])|&#x([\dA-F]+);|`+/gi;
+  // Lengths of backtick run with no run of that length after it.
+  const unclosed = new Set<number>();
+  let result = "";
+  let cursor = 0;
+  for (let match = tokens.exec(line); match; match = tokens.exec(line)) {
+    const token = match[0];
+    const escaped = itemAt(match, 1);
+    const hex = itemAt(match, 2);
+    result += line.slice(cursor, match.index);
+    cursor = tokens.lastIndex;
+    if (escaped !== undefined || hex !== undefined) {
+      result += escaped ?? String.fromCodePoint(Number.parseInt(hex ?? "", 16));
+      continue;
+    }
+    const close = unclosed.has(token.length)
+      ? -1
+      : closingRun(line, cursor, token.length);
+    if (close === -1) unclosed.add(token.length);
+    else cursor = close + token.length;
+    result += line.slice(match.index, cursor);
+    tokens.lastIndex = cursor;
+  }
+  return result + line.slice(cursor);
+}
+
+/** Where the next run of exactly `length` backticks starts, or -1. */
+function closingRun(line: string, from: number, length: number): number {
+  const runs = /`+/g;
+  runs.lastIndex = from;
+  for (let run = runs.exec(line); run; run = runs.exec(line)) {
+    if (run[0].length === length) return run.index;
+  }
+  return -1;
+}
 
 function doc(blocks: CommentDocNode[]): CommentDocNode {
   return {
@@ -161,15 +216,18 @@ const LINE_BLOCKS = new Set<Nodes["type"]>([
   "table",
 ]);
 
-/** The link a mention stands in for while the comment is parsed. */
-const MENTION_LINK = "https://comment-mention.invalid/";
-const MENTION_LINK_TEXT =
-  /\[(?:\\[\\[\]]|[^\\[\]])*\]\(https:\/\/comment-mention\.invalid\/(\d+)\)/g;
+/** The host of the links mentions stand in for while a comment is parsed. */
+const MENTION_HOST = "comment-mention.invalid/";
 
 class DocReader {
   /** The text the parser reads: the comment, each mention a link. */
   readonly source: string;
   private readonly found: FoundCommentMention<ReviewMention>[];
+  /** Where each mention's link starts in `source`, to its index in `found`. */
+  private readonly mentionLinks: ReadonlyMap<number, number>;
+  /** The address of mention links, before the mention's index. */
+  private readonly mentionLink: string;
+  private readonly mentionLinkText: RegExp;
   private readonly definitions = new Map<string, string>();
   private readonly footnotes = new Set<string>();
 
@@ -181,12 +239,22 @@ class DocReader {
     const found = findCommentMentions(markdown, mentions).filter(
       (mention) => !mention.inline,
     );
-    const source = withMentionLinks(markdown, found);
+    // A run of x's the comment doesn't hold, so code the comment holds can't
+    // pass for a mention's link.
+    let run = "x";
+    while (markdown.includes(`${MENTION_HOST}${run}`)) run += "x";
+    this.mentionLink = `https://${MENTION_HOST}${run}/`;
+    this.mentionLinkText = new RegExp(
+      String.raw`\[(?:\\[\\[\]]|[^\\[\]])*\]\(${this.mentionLink.replace(/[./]/g, "\\$&")}(\d+)\)`,
+      "g",
+    );
+    const swapped = withMentionLinks(markdown, found, this.mentionLink);
     const kept =
       found.length <= COMMENT_MENTION_CHIP_LIMIT &&
-      !(found.length && isCommentMarkdownTangled(source));
+      !(found.length && isCommentMarkdownTangled(swapped.source));
     this.found = kept ? found : [];
-    this.source = kept ? source : markdown;
+    this.source = kept ? swapped.source : markdown;
+    this.mentionLinks = kept ? swapped.links : new Map();
   }
 
   collect(node: Nodes) {
@@ -205,9 +273,22 @@ class DocReader {
   /** Text a mention's link stands in for, as written, as code shows it. */
   private written(text: string): string {
     return text.replace(
-      MENTION_LINK_TEXT,
+      this.mentionLinkText,
       (link, index: string) => this.found[Number(index)]?.source ?? link,
     );
+  }
+
+  /**
+   * The mention a link stands for: one of the links swapped in, found by
+   * where it starts, so a link written to the same address stays a link.
+   */
+  private mentionAt(link: Link): ReviewMention | undefined {
+    const at = link.position?.start.offset;
+    const index = at === undefined ? undefined : this.mentionLinks.get(at);
+    if (index === undefined || link.url !== `${this.mentionLink}${index}`) {
+      return undefined;
+    }
+    return this.found[index]?.mention;
   }
 
   /**
@@ -276,7 +357,20 @@ class DocReader {
       case "image":
       case "imageReference":
         return [];
-      default:
+      // Anything else opens by its children, or as the text it holds.
+      case "root":
+      case "tableRow":
+      case "tableCell":
+      case "strong":
+      case "emphasis":
+      case "delete":
+      case "link":
+      case "linkReference":
+      case "footnoteReference":
+      case "inlineCode":
+      case "text":
+      case "break":
+      case "yaml":
         if ("children" in node) return this.flow(node.children);
         if ("value" in node) return plainLines(this.written(node.value));
         return [];
@@ -318,9 +412,7 @@ class DocReader {
           addText(this.written(node.value), withMark(marks, CODE), lines);
           break;
         case "link": {
-          const mention = node.url.startsWith(MENTION_LINK)
-            ? this.found[Number(node.url.slice(MENTION_LINK.length))]?.mention
-            : undefined;
+          const mention = this.mentionAt(node);
           if (mention) {
             lines[lines.length - 1]?.push(mentionNode(mention, marks));
           } else {
@@ -371,16 +463,20 @@ class DocReader {
 function withMentionLinks(
   markdown: string,
   found: readonly FoundCommentMention<ReviewMention>[],
-): string {
+  mentionLink: string,
+): { source: string; links: Map<number, number> } {
   let source = "";
   let cursor = 0;
+  const links = new Map<number, number>();
   found.forEach(({ at, source: written, mention }, index) => {
     if (at < cursor) return;
     const label = `@${mention.label}`.replace(/[\\[\]]/g, "\\$&");
-    source += `${markdown.slice(cursor, at)}[${label}](${MENTION_LINK}${index})`;
+    source += markdown.slice(cursor, at);
+    links.set(source.length, index);
+    source += `[${label}](${mentionLink}${index})`;
     cursor = at + written.length;
   });
-  return source + markdown.slice(cursor);
+  return { source: source + markdown.slice(cursor), links };
 }
 
 /** Text that shows as written, a line to a paragraph. */
@@ -542,7 +638,7 @@ function joinLines(lines: PhrasingContent[][]): Paragraph {
   lines.forEach((line, index) => {
     const nodes = [...line];
     if (index > 0) {
-      const first = nodes[0];
+      const first = itemAt(nodes, 0);
       if (first?.type === "text") {
         nodes[0] = { type: "text", value: `\n${first.value}` };
       } else {
@@ -568,14 +664,14 @@ function trimLine(nodes: readonly CommentDocNode[]): CommentDocNode[] {
     }
     line.shift();
   }
-  for (let last = line[line.length - 1]; last?.type === "text"; ) {
+  for (let last = itemAt(line, line.length - 1); last?.type === "text"; ) {
     const text = (last.text ?? "").replace(/[ \t]+$/, "");
     if (text) {
       line[line.length - 1] = { ...last, text };
       break;
     }
     line.pop();
-    last = line[line.length - 1];
+    last = itemAt(line, line.length - 1);
   }
   return line;
 }
@@ -593,26 +689,54 @@ function phrasingToMarkdown(
 ): PhrasingContent[] {
   const root: { children: PhrasingContent[] } = { children: [] };
   const stack: MarkFrame[] = [];
-  for (const node of spacesOutsideMarks(bareAddresses(nodes))) {
+  const line = spacesOutsideMarks(bareAddresses(nodes));
+  line.forEach((node, index) => {
     const marks = orderedMarks(node);
+    // Marks still open stay open, from the outside in, so `***a**b*` isn't
+    // closed and opened again as `***a****b*`, which reads otherwise.
     let kept = 0;
-    for (const [index, frame] of stack.entries()) {
-      const mark = marks[index];
-      if (!mark || !sameMark(frame.mark, mark)) break;
-      kept = index + 1;
+    while (
+      kept < stack.length &&
+      marks.some((mark) => sameMark(mark, stack[kept].mark))
+    ) {
+      kept += 1;
     }
     stack.length = kept;
-    for (const mark of marks.slice(kept)) {
-      const parent = stack[stack.length - 1]?.node ?? root;
+    const opening = marks.filter(
+      (mark) => !stack.some((frame) => sameMark(frame.mark, mark)),
+    );
+    // The mark that runs on longest opens outermost, to stay open longest.
+    const runs = new Map(
+      opening.map((mark) => [mark, markRun(line, index, mark)]),
+    );
+    opening.sort((a, b) => (runs.get(b) ?? 0) - (runs.get(a) ?? 0));
+    for (const mark of opening) {
+      const parent = stack.length ? stack[stack.length - 1].node : root;
       const created = markNode(mark);
       parent.children.push(created);
       stack.push({ mark, node: created });
     }
-    const parent = stack[stack.length - 1]?.node ?? root;
+    const parent = stack.length ? stack[stack.length - 1].node : root;
     const leaf = leafToMarkdown(node);
     if (leaf) parent.children.push(leaf);
-  }
+  });
   return root.children;
+}
+
+/** How many nodes from `from` on carry `mark`. */
+function markRun(
+  nodes: readonly CommentDocNode[],
+  from: number,
+  mark: CommentDocMark,
+): number {
+  let end = from;
+  while (
+    end < nodes.length &&
+    nodes[end].marks?.some((other) => sameMark(other, mark))
+  ) {
+    end += 1;
+  }
+  return end - from;
 }
 
 function orderedMarks(node: CommentDocNode): CommentDocMark[] {
@@ -673,10 +797,11 @@ function leafToMarkdown(node: CommentDocNode): PhrasingContent | null {
 
 /** A web or email address the renderer may link when it's typed bare. */
 const BARE_ADDRESS =
-  /^(?:https?:\/\/|www\.|[\w.+-]+@)[A-Za-z0-9.:/?#@!$&'()+,;=%_-]*[A-Za-z0-9/]$/;
+  /^(?:https?:\/\/|www\.|[\w.+-]+@)[A-Za-z0-9.:/?#@!$&'()+,;=%_-]*[A-Za-z0-9/)]$/;
 /** What may sit beside a bare address without joining it. */
 const BEFORE_BARE_ADDRESS = /^[\s(]?$/;
-const AFTER_BARE_ADDRESS = /^[.,;:!?]?(?:\s|$)/;
+/** Punctuation that may follow it, then a space or the end of the line. */
+const AFTER_BARE_ADDRESS = /^([.,;:!?)]*)(?:\s|$)/;
 /** A bare address, written exactly as it reads. */
 const BARE_ADDRESS_NODE = "bareAddress";
 
@@ -695,11 +820,9 @@ function bareAddresses(nodes: readonly CommentDocNode[]): CommentDocNode[] {
       href === text ||
       href === `mailto:${text}` ||
       (text.startsWith("www.") && href === `http://${text}`);
-    if (!linksItself || !BARE_ADDRESS.test(text) || !readsAsLink(text, href)) {
-      return node;
-    }
-    const before = nodes[index - 1];
-    const after = nodes[index + 1];
+    if (!linksItself || !BARE_ADDRESS.test(text)) return node;
+    const before = itemAt(nodes, index - 1);
+    const after = itemAt(nodes, index + 1);
     if (
       [before, after].some((neighbour) =>
         neighbour?.marks?.some((mark) => sameMark(mark, link)),
@@ -709,10 +832,13 @@ function bareAddresses(nodes: readonly CommentDocNode[]): CommentDocNode[] {
     }
     // A mention beside it reads as letters.
     const charBefore = before ? (before.text ?? "x").slice(-1) : "";
-    const charsAfter = after ? (after.text ?? "x").slice(0, 2) : "";
+    const closing = AFTER_BARE_ADDRESS.exec(after ? (after.text ?? "x") : "");
     if (
       !BEFORE_BARE_ADDRESS.test(charBefore) ||
-      !AFTER_BARE_ADDRESS.test(charsAfter)
+      !closing ||
+      // Marks written between them would join the punctuation to it.
+      (closing[1] && after?.marks?.length) ||
+      !readsAsLink(text, href, closing[1])
     ) {
       return node;
     }
@@ -723,14 +849,29 @@ function bareAddresses(nodes: readonly CommentDocNode[]): CommentDocNode[] {
   });
 }
 
-/** Whether `text`, written as it is, reads as a link to `href` showing it. */
-function readsAsLink(text: string, href: string): boolean {
-  const [block, ...blocks] = fromMarkdown(text, PARSE_OPTIONS).children;
-  if (blocks.length || block?.type !== "paragraph") return false;
-  const [link, ...others] = block.children;
-  if (others.length || link?.type !== "link" || link.url !== href) return false;
-  const [label, ...more] = link.children;
-  return !more.length && label?.type === "text" && label.value === text;
+/**
+ * Whether `text`, written as it is, reads as a link to `href` showing it, and
+ * the punctuation after it stays outside.
+ */
+function readsAsLink(text: string, href: string, after: string): boolean {
+  const blocks = fromMarkdown(`${text}${after}`, PARSE_OPTIONS).children;
+  const block = itemAt(blocks, 0);
+  if (blocks.length > 1 || block?.type !== "paragraph") return false;
+  const phrasing = block.children;
+  const link = itemAt(phrasing, 0);
+  const rest = itemAt(phrasing, 1);
+  if (phrasing.length > (after ? 2 : 1)) return false;
+  if (link?.type !== "link" || link.url !== href) return false;
+  if (after && (rest?.type !== "text" || rest.value !== after)) return false;
+  const label = itemAt(link.children, 0);
+  return (
+    link.children.length === 1 && label?.type === "text" && label.value === text
+  );
+}
+
+/** The item at `index`, or nothing past either end. */
+function itemAt<T>(list: ArrayLike<T>, index: number): T | undefined {
+  return list[index];
 }
 
 /**
@@ -798,11 +939,124 @@ const NEEDLESS_ESCAPE =
   /\\\\|(?<=[\p{L}\p{N}])\\_(?=[\p{L}\p{N}])|(?<=[ \t])\\\*(?=[ \t])/gu;
 
 const writeText: Handle = (node, parent, state, info) =>
-  defaultHandlers
-    .text(node, parent, state, info)
-    .replace(NEEDLESS_ESCAPE, (escape) =>
-      escape === "\\\\" ? escape : escape.slice(1),
-    );
+  typedAddressesAsTyped(
+    defaultHandlers
+      .text(node, parent, state, info)
+      .replace(NEEDLESS_ESCAPE, (escape) =>
+        escape === "\\\\" ? escape : escape.slice(1),
+      ),
+    info.before,
+  );
+
+/** A web address typed as text, which the renderer links as it's written. */
+const TYPED_ADDRESS = /(?:https?:\/\/|www\.)[^\s<]+/g;
+/** What may come before a typed address the renderer links. */
+const BEFORE_TYPED_ADDRESS = /^[\s(*_~]?$/;
+
+/**
+ * Typed web addresses without the escapes the writer added, which would land
+ * in the link: `Python_(language)`, not `Python\_(language)`. Kept escaped
+ * where, unescaped, it wouldn't show as typed.
+ */
+function typedAddressesAsTyped(written: string, before: string): string {
+  return written.replace(
+    TYPED_ADDRESS,
+    (address: string, at: number, whole: string) => {
+      const charBefore = at ? whole.charAt(at - 1) : before.slice(-1);
+      if (!BEFORE_TYPED_ADDRESS.test(charBefore)) return address;
+      const typed = withoutWrittenEscapes(address);
+      return typed !== address && shownText(typed) === typed ? typed : address;
+    },
+  );
+}
+
+/** The text Markdown shows, links and all. */
+function shownText(markdown: string): string {
+  let text = "";
+  const visit = (node: Nodes) => {
+    if (node.type === "text" || node.type === "inlineCode") text += node.value;
+    else if ("children" in node) node.children.forEach(visit);
+  };
+  visit(fromMarkdown(markdown, PARSE_OPTIONS));
+  return text;
+}
+
+/** Text as written, with the writer's escapes and references read back. */
+function withoutWrittenEscapes(text: string): string {
+  return text.replace(
+    WRITTEN_ESCAPE,
+    (_escape, escaped: string | undefined, hex: string | undefined) =>
+      escaped ?? String.fromCodePoint(Number.parseInt(hex ?? "", 16)),
+  );
+}
+
+type AttentionKind = "letter" | "space" | "punctuation";
+
+/** A character as Markdown sees it beside `*` or `~`. */
+function attentionKind(char: string): AttentionKind {
+  if (!char || /\s/u.test(char)) return "space";
+  return /[\p{P}\p{S}]/u.test(char) ? "punctuation" : "letter";
+}
+
+/**
+ * Which character to spell as a reference so `~~` opens or closes between
+ * them, as the writer does for bold: Markdown reads `x~~**y**~~` as tildes.
+ */
+function attentionEncoding(
+  outside: string,
+  inside: string,
+): { inside: boolean; outside: boolean } {
+  const out = attentionKind(outside);
+  const into = attentionKind(inside);
+  if (into === "space") {
+    return { inside: true, outside: out !== "punctuation" };
+  }
+  return { inside: false, outside: out === "letter" && into === "punctuation" };
+}
+
+function characterReference(char: string): string {
+  return `&#x${(char.codePointAt(0) ?? 0).toString(16).toUpperCase()};`;
+}
+
+/**
+ * Struck text, written as the writer writes bold: where `~~` beside a letter
+ * couldn't open or close, that letter is spelled as a reference.
+ */
+const writeStrike: Handle = (node: Delete, _parent, state, info) => {
+  const tracker = state.createTracker(info);
+  const exit = state.enter("strikethrough");
+  const before = tracker.move("~~");
+  let between = tracker.move(
+    state.containerPhrasing(node, {
+      ...tracker.current(),
+      before,
+      after: "~",
+    }),
+  );
+  const [head = ""] = between;
+  const open = attentionEncoding(info.before.slice(-1), head);
+  if (open.inside) {
+    between = characterReference(head) + between.slice(head.length);
+  }
+  const tail = lastCharacter(between);
+  const close = attentionEncoding(info.after.charAt(0), tail);
+  if (close.inside) {
+    between =
+      between.slice(0, between.length - tail.length) + characterReference(tail);
+  }
+  const after = tracker.move("~~");
+  exit();
+  state.attentionEncodeSurroundingInfo = {
+    after: close.outside,
+    before: open.outside,
+  };
+  return before + between + after;
+};
+
+function lastCharacter(text: string): string {
+  const pair = text.slice(-2);
+  return /^[\uD800-\uDBFF][\uDC00-\uDFFF]$/.test(pair) ? pair : text.slice(-1);
+}
 
 const writeMention = Object.assign(
   ((node) => `@${(node as unknown as { label: string }).label}`) as Handle,
@@ -848,6 +1102,7 @@ const WRITE_OPTIONS: ToMarkdownOptions = {
   listItemIndent: "one",
   handlers: {
     text: writeText,
+    delete: writeStrike,
     listItem: writeListItem,
     reviewMention: writeMention,
     [BARE_ADDRESS_NODE]: writeBareAddress,

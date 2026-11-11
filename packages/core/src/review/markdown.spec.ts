@@ -181,6 +181,87 @@ describe("comment Markdown and the box's document", () => {
     ).toBe("[**the site**](https://example.com) and ``a`b``");
   });
 
+  it("keeps marks side by side as they were, beside letters too", () => {
+    const text = (value: string, ...marks: string[]): CommentDocNode => ({
+      type: "text",
+      text: value,
+      ...(marks.length ? { marks: marks.map((type) => ({ type })) } : {}),
+    });
+    const marksOf = (doc: CommentDocNode) =>
+      (doc.content?.[0]?.content ?? []).map((node) => [
+        node.text,
+        (node.marks ?? []).map((mark) => mark.type).sort(),
+      ]);
+    for (const content of [
+      [text("x", "bold", "italic"), text("y", "italic")],
+      [text("x", "italic"), text("y", "bold", "italic"), text("z", "bold")],
+      [text("x"), text("y", "strike", "bold")],
+      [text("y", "strike", "italic"), text("x")],
+      [text("x"), text("(y)", "strike")],
+      [text("x"), text("y", "bold", "strike"), text("z")],
+    ]) {
+      const saved = commentDocToMarkdown(inline(...content));
+      expect(marksOf(commentMarkdownToDoc(saved))).toEqual(
+        marksOf(inline(...content)),
+      );
+      expect(roundTrip(saved)).toBe(saved);
+    }
+    expect(
+      commentDocToMarkdown(
+        inline(text("x", "bold", "italic"), text("y", "italic")),
+      ),
+    ).toBe("***x**y*");
+  });
+
+  it("saves a typed web address as typed, which the renderer links", () => {
+    const address =
+      "https://en.wikipedia.org/wiki/Python_(programming_language)";
+    for (const typed of [
+      `see ${address} now`,
+      `(${address})`,
+      "www.example.com/a_b_(c)",
+    ]) {
+      const saved = commentDocToMarkdown(lines(typed));
+      expect(saved).toBe(typed);
+      expect(roundTrip(saved)).toBe(saved);
+    }
+    expect(roundTrip(`[${address}](${address})`)).toBe(address);
+    // Unescaped, the end would show as "<", so it stays escaped.
+    expect(commentDocToMarkdown(lines("www.x.com/&lt;"))).toBe(
+      "www.x.com/\\&lt;",
+    );
+  });
+
+  it("chips only the links it swapped in for mentions", () => {
+    expect(
+      commentMarkdownToDoc(
+        "@Sam [normal](https://comment-mention.invalid/0)",
+        people,
+      ),
+    ).toEqual(
+      inline(
+        {
+          type: "reviewMention",
+          attrs: { label: "Sam", email: "sam@example.com", id: null },
+        },
+        { type: "text", text: " " },
+        {
+          type: "text",
+          text: "normal",
+          marks: [
+            {
+              type: "link",
+              attrs: { href: "https://comment-mention.invalid/0" },
+            },
+          ],
+        },
+      ),
+    );
+    const code = "`[x](https://comment-mention.invalid/x/0)` @Sam";
+    expect(chips(commentMarkdownToDoc(code, people))).toEqual(["Sam"]);
+    expect(roundTrip(code)).toBe(code);
+  });
+
   it("chips listed mentions as whole words, longest name first", () => {
     expect(chips(commentMarkdownToDoc("@Sam Lee and @Sam", people))).toEqual([
       "Sam Lee",
@@ -271,10 +352,28 @@ describe("comment Markdown and the box's document", () => {
     const head = "a".repeat(COMMENT_MARKDOWN_LIMIT - 10);
     const long = `${head}\n\n**not bold** \\_x_\nnext`;
     expect(roundTrip(long)).toBe(long);
-    // Code's backslashes are as typed, so a tail holding code keeps escapes.
-    expect(roundTrip(`${head}\n\n*a* \`b\` past the limit`)).toBe(
-      `${head}\n\n\\*a\\* \\\`b\\\` past the limit`,
-    );
+    const ticks = `${head}\n\n*a* \`b\` past the limit`;
+    expect(roundTrip(ticks)).toBe(ticks);
+    // Code's backslashes are as typed, so code there keeps them.
+    const withCode = commentDocToMarkdown({
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: head }] },
+        { type: "paragraph" },
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "*x* " },
+            { type: "text", text: "a\\*b", marks: [{ type: "code" }] },
+          ],
+        },
+        {
+          type: "codeBlock",
+          content: [{ type: "text", text: "c\\_d" }],
+        },
+      ],
+    });
+    expect(withCode).toBe(`${head}\n\n*x* \`a\\*b\`\n\n\`\`\`\nc\\_d\n\`\`\``);
   });
 
   it("opens an empty comment as one empty line", () => {
