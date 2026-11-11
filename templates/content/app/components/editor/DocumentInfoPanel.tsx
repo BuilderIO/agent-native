@@ -213,13 +213,15 @@ function PageDetails({
       )}
       <p>
         {created ? (
-          <span title={fullDate(created)}>
+          <time dateTime={created.toISOString()} title={fullDate(created)}>
             {t("editor.properties.createdOn", { date: shortDate(created) })}
-          </span>
+          </time>
         ) : null}
         {created && edited ? <span aria-hidden="true"> · </span> : null}
         {edited ? (
-          <span title={fullDate(edited)}>{editedLabel(edited)}</span>
+          <time dateTime={edited.toISOString()} title={fullDate(edited)}>
+            {editedLabel(edited)}
+          </time>
         ) : null}
       </p>
     </section>

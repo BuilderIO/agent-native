@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { ResourceSuggestion } from "@agent-native/core/review";
 import type { DocumentProperty } from "@shared/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, type ReactNode } from "react";
@@ -358,6 +359,68 @@ describe("a Property's threads under its row in Info", () => {
     expect(
       container.querySelector("[data-comment-property-target]"),
     ).toBeNull();
+  });
+});
+
+describe("a Property's threads with a suggested edit selected on the Page", () => {
+  it("leaves the suggested edit out from under the Property", async () => {
+    const pageEdit = {
+      id: "edit-1",
+      proposalId: null,
+      revision: 1,
+      resourceType: "document",
+      resourceId: "row-1",
+      adapterKind: "markdown",
+      adapterVersion: 1,
+      threadId: "suggestion-edit-1",
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      baseRevision: "base",
+      status: "pending",
+      summary: "Tighten the intro",
+      ownerEmail: "reviewer@example.test",
+      orgId: null,
+      visibility: "private",
+      createdAt: "2026-10-18T11:00:00Z",
+      updatedAt: "2026-10-18T11:00:00Z",
+      metadata: null,
+      operations: [],
+    } as ResourceSuggestion;
+    function Info() {
+      const owner = usePendingCommentDraft("row-1");
+      const replyDrafts = useCommentReplyDrafts("row-1");
+      return (
+        <CommentsSidebar
+          documentId="row-1"
+          replyDrafts={replyDrafts}
+          threads={[
+            thread("t1", {
+              propertyId: "score",
+              propertyName: "Score",
+              propertyValue: "5",
+            }),
+          ]}
+          documentProperties={[score(5)]}
+          pendingComment={owner.pendingComment}
+          onPendingChange={owner.changePendingComment}
+          onPendingDone={(id) => owner.completePendingComment(id)}
+          suggestions={[pageEdit]}
+          activeSuggestionId="edit-1"
+          alignToAnchors={false}
+          surface="panel"
+          underSubject
+          forceVisible
+        />
+      );
+    }
+    await render(<Info />);
+    await settle();
+    expect(
+      [...container.querySelectorAll("[data-thread-card]")].map((card) =>
+        card.getAttribute("data-thread-card"),
+      ),
+    ).toEqual(["t1"]);
+    expect(container.querySelector("[data-suggestion-id]")).toBeNull();
   });
 });
 

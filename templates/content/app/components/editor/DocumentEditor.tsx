@@ -134,6 +134,7 @@ import {
 } from "@/hooks/use-content-spaces";
 import { isPrivateDocumentEditorPath } from "@/hooks/use-db-sync";
 import {
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useDocumentProperties,
 } from "@/hooks/use-document-properties";
@@ -2921,16 +2922,20 @@ export function infoPropertyCommentStart(
 /**
  * Whether the new Comment being written keeps its place when another starts:
  * it has words in it, and its Property, if any, is still on the Page. Info
- * lists that Property even when it's hidden, but one that was deleted can't be
- * shown or posted, so another Comment replaces it. Properties not yet read
- * keep it.
+ * lists that Property even when it's hidden, but one that was deleted, or a
+ * failed read that Info shows as an error in place of the Properties, leaves
+ * nowhere to show it, so another Comment replaces it. Properties still being
+ * read keep it.
  */
 export function pendingCommentHeld(
   pending: { propertyId?: string | undefined; written: boolean },
   properties: readonly { definition: { id: string } }[] | undefined,
+  readFailed = false,
 ): boolean {
   if (!pending.written) return false;
-  if (!pending.propertyId || !properties) return true;
+  if (!pending.propertyId) return true;
+  if (readFailed) return false;
+  if (!properties) return true;
   return properties.some(
     ({ definition }) => definition.id === pending.propertyId,
   );
@@ -9085,6 +9090,11 @@ function PageEditorSessionBody({
   const pendingHeld = pendingCommentHeld(
     { propertyId: pendingPropertyId, written: pendingWritten },
     pageProperties,
+    documentPropertiesReadFailed(
+      documentId,
+      pagePropertiesDatabaseId,
+      pagePropertiesQuery,
+    ),
   );
   // A Property's new Comment with words in it, waiting in Info and out of
   // sight once Info closes.

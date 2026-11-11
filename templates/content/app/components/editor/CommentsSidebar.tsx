@@ -1511,20 +1511,24 @@ export function CommentsSidebar({
     [threadSuggestions],
   );
   // A suggestion whose text is gone has nothing to point at in the margin; it
-  // stays reviewable in the comments panel.
+  // stays reviewable in the comments panel. Under a Property, only its own
+  // threads show: a suggested edit to the Page's text isn't about it.
   const inlineSuggestions = useMemo(
     () =>
-      suggestions.filter(
-        (suggestion) =>
-          suggestion.status === "pending" &&
-          !embeddedSuggestionIds.has(suggestion.id) &&
-          (alignToAnchors || suggestion.id === activeSuggestionId) &&
-          (suggestion.id === activeSuggestionId ||
-            !anchoredSuggestionIds ||
-            anchoredSuggestionIds.includes(suggestion.id)),
-      ),
+      underSubject
+        ? []
+        : suggestions.filter(
+            (suggestion) =>
+              suggestion.status === "pending" &&
+              !embeddedSuggestionIds.has(suggestion.id) &&
+              (alignToAnchors || suggestion.id === activeSuggestionId) &&
+              (suggestion.id === activeSuggestionId ||
+                !anchoredSuggestionIds ||
+                anchoredSuggestionIds.includes(suggestion.id)),
+          ),
     [
       suggestions,
+      underSubject,
       alignToAnchors,
       activeSuggestionId,
       anchoredSuggestionIds,
@@ -1533,10 +1537,13 @@ export function CommentsSidebar({
   );
   const inlineDraftSuggestions = useMemo(
     () =>
-      draftSuggestions.filter(
-        (suggestion) => alignToAnchors || suggestion.id === activeSuggestionId,
-      ),
-    [draftSuggestions, alignToAnchors, activeSuggestionId],
+      underSubject
+        ? []
+        : draftSuggestions.filter(
+            (suggestion) =>
+              alignToAnchors || suggestion.id === activeSuggestionId,
+          ),
+    [draftSuggestions, underSubject, alignToAnchors, activeSuggestionId],
   );
   const inlineThreads = useMemo(
     () => [
