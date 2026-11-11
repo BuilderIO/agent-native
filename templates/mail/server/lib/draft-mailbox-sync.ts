@@ -4,7 +4,11 @@ import {
 } from "@agent-native/core/application-state";
 import { isSameRecord } from "@agent-native/core/save-conflict/server";
 
-import { ALIAS_PREFIX, expandAliasTokens } from "../../shared/alias-tokens.js";
+import {
+  ALIAS_PREFIX,
+  expandAliasTokens,
+  unresolvedAliasIds,
+} from "../../shared/alias-tokens.js";
 import { DRAFT_MAILBOX_BUSY_ERROR_CODE } from "../../shared/draft-mailbox.js";
 import type { ComposeState } from "../../shared/types.js";
 import { readAliases } from "./aliases.js";
@@ -84,6 +88,15 @@ function sameMailboxCopy(
 
 type WrittenCopy = SavedDraftRef & { created: boolean };
 
+/**
+ * The draft names a group that no longer exists. Copying it without that
+ * group's people would leave them off the mailbox copy unnoticed, so it isn't
+ * copied until the group is fixed, as the composer's own save refuses it.
+ */
+class UnknownAliasError extends Error {
+  readonly errorCode = "draft_alias_unknown";
+}
+
 /** Group tokens become their addresses: a mailbox draft can't hold a group. */
 async function mailboxRecipients(ownerEmail: string, draft: ComposeState) {
   const recipients = { to: draft.to || "", cc: draft.cc, bcc: draft.bcc };
@@ -92,6 +105,14 @@ async function mailboxRecipients(ownerEmail: string, draft: ComposeState) {
     return recipients;
   }
   const aliases = await readAliases(ownerEmail);
+  const unknown = [to, cc ?? "", bcc ?? ""].flatMap((field) =>
+    unresolvedAliasIds(field, aliases),
+  );
+  if (unknown.length > 0) {
+    throw new UnknownAliasError(
+      `The draft's recipients include groups that no longer exist: ${unknown.join(", ")}`,
+    );
+  }
   return {
     to: expandAliasTokens(to, aliases),
     cc: cc === undefined ? undefined : expandAliasTokens(cc, aliases),
@@ -329,6 +350,14 @@ export async function syncDraftToMailbox(args: {
       ...pendingCopy(),
     };
   } catch (error) {
+    if (error instanceof UnknownAliasError) {
+      return {
+        status: "pending",
+        errorCode: error.errorCode,
+        message: error.message,
+        ...pendingCopy(),
+      };
+    }
     if (error instanceof GmailQuotaCooldownError) {
       return {
         status: "pending",

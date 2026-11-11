@@ -461,6 +461,25 @@ describe("syncDraftToMailbox", () => {
     expect(mocks.appState.get(KEY)).toBe(stored);
   });
 
+  it("says pending, and writes nothing, when a group no longer exists", async () => {
+    mocks.readAliases.mockResolvedValue([
+      { id: "team", name: "Team", emails: ["a@example.com"] },
+    ]);
+    mocks.appState.set(
+      KEY,
+      draft({ ...onGmail, to: "alias:team", bcc: "alias:gone" }),
+    );
+
+    await expect(
+      syncDraftToMailbox({ ownerEmail: OWNER, id: "d1" }),
+    ).resolves.toMatchObject({
+      status: "pending",
+      errorCode: "draft_alias_unknown",
+      message: expect.stringContaining("gone"),
+    });
+    expect(mocks.saveGmailDraft).not.toHaveBeenCalled();
+  });
+
   it("updates an existing local draft from Mail's copy", async () => {
     mocks.appState.set(
       KEY,
