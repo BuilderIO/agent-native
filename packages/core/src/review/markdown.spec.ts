@@ -312,6 +312,10 @@ describe("comment Markdown and the box's document", () => {
         saved: "@<joe@example.com>**!**",
       },
       {
+        content: [text("x@joe@example.com"), text("!x", "bold")],
+        saved: "x@<joe@example.com>**!x**",
+      },
+      {
         content: [text("https://example.com\\"), text("now", "bold")],
         saved: "[https://example.com\\\\](https://example.com\\\\)**now**",
       },
@@ -501,12 +505,17 @@ describe("comment Markdown and the box's document", () => {
       "Words and more words, with some punctuation. ".repeat(440),
     );
     const ordinaryMs = fastestSave(ordinary, 3);
+    // Each takes a few times as long as ordinary text, and a few dozen when
+    // mutation testing slows the converter's own loops; reading the word
+    // again from each of its letters took hundreds.
     for (const word of ["a".repeat(19_990), `${"a".repeat(19_000)}@x`]) {
       const doc = inline(
         { type: "text", text: word },
         { type: "text", text: "x", marks: [{ type: "bold" }] },
       );
-      expect(fastestSave(doc, 2) / ordinaryMs, word.slice(-2)).toBeLessThan(20);
+      expect(fastestSave(doc, 2) / ordinaryMs, word.slice(-2)).toBeLessThan(
+        100,
+      );
     }
   });
 
