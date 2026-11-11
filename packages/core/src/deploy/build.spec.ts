@@ -8174,6 +8174,8 @@ describe("shouldCopyExternalSsrRuntimePackages", () => {
   });
 
   it("does not copy for presets that bundle the runtime instead", () => {
-    expect(shouldCopyExternalSsrRuntimePackages("cloudflare_module")).toBe(false);
+    expect(shouldCopyExternalSsrRuntimePackages("cloudflare_module")).toBe(
+      false,
+    );
   });
 });
