@@ -14,10 +14,25 @@ import { DiagramLightbox } from "./diagram.js";
 interface MermaidRenderState {
   svg?: string;
   error?: string;
+  unavailable?: boolean;
+}
+
+export interface MermaidRender extends MermaidRenderState {
+  /** False until the first client effect; the server can't draw. */
+  mounted: boolean;
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Failed to render diagram";
+}
+
+function isMissingRenderer(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ERR_AGENT_NATIVE_OPTIONAL_PEER"
+  );
 }
 
 function sanitizeSvgMarkup(svg: string): string {
@@ -80,6 +95,8 @@ async function renderExcalidrawSvg(
   return sanitizeSvgMarkup(svg.outerHTML);
 }
 
+let mermaidRenders: Promise<unknown> = Promise.resolve();
+
 async function renderMermaidSvg(
   source: string,
   id: string,
@@ -88,19 +105,35 @@ async function renderMermaidSvg(
   const mermaid = (
     (await import("mermaid")) as {
       default: {
-        initialize: (config: Record<string, unknown>) => void;
+        initialize: (config: object) => void;
         render: (id: string, source: string) => Promise<{ svg: string }>;
+        mermaidAPI: { getSiteConfig: () => object };
       };
     }
   ).default;
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: "strict",
-    look: "handDrawn",
-    theme: isDark ? "dark" : "neutral",
-  });
-  const { svg } = await mermaid.render(id, source);
-  return sanitizeSvgMarkup(svg);
+  // Mermaid's settings are global, and the Excalidraw converter only sets its
+  // own when they change, so each render puts back the settings it found.
+  // One render at a time, or two could put them back out of order.
+  const render = async () => {
+    const found = mermaid.mermaidAPI.getSiteConfig();
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      look: "handDrawn",
+      theme: isDark ? "dark" : "neutral",
+      // Throw on bad source instead of leaving an error drawing in <body>.
+      suppressErrorRendering: true,
+    });
+    try {
+      const { svg } = await mermaid.render(id, source);
+      return sanitizeSvgMarkup(svg);
+    } finally {
+      mermaid.initialize(found);
+    }
+  };
+  const result = mermaidRenders.then(render, render);
+  mermaidRenders = result.catch(() => undefined);
+  return result;
 }
 
 function useIsDark(): boolean {
@@ -130,18 +163,18 @@ function MermaidSvg({ svg, enlarged }: { svg: string; enlarged?: boolean }) {
   );
 }
 
-function MermaidDiagram({
-  source,
-  idSeed,
-}: {
-  source: string;
-  idSeed: string;
-}) {
+/**
+ * Draws Mermaid source as sanitized SVG, in Excalidraw's hand-drawn style when
+ * it can and plain Mermaid when it can't, redrawing when the source or the
+ * theme changes. A drawing stays while newer source fails, beside its error.
+ */
+export function useMermaidRender(
+  source: string,
+  idSeed: string,
+): MermaidRender {
   const isDark = useIsDark();
-  const copy = useBlockCopy();
   const [mounted, setMounted] = useState(false);
   const [state, setState] = useState<MermaidRenderState>({});
-  const [expanded, setExpanded] = useState(false);
 
   const renderId = useMemo(
     () => `mermaid-${idSeed.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
@@ -176,12 +209,16 @@ function MermaidDiagram({
           const excalidrawMessage = errorMessage(excalidrawError);
           const mermaidMessage = errorMessage(mermaidError);
           if (!cancelled) {
-            setState({
+            setState((previous) => ({
+              svg: previous.svg,
               error:
                 excalidrawMessage === mermaidMessage
                   ? mermaidMessage
                   : `Excalidraw: ${excalidrawMessage}; Mermaid fallback: ${mermaidMessage}`,
-            });
+              unavailable:
+                isMissingRenderer(excalidrawError) &&
+                isMissingRenderer(mermaidError),
+            }));
           }
         }
       }
@@ -193,7 +230,21 @@ function MermaidDiagram({
     // dark/light updates the diagram live.
   }, [mounted, source, isDark, renderId]);
 
-  if (!mounted) {
+  return { mounted, ...state };
+}
+
+function MermaidDiagram({
+  source,
+  idSeed,
+}: {
+  source: string;
+  idSeed: string;
+}) {
+  const copy = useBlockCopy();
+  const state = useMermaidRender(source, idSeed);
+  const [expanded, setExpanded] = useState(false);
+
+  if (!state.mounted) {
     return (
       <div className="mt-2 flex min-h-24 items-center justify-center rounded-lg border border-plan-line bg-plan-code text-sm text-plan-muted">
         {copy.loadingDiagram}

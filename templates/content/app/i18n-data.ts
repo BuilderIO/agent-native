@@ -1299,6 +1299,14 @@ const editorSlashMessages = {
   videoDescription: "Upload or embed video",
 };
 
+const mermaidMessages = {
+  source: "Mermaid",
+  done: "Done",
+  doneShortcut: "Close the source (Esc)",
+  editDiagram: "Edit diagram",
+  cantDraw: "Can't draw this diagram",
+};
+
 const localFilesMessages = {
   interruptedPicker:
     "The folder picker did not finish last time, so it has been disabled in this browser profile. Use Agent-Native Desktop, Chrome, Edge, or another Chromium browser.",
@@ -1550,6 +1558,7 @@ const enUS = {
     suggestionAmendmentResolved:
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
     discardSuggestionDraft: "Discard draft",
+    mermaid: mermaidMessages,
     bold: "Bold",
     underline: "Underline",
     italic: "Italic",
@@ -2368,6 +2377,81 @@ const removeLinkMessagesByLocale = {
   "hi-IN": "लिंक हटाएँ",
   "ar-SA": "إزالة الرابط",
 };
+const mermaidMessagesByLocale: Record<
+  Exclude<LocaleCode, "en-US">,
+  typeof mermaidMessages
+> = {
+  "zh-CN": {
+    source: "Mermaid",
+    done: "完成",
+    doneShortcut: "关闭源代码 (Esc)",
+    editDiagram: "编辑图表",
+    cantDraw: "无法绘制此图表",
+  },
+  "zh-TW": {
+    source: "Mermaid",
+    done: "完成",
+    doneShortcut: "關閉原始碼 (Esc)",
+    editDiagram: "編輯圖表",
+    cantDraw: "無法繪製此圖表",
+  },
+  "es-ES": {
+    source: "Mermaid",
+    done: "Listo",
+    doneShortcut: "Cerrar el código (Esc)",
+    editDiagram: "Editar diagrama",
+    cantDraw: "No se puede dibujar este diagrama",
+  },
+  "fr-FR": {
+    source: "Mermaid",
+    done: "Terminé",
+    doneShortcut: "Fermer le code source (Échap)",
+    editDiagram: "Modifier le diagramme",
+    cantDraw: "Impossible de dessiner ce diagramme",
+  },
+  "de-DE": {
+    source: "Mermaid",
+    done: "Fertig",
+    doneShortcut: "Quelltext schließen (Esc)",
+    editDiagram: "Diagramm bearbeiten",
+    cantDraw: "Dieses Diagramm kann nicht gezeichnet werden",
+  },
+  "ja-JP": {
+    source: "Mermaid",
+    done: "完了",
+    doneShortcut: "ソースを閉じる (Esc)",
+    editDiagram: "図を編集",
+    cantDraw: "この図を描画できません",
+  },
+  "ko-KR": {
+    source: "Mermaid",
+    done: "완료",
+    doneShortcut: "소스 닫기 (Esc)",
+    editDiagram: "다이어그램 편집",
+    cantDraw: "이 다이어그램을 그릴 수 없습니다",
+  },
+  "pt-BR": {
+    source: "Mermaid",
+    done: "Concluído",
+    doneShortcut: "Fechar o código-fonte (Esc)",
+    editDiagram: "Editar diagrama",
+    cantDraw: "Não foi possível desenhar este diagrama",
+  },
+  "hi-IN": {
+    source: "Mermaid",
+    done: "हो गया",
+    doneShortcut: "सोर्स बंद करें (Esc)",
+    editDiagram: "डायग्राम संपादित करें",
+    cantDraw: "यह डायग्राम नहीं बनाया जा सका",
+  },
+  "ar-SA": {
+    source: "Mermaid",
+    done: "تم",
+    doneShortcut: "إغلاق المصدر (Esc)",
+    editDiagram: "تعديل المخطط",
+    cantDraw: "تعذر رسم هذا المخطط",
+  },
+};
 export interface ContentLocaleBundle {
   rawLiterals: PartialMessages;
   comments: PartialMessages["comments"];
@@ -2798,6 +2882,7 @@ function mergeMessagesForLocale(
       suggestionFormattingBaselineUnsupported:
         suggestionFormattingMessagesByLocale[locale][1]!,
       removeLink: removeLinkMessagesByLocale[locale],
+      mermaid: mermaidMessagesByLocale[locale],
       media: { ...base.editor.media, ...rawLiteralOverrides.editor?.media },
       properties: base.editor.properties,
       reference: {

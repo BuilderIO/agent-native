@@ -1821,6 +1821,11 @@ interface VisualEditorProps {
   privateImageUploads?: boolean;
   localFilePath?: string | null;
   referenceDepth?: number;
+  /**
+   * Draw Mermaid code blocks as diagrams. Public pages turn it off: they
+   * never run document source.
+   */
+  drawDiagrams?: boolean;
   onComment?: (
     quotedText: string,
     offsetTop: number,
@@ -2228,6 +2233,7 @@ interface VisualEditorExtensionOptions {
   resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
   localFilePath?: string | null;
   referenceDepth?: number;
+  drawDiagrams?: boolean;
   emptyBlockPlaceholder?: string;
   onMediaSourceCommitted?: (
     editor: CoreEditor,
@@ -3277,6 +3283,7 @@ export function createVisualEditorExtensions({
   resolveNotionPageLink,
   localFilePath,
   referenceDepth = 0,
+  drawDiagrams = true,
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
   onMediaSourceCommitted,
   findCommentQuote,
@@ -3306,7 +3313,7 @@ export function createVisualEditorExtensions({
       CompatibleCode,
       EmptyLineParagraph,
       NotionBlockquote,
-      CodeBlock,
+      CodeBlock.configure({ drawMermaid: drawDiagrams }),
       VisualEditorPlaceholder.configure({
         emptyBlockPlaceholder,
       }),
@@ -3732,6 +3739,7 @@ export function VisualEditor({
   privateImageUploads = false,
   localFilePath,
   referenceDepth,
+  drawDiagrams = true,
   onComment,
   onBlockComment,
   commentThreads,
@@ -4166,6 +4174,7 @@ export function VisualEditor({
         resolveNotionPageLink,
         localFilePath,
         referenceDepth,
+        drawDiagrams,
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
         findCommentQuote,
@@ -4246,6 +4255,7 @@ export function VisualEditor({
       resolveNotionPageLink,
       localFilePath,
       referenceDepth,
+      drawDiagrams,
       t,
       onMediaSourceCommitted,
       findCommentQuote,
