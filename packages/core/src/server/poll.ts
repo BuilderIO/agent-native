@@ -1100,16 +1100,15 @@ export class AppSyncState {
           // Check the first few on their own, in log order: a failure then
           // hides only its own resource, and the read moves past them. The
           // rest stay unchecked for a later read, so a failing batch costs a
-          // few single checks, not one per resource.
+          // few single checks, not one per resource. Each goes through the
+          // same batch resolver, so the same rules decide it.
           await Promise.all(
             ids.slice(0, ACCESS_RETRY_LIMIT).map(async (id) => {
               let allowed = false;
               try {
-                allowed =
-                  (await this.resolveAccessFn(resourceType, id, {
-                    userEmail,
-                    orgId,
-                  })) != null;
+                allowed = (
+                  await resolveMany(resourceType, [id], { userEmail, orgId })
+                ).has(id);
               } catch {
                 // Fails closed, like a single check.
               }

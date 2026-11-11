@@ -286,15 +286,15 @@ describe("AppSyncState read through other people's resources", () => {
       readerDocument,
     ]);
     // One resource's failure fails the whole batch.
-    const resolveAccessMany = vi.fn(async () => {
-      throw new Error("org membership lookup failed");
-    });
-    const resolveAccess = vi.fn(async (_type: string, resourceId: string) => {
-      if (resourceId === "broken") {
-        throw new Error("org membership lookup failed");
-      }
-      return { role: "viewer" };
-    });
+    const resolveAccessMany = vi.fn(
+      async (_type: string, resourceIds: string[]) => {
+        if (resourceIds.includes("broken")) {
+          throw new Error("org membership lookup failed");
+        }
+        return new Set(resourceIds);
+      },
+    );
+    const resolveAccess = vi.fn(async () => ({ role: "viewer" }));
     const state = stateReading(rows, { resolveAccess, resolveAccessMany });
 
     const result = await state.getCombinedChangesSinceForUser(
@@ -310,17 +310,23 @@ describe("AppSyncState read through other people's resources", () => {
       "mine",
     ]);
     expect(result.cursorLimited).toBeUndefined();
-    expect(resolveAccessMany).toHaveBeenCalledOnce();
-    expect(resolveAccess).toHaveBeenCalledTimes(3);
+    // The batch, then each resource as a batch of its own.
+    expect(resolveAccessMany).toHaveBeenCalledTimes(4);
+    // The single resolver may follow other rules, so the fallback never
+    // asks it.
+    expect(resolveAccess).not.toHaveBeenCalled();
   });
 
   it("checks only the first few of a failed batch on their own", async () => {
     const rows = durableRows(othersDocuments(20));
-    const resolveAccessMany = vi.fn(async () => {
-      throw new Error("database unavailable");
-    });
-    const resolveAccess = vi.fn(async () => ({ role: "viewer" }));
-    const state = stateReading(rows, { resolveAccess, resolveAccessMany });
+    // Any batch of more than one resource fails.
+    const resolveAccessMany = vi.fn(
+      async (_type: string, resourceIds: string[]) => {
+        if (resourceIds.length > 1) throw new Error("database unavailable");
+        return new Set(resourceIds);
+      },
+    );
+    const state = stateReading(rows, { resolveAccessMany });
 
     const result = await state.getCombinedChangesSinceForUser(
       5,

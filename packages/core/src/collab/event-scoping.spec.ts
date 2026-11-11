@@ -25,6 +25,7 @@ vi.mock("../sharing/access.js", () => ({
     }
     return access;
   },
+  hasHostAccessResolver: () => false,
 }));
 
 import { canSeeAwarenessChangeForUser } from "../server/poll-events.js";
