@@ -957,13 +957,21 @@ describe("data-programs/execute", () => {
     });
 
     it.each([
-      ["returns its error", 1_000, false],
-      ["queues the program again", 400_000, true],
+      ["returns its error", 1_000, null, false],
+      ["queues the program again", 400_000, null, true],
+      ["queues the edited program again", 1_000, 500, true],
     ])(
       "on a later read of a run that failed %s",
-      async (_case, failedAgoMs, enqueues) => {
+      async (_case, failedAgoMs, editedAgoMs, enqueues) => {
         storeMocks.getDataProgram.mockResolvedValue(
-          makeProgram({ background: true }),
+          makeProgram({
+            background: true,
+            ...(editedAgoMs === null
+              ? {}
+              : {
+                  updatedAt: new Date(Date.now() - editedAgoMs).toISOString(),
+                }),
+          }),
         );
         accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
         storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
@@ -973,6 +981,7 @@ describe("data-programs/execute", () => {
             rowsJson: null,
             errorCode: "program_error",
             errorMessage: "The panels haven't been saved yet",
+            startedAt: Date.now() - failedAgoMs - 100,
             finishedAt: Date.now() - failedAgoMs,
           }),
         );

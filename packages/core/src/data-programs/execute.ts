@@ -746,7 +746,7 @@ interface BackgroundRunFailure {
 }
 
 // A failed run answers reads for as long as a successful one would; a forced
-// refresh retries it sooner.
+// refresh or an edit to the program retries it sooner.
 async function recentBackgroundFailure(
   program: DataProgramRow,
   paramsHash: string,
@@ -755,6 +755,7 @@ async function recentBackgroundFailure(
   if (latest?.status !== "failed" && latest?.status !== "timed_out") {
     return null;
   }
+  if (latest.startedAt < Date.parse(program.updatedAt)) return null;
   const asOf = latest.finishedAt ?? latest.startedAt;
   if (
     program.refreshMode !== "manual" &&
