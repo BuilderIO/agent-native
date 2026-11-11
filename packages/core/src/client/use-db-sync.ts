@@ -1311,10 +1311,17 @@ class SyncTransport {
         this.connectEvents();
       }
       const events = data.events ?? [];
-      const moreWaiting = data.cursorLimited === true;
+      const responseCursor = decodeSyncCursor(data.cursor);
+      this.applyVersion(events, responseCursor ? undefined : data.version);
+      this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
+      // Only a page that moved the cursor: one stopped at an unresolved
+      // access check would come back the same, so it waits the interval.
+      readNextPage =
+        data.cursorLimited === true &&
+        compareSyncCursors(this.cursorRef, polledFrom) > 0;
       // A page of other accounts' changes comes back empty, but the tab is
       // behind, not idle.
-      if (events.length || moreWaiting) {
+      if (events.length || readNextPage) {
         this.idlePollBackoffIndex = 0;
       } else if (
         scheduled &&
@@ -1327,13 +1334,6 @@ class SyncTransport {
           IDLE_POLL_BACKOFF.length - 1,
         );
       }
-      const responseCursor = decodeSyncCursor(data.cursor);
-      this.applyVersion(events, responseCursor ? undefined : data.version);
-      this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
-      // Only a page that moved the cursor: one stopped at an unresolved
-      // access check would come back the same, so it waits the interval.
-      readNextPage =
-        moreWaiting && compareSyncCursors(this.cursorRef, polledFrom) > 0;
       this.fan(events, data.version, this.cursorRef, polledFrom);
     } catch (err) {
       if (this.stopped) return;

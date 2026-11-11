@@ -153,7 +153,7 @@ describe("reading a change-feed backlog", () => {
     unsub();
   });
 
-  it("waits its interval when a limited page didn't move the cursor", async () => {
+  it("waits its interval, and backs off, when a limited page didn't move the cursor", async () => {
     const server = backlogServer(0, { stuck: true });
     const unsub = subscribe();
 
@@ -161,6 +161,13 @@ describe("reading a change-feed backlog", () => {
     expect(server.polls).toBe(1);
     await vi.advanceTimersByTimeAsync(INTERVAL_MS);
     expect(server.polls).toBe(2);
+
+    // It isn't catching up, so it slows down like any idle tab: the next
+    // poll comes two intervals later, not one.
+    await vi.advanceTimersByTimeAsync(2 * INTERVAL_MS - 200);
+    expect(server.polls).toBe(2);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(server.polls).toBe(3);
     unsub();
   });
 
