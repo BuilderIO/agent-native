@@ -210,4 +210,33 @@ describe("FreeClipsLimitCard", () => {
     expect(onDismiss).toHaveBeenCalled();
     expect(events("clips_free_clips_offer_dismissed")).toHaveLength(1);
   });
+
+  it("records using the last clip as going ahead, not a dismissal", () => {
+    const onProceed = vi.fn();
+    render(
+      <FreeClipsLimitCard
+        variant="popover"
+        kind="last_clip"
+        action="upload"
+        limit={3}
+        onDismiss={() => {}}
+        onProceed={onProceed}
+      />,
+    );
+    act(() => button("freeClips.lastClipUpload").click());
+    expect(onProceed).toHaveBeenCalled();
+    expect(events("clips_free_clips_offer_dismissed")).toHaveLength(0);
+    expect(events("clips_free_clips_offer_proceeded")).toEqual([
+      [
+        "clips_free_clips_offer_proceeded",
+        {
+          surface: "library_limit_popover",
+          milestone: "last_clip_intent",
+          remaining: 1,
+          limit: 3,
+          action: "upload",
+        },
+      ],
+    ]);
+  });
 });

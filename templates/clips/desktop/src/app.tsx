@@ -1500,9 +1500,11 @@ export function App({
     return probe === "configured";
   }, [authStatus, serverUrl, signedInAs, videoStorageIdentity]);
 
+  // Read again as each recording starts and ends: a hosted one uses a free
+  // clip, so the next Start has to see the new count.
   useEffect(() => {
     void refreshVideoStorageStatus();
-  }, [refreshVideoStorageStatus]);
+  }, [isRecording, refreshVideoStorageStatus]);
 
   useEffect(() => {
     if (popoverVisible) void refreshVideoStorageStatus();

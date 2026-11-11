@@ -54,7 +54,10 @@ export function useFreeClipsGate(action: "record" | "upload") {
   const storage = useVideoStorageStatus();
   const [open, setOpen] = useState(false);
   const [promptSeen, setPromptSeen] = useState(lastClipPromptSeen);
-  const proceedRef = useRef<() => void>(() => {});
+  // Every action held while the prompt is open; a second drop onto the open
+  // prompt mustn't replace the first.
+  const pendingRef = useRef<(() => void)[]>([]);
+  const openRef = useRef(false);
   const status = storage.data;
   const usedUp = status?.denyReason === "exhausted";
   const lastClip =
@@ -63,10 +66,20 @@ export function useFreeClipsGate(action: "record" | "upload") {
   const guard = (proceed: () => void): boolean => {
     if (!status || (!usedUp && !lastClip)) return false;
     if (lastClip) markLastClipPromptSeen();
-    proceedRef.current = proceed;
+    pendingRef.current = openRef.current
+      ? [...pendingRef.current, proceed]
+      : [proceed];
+    openRef.current = true;
     // After the click settles, so a menu closing on it can't close this too.
     setTimeout(() => setOpen(true), 0);
     return true;
+  };
+
+  const close = () => {
+    pendingRef.current = [];
+    openRef.current = false;
+    setOpen(false);
+    setPromptSeen(lastClipPromptSeen());
   };
 
   const anchor = (control: ReactElement) => (
@@ -80,8 +93,8 @@ export function useFreeClipsGate(action: "record" | "upload") {
     <Popover
       open={open}
       onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setPromptSeen(lastClipPromptSeen());
+        if (!next) close();
+        else setOpen(true);
       }}
     >
       {children}
@@ -99,10 +112,11 @@ export function useFreeClipsGate(action: "record" | "upload") {
             kind={usedUp ? "used_up" : "last_clip"}
             action={action}
             limit={status.hostedLimit}
-            onDismiss={() => setOpen(false)}
+            onDismiss={close}
             onProceed={() => {
-              setOpen(false);
-              proceedRef.current();
+              const pending = pendingRef.current;
+              close();
+              for (const proceed of pending) proceed();
             }}
           />
         </PopoverContent>

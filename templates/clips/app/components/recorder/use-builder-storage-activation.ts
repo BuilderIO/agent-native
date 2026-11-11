@@ -56,7 +56,10 @@ export type FreeClipsOfferMilestone =
  * source and flow.
  */
 export function trackFreeClipsOffer(
-  name: "clips_free_clips_offer_viewed" | "clips_free_clips_offer_dismissed",
+  name:
+    | "clips_free_clips_offer_viewed"
+    | "clips_free_clips_offer_dismissed"
+    | "clips_free_clips_offer_proceeded",
   properties: {
     surface: FreeClipsOfferSurface;
     milestone: FreeClipsOfferMilestone;
@@ -244,6 +247,8 @@ export function useBuilderStorageActivation({
 
   return {
     state,
+    /** With "account-exists": the last sign-in didn't finish. */
+    signInFailed: state === "account-exists" && Boolean(builder.error),
     /** Whether the next activate() creates a new account, so its terms apply. */
     createsAccount: canProvision && !accountExists,
     activate,

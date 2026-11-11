@@ -66,7 +66,7 @@ export function FreeClipsLimitCard({
     onDismiss();
   };
   const proceed = () => {
-    trackFreeClipsOffer("clips_free_clips_offer_dismissed", offer);
+    trackFreeClipsOffer("clips_free_clips_offer_proceeded", offer);
     onProceed?.();
   };
   return (

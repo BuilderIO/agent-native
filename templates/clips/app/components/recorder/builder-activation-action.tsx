@@ -68,12 +68,14 @@ export function BuilderActivationAction({
 
   return (
     <div className={cn("flex w-full flex-col gap-3", className)}>
-      {state === "account-exists" ? (
+      {state === "account-exists" && !activation.signInFailed ? (
         <p className="text-[13px] leading-[18px] text-muted-foreground">
           {t("freeClips.accountExists")}
         </p>
       ) : null}
-      {state === "failed" || state === "check-failed" ? (
+      {state === "failed" ||
+      state === "check-failed" ||
+      activation.signInFailed ? (
         <p
           role="alert"
           className="flex items-center gap-1.5 text-[13px] leading-[18px] text-amber-700 dark:text-amber-400"

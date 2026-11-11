@@ -123,7 +123,7 @@ function LastClipPrompt({
         variant="outline"
         className="w-full bg-background"
         onClick={() => {
-          trackFreeClipsOffer("clips_free_clips_offer_dismissed", offer);
+          trackFreeClipsOffer("clips_free_clips_offer_proceeded", offer);
           onRecord();
         }}
       >

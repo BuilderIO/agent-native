@@ -12,7 +12,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { fetchVideoStorageStatus } from "@/hooks/use-video-storage-status";
+import {
+  fetchVideoStorageStatus,
+  VIDEO_STORAGE_STATUS_KEY,
+} from "@/hooks/use-video-storage-status";
 import { MAX_UPLOAD_BYTES } from "@/lib/compress";
 import { defaultRecordingTitle } from "@/lib/recording-title";
 import { isMobileRecorderRuntime } from "@/lib/recording-visibility";
@@ -138,6 +141,11 @@ export function useDropVideoUpload(
         }
         createdId = info.id;
         setRecordingId(createdId);
+        // Creating the recording used a free clip; the count and the gates
+        // read it from the shared status.
+        void queryClient.invalidateQueries({
+          queryKey: VIDEO_STORAGE_STATUS_KEY,
+        });
 
         void uploadVideoBlobThumbnail(createdId, file, {
           signal: abort.signal,
@@ -359,7 +367,7 @@ export function useDropVideoUpload(
         remove();
       }
     },
-    [invalidateRecordings, t],
+    [invalidateRecordings, queryClient, t],
   );
 
   const fileQueueRef = useRef<QueuedDropUpload[]>([]);
