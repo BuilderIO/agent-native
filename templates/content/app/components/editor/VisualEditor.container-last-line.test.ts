@@ -15,6 +15,15 @@ import {
   suggestionHighlightSpec,
 } from "./VisualEditor";
 
+// ProseMirror keeps a widget's DOM factory on the decoration's internal type.
+function widgetDom(decoration: object): HTMLElement | null {
+  const type: unknown = Reflect.get(decoration, "type");
+  const toDOM: unknown =
+    typeof type === "object" && type ? Reflect.get(type, "toDOM") : undefined;
+  const dom: unknown = typeof toDOM === "function" ? toDOM.call(type) : null;
+  return dom instanceof HTMLElement ? dom : null;
+}
+
 function mountedEditor(content: string) {
   const mount = document.createElement("div");
   document.body.append(mount);
@@ -59,12 +68,13 @@ describe("a saved line added at the end of a callout or toggle", () => {
         { id: "last-line", status: "pending", operations },
         canonical,
       );
-      expect(presentation).not.toBeNull();
+      if (!presentation) throw new Error("The edit has no presentation.");
       const { editor, dispose } = mountedEditor(canonical);
       try {
-        const spec = suggestionHighlightSpec(editor.state.doc, presentation!);
+        const spec = suggestionHighlightSpec(editor.state.doc, presentation);
         expect(spec).toMatchObject({ kind: "add_block" });
-        setSuggestionHighlights(editor.view, { specs: [spec!] });
+        if (!spec) throw new Error("The presentation has no highlight.");
+        setSuggestionHighlights(editor.view, { specs: [spec] });
         // The container's node view doesn't render here, so read the widget
         // from the decorations rather than the page.
         let after = -1;
@@ -73,17 +83,17 @@ describe("a saved line added at the end of a callout or toggle", () => {
             after = pos + node.nodeSize;
         });
         expect(editor.state.doc.resolve(after).depth).toBeGreaterThan(0);
-        const widgets = suggestionHighlightKey
-          .getState(editor.state)!
-          .decorations.find()
-          .map((decoration) => ({
-            at: decoration.from,
-            dom: (decoration as any).type.toDOM() as HTMLElement,
-          }));
-        expect(widgets).toHaveLength(1);
-        expect(widgets[0]!.at).toBe(after);
-        expect(widgets[0]!.dom.classList).toContain("suggestion-block-widget");
-        expect(widgets[0]!.dom.textContent).toBe(line);
+        const widgets = (
+          suggestionHighlightKey.getState(editor.state)?.decorations.find() ??
+          []
+        ).map((decoration) => ({
+          at: decoration.from,
+          dom: widgetDom(decoration),
+        }));
+        expect(widgets.map(({ at }) => at)).toEqual([after]);
+        const dom = widgets[0]?.dom;
+        expect(dom?.classList.contains("suggestion-block-widget")).toBe(true);
+        expect(dom?.textContent).toBe(line);
       } finally {
         dispose();
       }
