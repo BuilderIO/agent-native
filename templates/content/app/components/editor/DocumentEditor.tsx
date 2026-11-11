@@ -9746,7 +9746,7 @@ function PageEditorSessionBody({
             readyDocument &&
             startSuggestionDraft(readyDocument, suggestion)
           ) {
-            setPendingComment(null);
+            setPendingComment(null, { keepWritten: holdsPropertyComment });
             setHoveredThreadId(null);
             setSelectedThreadId(null);
             setSelectedSuggestionId(null);
@@ -9765,6 +9765,7 @@ function PageEditorSessionBody({
       activateCommentThread,
       activateSuggestion,
       documentId,
+      holdsPropertyComment,
       isSuggesting,
       prepareSuggestionDraftDocument,
       savedSuggestions,
@@ -10113,7 +10114,7 @@ function PageEditorSessionBody({
       return;
     }
     clearCommentFocus();
-    setPendingComment(null);
+    setPendingComment(null, { keepWritten: holdsPropertyComment });
     setSelectedSuggestionId(suggestion.id);
     setDiscussionPeekThreadId(null);
     setUtilityPanel("comments");
@@ -10127,6 +10128,7 @@ function PageEditorSessionBody({
     suggestionsQuery.data,
     allSavedSuggestions,
     clearCommentFocus,
+    holdsPropertyComment,
     replyDrafts.setOpenReply,
     activateCommentThread,
     suggestionThreadOnPage,

@@ -705,13 +705,18 @@ describe("new comment responsive draft", () => {
       "if (property && canComment) startLinkedPropertyComment(property);",
     );
     // Starting a Comment on the text, a block or a Clip brings back one
-    // waiting under a Property in Info, and a suggested edit leaves it.
+    // waiting under a Property in Info, and a suggested edit leaves it:
+    // selected, started as a suggestion draft, or opened from a link. Only
+    // moving to another Page clears it.
     expect(
       source.match(/if \(returnToHeldPropertyComment\(\)\) return;/g),
     ).toHaveLength(4);
-    expect(source).toContain(
-      "setPendingComment(null, { keepWritten: holdsPropertyComment });",
-    );
+    expect(
+      source.match(
+        /setPendingComment\(null, \{ keepWritten: holdsPropertyComment \}\);/g,
+      ),
+    ).toHaveLength(3);
+    expect(source.match(/setPendingComment\(null\);/g)).toHaveLength(1);
     expect(source).toContain("onPendingChange={changePendingComment}");
     expect(source).toContain("if (!completePendingComment(id)) return;");
     // Opening a thread keeps a new comment someone has written.
