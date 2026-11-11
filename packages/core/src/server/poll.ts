@@ -94,12 +94,12 @@ const ACCESS_CACHE_DENY_TTL_MS = 5_000;
 // could evict a read's checks before that read used them.
 const ACCESS_CACHE_MAX = 5_000;
 // How many unchecked resources one read starts checks for. A batch check costs
-// a few queries whatever its size, but a resource checked on its own (no batch
-// resolver, or a batch that failed) costs a query or two, so a tab far behind
-// catches up over several polls instead of checking a whole page of the log.
+// a few queries whatever its size, but a resource checked on its own (when no
+// batch resolver is set) costs a query or two, so a tab far behind catches up
+// over several polls instead of checking a whole page of the log at once.
 const ACCESS_PRIME_LIMIT = 250;
-// How many resources of a failed batch are checked on their own at once.
-const ACCESS_RETRY_CONCURRENCY = 8;
+// How many resources of a failed batch are checked on their own.
+const ACCESS_RETRY_LIMIT = 8;
 const ACCESS_CHECK_WAIT_MS = 1_000;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SCREEN_REFRESH_QUERY_LIMIT = 256;
@@ -490,16 +490,21 @@ const defaultResolveAccessMany: ManyAccessResolver = async (
   resourceIds,
   ctx,
 ) => {
-  const { resolveAccessMany } = await import("../sharing/access.js");
-  const access = await resolveAccessMany(
-    resourceType,
-    resourceIds,
-    {
-      userEmail: ctx.userEmail,
-      ...(ctx.orgId === undefined ? {} : { orgId: ctx.orgId }),
-    },
-    { skipResourceBody: true },
-  );
+  const { hasHostAccessResolver, resolveAccessMany } =
+    await import("../sharing/access.js");
+  const accessCtx = {
+    userEmail: ctx.userEmail,
+    ...(ctx.orgId === undefined ? {} : { orgId: ctx.orgId }),
+  };
+  // A host access resolver gets the loaded row and can read any column of it
+  // (Design reads a design's data to find its Builder project), so those
+  // types load whole rows, as a single check does. Others load only the
+  // columns the access rules read.
+  const access = hasHostAccessResolver(resourceType)
+    ? await resolveAccessMany(resourceType, resourceIds, accessCtx)
+    : await resolveAccessMany(resourceType, resourceIds, accessCtx, {
+        skipResourceBody: true,
+      });
   return new Set(access.keys());
 };
 
@@ -1005,9 +1010,11 @@ export class AppSyncState {
     const normalizedUserEmail = userEmail.trim().toLowerCase();
     const now = Date.now();
     const keysByType = new Map<string, Map<string, string>>();
-    const started = new Set<string>();
+    // Checks this read started or found still running. Counting running ones
+    // keeps a slow check from letting each poll start another 250 behind it.
+    const checking = new Set<string>();
     for (const event of events) {
-      if (started.size >= ACCESS_PRIME_LIMIT) break;
+      if (checking.size >= ACCESS_PRIME_LIMIT) break;
       if (!event) continue;
       const resource = resourceNeedingAccessCheck(event, normalizedUserEmail);
       if (!resource) continue;
@@ -1017,14 +1024,18 @@ export class AppSyncState {
         resource.resourceType,
         resource.resourceId,
       );
-      if (started.has(key) || this.accessInFlight.has(key)) continue;
+      if (checking.has(key)) continue;
+      if (this.accessInFlight.has(key)) {
+        checking.add(key);
+        continue;
+      }
       const cached = this.accessCache.get(key);
       if (
         cached &&
         now - cached.checkedAt < this.accessCacheTtl(cached.allowed)
       )
         continue;
-      started.add(key);
+      checking.add(key);
       if (!this.resolveAccessManyFn) {
         this.scheduleAccessCheck(
           key,
@@ -1086,31 +1097,25 @@ export class AppSyncState {
           for (const id of ids) cacheUnlessInvalidated(id, visible.has(id));
         } catch {
           // The batch fails as a whole when any one resource's check fails.
-          // Check each resource on its own instead, so a failure hides only
-          // its own resource, as it did before checks were batched.
-          for (
-            let start = 0;
-            start < ids.length;
-            start += ACCESS_RETRY_CONCURRENCY
-          ) {
-            await Promise.all(
-              ids
-                .slice(start, start + ACCESS_RETRY_CONCURRENCY)
-                .map(async (id) => {
-                  let allowed = false;
-                  try {
-                    allowed =
-                      (await this.resolveAccessFn(resourceType, id, {
-                        userEmail,
-                        orgId,
-                      })) != null;
-                  } catch {
-                    // Fails closed, like a single check.
-                  }
-                  cacheUnlessInvalidated(id, allowed);
-                }),
-            );
-          }
+          // Check the first few on their own, in log order: a failure then
+          // hides only its own resource, and the read moves past them. The
+          // rest stay unchecked for a later read, so a failing batch costs a
+          // few single checks, not one per resource.
+          await Promise.all(
+            ids.slice(0, ACCESS_RETRY_LIMIT).map(async (id) => {
+              let allowed = false;
+              try {
+                allowed =
+                  (await this.resolveAccessFn(resourceType, id, {
+                    userEmail,
+                    orgId,
+                  })) != null;
+              } catch {
+                // Fails closed, like a single check.
+              }
+              cacheUnlessInvalidated(id, allowed);
+            }),
+          );
         } finally {
           for (const key of keys.values()) this.endAccessCheck(key, check);
         }

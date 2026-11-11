@@ -1,11 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as sharingAccess from "../sharing/access.js";
 import {
   AppSyncState,
   getChangesSince,
   getVersion,
   recordChange,
 } from "./poll.js";
+
+// The default access checks, for the one test that uses them. Design stands
+// in for a type with a host access resolver.
+vi.mock("../sharing/access.js", () => ({
+  hasHostAccessResolver: vi.fn(
+    (resourceType: string) => resourceType === "design",
+  ),
+  resolveAccess: vi.fn(async () => null),
+  resolveAccessMany: vi.fn(async () => new Map()),
+}));
 
 describe("poll", () => {
   describe("getVersion", () => {
@@ -301,6 +312,82 @@ describe("AppSyncState read through other people's resources", () => {
     expect(result.cursorLimited).toBeUndefined();
     expect(resolveAccessMany).toHaveBeenCalledOnce();
     expect(resolveAccess).toHaveBeenCalledTimes(3);
+  });
+
+  it("checks only the first few of a failed batch on their own", async () => {
+    const rows = durableRows(othersDocuments(20));
+    const resolveAccessMany = vi.fn(async () => {
+      throw new Error("database unavailable");
+    });
+    const resolveAccess = vi.fn(async () => ({ role: "viewer" }));
+    const state = stateReading(rows, { resolveAccess, resolveAccessMany });
+
+    const result = await state.getCombinedChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 5, id: "" },
+    );
+
+    // The first 8 were checked on their own and pass; the read stops at the
+    // 9th, whose check a later read starts.
+    expect(result.events.map((event) => event.resourceId)).toEqual(
+      othersDocuments(8).map((resource) => resource.resourceId),
+    );
+    expect(result.cursorLimited).toBe(true);
+  });
+
+  it("counts checks still running against a read's limit", async () => {
+    const rows = durableRows(othersDocuments(300));
+    // The first batch never finishes.
+    const resolveAccessMany = vi.fn(() => new Promise<Set<string>>(() => {}));
+    const state = stateReading(rows, { resolveAccessMany });
+
+    await state.getCombinedChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 5, id: "" },
+    );
+
+    // The read after the wait found 250 checks running and started no more.
+    expect(resolveAccessMany).toHaveBeenCalledOnce();
+    expect(resolveAccessMany.mock.calls[0]?.[1]).toHaveLength(250);
+  });
+
+  it("loads whole rows for resource types a host resolver decides", async () => {
+    vi.mocked(sharingAccess.resolveAccessMany).mockClear();
+    // One type per read: of two dynamic imports of a mocked module started at
+    // once, vitest gave only the first the mock.
+    for (const resource of [
+      { resourceType: "design", resourceId: "builder-hosted" },
+      { resourceType: "document", resourceId: "doc" },
+    ]) {
+      await stateReading(
+        durableRows([resource]),
+        {},
+      ).getDurableChangesSinceForUser(5, "reader@example.com", undefined, {
+        version: 5,
+        id: "",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    // Design's host resolver reads the design's data to find its Builder
+    // project, which a projected load leaves out.
+    expect(sharingAccess.resolveAccessMany).toHaveBeenCalledWith(
+      "design",
+      ["builder-hosted"],
+      { userEmail: "reader@example.com" },
+    );
+    expect(sharingAccess.resolveAccessMany).toHaveBeenCalledWith(
+      "document",
+      ["doc"],
+      { userEmail: "reader@example.com" },
+      { skipResourceBody: true },
+    );
   });
 
   it("keeps a newer check running when an older batch for its resource ends", async () => {
