@@ -2377,6 +2377,25 @@ export function CommentsSidebar({
     if (pendingComment) onPendingDone(pendingComment.id);
   };
 
+  // A page comment posted from the composer at the top lands under On the
+  // page, at the foot of a long Discussion, so it comes into view once it
+  // draws and its author sees it there.
+  const [revealThreadId, setRevealThreadId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!revealThreadId) return;
+    const card = historyPortalContainer?.querySelector(
+      `[data-thread-card="${cssEscape(revealThreadId)}"]`,
+    );
+    if (!(card instanceof HTMLElement)) return;
+    setRevealThreadId(null);
+    card.scrollIntoView({
+      block: "nearest",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    });
+  }, [historyPortalContainer, revealThreadId, threads]);
+
   // A comment on the whole page: no quote and no Property.
   const pageSubmitting = draftStore.isSubmittingDraft("page");
   const handlePageSubmit = async (
@@ -2397,6 +2416,7 @@ export function CommentsSidebar({
       });
       pageDraft.finishSubmission(clientOperationId);
       keepPostedThread(result.threadId);
+      setRevealThreadId(result.threadId);
       return { id: result.id, threadId: result.threadId };
     } catch (error) {
       // An unconfirmed save keeps its card, which offers the check instead.
@@ -5042,7 +5062,7 @@ function SuggestionThreadView({
             reply.isPending ||
             replyDrafts.isSubmitting(suggestion.threadId)
           )
-            return;
+            return false;
           const replyMentions = [
             ...new Map(
               findCommentMentions(draft, mentions.map(draftMention)).flatMap(
@@ -5069,31 +5089,36 @@ function SuggestionThreadView({
           );
           const clientOperationId = retryId ?? crypto.randomUUID();
           replyDrafts.beginSubmission(suggestion.threadId, clientOperationId);
-          reply.mutate(
-            {
-              resourceType: "document",
-              resourceId: documentId,
-              commentId: root.id,
-              clientOperationId,
-              body: draft.trim(),
-              mentions: replyMentions,
-            },
-            {
-              onError: (error) => {
-                replyDrafts.restoreSubmittedDraft(
-                  suggestion.threadId,
-                  clientOperationId,
-                  uncertainAfterFailure(error, retryId !== undefined, {
-                    payload,
-                    operationId: clientOperationId,
-                  }),
-                );
+          // Whether it saved, so Discussion can close the box once it has.
+          return new Promise<boolean>((resolve) => {
+            reply.mutate(
+              {
+                resourceType: "document",
+                resourceId: documentId,
+                commentId: root.id,
+                clientOperationId,
+                body: draft.trim(),
+                mentions: replyMentions,
               },
-              onSettled: () => {
-                replyDrafts.finishSubmission(clientOperationId);
+              {
+                onSuccess: () => resolve(true),
+                onError: (error) => {
+                  replyDrafts.restoreSubmittedDraft(
+                    suggestion.threadId,
+                    clientOperationId,
+                    uncertainAfterFailure(error, retryId !== undefined, {
+                      payload,
+                      operationId: clientOperationId,
+                    }),
+                  );
+                  resolve(false);
+                },
+                onSettled: () => {
+                  replyDrafts.finishSubmission(clientOperationId);
+                },
               },
-            },
-          );
+            );
+          });
         }}
         onResolve={() => {}}
         canComment={canReply}
@@ -5421,16 +5446,28 @@ function ThreadView({
   const replyBoxShown = isExpanded && canComment && !resolved;
   useEffect(() => {
     if (!isPanel || !replyBoxShown) return;
-    const frame = requestAnimationFrame(() => {
-      const reduceMotion = window.matchMedia(
-        "(prefers-reduced-motion: reduce)",
-      ).matches;
-      replyBoxRef.current?.scrollIntoView({
-        block: "nearest",
-        behavior: reduceMotion ? "auto" : "smooth",
+    const box = replyBoxRef.current;
+    let frame = 0;
+    const bringIntoView = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const reduceMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)",
+        ).matches;
+        box?.scrollIntoView({
+          block: "nearest",
+          behavior: reduceMotion ? "auto" : "smooth",
+        });
       });
-    });
-    return () => cancelAnimationFrame(frame);
+    };
+    bringIntoView();
+    // Focus lands a moment after the box opens and grows its composer by the
+    // toolbar, Send included, so it comes into view again then.
+    box?.addEventListener("focusin", bringIntoView, { once: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      box?.removeEventListener("focusin", bringIntoView);
+    };
   }, [isPanel, replyBoxShown]);
 
   // In Discussion a saved reply closes its box and hands focus to the

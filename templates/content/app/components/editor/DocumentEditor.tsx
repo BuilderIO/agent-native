@@ -277,6 +277,7 @@ import {
 import { directoryWidgetEditability } from "./directory-widget-editability";
 import {
   DiscussionPeekBar,
+  discussionPeekThread,
   isPageCommentThread,
   pageCommentMarks,
   pulseShownSubject,
@@ -9345,30 +9346,28 @@ function PageEditorSessionBody({
     !blockFieldComments.tabSwitchPending &&
     ((!!pendingComment && blockFieldComments.pendingVisible) ||
       !!selectedThreadId);
-  // Escape closes what is innermost, so a reply box or a card goes first. A
-  // reply left open in Discussion doesn't show behind another tab, so it
-  // doesn't hold Escape there.
-  const { openReply } = replyDrafts;
-  pagePanelEscapeRef.current = pagePanelEscapeCloses({
-    tab: pagePanel.tab,
-    replyOpen: !!(openReply?.threadId || openReply?.suggestionId),
-    commentCardOpen: showAnchoredCommentPopover,
-  });
-
   // Discussion steps aside only where it covers the page, and comes back once
-  // the window has room for it beside the page.
-  const peekThread =
-    discussionPeekThreadId &&
-    pagePanel.tab === "comments" &&
-    pagePanelLayout.mode !== "dock"
-      ? (threads?.find(
-          (thread) => thread.threadId === discussionPeekThreadId,
-        ) ?? null)
-      : null;
+  // the window has room for it beside the page, or once its thread resolves
+  // and the text it showed is no longer marked.
+  const peekThread = discussionPeekThread(
+    threads,
+    discussionPeekThreadId,
+    pagePanel.tab === "comments" && pagePanelLayout.mode !== "dock",
+  );
   const peeking = !!peekThread;
   useEffect(() => {
     if (discussionPeekThreadId && !peeking) setDiscussionPeekThreadId(null);
   }, [discussionPeekThreadId, peeking]);
+
+  // Escape closes what is innermost, so a reply box or a card goes first. A
+  // reply left open in Discussion doesn't show behind another tab, or while
+  // Discussion has stepped aside, so it doesn't hold Escape then.
+  const { openReply } = replyDrafts;
+  pagePanelEscapeRef.current = pagePanelEscapeCloses({
+    tab: pagePanel.tab,
+    replyOpen: !peeking && !!(openReply?.threadId || openReply?.suggestionId),
+    commentCardOpen: showAnchoredCommentPopover,
+  });
 
   // A phone's sheet covers the page under the header, so nothing behind it
   // takes focus; the header's tabs stay live above it to switch or close.
@@ -9404,8 +9403,11 @@ function PageEditorSessionBody({
               : "smooth",
           });
           pulseShownSubject([row]);
+          // The row's open threads, or with none open, its way to start one.
           row
-            .querySelector<HTMLElement>("[data-property-comment-marker]")
+            .querySelector<HTMLElement>(
+              "[data-property-comment-marker], [data-property-comment-start]",
+            )
             ?.focus({ preventScroll: true });
         }),
       );

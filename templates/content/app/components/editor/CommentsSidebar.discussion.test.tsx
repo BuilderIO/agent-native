@@ -547,6 +547,36 @@ describe("the Discussion panel", () => {
     }
   });
 
+  it("brings a page comment into view once it draws after posting", async () => {
+    actions.create.mockResolvedValue({ id: "created", threadId: "created" });
+    const scroll = vi
+      .spyOn(HTMLElement.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    render();
+    const composer = container.querySelector<HTMLElement>(
+      "[data-discussion-composer]",
+    );
+    const editor = composer ? richEditor(composer) : null;
+    if (!composer || !editor) throw new Error("No page composer");
+    await setRichEditorValue(editor, "Down at the foot");
+    await act(async () =>
+      composer
+        .querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')
+        ?.click(),
+    );
+    threads = [...fixtureThreads, thread("created", null)];
+    try {
+      render();
+      expect(scroll.mock.contexts).toEqual([card("created")]);
+      // Once is enough: drawing again leaves the reader where they scrolled.
+      render();
+      expect(scroll).toHaveBeenCalledTimes(1);
+    } finally {
+      threads = fixtureThreads;
+      scroll.mockRestore();
+    }
+  });
+
   it("keeps a comment whose save wasn't confirmed in view under any filter, and once it's confirmed", async () => {
     const unconfirmed = thread("optimistic-operation-1", null);
     unconfirmed.comments[0].mutation = {

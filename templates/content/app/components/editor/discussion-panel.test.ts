@@ -9,6 +9,7 @@ import {
   compareDiscussionEntries,
   DISCUSSION_RANK,
   DISCUSSION_SECTIONS,
+  discussionPeekThread,
   discussionRankTarget,
   discussionThreadTarget,
   discussionTime,
@@ -234,6 +235,33 @@ describe("discussionThreadTarget", () => {
     expect(
       isPageCommentThread({ quotedText: null, property: property("status") }),
     ).toBe(false);
+  });
+});
+
+describe("discussionPeekThread", () => {
+  const shown = thread("shown", { quotedText: "A sentence" });
+  const other = thread("other", { quotedText: "Elsewhere" });
+  const threads = [other, shown];
+
+  it("keeps Discussion aside for an open thread while the panel covers the page", () => {
+    expect(discussionPeekThread(threads, "shown", true)).toBe(shown);
+  });
+
+  it("comes back once the panel docks, or with nothing shown", () => {
+    expect(discussionPeekThread(threads, "shown", false)).toBeNull();
+    expect(discussionPeekThread(threads, null, true)).toBeNull();
+    expect(discussionPeekThread(undefined, "shown", true)).toBeNull();
+  });
+
+  it("comes back once the thread resolves or goes away", () => {
+    expect(
+      discussionPeekThread(
+        [other, { ...shown, resolved: true }],
+        "shown",
+        true,
+      ),
+    ).toBeNull();
+    expect(discussionPeekThread([other], "shown", true)).toBeNull();
   });
 });
 

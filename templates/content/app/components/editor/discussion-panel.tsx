@@ -598,6 +598,23 @@ export function DiscussionThreadSubject({
 }
 
 /**
+ * The thread Discussion has stepped aside for, while it may stay aside: the
+ * panel covers the page, and the thread is still open, its text still marked.
+ */
+export function discussionPeekThread(
+  threads: readonly CommentThread[] | undefined,
+  threadId: string | null,
+  coversPage: boolean,
+): CommentThread | null {
+  if (!threadId || !coversPage) return null;
+  return (
+    threads?.find(
+      (thread) => thread.threadId === threadId && !thread.resolved,
+    ) ?? null
+  );
+}
+
+/**
  * Discussion stepped aside so Show could show the page: the text and comment
  * it showed, and the way back. On a phone it spans the foot of the screen.
  */

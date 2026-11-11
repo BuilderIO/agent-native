@@ -408,9 +408,10 @@ describe("comments sidebar layout", () => {
 
     expect(source).not.toContain('container.addEventListener("scroll"');
     // The second brings an opened comment stack's selected card into view;
-    // CommentsSidebar.stacks.test.tsx covers it. The third brings a reply box
-    // opened in Discussion fully into view, once, as it opens.
-    expect(source.match(/scrollIntoView/g)).toHaveLength(3);
+    // CommentsSidebar.stacks.test.tsx covers it. The third brings a page
+    // comment just posted into view once it draws. The fourth brings a reply
+    // box opened in Discussion fully into view as it opens.
+    expect(source.match(/scrollIntoView/g)).toHaveLength(4);
     expect(source).toMatch(
       /if \(!isPanel \|\| !replyBoxShown\) return;[\s\S]*?requestAnimationFrame[\s\S]*?scrollIntoView/,
     );

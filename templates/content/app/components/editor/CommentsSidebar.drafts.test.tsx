@@ -2122,6 +2122,80 @@ it("keeps a suggestion reply's key when its card remounts", async () => {
   }
 });
 
+it("closes a saved suggestion reply's box in Discussion and hands focus to Reply", async () => {
+  replyMutate.mockClear();
+  const suggestions = [
+    suggestionFixture({
+      id: "pending-suggestion",
+      revision: 1,
+      threadId: "thread-pending-suggestion",
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      createdAt: "2026-09-06T12:00:00.000Z",
+      status: "pending",
+      operations: [
+        {
+          ordinal: 0,
+          kind: "replace_text",
+          before: { changedText: "original" },
+          after: { changedText: "proposal" },
+          schemaVersion: 1,
+        },
+      ],
+    }),
+  ];
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  let drafts: ReturnType<typeof useCommentReplyDrafts> | undefined;
+  function Harness() {
+    drafts = useCommentReplyDrafts("document-reply-saved");
+    return (
+      <CommentsSidebar
+        replyDrafts={drafts}
+        documentId="document-reply-saved"
+        suggestions={suggestions}
+        presentation="history"
+        canComment
+        forceVisible
+      />
+    );
+  }
+  const replyAction = () =>
+    container.querySelector<HTMLButtonElement>("[data-comment-reply-action]");
+  const box = () => container.querySelector("[data-comment-reply-composer]");
+  try {
+    await act(async () => root.render(<Harness />));
+    await act(async () => replyAction()?.click());
+    await act(async () => {
+      drafts?.setText("thread-pending-suggestion", "Saved reply");
+    });
+    await act(async () => {
+      box()
+        ?.querySelector<HTMLButtonElement>(
+          'button[aria-label="comments.submit"]',
+        )
+        ?.click();
+    });
+    expect(replyMutate).toHaveBeenCalledTimes(1);
+    expect(box()).not.toBeNull();
+
+    await act(async () => {
+      lastReply().handlers.onSuccess();
+      lastReply().handlers.onSettled();
+    });
+    expect(box()).toBeNull();
+    await act(
+      () =>
+        new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    );
+    expect(document.activeElement).toBe(replyAction());
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
 it("mentions only the people a suggestion reply names as a whole @name", async () => {
   replyMutate.mockClear();
   const suggestions = [
