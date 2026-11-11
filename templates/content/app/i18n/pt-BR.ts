@@ -1733,6 +1733,19 @@ const overrides = {
     commandAppearance: "Aparência",
     openAgent: "Abrir agente",
     toggleTheme: "Alternar tema",
+    commandOnPage: "Em “{{title}}”",
+    commandSearchInPage: "Pesquisar nesta página",
+    commandSearchInPageDescription:
+      "Somente esta página e as páginas dentro dela",
+    commandScopeChip: "Em “{{title}}”",
+    commandClearScope: "Pesquisar em todos os lugares",
+    commandAskAgent: "Perguntar ao agente: “{{query}}”",
+    commandAskAgentDescription:
+      "O agente pode pesquisar, ler e resumir para você",
+    commandPreview: "Pré-visualização",
+    commandHintNavigate: "Navegar",
+    commandHintOpen: "Abrir",
+    commandHintClose: "Fechar",
   },
   theme: {
     system: "Tema do sistema",

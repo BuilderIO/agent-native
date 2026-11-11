@@ -33,7 +33,7 @@ import {
   DialogTitle,
 } from "@agent-native/toolkit/ui/dialog";
 import { cn } from "@agent-native/toolkit/utils";
-import { IconExternalLink } from "@tabler/icons-react";
+import { IconExternalLink, IconSearch } from "@tabler/icons-react";
 import { useCommandState } from "cmdk";
 import React, {
   createContext,
@@ -327,6 +327,8 @@ interface AppCommandBase<TAppContext> {
   visibleWhen?: (context: AppCommandContext<TAppContext>) => boolean;
   enabledWhen?: (context: AppCommandContext<TAppContext>) => boolean;
   deferSelect?: boolean;
+  /** Set to false to run the command and keep the menu open with focus in the search field. */
+  closeOnSelect?: boolean;
 }
 
 export type AppCommand<TAppContext = unknown> =
@@ -526,6 +528,8 @@ export interface CommandMenuProps<TAppContext = unknown> {
         hasSelectableItems?: boolean;
       },
     ) => ReactNode;
+    /** The `value` of the highlighted row, for app-owned previews. */
+    selectedValue: string;
   }) => ReactNode;
   placeholder?: string;
   inputLabel?: string;
@@ -536,6 +540,10 @@ export interface CommandMenuProps<TAppContext = unknown> {
   initialSelection?: "first" | "none";
   container?: HTMLElement;
   onSearchChange?: (search: string) => void;
+  /** Shown in the search field after the search icon, such as a scope chip. */
+  inputAdornment?: ReactNode;
+  /** Runs before the menu's own key handling; call `preventDefault()` to skip it. */
+  onInputKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void;
   itemMatcher?: CommandMenuItemMatcher;
   showAgentFallback?: boolean;
   chatStorageKey?: string;
@@ -580,6 +588,8 @@ export function CommandMenu<TAppContext = unknown>({
   initialSelection,
   container,
   onSearchChange,
+  inputAdornment,
+  onInputKeyDown,
   itemMatcher,
   showAgentFallback = true,
   chatStorageKey,
@@ -953,6 +963,11 @@ export function CommandMenu<TAppContext = unknown>({
     }
     if (!("onSelect" in command) || !command.onSelect) return;
     if (command.enabledWhen && !command.enabledWhen(appCommandContext)) return;
+    if (command.closeOnSelect === false) {
+      command.onSelect(appCommandContext);
+      requestAnimationFrame(() => inputRef.current?.focus());
+      return;
+    }
     if (command.deferSelect === false) {
       command.onSelect(appCommandContext);
       closeMenu();
@@ -1356,6 +1371,7 @@ export function CommandMenu<TAppContext = unknown>({
               />
               {(appCommandGroups !== undefined ||
                 embeddedChatSlot ||
+                renderContent ||
                 initialSelection !== undefined) && (
                 <CommandSelectionTracker onChange={handleCommandValueChange} />
               )}
@@ -1371,7 +1387,17 @@ export function CommandMenu<TAppContext = unknown>({
                     setSelectedCommandValue(nextEmptySelectionValue());
                   }
                 }}
+                leading={
+                  inputAdornment != null ? (
+                    <>
+                      <IconSearch className="me-2 h-4 w-4 shrink-0 opacity-50" />
+                      {inputAdornment}
+                    </>
+                  ) : undefined
+                }
                 onKeyDown={(event) => {
+                  onInputKeyDown?.(event);
+                  if (event.defaultPrevented) return;
                   if (
                     initialSelection === "none" &&
                     (event.key === "ArrowDown" || event.key === "ArrowUp")
@@ -1394,7 +1420,11 @@ export function CommandMenu<TAppContext = unknown>({
               ) : null}
 
               {open && renderContent
-                ? renderContent({ search, renderList })
+                ? renderContent({
+                    search,
+                    renderList,
+                    selectedValue: selectedCommandValue,
+                  })
                 : open && renderList()}
               {open && footer != null ? (
                 <div

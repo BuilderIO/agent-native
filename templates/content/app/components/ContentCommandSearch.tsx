@@ -61,7 +61,9 @@ import { Spinner } from "./ui/spinner";
 const INSTANT_RESULT_LIMIT = 20;
 
 const ALL_SPACES = "all";
-const THIS_PAGE = "this-page";
+/** The scope that searches the open page and the pages inside it. */
+export const THIS_PAGE_SCOPE = "this-page";
+const THIS_PAGE = THIS_PAGE_SCOPE;
 
 export type ModifiedDateFilter =
   | { kind: "any" }
@@ -372,22 +374,109 @@ function renderSearchResultItem({
             .join(" · ")}
         </span>
         {document.snippet ? (
-          <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground group-data-[selected=true]:line-clamp-6">
+          <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground group-data-[selected=true]:line-clamp-6 md:group-data-[selected=true]:line-clamp-2">
             <Highlight text={document.snippet} needles={needles} />
           </span>
         ) : null}
         {document.description ? (
-          <span className="hidden mt-1 text-xs text-muted-foreground group-data-[selected=true]:block">
+          <span className="hidden mt-1 text-xs text-muted-foreground group-data-[selected=true]:block md:group-data-[selected=true]:hidden">
             {document.description}
           </span>
         ) : null}
         {sourceUpdated ? (
-          <span className="hidden text-xs text-muted-foreground group-data-[selected=true]:block">
+          <span className="hidden text-xs text-muted-foreground group-data-[selected=true]:block md:group-data-[selected=true]:hidden">
             {t("root.searchSourceUpdated", { date: formatDate(sourceUpdated) })}
           </span>
         ) : null}
       </span>
     </CommandMenu.Item>
+  );
+}
+
+/**
+ * Details of the highlighted row beside the results, on screens wide enough
+ * for two columns. Narrow screens expand the highlighted row instead.
+ */
+function CommandPreviewPane({
+  selectedValue,
+  documents,
+  needles,
+  commandPreview,
+}: {
+  selectedValue: string | undefined;
+  documents: CommandSearchDocumentResult[];
+  needles: string[];
+  commandPreview?: (value: string) => ReactNode;
+}) {
+  const t = useT();
+  const { formatDate } = useFormatters();
+  const document = selectedValue?.startsWith("document:")
+    ? documents.find(
+        (candidate) => `document:${candidate.id}` === selectedValue,
+      )
+    : undefined;
+  let body: ReactNode = null;
+  if (document) {
+    const Icon =
+      document.documentType === "database"
+        ? IconDatabase
+        : isLocalFileSearchResult(document)
+          ? IconFolderOpen
+          : IconFileText;
+    const sourceUpdated = document.sourceUpdatedAt
+      ? normalizeTimestamp(document.sourceUpdatedAt)
+      : null;
+    body = (
+      <div className="space-y-3">
+        <div className="flex items-start gap-2">
+          <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <p className="min-w-0 break-words font-medium leading-snug">
+            <Highlight
+              text={document.title || t("sidebar.untitled")}
+              needles={needles}
+            />
+          </p>
+        </div>
+        <div className="space-y-0.5 text-xs text-muted-foreground">
+          {document.parentTitle || document.sourceKind ? (
+            <p className="break-words">
+              {[document.parentTitle, document.sourceKind]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          ) : null}
+          <p>
+            {t("root.searchModified", { date: formatDate(document.updatedAt) })}
+          </p>
+          {sourceUpdated ? (
+            <p>
+              {t("root.searchSourceUpdated", {
+                date: formatDate(sourceUpdated),
+              })}
+            </p>
+          ) : null}
+        </div>
+        {document.description ? (
+          <p className="text-sm">{document.description}</p>
+        ) : null}
+        {document.snippet ? (
+          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">
+            <Highlight text={document.snippet} needles={needles} />
+          </p>
+        ) : null}
+      </div>
+    );
+  } else if (selectedValue && commandPreview) {
+    body = commandPreview(selectedValue);
+  }
+  return (
+    <aside
+      aria-label={t("root.commandPreview")}
+      data-testid="content-command-preview"
+      className="hidden w-2/5 max-w-sm shrink-0 overflow-y-auto border-s border-border p-4 md:block"
+    >
+      {body}
+    </aside>
   );
 }
 
@@ -404,6 +493,8 @@ export function SearchPage({
   renderList,
   staticItems,
   titleIndex,
+  selectedValue,
+  commandPreview,
 }: {
   liveQuery: string;
   debouncedQuery: string;
@@ -417,6 +508,8 @@ export function SearchPage({
   renderList: (results?: ReactNode) => ReactNode;
   staticItems: ReactNode;
   titleIndex: NormalizedTitleCandidate<CommandSearchDocumentResult>[];
+  selectedValue?: string;
+  commandPreview?: (value: string) => ReactNode;
 }) {
   const t = useT();
   const navigate = useNavigate();
@@ -561,61 +654,69 @@ export function SearchPage({
     ? activeResults.data?.pagination
     : undefined;
   return (
-    <>
-      {renderList(
-        <>
-          <CommandMenu.Group heading={t("root.commandSearchHeading")}>
-            {displayedDocuments.map((document) =>
-              renderSearchResultItem({
-                document,
-                needles: resultNeedles,
-                onOpenChange,
-                navigate,
-                formatDate,
-                t,
-              }),
-            )}
-          </CommandMenu.Group>
-          {staticItems}
-        </>,
-      )}
-      {isFetchingActive ? <SearchUpdating /> : null}
-      {serverError && !isFetchingActive ? (
-        <SearchPartialError onRetry={retryActive} />
-      ) : null}
-      {visibleOffset > 0 || pagination?.hasMore ? (
-        <div
-          className="flex justify-between gap-2 border-t p-2"
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ")
-              event.stopPropagation();
-          }}
-          onClick={(event) => {
-            focusSearchInput(event.currentTarget);
-          }}
-        >
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={visibleOffset === 0}
-            onClick={() => setOffset(Math.max(0, visibleOffset - 20))}
-          >
-            {t("root.searchPrevious")}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={!pagination?.hasMore}
-            onClick={() => {
-              const next = pagination?.nextOffset;
-              if (next != null) setOffset(next);
+    <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {renderList(
+          <>
+            <CommandMenu.Group heading={t("root.commandSearchHeading")}>
+              {displayedDocuments.map((document) =>
+                renderSearchResultItem({
+                  document,
+                  needles: resultNeedles,
+                  onOpenChange,
+                  navigate,
+                  formatDate,
+                  t,
+                }),
+              )}
+            </CommandMenu.Group>
+            {staticItems}
+          </>,
+        )}
+        {isFetchingActive ? <SearchUpdating /> : null}
+        {serverError && !isFetchingActive ? (
+          <SearchPartialError onRetry={retryActive} />
+        ) : null}
+        {visibleOffset > 0 || pagination?.hasMore ? (
+          <div
+            className="flex justify-between gap-2 border-t p-2"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ")
+                event.stopPropagation();
+            }}
+            onClick={(event) => {
+              focusSearchInput(event.currentTarget);
             }}
           >
-            {t("root.searchNext")}
-          </Button>
-        </div>
-      ) : null}
-    </>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={visibleOffset === 0}
+              onClick={() => setOffset(Math.max(0, visibleOffset - 20))}
+            >
+              {t("root.searchPrevious")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!pagination?.hasMore}
+              onClick={() => {
+                const next = pagination?.nextOffset;
+                if (next != null) setOffset(next);
+              }}
+            >
+              {t("root.searchNext")}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+      <CommandPreviewPane
+        selectedValue={selectedValue}
+        documents={displayedDocuments}
+        needles={resultNeedles}
+        commandPreview={commandPreview}
+      />
+    </div>
   );
 }
 
@@ -624,11 +725,22 @@ export function ContentCommandSearchResults({
   onOpenChange,
   renderList,
   staticItems,
+  scope,
+  onScopeChange,
+  selectedValue,
+  commandPreview,
 }: {
   query: string;
   onOpenChange: (open: boolean) => void;
   renderList: (results?: ReactNode) => ReactNode;
   staticItems: ReactNode;
+  /** The chosen scope, when the menu owns it; otherwise kept here. */
+  scope?: string | null;
+  onScopeChange?: (scope: string | null) => void;
+  /** The highlighted row, for the preview pane. */
+  selectedValue?: string;
+  /** Preview for a highlighted row that isn't a page result. */
+  commandPreview?: (value: string) => ReactNode;
 }) {
   const t = useT();
   const { formatDate } = useFormatters();
@@ -637,7 +749,9 @@ export function ContentCommandSearchResults({
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
     null,
   );
-  const [chosenScope, setChosenScope] = useState<string | null>(null);
+  const [ownScope, setOwnScope] = useState<string | null>(null);
+  const chosenScope = scope !== undefined ? scope : ownScope;
+  const setChosenScope = onScopeChange ?? setOwnScope;
   const selectedSpace = contentSpaceForStoredSelection({
     spaces: spaces.data?.spaces ?? [],
     storedSpaceId,
@@ -789,82 +903,84 @@ export function ContentCommandSearchResults({
 
   return (
     <>
-      <div
-        ref={toolbarRef}
-        className="flex flex-wrap gap-2 border-b p-2"
-        onKeyDown={(event) => {
-          if (event.key !== "Tab" && event.key !== "Escape")
-            event.stopPropagation();
-        }}
-      >
-        <SearchChoice
-          label={t("root.searchScope")}
-          value={
-            pageScopeId
-              ? THIS_PAGE
-              : searchingAll
-                ? ALL_SPACES
-                : (scopeId ?? "")
-          }
-          choices={[
-            ...(currentPageId
-              ? [{ value: THIS_PAGE, label: t("root.searchThisPage") }]
-              : []),
-            { value: ALL_SPACES, label: t("root.searchAllWorkspaces") },
-            ...(spaces.data?.spaces ?? []).map((entry) => ({
-              value: entry.id,
-              label: entry.name,
-            })),
-          ]}
-          onChange={setChosenScope}
-          focusInput={focusPickerInput}
-        />
-        <SearchChoice
-          label={t("root.searchFields")}
-          value={searchFields}
-          choices={[
-            { value: "all", label: t("root.searchAllText") },
-            { value: "title", label: t("root.searchTitleOnly") },
-          ]}
-          onChange={setSearchFields}
-          focusInput={focusPickerInput}
-        />
-        <SearchChoice
-          label={t("root.searchType")}
-          value={documentType}
-          choices={[
-            { value: "all", label: t("root.searchAllTypes") },
-            { value: "page", label: t("root.commandDocumentsHeading") },
-            { value: "database", label: t("root.commandDatabasesHeading") },
-          ]}
-          onChange={setDocumentType}
-          focusInput={focusPickerInput}
-        />
-        <DateSearchChoice
-          label={dateAccessibleLabel}
-          triggerLabel={dateTriggerLabel}
-          presetValue={presetForModifiedDate(modifiedDate)}
-          selectedDay={
-            modifiedDate.kind === "custom"
-              ? new Date(`${modifiedDate.day}T00:00:00`)
-              : undefined
-          }
-          onSelectPreset={applyPreset}
-          focusInput={focusPickerInput}
-          onPickDay={(day) => {
-            const selected = new Date(
-              day.getFullYear(),
-              day.getMonth(),
-              day.getDate(),
-            );
-            setModifiedDate({
-              kind: "custom",
-              day: `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`,
-              modifiedAfter: selected.toISOString(),
-            });
+      {liveQuery ? (
+        <div
+          ref={toolbarRef}
+          className="flex flex-wrap gap-2 border-b p-2"
+          onKeyDown={(event) => {
+            if (event.key !== "Tab" && event.key !== "Escape")
+              event.stopPropagation();
           }}
-        />
-      </div>
+        >
+          <SearchChoice
+            label={t("root.searchScope")}
+            value={
+              pageScopeId
+                ? THIS_PAGE
+                : searchingAll
+                  ? ALL_SPACES
+                  : (scopeId ?? "")
+            }
+            choices={[
+              ...(currentPageId
+                ? [{ value: THIS_PAGE, label: t("root.searchThisPage") }]
+                : []),
+              { value: ALL_SPACES, label: t("root.searchAllWorkspaces") },
+              ...(spaces.data?.spaces ?? []).map((entry) => ({
+                value: entry.id,
+                label: entry.name,
+              })),
+            ]}
+            onChange={setChosenScope}
+            focusInput={focusPickerInput}
+          />
+          <SearchChoice
+            label={t("root.searchFields")}
+            value={searchFields}
+            choices={[
+              { value: "all", label: t("root.searchAllText") },
+              { value: "title", label: t("root.searchTitleOnly") },
+            ]}
+            onChange={setSearchFields}
+            focusInput={focusPickerInput}
+          />
+          <SearchChoice
+            label={t("root.searchType")}
+            value={documentType}
+            choices={[
+              { value: "all", label: t("root.searchAllTypes") },
+              { value: "page", label: t("root.commandDocumentsHeading") },
+              { value: "database", label: t("root.commandDatabasesHeading") },
+            ]}
+            onChange={setDocumentType}
+            focusInput={focusPickerInput}
+          />
+          <DateSearchChoice
+            label={dateAccessibleLabel}
+            triggerLabel={dateTriggerLabel}
+            presetValue={presetForModifiedDate(modifiedDate)}
+            selectedDay={
+              modifiedDate.kind === "custom"
+                ? new Date(`${modifiedDate.day}T00:00:00`)
+                : undefined
+            }
+            onSelectPreset={applyPreset}
+            focusInput={focusPickerInput}
+            onPickDay={(day) => {
+              const selected = new Date(
+                day.getFullYear(),
+                day.getMonth(),
+                day.getDate(),
+              );
+              setModifiedDate({
+                kind: "custom",
+                day: `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`,
+                modifiedAfter: selected.toISOString(),
+              });
+            }}
+          />
+        </div>
+      ) : null}
       {!searchingAll && (spaces.error || (!spaces.isLoading && !scopeId)) ? (
         <>
           {renderList(staticItems)}
@@ -891,6 +1007,8 @@ export function ContentCommandSearchResults({
           renderList={renderList}
           staticItems={staticItems}
           titleIndex={titleIndex}
+          selectedValue={selectedValue}
+          commandPreview={commandPreview}
         />
       ) : (
         renderList(staticItems)

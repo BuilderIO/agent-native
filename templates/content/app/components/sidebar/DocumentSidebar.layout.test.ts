@@ -299,6 +299,7 @@ describe("document sidebar layout", () => {
 
   it("asks before moving a Page into another space and never offers local folders", () => {
     const dialog = readSidebarSource("./MovePageDialog.tsx");
+    const moveFlow = readSidebarSource("./use-move-page-dialog.tsx");
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
     expect(dialog).toContain("if (crossSpace) setPendingParentId(parentId);");
@@ -306,7 +307,8 @@ describe("document sidebar layout", () => {
     expect(dialog).toContain("sidebar.moveToSpaceWarningShared");
     expect(dialog).toContain("sidebar.moveToSpaceWarningPrivate");
     expect(dialog).toContain("setTargetSpaceId(page?.spaceId");
-    expect(sidebar).toContain('space.kind !== "source_backed"');
+    expect(moveFlow).toContain('space.kind !== "source_backed"');
+    expect(sidebar).toContain("useMovePageDialog(");
     expect(sidebar).toContain('useActionMutation("duplicate-page"');
   });
 

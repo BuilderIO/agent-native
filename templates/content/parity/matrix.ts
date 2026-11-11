@@ -64,9 +64,9 @@ export const parityMatrix: ParityRow[] = [
     surface: "sidebar",
     label: "Rank page titles in the command menu on every keystroke",
     uiEntrypoints: [
+      "app/components/ContentCommandMenu.tsx",
       "app/components/ContentCommandSearch.tsx",
       "app/hooks/use-documents.ts",
-      "app/root.tsx",
     ],
     durableEffect: null,
     uiImplementation:
@@ -94,13 +94,15 @@ export const parityMatrix: ParityRow[] = [
       "app/components/sidebar/DocumentTreeItem.tsx",
       "app/components/sidebar/SidebarRowActions.tsx",
       "app/components/sidebar/MovePageDialog.tsx",
+      "app/components/sidebar/use-move-page-dialog.tsx",
       "app/components/editor/DocumentToolbar.tsx",
+      "app/components/ContentCommandMenu.tsx",
       "app/hooks/use-documents.ts",
     ],
     durableEffect:
       "Document tree rows and document metadata are created, updated, deleted, moved, searched, or read.",
     uiImplementation:
-      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness; failed slash insertions roll back only an unchanged resource created by the caller; the shared sidebar row menu renames, duplicates a page with its sub-pages beside the original, moves within or between spaces (warning that access changes first), trashes, and reads last-edit activity through the same Actions.",
+      "Sidebar and hooks call document actions with optimistic cache updates for visible responsiveness; failed slash insertions roll back only an unchanged resource created by the caller; the shared sidebar row menu renames, duplicates a page with its sub-pages beside the original, moves within or between spaces (warning that access changes first), trashes, and reads last-edit activity through the same Actions; the command menu copies the open page's link, pins it, moves it through the same move dialog, and adds pages through the same hooks.",
     status: "action-backed",
     actions: [
       "create-document",
@@ -124,6 +126,7 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "covered",
     followUpPR: null,
     coverageRefs: [
+      "app/components/ContentCommandMenu.test.tsx",
       "actions/content-database-lifecycle.db.test.ts",
       "actions/database-setup.db.test.ts",
       "actions/database-setup-mcp.db.test.ts",

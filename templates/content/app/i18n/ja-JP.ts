@@ -1700,6 +1700,18 @@ const overrides = {
     commandAppearance: "外観",
     openAgent: "エージェントを開く",
     toggleTheme: "テーマを切り替え",
+    commandOnPage: "「{{title}}」",
+    commandSearchInPage: "このページ内を検索",
+    commandSearchInPageDescription: "このページとその中のページのみ",
+    commandScopeChip: "「{{title}}」内",
+    commandClearScope: "すべての場所を検索",
+    commandAskAgent: "エージェントに質問:「{{query}}」",
+    commandAskAgentDescription:
+      "エージェントが検索、閲覧、要約を代わりに行います",
+    commandPreview: "プレビュー",
+    commandHintNavigate: "移動",
+    commandHintOpen: "開く",
+    commandHintClose: "閉じる",
   },
   theme: {
     system: "システムテーマ",

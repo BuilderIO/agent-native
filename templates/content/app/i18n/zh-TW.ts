@@ -272,6 +272,17 @@ const overrides = {
     commandAppearance: "外觀",
     openAgent: "開啟代理",
     toggleTheme: "切換主題",
+    commandOnPage: "「{{title}}」",
+    commandSearchInPage: "在此頁面中搜尋",
+    commandSearchInPageDescription: "僅此頁面及其中的頁面",
+    commandScopeChip: "在「{{title}}」中",
+    commandClearScope: "在所有位置搜尋",
+    commandAskAgent: "詢問代理：「{{query}}」",
+    commandAskAgentDescription: "代理可以替你搜尋、閱讀和摘要",
+    commandPreview: "預覽",
+    commandHintNavigate: "導覽",
+    commandHintOpen: "開啟",
+    commandHintClose: "關閉",
     metaTitle:
       "Agent-Native Content - 開放原始碼且代理友善的 Obsidian 替代方案",
     metaDescription:

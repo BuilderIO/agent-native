@@ -1426,6 +1426,18 @@ const enUS = {
     commandAppearance: "Appearance",
     openAgent: "Open Agent",
     toggleTheme: "Toggle theme",
+    commandOnPage: "On “{{title}}”",
+    commandSearchInPage: "Search in this page",
+    commandSearchInPageDescription: "Only this page and the pages inside it",
+    commandScopeChip: "In “{{title}}”",
+    commandClearScope: "Search everywhere",
+    commandAskAgent: "Ask the agent: “{{query}}”",
+    commandAskAgentDescription:
+      "The agent can search, read and summarize for you",
+    commandPreview: "Preview",
+    commandHintNavigate: "Navigate",
+    commandHintOpen: "Open",
+    commandHintClose: "Close",
     metaTitle:
       "Agent-Native Content - Open Source, agent-friendly Obsidian alternative",
     metaDescription:
