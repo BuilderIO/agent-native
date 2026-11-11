@@ -8,8 +8,8 @@ import {
   recordChange,
 } from "./poll.js";
 
-// The default access checks, for the one test that uses them. Design stands
-// in for a type with a host access resolver.
+// The default access checks, for the tests that use them. Design stands in
+// for a type with a host access resolver.
 vi.mock("../sharing/access.js", () => ({
   hasHostAccessResolver: vi.fn(
     (resourceType: string) => resourceType === "design",
@@ -233,12 +233,86 @@ describe("AppSyncState read through other people's resources", () => {
       "document",
       [...others.map((doc) => doc.resourceId), "mine"],
       { userEmail: "reader@example.com", orgId: undefined },
+      expect.any(Function),
     );
     expect(resolveAccessMany).toHaveBeenCalledWith(
       "deck",
       ["deck-1", "deck-2"],
       { userEmail: "reader@example.com", orgId: undefined },
+      expect.any(Function),
     );
+  });
+
+  it("passes resources a batch has answered before the rest of it", async () => {
+    const rows = durableRows(othersDocuments(3));
+    // The batch answers its first resource, then waits on the others forever.
+    const resolveAccessMany = vi.fn(
+      (
+        _type: string,
+        ids: string[],
+        _ctx: unknown,
+        answered?: (resourceId: string, allowed: boolean) => void,
+      ) => {
+        if (ids[0] !== undefined) answered?.(ids[0], true);
+        return new Promise<Set<string>>(() => {});
+      },
+    );
+    const state = stateReading(rows, { resolveAccessMany });
+
+    const result = await state.getCombinedChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 5, id: "" },
+    );
+
+    expect(result.events.map((event) => event.resourceId)).toEqual([
+      "others-0",
+    ]);
+    expect(result.cursorLimited).toBe(true);
+  });
+
+  it("checks on their own only the resources a failed batch left unanswered", async () => {
+    const rows = durableRows(othersDocuments(12));
+    // The batch answers its first two resources, then fails.
+    const resolveAccessMany = vi.fn(
+      async (
+        _type: string,
+        ids: string[],
+        _ctx: unknown,
+        answered?: (resourceId: string, allowed: boolean) => void,
+      ) => {
+        if (ids.length === 1) return new Set(ids);
+        for (const id of ids.slice(0, 2)) answered?.(id, true);
+        throw new Error("Builder unavailable");
+      },
+    );
+    const state = stateReading(rows, { resolveAccessMany });
+
+    const result = await state.getCombinedChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      true,
+      { version: 5, id: "" },
+    );
+
+    // The read after the wait starts a batch for the last two, so only the
+    // single checks are counted here.
+    expect(
+      resolveAccessMany.mock.calls
+        .map(([, ids]) => ids)
+        .filter((ids) => ids.length === 1),
+    ).toEqual(
+      othersDocuments(12)
+        .slice(2, 10)
+        .map((resource) => [resource.resourceId]),
+    );
+    expect(result.events.map((event) => event.resourceId)).toEqual(
+      othersDocuments(10).map((resource) => resource.resourceId),
+    );
+    expect(result.cursorLimited).toBe(true);
   });
 
   it("catches up over a few polls when the log holds more than one read checks", async () => {
@@ -396,6 +470,53 @@ describe("AppSyncState read through other people's resources", () => {
     );
   });
 
+  it("passes a host resolver's first answers before its slowest ones", async () => {
+    const designs = Array.from({ length: 10 }, (_, i) => ({
+      resourceType: "design",
+      resourceId: `design-${i}`,
+    }));
+    const ids = designs.map((design) => design.resourceId);
+    const resolveAccessMany = vi.mocked(sharingAccess.resolveAccessMany);
+    resolveAccessMany.mockClear();
+    // Builder answers the first eight designs at once and never the last two.
+    resolveAccessMany
+      .mockImplementationOnce(
+        async (_type, resourceIds) =>
+          new Map(
+            resourceIds.map((id) => [
+              id,
+              {
+                role: "viewer" as const,
+                resource: {
+                  id,
+                  ownerEmail: "writer@example.com",
+                  orgId: null,
+                  visibility: "private" as const,
+                },
+              },
+            ]),
+          ),
+      )
+      .mockImplementationOnce(() => new Promise(() => {}));
+
+    const result = await stateReading(
+      durableRows(designs),
+      {},
+    ).getCombinedChangesSinceForUser(5, "reader@example.com", undefined, true, {
+      version: 5,
+      id: "",
+    });
+
+    expect(resolveAccessMany.mock.calls).toEqual([
+      ["design", ids.slice(0, 8), { userEmail: "reader@example.com" }],
+      ["design", ids.slice(8), { userEmail: "reader@example.com" }],
+    ]);
+    expect(result.events.map((event) => event.resourceId)).toEqual(
+      ids.slice(0, 8),
+    );
+    expect(result.cursorLimited).toBe(true);
+  });
+
   it("keeps a newer check running when an older batch for its resource ends", async () => {
     const rows = durableRows([{ resourceType: "document", resourceId: "a" }]);
     let finishBatch!: (visible: Set<string>) => void;
@@ -482,9 +603,11 @@ describe("AppSyncState read through other people's resources", () => {
       "public",
     ]);
     expect(resolveAccessMany).toHaveBeenCalledOnce();
-    expect(resolveAccessMany).toHaveBeenCalledWith("document", ["mine"], {
-      userEmail: "reader@example.com",
-      orgId: undefined,
-    });
+    expect(resolveAccessMany).toHaveBeenCalledWith(
+      "document",
+      ["mine"],
+      { userEmail: "reader@example.com", orgId: undefined },
+      expect.any(Function),
+    );
   });
 });

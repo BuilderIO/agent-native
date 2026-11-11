@@ -100,6 +100,8 @@ const ACCESS_CACHE_MAX = 5_000;
 const ACCESS_PRIME_LIMIT = 250;
 // How many resources of a failed batch are checked on their own.
 const ACCESS_RETRY_LIMIT = 8;
+// How many resources with a host access resolver one batch query checks.
+const HOST_ACCESS_CHUNK = 8;
 const ACCESS_CHECK_WAIT_MS = 1_000;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SCREEN_REFRESH_QUERY_LIMIT = 256;
@@ -478,17 +480,23 @@ const defaultResolveAccess: AccessResolver = async (
   return resolveAccess(resourceType, resourceId, ctx);
 };
 
-/** Answers which of `resourceIds` the user may see. */
+/**
+ * Answers which of `resourceIds` the user may see. A resolver may also report
+ * answers through `answered` as they arrive, so a read can pass those
+ * resources before the slowest of the rest is checked.
+ */
 export type ManyAccessResolver = (
   resourceType: string,
   resourceIds: string[],
   ctx: { userEmail: string; orgId: string | undefined },
+  answered?: (resourceId: string, allowed: boolean) => void,
 ) => Promise<ReadonlySet<string>>;
 
 const defaultResolveAccessMany: ManyAccessResolver = async (
   resourceType,
   resourceIds,
   ctx,
+  answered,
 ) => {
   const { hasHostAccessResolver, resolveAccessMany } =
     await import("../sharing/access.js");
@@ -496,16 +504,32 @@ const defaultResolveAccessMany: ManyAccessResolver = async (
     userEmail: ctx.userEmail,
     ...(ctx.orgId === undefined ? {} : { orgId: ctx.orgId }),
   };
-  // A host access resolver gets the loaded row and can read any column of it
-  // (Design reads a design's data to find its Builder project), so those
-  // types load whole rows, as a single check does. Others load only the
-  // columns the access rules read.
-  const access = hasHostAccessResolver(resourceType)
-    ? await resolveAccessMany(resourceType, resourceIds, accessCtx)
-    : await resolveAccessMany(resourceType, resourceIds, accessCtx, {
+  if (!hasHostAccessResolver(resourceType)) {
+    const access = await resolveAccessMany(
+      resourceType,
+      resourceIds,
+      accessCtx,
+      {
         skipResourceBody: true,
-      });
-  return new Set(access.keys());
+      },
+    );
+    return new Set(access.keys());
+  }
+  // A host access resolver gets the loaded row and can read any column of it
+  // (Design reads a design's data to find its Builder project), so these types
+  // load whole rows, as a single check does. It can also ask another service
+  // about each resource, so they go a few at a time, each few's answers
+  // reported as they arrive.
+  const visible = new Set<string>();
+  for (let start = 0; start < resourceIds.length; start += HOST_ACCESS_CHUNK) {
+    const chunk = resourceIds.slice(start, start + HOST_ACCESS_CHUNK);
+    const access = await resolveAccessMany(resourceType, chunk, accessCtx);
+    for (const resourceId of chunk) {
+      if (access.has(resourceId)) visible.add(resourceId);
+      answered?.(resourceId, access.has(resourceId));
+    }
+  }
+  return visible;
 };
 
 /**
@@ -1085,25 +1109,35 @@ export class AppSyncState {
       this.setAccessCache(key, allowed, Date.now());
     };
     const ids = [...keys.keys()];
+    const answeredIds = new Set<string>();
+    const answer = (resourceId: string, allowed: boolean) => {
+      answeredIds.add(resourceId);
+      cacheUnlessInvalidated(resourceId, allowed);
+    };
     // The check starts on the next microtask, so it is registered as in flight
     // below before any of it runs, and its `finally` always finds it there.
     const check: Promise<void> = retainRequestDbPoolScope(
       Promise.resolve().then(async () => {
         try {
-          const visible = await resolveMany(resourceType, ids, {
-            userEmail,
-            orgId,
-          });
-          for (const id of ids) cacheUnlessInvalidated(id, visible.has(id));
+          const visible = await resolveMany(
+            resourceType,
+            ids,
+            { userEmail, orgId },
+            answer,
+          );
+          for (const id of ids) {
+            if (!answeredIds.has(id)) answer(id, visible.has(id));
+          }
         } catch {
           // The batch fails as a whole when any one resource's check fails.
-          // Check the first few on their own, in log order: a failure then
-          // hides only its own resource, and the read moves past them. The
-          // rest stay unchecked for a later read, so a failing batch costs a
-          // few single checks, not one per resource. Each goes through the
-          // same batch resolver, so the same rules decide it.
+          // Check the first few still unanswered on their own, in log order:
+          // a failure then hides only its own resource, and the read moves
+          // past them. The rest stay unchecked for a later read, so a failing
+          // batch costs a few single checks, not one per resource. Each goes
+          // through the same batch resolver, so the same rules decide it.
+          const unanswered = ids.filter((id) => !answeredIds.has(id));
           await Promise.all(
-            ids.slice(0, ACCESS_RETRY_LIMIT).map(async (id) => {
+            unanswered.slice(0, ACCESS_RETRY_LIMIT).map(async (id) => {
               let allowed = false;
               try {
                 allowed = (
