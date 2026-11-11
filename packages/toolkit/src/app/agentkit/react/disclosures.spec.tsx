@@ -229,7 +229,10 @@ describe("AgentKit disclosures", () => {
     );
     expect(item.textContent).toContain("First file contents");
     await click(itemTrigger);
-    expect(item.querySelector(".agentkit-activity-summary")).toBeNull();
+    // Closed, it stays in the DOM for find-in-page.
+    expect(
+      item.querySelector(".agentkit-activity-summary")?.getAttribute("hidden"),
+    ).toBe("until-found");
 
     // A row with nothing to expand is text, not a disabled button.
     const plain = work.querySelectorAll<HTMLElement>(

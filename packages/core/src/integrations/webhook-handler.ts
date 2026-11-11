@@ -102,6 +102,7 @@ import {
   resolveIntegrationRequestScope,
 } from "./request-scope.js";
 import { integrationScopeSubjectKey } from "./scope-store.js";
+import { slackInputRequestText } from "./slack-input-request.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type {
   PlatformAdapter,
@@ -2097,64 +2098,6 @@ function getQueuedA2AContinuationAgent(completedRun: ActiveRun): string | null {
   return null;
 }
 
-function slackQuestionBlock(
-  input: Record<string, unknown> | null | undefined,
-): { lines: string[]; allowFreeText: boolean } | null {
-  const question =
-    typeof input?.question === "string" ? input.question.trim() : "";
-  if (!question) return null;
-
-  let rawOptions: unknown;
-  try {
-    rawOptions = Array.isArray(input?.options)
-      ? input.options
-      : JSON.parse(stringifyInboundValue(input?.options ?? "[]"));
-    // coercion-ok: options Slack cannot read mean no input request; the run's own reply is sent instead.
-  } catch {
-    return null;
-  }
-  if (!Array.isArray(rawOptions) || rawOptions.length === 0) return null;
-  const options = rawOptions
-    .slice(0, 4)
-    .map((option) => {
-      const value = option as Record<string, unknown> | null;
-      const label =
-        typeof value?.label === "string"
-          ? value.label.trim()
-          : typeof value?.value === "string"
-            ? value.value.trim()
-            : "";
-      if (!label) return null;
-      const description =
-        typeof value?.description === "string" ? value.description.trim() : "";
-      return {
-        label: label.slice(0, 200),
-        description: description.slice(0, 400),
-      };
-    })
-    .filter(
-      (option): option is { label: string; description: string } =>
-        option !== null,
-    );
-  if (!options.length) return null;
-
-  const header =
-    typeof input?.header === "string" ? input.header.trim().slice(0, 80) : "";
-  return {
-    allowFreeText:
-      stringifyInboundValue(input?.allowFreeText ?? "true") !== "false",
-    lines: [
-      ...(header ? [`*${header}*`] : []),
-      question.slice(0, 1_500),
-      "",
-      ...options.map(
-        (option, optionIndex) =>
-          `${optionIndex + 1}. ${option.label}${option.description ? ` — ${option.description}` : ""}`,
-      ),
-    ],
-  };
-}
-
 function extractSlackInputRequest(
   completedRun: ActiveRun,
 ): { text: string } | null {
@@ -2170,50 +2113,19 @@ function extractSlackInputRequest(
   if (!delivered) return null;
 
   const deliveredId = delivered.type === "tool_done" ? delivered.id : "";
-  for (let index = events.length - 1; index >= 0; index--) {
-    const event = events[index];
-    if (
-      event.type !== "tool_start" ||
-      event.tool !== "ask-question" ||
-      event.id !== deliveredId
-    ) {
-      continue;
-    }
-    const input = event.input as Record<string, unknown> | undefined;
-    let items: unknown[] = [input];
-    if (input?.questions !== undefined && input.questions !== "") {
-      try {
-        const parsed: unknown = Array.isArray(input.questions)
-          ? input.questions
-          : JSON.parse(stringifyInboundValue(input.questions));
-        if (!Array.isArray(parsed)) return null;
-        items = parsed.slice(0, 4);
-        // coercion-ok: questions Slack cannot read mean no input request; the run's own reply is sent instead.
-      } catch {
-        return null;
-      }
-    }
-    const parsedBlocks = items.map((item) =>
-      slackQuestionBlock(item as Record<string, unknown> | null | undefined),
+  const started = [...events]
+    .reverse()
+    .find(
+      (event) =>
+        event.type === "tool_start" &&
+        event.tool === "ask-question" &&
+        event.id === deliveredId,
     );
-    // A question Slack cannot show would leave the others unanswerable.
-    if (!parsedBlocks.length || parsedBlocks.includes(null)) return null;
-    const blocks = parsedBlocks.filter(
-      (block): block is NonNullable<typeof block> => block !== null,
-    );
-    const allowFreeText = blocks.some((block) => block.allowFreeText);
-    return {
-      text: [
-        ...blocks.flatMap((block, blockIndex) => [
-          ...(blockIndex > 0 ? [""] : []),
-          ...block.lines,
-        ]),
-        "",
-        `Reply in this thread with your choice${items.length > 1 ? "s" : ""}${allowFreeText ? " or a short answer" : ""}.`,
-      ].join("\n"),
-    };
-  }
-  return null;
+  if (started?.type !== "tool_start") return null;
+  const text = slackInputRequestText(
+    started.input as Record<string, unknown> | undefined,
+  );
+  return text === null ? null : { text };
 }
 
 function extractRecoverableA2AArtifactToolResult(

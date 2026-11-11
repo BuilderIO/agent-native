@@ -8,7 +8,7 @@ import {
   CodeBlockLine,
 } from "./code-block.js";
 import { useAgentKitLabels } from "./context.js";
-import { computeLineDiff, diffStats } from "./file-diff.js";
+import { cachedLineDiff, diffStats } from "./file-diff.js";
 import {
   TraceCollapsible,
   TraceCollapsibleContent,
@@ -56,7 +56,7 @@ export function fileChangeStats(change: FileChangeData): {
     };
   }
   if (!change.oldText && !change.newText) return { added: 0, removed: 0 };
-  return diffStats(computeLineDiff(change.oldText ?? "", change.newText ?? ""));
+  return diffStats(cachedLineDiff(change.oldText ?? "", change.newText ?? ""));
 }
 
 function fileLanguage(filePath: string): string | undefined {
@@ -109,7 +109,7 @@ export function FileChangeBody({ change }: { change: FileChangeData }) {
   const diff = useMemo(
     () =>
       change.kind === "edit" && (change.oldText || change.newText)
-        ? computeLineDiff(change.oldText ?? "", change.newText ?? "")
+        ? cachedLineDiff(change.oldText ?? "", change.newText ?? "")
         : undefined,
     [change.kind, change.oldText, change.newText],
   );

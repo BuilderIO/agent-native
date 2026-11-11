@@ -49,7 +49,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu.js";
-import { Popover, PopoverAnchor, PopoverContent } from "../ui/popover.js";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { formatAttachmentError } from "./attachment-accept.js";
 import { ComposerNotice } from "./composer-notice.js";
@@ -1930,7 +1929,6 @@ function ModelSelector({
 }) {
   const adapters = useComposerRuntimeAdapters();
   const t = adapters.translate;
-  const formatNumber = adapters.formatNumber;
   const reasoning = adapters.models?.reasoning;
   const engineNames = useMemo(
     () => engines.map((group) => group.engine),

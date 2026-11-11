@@ -10,7 +10,6 @@ import {
   IconArrowFork,
   IconBook2,
   IconBrain,
-  IconCheck,
   IconChevronLeft,
   IconChevronRight,
   IconCircle,
@@ -1977,6 +1976,7 @@ export function AgentActivityItem({
       </div>
       {errorLine}
       <TraceCollapsibleContent
+        keepMounted
         // Summary parts can render links, and replays keep their attributes.
         {...(activity.status === "failed" ? SESSION_REPLAY_BLOCK_PROPS : {})}
         className="agentkit-activity-summary"
@@ -4008,7 +4008,22 @@ function agentCollaborationItems(
   return items;
 }
 
-function subagentStepIds(
+/** The one task a Subagent step shows: the agent's active task, else its first. */
+function subagentStepTask(
+  thread: AgentThreadState,
+  agentId: string,
+): AgentTask | undefined {
+  const agent = agentId in thread.agents ? thread.agents[agentId] : undefined;
+  return Object.values(thread.tasks).find(
+    (candidate) =>
+      candidate.assignedAgentId === agentId &&
+      (agent?.activeTaskId === undefined ||
+        candidate.id === agent.activeTaskId),
+  );
+}
+
+/** Tasks the Subagent steps in this range of a run show. */
+function subagentStepTaskIds(
   thread: AgentThreadState,
   runId: RunId | undefined,
   labels: Partial<AgentKitLabels>,
@@ -4024,7 +4039,9 @@ function subagentStepIds(
     labels,
     range,
   )) {
-    if (item.type === "subagent") ids.add(item.agentId);
+    if (item.type !== "subagent") continue;
+    const task = subagentStepTask(thread, item.agentId);
+    if (task) ids.add(task.id);
   }
   return ids;
 }
@@ -4191,12 +4208,7 @@ export function AgentSubagentStep({
           minute: labels.durationMinuteShort,
           second: labels.durationSecondShort,
         }));
-  const task = Object.values(thread.tasks).find(
-    (candidate) =>
-      candidate.assignedAgentId === agentId &&
-      (agent?.activeTaskId === undefined ||
-        candidate.id === agent.activeTaskId),
-  );
+  const task = subagentStepTask(thread, agentId);
   const taskTitle = task ? humanizeAgentLabel(task.title) : "";
   const shownTaskTitle =
     taskTitle && taskTitle.toLocaleLowerCase() !== name.toLocaleLowerCase()
@@ -4417,6 +4429,7 @@ export function AgentSubagentStep({
       </div>
       {errorLine}
       <TraceCollapsibleContent
+        keepMounted
         {...(failed ? SESSION_REPLAY_BLOCK_PROPS : {})}
         className="agentkit-subagent-content"
       >
@@ -4625,18 +4638,17 @@ export function AgentTaskGroup({
     }
     tasks.set(event.task.id, thread.tasks[event.task.id] ?? event.task);
   }
-  // A delegated agent's task is shown in that agent's Subagent step.
-  const stepAgentIds = subagentStepIds(thread, runId, labels, {
+  // Only the task a Subagent step shows moves out of this list.
+  const stepTaskIds = subagentStepTaskIds(thread, runId, labels, {
     afterSequence,
     throughSequence,
   });
   const selectedIds = ids.filter((id) => {
     const sequence = firstSequence.get(id);
-    const assignedAgentId = tasks.get(id)?.assignedAgentId;
     return (
       sequence !== undefined &&
       sequenceInRange(sequence, { afterSequence, throughSequence }) &&
-      !(assignedAgentId && stepAgentIds.has(assignedAgentId))
+      !stepTaskIds.has(id)
     );
   });
   if (selectedIds.length === 0) return null;

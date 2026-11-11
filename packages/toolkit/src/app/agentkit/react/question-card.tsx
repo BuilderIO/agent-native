@@ -132,7 +132,7 @@ export function QuestionCard({
   const titleId = useId();
   const questionId = useId();
   const total = questions.length;
-  const question = questions[Math.min(step, total - 1)];
+  const question = questions.at(Math.min(step, total - 1));
 
   // Only when the old step had focus, so a late reply doesn't steal it.
   useEffect(() => {
@@ -246,7 +246,7 @@ export function QuestionCard({
     const target = (index + delta + options.length) % options.length;
     optionRefs.current[target]?.focus();
     // Arrows move the choice in a radio group, not only the focus.
-    const option = options[target];
+    const option = options.at(target);
     if (!multiSelect && option) choose(option.value, { fromArrow: true });
   };
   const onCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -262,7 +262,7 @@ export function QuestionCard({
     }
     if (!/^[1-9]$/.test(event.key)) return;
     const index = Number(event.key) - 1;
-    const option = options[index];
+    const option = options.at(index);
     if (!option) return;
     event.preventDefault();
     choose(option.value);

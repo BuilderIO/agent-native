@@ -200,7 +200,9 @@ describe("AgentSubagentStep", () => {
       "Summarize the release notes",
     );
     expect(container.querySelector(".agentkit-tasks")).toBeNull();
-    expect(container.querySelector(".agentkit-agent-interaction")).toBeNull();
+    expect(
+      step.querySelector(".agentkit-subagent-content")?.getAttribute("hidden"),
+    ).toBe("until-found");
     expect(container.textContent?.match(/Brain/g)).toHaveLength(1);
   });
 
@@ -236,7 +238,9 @@ describe("AgentSubagentStep", () => {
     expect(container.textContent?.match(/Brain/g)).toHaveLength(1);
 
     await toggle(step);
-    expect(step.querySelector(".agentkit-subagent-content")).toBeNull();
+    expect(
+      step.querySelector(".agentkit-subagent-content")?.getAttribute("hidden"),
+    ).toBe("until-found");
   });
 
   it("shows how long a finished agent worked and its result in place", async () => {
@@ -412,6 +416,42 @@ describe("AgentSubagentStep", () => {
       step.querySelector('.agentkit-activity-item[data-status="failed"]')
         ?.textContent,
     ).toContain("Read file");
+  });
+
+  it("keeps an agent's other tasks in the task list", async () => {
+    await render(
+      threadFrom([
+        ...delegation,
+        {
+          type: "task.created",
+          task: {
+            id: "task-2",
+            title: "Draft the changelog",
+            status: "pending",
+            assignedAgentId: "call-1",
+          },
+        },
+      ]),
+    );
+
+    // The step shows the active task; the agent's other task stays listed.
+    expect(
+      header(steps()[0] as HTMLElement)?.querySelector(
+        ".agentkit-activity-detail",
+      )?.textContent,
+    ).toBe("Summarize the release notes");
+    expect(container.querySelector(".agentkit-tasks-count")?.textContent).toBe(
+      "0 of 1 done",
+    );
+    await act(async () =>
+      container.querySelector<HTMLElement>(".agentkit-tasks-summary")?.click(),
+    );
+    expect(
+      Array.from(
+        container.querySelectorAll(".agentkit-task-title"),
+        (title) => title.textContent,
+      ),
+    ).toEqual(["Draft the changelog"]);
   });
 
   it("gives each delegated agent its own step", async () => {

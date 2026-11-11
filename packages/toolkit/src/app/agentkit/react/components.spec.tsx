@@ -760,8 +760,10 @@ describe("AgentKitChat", () => {
     expect(html).not.toContain("planck.png");
     expect(html.match(/Planck/g)).toHaveLength(1);
     expect(html).toContain(">finished<");
-    // Its calls wait inside the collapsed step.
-    expect(html).not.toContain("Read framework contracts");
+    // Its calls wait inside the collapsed step, hidden but findable.
+    expect(html).toMatch(
+      /data-state="closed" hidden="" class="[^"]*agentkit-subagent-content"[^>]*>[\s\S]*Read framework contracts/,
+    );
   });
 
   it("gives each delegated call one step and shows why it failed", async () => {

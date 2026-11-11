@@ -84,3 +84,27 @@ export function diffStats(lines: DiffLine[]): {
   }
   return { added, removed };
 }
+
+const CACHED_DIFFS = 32;
+const cachedDiffs = new Map<string, DiffLine[]>();
+
+/**
+ * `computeLineDiff`, cached by text: a row's stats and its body share one
+ * quadratic pass, and a re-render reuses it.
+ */
+export function cachedLineDiff(oldText: string, newText: string): DiffLine[] {
+  const key = `${oldText.length}:${oldText}\u0000${newText}`;
+  const cached = cachedDiffs.get(key);
+  if (cached) {
+    cachedDiffs.delete(key);
+    cachedDiffs.set(key, cached);
+    return cached;
+  }
+  const diff = computeLineDiff(oldText, newText);
+  cachedDiffs.set(key, diff);
+  if (cachedDiffs.size > CACHED_DIFFS) {
+    const oldest = cachedDiffs.keys().next();
+    if (!oldest.done) cachedDiffs.delete(oldest.value);
+  }
+  return diff;
+}

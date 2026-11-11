@@ -2735,9 +2735,11 @@ describe("AgentChat lifecycle", () => {
         row.querySelector(".agentkit-activity-label")?.textContent ===
         "Update slide",
     );
-    expect(failedToolRow?.textContent).not.toContain(
-      "slide_content_edit_failed",
-    );
+    expect(
+      failedToolRow
+        ?.querySelector(".agentkit-activity-summary")
+        ?.getAttribute("hidden"),
+    ).toBe("until-found");
     await act(async () => {
       failedToolRow
         ?.querySelector<HTMLElement>(
@@ -3488,7 +3490,9 @@ describe("AgentChat lifecycle", () => {
     );
     expect(tree.container.querySelector(".agentkit-run-failure")).toBeNull();
     expect(work?.dataset.open).toBe("false");
-    expect(work?.querySelector(".agentkit-activity-summary")).toBeNull();
+    expect(
+      work?.querySelector(".agentkit-activity-summary")?.getAttribute("hidden"),
+    ).toBe("until-found");
     await act(async () =>
       work?.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.click(),
     );
@@ -3496,9 +3500,11 @@ describe("AgentChat lifecycle", () => {
     const failedTool = work?.querySelector(
       '.agentkit-activity-item[data-status="failed"]',
     );
-    expect(failedTool?.textContent).not.toContain(
-      "The file could not be saved.",
-    );
+    expect(
+      failedTool
+        ?.querySelector(".agentkit-activity-summary")
+        ?.getAttribute("hidden"),
+    ).toBe("until-found");
     await act(async () => failedTool?.querySelector("button")?.click());
     expect(
       failedTool?.querySelector(".agentkit-activity-summary")?.textContent,
