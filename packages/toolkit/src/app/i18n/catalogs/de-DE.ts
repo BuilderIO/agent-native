@@ -3054,6 +3054,80 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "Skill-Datei hochladen",
   "settingsResources.skills.describePlaceholder":
     "Ein Skill, der Pull Requests auf Sicherheitsprobleme prüft",
+  "settingsResources.skills.personalHint": "Nur du hast diese.",
+  "settingsResources.skills.orgHint":
+    "Mit allen bei {{org}} geteilt. Deine Schalter gelten nur für dich.",
+  "settingsResources.skills.orgAdminHint":
+    "Mit allen bei {{org}} geteilt. Als Admin legst du fest, wie jeder Skill für andere startet.",
+  "settingsResources.skills.dispatchHint":
+    "In Dispatch bewahrt dein Workspace Skills auf, die alle Apps teilen. Schaltest du hier einen aus, ändert sich nur {{app}}.",
+  "settingsResources.skills.thisApp": "diese App",
+  "settingsResources.skills.forEveryone": "Für alle",
+  "settingsResources.skills.forYou": "Für dich",
+  "settingsResources.skills.markRecommended": "Empfohlen",
+  "settingsResources.skills.markRecommendedHint":
+    "An, bis jemand ihn ausschaltet.",
+  "settingsResources.skills.markOptional": "Optional",
+  "settingsResources.skills.markOptionalHint":
+    "Aus, bis jemand ihn einschaltet.",
+  "settingsResources.skills.markRequired": "Pflicht",
+  "settingsResources.skills.markRequiredHint":
+    "Für alle an. Niemand kann ihn ausschalten oder eine eigene Version nutzen.",
+  "settingsResources.skills.recommendedBy": "Empfohlen von {{org}}",
+  "settingsResources.skills.requiredBy": "Pflicht bei {{org}}",
+  "settingsResources.skills.requiredHidesOwn":
+    "Nicht verwendet: {{org}} verlangt, dass alle die gemeinsame Version nutzen",
+  "settingsResources.skills.optionalOff":
+    "Optional: aus, bis du ihn einschaltest",
+  "settingsResources.skills.optionalOn": "Optional: du hast ihn eingeschaltet",
+  "settingsResources.skills.switchedOffOn": "Am {{date}} von dir ausgeschaltet",
+  "settingsResources.skills.alwaysOn": "Immer an",
+  "settingsResources.skills.requiredLockHint":
+    "Pflicht bei {{org}}, daher immer an",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch hat auch einen Skill {{name}}. Der Agent nutzt diesen und überspringt den aus Dispatch. Benenne einen um, um beide zu nutzen.",
+  "settingsResources.skills.dispatchClashRequired":
+    "Der Skill {{name}} aus Dispatch ist Pflicht, deshalb nutzt der Agent ihn und überspringt diesen. Benenne einen um, um beide zu nutzen.",
+  "settingsResources.skills.choicesLoadFailed":
+    "Es konnte nicht geladen werden, welche Skills für dich aktiv sind, deshalb sind die Schalter ausgeblendet. Lade die Seite neu, um es noch einmal zu versuchen.",
+  "settingsResources.skills.requireChecking":
+    "Es wird geprüft, wen das betrifft…",
+  "settingsResources.skills.requireCountsFailed":
+    "Es konnte nicht geprüft werden, wen das betrifft.",
+  "settingsResources.skills.requireTitle": "{{name}} zur Pflicht machen?",
+  "settingsResources.skills.makeRequired": "Zur Pflicht machen",
+  "settingsResources.skills.switchFailed":
+    "Deine Auswahl für {{name}} konnte nicht gespeichert werden.",
+  "settingsResources.skills.markFailed":
+    "Konnte nicht ändern, wie {{name}} für andere startet.",
+  "settingsResources.skills.addForMe": "Für mich hinzufügen",
+  "settingsResources.skills.addForEveryone": "Für alle hinzufügen",
+  "settingsResources.skills.offFor_one": "Aus für {{off}} von {{count}} Person",
+  "settingsResources.skills.offFor_other":
+    "Aus für {{off}} von {{count}} Personen",
+  "settingsResources.skills.onFor_one": "An für {{on}} von {{count}} Person",
+  "settingsResources.skills.onFor_other":
+    "An für {{on}} von {{count}} Personen",
+  "settingsResources.skills.ownVersions_one":
+    "{{count}} Person hat eine eigene Version",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}} Personen haben eine eigene Version",
+  "settingsResources.skills.requireTurnsBackOn_one":
+    "Er wird für die {{count}} Person wieder eingeschaltet, die ihn ausgeschaltet hat.",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "Er wird für die {{count}} Personen wieder eingeschaltet, die ihn ausgeschaltet haben.",
+  "settingsResources.skills.requireTurnsOn_one":
+    "Er wird für die {{count}} Person eingeschaltet, die ihn noch nicht eingeschaltet hatte.",
+  "settingsResources.skills.requireTurnsOn_other":
+    "Er wird für die {{count}} Personen eingeschaltet, die ihn noch nicht eingeschaltet hatten.",
+  "settingsResources.skills.requireOwnVersions_one":
+    "Die {{count}} Person mit eigener Version bekommt stattdessen den Text von {{org}}. Ihre Version bleibt erhalten und kommt zurück, wenn du das später änderst.",
+  "settingsResources.skills.requireOwnVersions_other":
+    "Die {{count}} Personen mit eigener Version bekommen stattdessen den Text von {{org}}. Ihre Versionen bleiben erhalten und kommen zurück, wenn du das später änderst.",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "Die {{count}} Person mit eigener Version bekommt stattdessen den Text von Dispatch. Ihre Version bleibt erhalten und kommt zurück, wenn du das später änderst.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "Die {{count}} Personen mit eigener Version bekommen stattdessen den Text von Dispatch. Ihre Versionen bleiben erhalten und kommen zurück, wenn du das später änderst.",
   "settingsResources.files.empty":
     "Füge eine Datei hinzu, um deinem Agenten mehr Kontext zu geben.",
   "settingsResources.files.emptyTitle": "Noch keine Dateien",

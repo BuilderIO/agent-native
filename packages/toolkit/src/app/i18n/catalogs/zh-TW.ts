@@ -2663,6 +2663,58 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "上傳技能檔案",
   "settingsResources.skills.describePlaceholder":
     "檢查提取要求安全性問題的技能",
+  "settingsResources.skills.personalHint": "只有您擁有這些技能。",
+  "settingsResources.skills.orgHint":
+    "與 {{org}} 的所有人共用。您的開關只對您生效。",
+  "settingsResources.skills.orgAdminHint":
+    "與 {{org}} 的所有人共用。您是管理員，可以選擇每個技能對其他人的預設狀態。",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch 是工作區存放所有應用程式共用技能的地方。在這裡關閉某個技能只會影響 {{app}}。",
+  "settingsResources.skills.thisApp": "此應用程式",
+  "settingsResources.skills.forEveryone": "所有人",
+  "settingsResources.skills.forYou": "您",
+  "settingsResources.skills.markRecommended": "建議",
+  "settingsResources.skills.markRecommendedHint": "預設開啟，除非有人關閉。",
+  "settingsResources.skills.markOptional": "選用",
+  "settingsResources.skills.markOptionalHint": "預設關閉，除非有人開啟。",
+  "settingsResources.skills.markRequired": "必要",
+  "settingsResources.skills.markRequiredHint":
+    "對所有人開啟。任何人都無法關閉或使用自己的版本。",
+  "settingsResources.skills.recommendedBy": "{{org}} 建議",
+  "settingsResources.skills.requiredBy": "{{org}} 要求",
+  "settingsResources.skills.requiredHidesOwn":
+    "未使用：{{org}} 要求所有人使用共用版本",
+  "settingsResources.skills.optionalOff": "選用：在您開啟前保持關閉",
+  "settingsResources.skills.optionalOn": "選用：您已開啟",
+  "settingsResources.skills.switchedOffOn": "您在 {{date}} 關閉了它",
+  "settingsResources.skills.alwaysOn": "一律開啟",
+  "settingsResources.skills.requiredLockHint": "{{org}} 要求使用，因此一律開啟",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch 中也有 {{name}}。代理程式會使用這個，並略過 Dispatch 中的那個。重新命名其中一個即可同時使用兩者。",
+  "settingsResources.skills.dispatchClashRequired":
+    "Dispatch 中的 {{name}} 是必要的，所以代理程式會使用它，並略過這個。重新命名其中一個即可同時使用兩者。",
+  "settingsResources.skills.choicesLoadFailed":
+    "無法載入你啟用了哪些技能，所以開關已隱藏。請重新載入頁面再試一次。",
+  "settingsResources.skills.requireChecking": "正在確認這會影響哪些人…",
+  "settingsResources.skills.requireCountsFailed": "無法確認這會影響哪些人。",
+  "settingsResources.skills.requireTitle": "要將 {{name}} 設為必要嗎？",
+  "settingsResources.skills.makeRequired": "設為必要",
+  "settingsResources.skills.switchFailed": "無法儲存您對 {{name}} 的選擇。",
+  "settingsResources.skills.markFailed":
+    "無法變更 {{name}} 對其他人的預設狀態。",
+  "settingsResources.skills.addForMe": "為我新增",
+  "settingsResources.skills.addForEveryone": "為所有人新增",
+  "settingsResources.skills.offFor_other": "{{count}} 人中有 {{off}} 人關閉",
+  "settingsResources.skills.onFor_other": "{{count}} 人中有 {{on}} 人開啟",
+  "settingsResources.skills.ownVersions_other": "{{count}} 人有自己的版本",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "它會為關閉它的 {{count}} 人重新開啟。",
+  "settingsResources.skills.requireTurnsOn_other":
+    "它會為尚未開啟它的 {{count}} 人開啟。",
+  "settingsResources.skills.requireOwnVersions_other":
+    "擁有自己版本的 {{count}} 人將改用 {{org}} 的文字。他們的版本會保留，之後您變更此設定時會恢復。",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "擁有自己版本的 {{count}} 人將改用 Dispatch 的文字。他們的版本會保留，之後您變更此設定時會恢復。",
   "settingsResources.files.empty": "新增檔案，為代理程式提供更多脈絡。",
   "settingsResources.files.emptyTitle": "還沒有檔案",
   "settingsResources.files.orgEmpty": "還沒有共用檔案",

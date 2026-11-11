@@ -2860,6 +2860,65 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "스킬 파일 업로드",
   "settingsResources.skills.describePlaceholder":
     "풀 리퀘스트의 보안 문제를 검토하는 스킬",
+  "settingsResources.skills.personalHint": "나만 가진 스킬입니다.",
+  "settingsResources.skills.orgHint":
+    "{{org}}의 모든 사람과 공유됩니다. 스위치는 나에게만 적용됩니다.",
+  "settingsResources.skills.orgAdminHint":
+    "{{org}}의 모든 사람과 공유됩니다. 관리자이므로 각 스킬이 사람들에게 어떻게 시작될지 선택할 수 있습니다.",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch는 워크스페이스가 모든 앱이 공유하는 스킬을 보관하는 곳입니다. 여기서 끄면 {{app}}에서만 바뀝니다.",
+  "settingsResources.skills.thisApp": "이 앱",
+  "settingsResources.skills.forEveryone": "모두",
+  "settingsResources.skills.forYou": "나",
+  "settingsResources.skills.markRecommended": "권장",
+  "settingsResources.skills.markRecommendedHint":
+    "누군가 끄지 않으면 켜져 있습니다.",
+  "settingsResources.skills.markOptional": "선택",
+  "settingsResources.skills.markOptionalHint":
+    "누군가 켜지 않으면 꺼져 있습니다.",
+  "settingsResources.skills.markRequired": "필수",
+  "settingsResources.skills.markRequiredHint":
+    "모두에게 켜져 있습니다. 아무도 끄거나 자신의 버전을 사용할 수 없습니다.",
+  "settingsResources.skills.recommendedBy": "{{org}} 권장",
+  "settingsResources.skills.requiredBy": "{{org}} 필수",
+  "settingsResources.skills.requiredHidesOwn":
+    "사용되지 않음: {{org}}에서 모두가 공유 버전을 쓰도록 요구합니다",
+  "settingsResources.skills.optionalOff": "선택: 켤 때까지 꺼져 있음",
+  "settingsResources.skills.optionalOn": "선택: 내가 켰음",
+  "settingsResources.skills.switchedOffOn": "{{date}}에 내가 끔",
+  "settingsResources.skills.alwaysOn": "항상 켜짐",
+  "settingsResources.skills.requiredLockHint":
+    "{{org}}에서 필수로 지정해 항상 켜져 있습니다",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch에도 {{name}}이(가) 있습니다. 에이전트는 이 스킬을 사용하고 Dispatch의 스킬은 건너뜁니다. 둘 다 사용하려면 하나의 이름을 바꾸세요.",
+  "settingsResources.skills.dispatchClashRequired":
+    "Dispatch의 {{name}}이(가) 필수라서 에이전트는 그 스킬을 사용하고 이 스킬은 건너뜁니다. 둘 다 사용하려면 하나의 이름을 바꾸세요.",
+  "settingsResources.skills.choicesLoadFailed":
+    "어떤 스킬이 켜져 있는지 불러오지 못해 스위치를 숨겼습니다. 페이지를 새로고침해 다시 시도하세요.",
+  "settingsResources.skills.requireChecking":
+    "누구에게 영향이 있는지 확인하는 중…",
+  "settingsResources.skills.requireCountsFailed":
+    "누구에게 영향이 있는지 확인하지 못했습니다.",
+  "settingsResources.skills.requireTitle": "{{name}}을(를) 필수로 지정할까요?",
+  "settingsResources.skills.makeRequired": "필수로 지정",
+  "settingsResources.skills.switchFailed":
+    "{{name}}에 대한 선택을 저장하지 못했습니다.",
+  "settingsResources.skills.markFailed":
+    "{{name}}이(가) 사람들에게 시작되는 방식을 변경하지 못했습니다.",
+  "settingsResources.skills.addForMe": "나에게 추가",
+  "settingsResources.skills.addForEveryone": "모두에게 추가",
+  "settingsResources.skills.offFor_other": "{{count}}명 중 {{off}}명이 끔",
+  "settingsResources.skills.onFor_other": "{{count}}명 중 {{on}}명이 켬",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}}명이 자신의 버전을 사용 중",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "이 스킬을 끈 {{count}}명에게 다시 켜집니다.",
+  "settingsResources.skills.requireTurnsOn_other":
+    "이 스킬을 켜지 않은 {{count}}명에게 켜집니다.",
+  "settingsResources.skills.requireOwnVersions_other":
+    "자신의 버전이 있는 {{count}}명은 대신 {{org}}의 텍스트를 받습니다. 각자의 버전은 보관되며, 나중에 이 설정을 바꾸면 다시 돌아옵니다.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "자신의 버전이 있는 {{count}}명은 대신 Dispatch의 텍스트를 받습니다. 각자의 버전은 보관되며, 나중에 이 설정을 바꾸면 다시 돌아옵니다.",
   "settingsResources.files.empty":
     "파일을 추가해 에이전트에게 더 많은 컨텍스트를 제공하세요.",
   "settingsResources.files.emptyTitle": "아직 파일이 없습니다",
