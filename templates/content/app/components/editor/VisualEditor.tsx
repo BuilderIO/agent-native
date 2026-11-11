@@ -206,6 +206,7 @@ import {
   completeImageFileUpload,
   createMediaUploadId,
   ImageRenderError,
+  ImageStorageUnavailableError,
   imageUploadErrorMessage,
   uploadAudioFile,
   uploadImageFile,
@@ -2202,6 +2203,7 @@ interface VisualEditorExtensionOptions {
   canCommentOnVideo?: ContentVideoOptions["canCommentOnVideo"];
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
   usesPrivateImageUploads?: () => boolean;
+  onPickedImageFile?: ContentImageOptions["onPickedImageFile"];
   canMutateMedia?: () => boolean;
   isSuggesting?: () => boolean;
   onJoinTitle?: (text: string) => void;
@@ -2868,6 +2870,7 @@ export function createVisualEditorExtensions({
   canCommentOnVideo,
   onImageFilePickerRequest,
   usesPrivateImageUploads,
+  onPickedImageFile,
   canMutateMedia,
   isSuggesting,
   onJoinTitle,
@@ -2928,6 +2931,7 @@ export function createVisualEditorExtensions({
         onImageComment: onMediaComment,
         onImageFilePickerRequest,
         usesPrivateImageUploads,
+        onPickedImageFile,
         canMutateMedia,
       }),
       VideoNode.configure({
@@ -3397,6 +3401,21 @@ export function VisualEditor({
     (file: File) => uploadImageFile(file, privateImageTargetRef.current),
     [],
   );
+  // Set once the editor exists; the image extension needs a stable callback.
+  const uploadPendingImageFileRef =
+    useRef<ContentImageOptions["onPickedImageFile"]>(undefined);
+  const onPickedImageFile = useCallback<
+    NonNullable<ContentImageOptions["onPickedImageFile"]>
+  >(
+    (request, file, attrs, onStorageUnavailable) =>
+      uploadPendingImageFileRef.current?.(
+        request,
+        file,
+        attrs,
+        onStorageUnavailable,
+      ),
+    [],
+  );
   const clipsEnabled = useFeatureFlag(CLIP_EMBED_FLAG.key);
   const videosGoToClipsRef = useRef(false);
   videosGoToClipsRef.current = clipsEnabled && Boolean(documentId);
@@ -3707,6 +3726,7 @@ export function VisualEditor({
         canCommentOnVideo,
         onImageFilePickerRequest,
         usesPrivateImageUploads,
+        onPickedImageFile,
         canMutateMedia,
         isSuggesting,
         onJoinTitle,
@@ -3786,6 +3806,7 @@ export function VisualEditor({
       canCommentOnVideo,
       onImageFilePickerRequest,
       usesPrivateImageUploads,
+      onPickedImageFile,
       canMutateMedia,
       isSuggesting,
       onJoinTitle,
@@ -4536,15 +4557,15 @@ export function VisualEditor({
     };
   }, [documentId]);
 
-  const handleImageFileInputChange = useCallback(
-    async (event: Event) => {
-      const input = event.currentTarget as HTMLInputElement;
-      const file = input.files?.[0];
-      input.value = "";
-      const request = pendingImagePickerRef.current;
-      pendingImagePickerRef.current = null;
+  // Uploads `file` as the image `request` placeholds, then sets `attrs` on it.
+  const uploadPendingImageFile = useCallback(
+    async (
+      request: PendingImagePicker,
+      file: File,
+      attrs: Record<string, unknown>,
+      onStorageUnavailable?: () => void,
+    ) => {
       if (suggestingRef.current) return;
-      if (!editor || !file || !request) return;
       if (
         !privateImageTargetRef.current &&
         fileStorageStateRef.current !== "configured"
@@ -4567,6 +4588,7 @@ export function VisualEditor({
           stageAttributes: (src) => {
             if (editor.isDestroyed || suggestingRef.current) return;
             staged = commitPendingImageUpload(editor.view, request, uploadId, {
+              ...attrs,
               src,
               uploadId,
             });
@@ -4583,7 +4605,7 @@ export function VisualEditor({
               editor.view,
               request,
               uploadId,
-              { src, uploadId: null },
+              { ...attrs, src, uploadId: null },
             );
           },
           persistCommittedImage: async () => {
@@ -4606,6 +4628,14 @@ export function VisualEditor({
         if (!committed) {
           restorePendingImagePicker(editor.view, request, uploadId);
         }
+        if (
+          error instanceof ImageStorageUnavailableError &&
+          onStorageUnavailable
+        ) {
+          toast.dismiss(toastId);
+          onStorageUnavailable();
+          return;
+        }
         toast.error(
           error instanceof ImageRenderError
             ? t("editor.media.imageBroken")
@@ -4615,6 +4645,30 @@ export function VisualEditor({
       }
     },
     [editor, persistEditorContent, t, uploadBodyImage],
+  );
+  useEffect(() => {
+    uploadPendingImageFileRef.current = (
+      request,
+      file,
+      attrs,
+      onStorageUnavailable,
+    ) => {
+      void uploadPendingImageFile(request, file, attrs, onStorageUnavailable);
+    };
+  }, [uploadPendingImageFile]);
+
+  const handleImageFileInputChange = useCallback(
+    async (event: Event) => {
+      const input = event.currentTarget as HTMLInputElement;
+      const file = input.files?.[0];
+      input.value = "";
+      const request = pendingImagePickerRef.current;
+      pendingImagePickerRef.current = null;
+      if (!file || !request) return;
+      // A file the author uploads replaces any image copied from Assets.
+      await uploadPendingImageFile(request, file, { assetId: null });
+    },
+    [uploadPendingImageFile],
   );
 
   const handleImageFileInputCancel = useCallback(() => {

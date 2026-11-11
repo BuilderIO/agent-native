@@ -702,7 +702,7 @@ function resolveBlockDataChange(
 }
 
 export function PlanDocumentEditor({
-  content,
+  content: contentAsGiven,
   contentUpdatedAt,
   planId,
   collabUser,
@@ -753,10 +753,39 @@ export function PlanDocumentEditor({
   const registryValue = useOptionalBlockRegistry();
   const registry = registryValue?.registry ?? null;
 
+  // Only a new revision is news to the document. An optimistic copy of this tab's
+  // edit keeps the revision it was made on, and so does the saved copy when a
+  // refetch brings it back over that one. Taken in, it reads as someone else
+  // undoing the edit, and the data of a block only the document has is lost.
+  const savedContentRef = useRef({
+    revision: contentUpdatedAt,
+    content: contentAsGiven,
+  });
+  if (
+    !contentUpdatedAt ||
+    contentUpdatedAt !== savedContentRef.current.revision
+  ) {
+    savedContentRef.current = {
+      revision: contentUpdatedAt,
+      content: contentAsGiven,
+    };
+  }
+  const content = savedContentRef.current.content;
+
   const [blocks, setBlocks] = useState<PlanBlock[]>(content.blocks);
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
   const pendingTransferredBlocksRef = useRef(new Map<string, PlanBlock>());
+  // Blocks this document has taken out, with their data. Undo puts a block back
+  // into the document by its id and type only, and once the removal is saved no
+  // other copy here still has its data.
+  const removedBlocksRef = useRef(new Map<string, PlanBlock>());
+  const rememberRemoved = (next: PlanBlock[]) => {
+    const kept = new Set(next.map((block) => block.id));
+    for (const block of blocksRef.current) {
+      if (!kept.has(block.id)) removedBlocksRef.current.set(block.id, block);
+    }
+  };
   const rootViewRef = useRef<EditorView | null>(null);
   const editorRef = useRef<Editor | null>(null);
   const wrapperRef = useRef<HTMLElement | null>(null);
@@ -856,6 +885,7 @@ export function PlanDocumentEditor({
       undoRef.current?.record(blocksRef.current, next);
     }
     rememberEmitted(JSON.stringify(next));
+    rememberRemoved(next);
     // Later reads (`blocksFromSerialized`) must see this commit before the
     // re-render reassigns the ref from state.
     blocksRef.current = next;
@@ -1291,6 +1321,8 @@ export function PlanDocumentEditor({
         pendingTransferredBlocksRef.current.delete(block.id);
         return transferred;
       }
+      const removed = removedBlocksRef.current.get(block.id);
+      if (removed && removed.type === block.type) return removed;
       const spec = registry?.get(block.type);
       const seeded = spec?.empty?.();
       return seeded ? ({ ...block, data: seeded } as PlanBlock) : block;
@@ -1373,6 +1405,7 @@ export function PlanDocumentEditor({
     );
     if (!next) return null;
     rememberEmitted(JSON.stringify(next));
+    rememberRemoved(next);
     blocksRef.current = next;
     setBlocks(next);
     return next;
@@ -1568,6 +1601,8 @@ export function NestedPlanBlocksEditor({
   const blocksRef = useRef(blocks);
   blocksRef.current = blocks;
   const pendingTransferredBlocksRef = useRef(new Map<string, PlanBlock>());
+  // Blocks this region has taken out, with their data, for Undo to put back.
+  const removedBlocksRef = useRef(new Map<string, PlanBlock>());
 
   const lastEmittedRef = useRef<string>(JSON.stringify(sourceBlocks));
   useEffect(() => {
@@ -1696,6 +1731,10 @@ export function NestedPlanBlocksEditor({
 
   const commit = (next: PlanBlock[]) => {
     lastEmittedRef.current = JSON.stringify(next);
+    const kept = new Set(next.map((block) => block.id));
+    for (const block of blocksRef.current) {
+      if (!kept.has(block.id)) removedBlocksRef.current.set(block.id, block);
+    }
     setBlocks(next);
     void onBlocksChange(next);
   };
@@ -1740,6 +1779,8 @@ export function NestedPlanBlocksEditor({
         pendingTransferredBlocksRef.current.delete(block.id);
         return transferred;
       }
+      const removed = removedBlocksRef.current.get(block.id);
+      if (removed && removed.type === block.type) return removed;
       const spec = registry?.get(block.type);
       const seeded = spec?.empty?.();
       return seeded ? ({ ...block, data: seeded } as PlanBlock) : block;

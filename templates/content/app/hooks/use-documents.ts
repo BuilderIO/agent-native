@@ -116,9 +116,12 @@ import {
   contentDatabaseNavigationQueryFilter,
   invalidateContentDatabaseNavigationQueries,
   removeOptimisticItemFromContentDatabase,
+  removeTrashedPagesFromCachedCollections,
   useRestoreContentDatabase,
 } from "./use-content-database";
 import { CONTENT_LINK_TARGETS_QUERY_KEY } from "./use-content-links";
+import { removeTrashedFromCachedRecent } from "./use-content-recent";
+import { DELETE_DOCUMENT_MUTATION_KEY } from "./use-pending-trash";
 
 export {
   documentQueryFilter,
@@ -1996,6 +1999,20 @@ export function useDeleteDocument() {
     },
     { id: string; databaseDocumentId?: string; activeDocumentId?: string }
   >("delete-document", {
+    mutationKey: DELETE_DOCUMENT_MUTATION_KEY,
+    onSuccess: (data, variables) => {
+      // Taking a page out of Favorites deletes nothing; the page stays.
+      if (data.deleted > 0) {
+        removeTrashedFromCachedRecent(queryClient, {
+          documentIds: [variables.id],
+        });
+      }
+    },
+    onSettled: (data, _error, variables) => {
+      if (data && data.deleted > 0) {
+        removeTrashedPagesFromCachedCollections(queryClient, [variables.id]);
+      }
+    },
     invalidates: (_data, variables) => [
       ...contentPlacementTargets(queryClient, { documentIds: [variables.id] }),
       contentDatabaseItemsContainingDocumentFilter(variables.id),

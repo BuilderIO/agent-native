@@ -293,6 +293,7 @@ import {
   type RuntimeAnnotationParticipant,
 } from "@/lib/plan-annotation-runtime";
 import {
+  blockSaveInput,
   startBlockSave,
   type OwnBlockSave,
   type PlanBlocksOverlapResolver,
@@ -4098,13 +4099,10 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           held = await resolveOverlap(overlap, finished);
           return held;
         }),
-      save: async ({ value, revision }) => {
-        const result = await savePlanBlocks.mutateAsync({
-          planId,
-          ...(revision ? { expectedUpdatedAt: revision } : {}),
-          contentPatches: [{ op: "replace-blocks", blocks: value }],
-          note: "Patched structured visual plan content.",
-        });
+      save: async (attempt) => {
+        const result = await savePlanBlocks.mutateAsync(
+          blockSaveInput(planId, attempt),
+        );
         if (!result.plan?.content) {
           throw new Error("The saved plan has no structured content.");
         }

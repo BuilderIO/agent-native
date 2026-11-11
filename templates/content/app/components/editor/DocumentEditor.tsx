@@ -111,6 +111,10 @@ import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import { useContentLayout } from "@/components/layout/use-content-layout";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
+  remainingPageAfterDelete,
+  stillOnPageOpenedForDelete,
+} from "@/components/sidebar/document-sidebar-actions";
+import {
   createContentSpaceSelectionQueue,
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
@@ -164,6 +168,7 @@ import {
   refreshLandingTitleHintCache,
 } from "@/hooks/use-optimistic-document-title";
 import { usePageTabTitle } from "@/hooks/use-page-tab-title";
+import { usePendingTrash } from "@/hooks/use-pending-trash";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
@@ -171,6 +176,7 @@ import { documentContentHash } from "@/lib/document-content-hash";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import { documentReadFailure } from "@/lib/document-read-failures";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
+import { cachedFilesRootDocumentIds } from "@/lib/files-navigation";
 import { filesRootHintScope } from "@/lib/files-root-hint";
 import { rememberLastLocationHint } from "@/lib/last-location-hint";
 import {
@@ -3215,6 +3221,7 @@ function PageEditorSessionBody({
   );
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
+  const pendingTrash = usePendingTrash();
   const processBuilderBodies = useProcessBuilderBodyHydration(
     document.bodyHydration?.databaseDocumentId ?? documentId,
   );
@@ -3626,6 +3633,27 @@ function PageEditorSessionBody({
     [],
   );
   const handleDeleteDocument = useCallback(async () => {
+    // An open page leaves for a remaining page with the click and comes back
+    // if the move to Trash fails. Knowing none, it waits for the move and
+    // opens Home.
+    const remainingPageId =
+      onDelete || host !== "page"
+        ? null
+        : remainingPageAfterDelete(documentId, {
+            activePath: navigationPath,
+            filesRootDocumentIds: cachedFilesRootDocumentIds(
+              queryClient,
+              documentId,
+            ),
+            pendingTrashIds: pendingTrash.documentIds,
+          });
+    const previousPath = `${location.pathname}${location.search}${location.hash}`;
+    if (remainingPageId) {
+      void navigate(`/page/${remainingPageId}`, {
+        replace: true,
+        flushSync: true,
+      });
+    }
     try {
       if (onDelete) {
         await onDelete();
@@ -3638,8 +3666,15 @@ function PageEditorSessionBody({
       } else {
         await deleteDocument.mutateAsync({ id: documentId });
       }
-      void navigate("/home", { replace: true, flushSync: true });
+      if (!remainingPageId) {
+        void navigate("/home", { replace: true, flushSync: true });
+      }
     } catch (error) {
+      if (
+        stillOnPageOpenedForDelete(window.location.pathname, remainingPageId)
+      ) {
+        void navigate(previousPath, { replace: true, flushSync: true });
+      }
       toast.error(t("sidebar.failedDeletePage"), {
         description:
           error instanceof Error ? error.message : t("empty.genericError"),
@@ -3650,8 +3685,15 @@ function PageEditorSessionBody({
     deleteDocument,
     document.database,
     documentId,
+    host,
+    location.hash,
+    location.pathname,
+    location.search,
     navigate,
+    navigationPath,
     onDelete,
+    pendingTrash.documentIds,
+    queryClient,
     t,
   ]);
 
@@ -10643,7 +10685,7 @@ function PageEditorSessionBody({
       // Accepting a tab's suggestion writes the Collection's field.
       canDecideFieldSuggestions={pagePropertiesInScope?.canEditValues === true}
       decidingSuggestion={(suggestionId) =>
-        fieldSuggestions.deciding ||
+        fieldSuggestions.decidingSuggestion(suggestionId) ||
         isSubmittingSuggestions ||
         isStartingSuggestion ||
         !!pendingSuggestionDecision ||
