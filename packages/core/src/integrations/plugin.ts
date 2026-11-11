@@ -1048,15 +1048,11 @@ export function createIntegrationsPlugin(
                 : 422;
             const upstreamStatus =
               isRateLimit || isDependencyFailure ? res.status : undefined;
-            const rawRetryAfter =
+            const retryAfterSeconds =
               typeof data?.parameters?.retry_after === "number" &&
               Number.isInteger(data.parameters.retry_after) &&
               data.parameters.retry_after > 0
                 ? data.parameters.retry_after
-                : undefined;
-            const retryAfterSeconds =
-              rawRetryAfter !== undefined
-                ? Math.min(rawRetryAfter, 300)
                 : undefined;
             const description =
               data?.description ??
@@ -3686,7 +3682,7 @@ export function createIntegrationsPlugin(
               setResponseHeader(
                 event,
                 "Retry-After",
-                String(Math.min(registration.retryAfterSeconds, 300)),
+                String(registration.retryAfterSeconds),
               );
             }
             return {

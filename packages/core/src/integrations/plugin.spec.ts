@@ -1295,7 +1295,7 @@ describe("integrations plugin routes", () => {
     });
   });
 
-  it("caps retryAfterSeconds and Retry-After header to 300 seconds for Telegram 429", async () => {
+  it("preserves Telegram parameters.retry_after in retryAfterSeconds and Retry-After header for Telegram 429", async () => {
     getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
     resolveSecretMock.mockImplementation((key: string) =>
       key === "TELEGRAM_BOT_TOKEN"
@@ -1334,11 +1334,11 @@ describe("integrations plugin routes", () => {
     );
 
     expect(result.status).toBe(429);
-    expect(result.headers.get("retry-after")).toBe("300");
+    expect(result.headers.get("retry-after")).toBe("500");
     expect(result.body).toEqual({
       error: "Telegram setWebhook failed: Too Many Requests: retry after 500",
       upstreamStatus: 429,
-      retryAfterSeconds: 300,
+      retryAfterSeconds: 500,
     });
   });
 
