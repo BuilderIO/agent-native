@@ -543,7 +543,12 @@ export function DiscussionToolbar({
           <div data-discussion-toolbar>
             {searchBelowHead ? (
               <div className="px-3 py-2">
-                <ContentTableSearch {...search} open className="h-8 w-full" />
+                <ContentTableSearch
+                  {...search}
+                  open
+                  variant="field"
+                  className="w-full"
+                />
               </div>
             ) : null}
             {constraints}
