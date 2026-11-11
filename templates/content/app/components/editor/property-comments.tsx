@@ -307,13 +307,15 @@ export function usePropertyCommentRowState(propertyId: string) {
     pending,
     active,
     /**
-     * What shows under the row in Info: its threads while open, and a new
-     * Comment on it, which stays until it's posted or cancelled.
+     * What shows under the row in Info: its threads while open, with a
+     * resolved one Show selected, and a new Comment on it, which stays until
+     * it's posted or cancelled.
      */
     inlineThreads:
       comments.inline &&
       (pending ||
-        (comments.inline.openPropertyId === propertyId && threads.length > 0))
+        (comments.inline.openPropertyId === propertyId &&
+          (threads.length > 0 || comments.selectedPropertyId === propertyId)))
         ? comments.inline.renderThreads(propertyId)
         : null,
   };

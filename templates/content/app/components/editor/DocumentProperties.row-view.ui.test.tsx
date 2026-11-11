@@ -701,6 +701,17 @@ describe("a Property's threads in Info", () => {
     ).toEqual(["a", "b"]);
   });
 
+  it("shows a resolved thread Show opened there", () => {
+    renderProperties(null, {
+      comments: { selectedPropertyId: "a", inline: inline("a") },
+    });
+    expect(
+      document
+        .querySelector("[data-property-threads]")
+        ?.getAttribute("data-property-threads"),
+    ).toBe("a");
+  });
+
   it("shows nothing under a row that has neither", () => {
     renderProperties(null, { comments: { inline: inline("a") } });
     expect(document.querySelector("[data-property-threads]")).toBeNull();

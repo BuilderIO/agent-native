@@ -704,6 +704,14 @@ describe("new comment responsive draft", () => {
     expect(source).toContain(
       "if (property && canComment) startLinkedPropertyComment(property);",
     );
+    // Starting a Comment on the text, a block or a Clip brings back one
+    // waiting under a Property in Info, and a suggested edit leaves it.
+    expect(
+      source.match(/if \(returnToHeldPropertyComment\(\)\) return;/g),
+    ).toHaveLength(4);
+    expect(source).toContain(
+      "setPendingComment(null, { keepWritten: holdsPropertyComment });",
+    );
     expect(source).toContain("onPendingChange={changePendingComment}");
     expect(source).toContain("if (!completePendingComment(id)) return;");
     // Opening a thread keeps a new comment someone has written.
