@@ -172,9 +172,13 @@ export function TerminalOutput({
 }) {
   const labels = useAgentKitLabels();
   const [uncontrolledShowAll, setUncontrolledShowAll] = useState(false);
-  const showAll = controlledShowAll ?? uncontrolledShowAll;
+  // Controlled only with both props, or the button would do nothing.
+  const showAll =
+    onShowAll && controlledShowAll !== undefined
+      ? controlledShowAll
+      : uncontrolledShowAll;
   const setShowAll = () => {
-    if (onShowAll) onShowAll();
+    if (onShowAll && controlledShowAll !== undefined) onShowAll();
     else setUncontrolledShowAll(true);
   };
   const content = useRef<HTMLPreElement>(null);

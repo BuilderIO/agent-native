@@ -4,7 +4,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { Terminal } from "./terminal.js";
+import { Terminal, TerminalOutput } from "./terminal.js";
 
 let root: Root;
 let container: HTMLDivElement;
@@ -130,6 +130,19 @@ describe("Terminal", () => {
     await act(async () => trigger()?.click());
     await act(async () => trigger()?.click());
     expect(pre()).toBe(output);
+  });
+
+  it("reveals earlier lines when given showAll without onShowAll", async () => {
+    const output = ["one", "two", "three"].join("\n");
+    await render(
+      <TerminalOutput output={output} maxLines={1} showAll={false} />,
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(".agentkit-terminal-earlier")
+        ?.click(),
+    );
+    expect(container.querySelector("pre")?.textContent).toBe(output);
   });
 
   it("copies the whole output without color codes", async () => {
