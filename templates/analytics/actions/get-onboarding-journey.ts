@@ -42,7 +42,7 @@ const isoDate = z
 
 export default defineAction({
   description:
-    'Return an access-scoped per-session onboarding tree through explicit saved-output events, preserving session counts and direct-parent denominators. When experimentId or splitDesignFirstTouch is supplied, return independent trees for each cohort; Design first-touch cohorts are crossed with experiment arms, and sessionless MCP OAuth signups are counted as events without replay. An aggregated `other` node includes up to 20 root-to-branch label paths, source step keys for identical paths, session counts, and direct-parent percentages; branch summaries are capped at 200 per tree and 64 KiB of serialized detail. `otherBranchCount` gives the full number of branches, and `otherBranchSummariesPartial: true` marks summaries omitted by those bounds. Labels/path segments longer than 300 characters and keys longer than 2,048 characters are visibly shortened with stable hash suffixes and truncation flags so the tree stays within the Design input contract. Journey counts stay bounded by the 200,000-event read cap. BigQuery pages have a 25 GB per-query cap, and maxTotalBytesBilled bounds how many pages one event read may run; it defaults to 275 GB. Reads also stop at a 45-second event-read deadline, with coverage.truncated and notes identifying partial counts. Raise maxTotalBytesBilled deliberately to read more pages, up to 1.275 TB. When event coverage is truncated, replay reads are skipped, coverage.sessionsWithReplay is null, and examples omit recordingId with viewportReason "recording_unknown"; recordingId null means a completed lookup found no replay. followUpMode "session" keeps existing bounded same-session counts. "person" adds aggregate-only activity joined into people by agreed session emails and direct canonical auth_user_id, matching later activity by any email or ID of that person (emails compared as hashes computed in the warehouse), across first-party sessions and apps over a fixed 30-day horizon; identity coverage says how many sessions matched each way. It separates selected-session activity, outside-session/app activity and their overlap, no activity after a fully observed horizon, right-censoring, unknown identity, identity coverage, and read completeness. Its minute-aligned observationWatermark freezes event and receive time. Unknown identity and sessions without a selected step never count as inactive; no-activity is window-bounded evidence, not permanent churn. Output and attempt IDs are never returned. Incomplete follow-up counts are null. A query that fails for a backend, cost, or per-query timeout reason returns a stage-specific error with safe BigQuery status/reason when available; an internal event-read deadline instead returns completed pages with truncated coverage. An unreadable query never becomes zero counts or an empty-tree substitute.',
+    'Return an access-scoped per-session onboarding tree through explicit saved-output events, preserving session counts and direct-parent denominators. When experimentId or splitDesignFirstTouch is supplied, return independent trees for each cohort; Design first-touch cohorts are crossed with experiment arms, and sessionless MCP OAuth signups are counted as events without replay. An aggregated `other` node includes up to 20 root-to-branch label paths, source step keys for identical paths, session counts, and direct-parent percentages; branch summaries are capped at 200 per tree and 64 KiB of serialized detail. `otherBranchCount` gives the full number of branches, and `otherBranchSummariesPartial: true` marks summaries omitted by those bounds. Labels/path segments longer than 300 characters and keys longer than 2,048 characters are visibly shortened with stable hash suffixes and truncation flags so the tree stays within the Design input contract. Journey counts stay bounded by the 200,000-event read cap. BigQuery pages have a 25 GB per-query cap, and maxTotalBytesBilled bounds how many pages one event read may run; it defaults to 275 GB. Reads stop inside a 22-second time budget (15 seconds for the event read, follow-ups get the rest) so a hosted call answers before its gateway gives up; coverage.truncated and notes identify partial counts, and a note gives the observationWatermark that lets the same call continue from the queries already cached. Raise maxTotalBytesBilled deliberately to read more pages, up to 1.275 TB. When event coverage is truncated, replay reads are skipped, coverage.sessionsWithReplay is null, and examples omit recordingId with viewportReason "recording_unknown"; recordingId null means a completed lookup found no replay. followUpMode "session" keeps existing bounded same-session counts. "person" adds aggregate-only activity joined into people by agreed session emails and direct canonical auth_user_id, matching later activity by any email or ID of that person (emails compared as hashes computed in the warehouse), across first-party sessions and apps over a fixed 30-day horizon, with a 25 GB bytes-billed cap per follow-up query; identity coverage says how many sessions matched each way. It separates selected-session activity, outside-session/app activity and their overlap, no activity after a fully observed horizon, right-censoring, unknown identity, identity coverage, and read completeness. Its minute-aligned observationWatermark freezes event and receive time. Unknown identity and sessions without a selected step never count as inactive; no-activity is window-bounded evidence, not permanent churn. Output and attempt IDs are never returned. Incomplete follow-up counts are null. A query that fails for a backend, cost, or per-query timeout reason returns a stage-specific error with safe BigQuery status/reason when available; an internal event-read deadline instead returns completed pages with truncated coverage. An unreadable query never becomes zero counts or an empty-tree substitute.',
   schema: z
     .object({
       dateFrom: isoDate.describe(
@@ -78,6 +78,13 @@ export default defineAction({
         .default("session")
         .describe(
           'Follow-up grain: "session" (default) keeps existing same-session counts; "person" adds a scoped 30-day cross-session, cross-app estimate joined by agreed session emails and direct canonical auth_user_id.',
+        ),
+      observationWatermark: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/)
+        .optional()
+        .describe(
+          "A past UTC minute, such as 2026-11-10T22:38:00.000Z, to read as of instead of now. Pass the observationWatermark from a response whose notes say it stopped at its time budget: the queries it finished are cached for 24 hours, so the same request with this value continues from them.",
         ),
       format: z
         .enum(["tree", "summary"])
@@ -131,7 +138,7 @@ export default defineAction({
         .optional()
         .default(DEFAULT_ONBOARDING_EVENT_ROW_BUDGET)
         .describe(
-          `Event rows to read, plus one extra row to detect truncation. Each query reads at most 4,000 rows and has a 25 GB BigQuery bytes-billed cap. The aggregate page budget and 45-second deadline can stop the read earlier; coverage.truncated and notes say when counts are partial. Defaults to ${DEFAULT_ONBOARDING_EVENT_ROW_BUDGET}.`,
+          `Event rows to read, plus one extra row to detect truncation. Each query reads at most 4,000 rows and has a 25 GB BigQuery bytes-billed cap. The aggregate page budget and 15-second read budget can stop the read earlier; coverage.truncated and notes say when counts are partial. Defaults to ${DEFAULT_ONBOARDING_EVENT_ROW_BUDGET}.`,
         ),
       maxTotalBytesBilled: z.coerce
         .number()
@@ -227,6 +234,16 @@ export default defineAction({
           message: "Person follow-up is not available with cohort splits.",
         });
       }
+      if (
+        args.observationWatermark !== undefined &&
+        Date.parse(args.observationWatermark) > Date.now()
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["observationWatermark"],
+          message: "observationWatermark must not be in the future.",
+        });
+      }
       if (args.splitDesignFirstTouch && args.app !== "design") {
         ctx.addIssue({
           code: "custom",
@@ -267,6 +284,9 @@ export default defineAction({
           emailFilter: args.emailFilter,
           excludeNonProductionHosts: args.excludeNonProductionHosts,
           followUpMode: args.followUpMode,
+          ...(args.observationWatermark !== undefined
+            ? { observationWatermark: args.observationWatermark }
+            : {}),
           format: args.format,
           maxNodes: args.maxNodes,
           maxDepth: args.maxDepth,

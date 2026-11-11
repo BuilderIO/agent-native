@@ -112,6 +112,29 @@ describe("get-onboarding-journey read failures", () => {
     ).toThrow();
   });
 
+  it("passes a past observationWatermark through and rejects any other", async () => {
+    const observationWatermark = "2026-10-02T09:15:00.000Z";
+    mocks.getOnboardingJourney.mockResolvedValueOnce({ status: "complete" });
+
+    await action.run(action.schema.parse({ ...args, observationWatermark }));
+
+    expect(mocks.getOnboardingJourney.mock.calls[0]?.[1]).toMatchObject({
+      observationWatermark,
+    });
+    const nextMinute = new Date(
+      Math.ceil(Date.now() / 60_000) * 60_000 + 60_000,
+    ).toISOString();
+    expect(() =>
+      action.schema.parse({ ...args, observationWatermark: nextMinute }),
+    ).toThrow(/must not be in the future/);
+    expect(() =>
+      action.schema.parse({
+        ...args,
+        observationWatermark: "2026-10-02T09:15:30.000Z",
+      }),
+    ).toThrow();
+  });
+
   it("forwards the action cancellation signal to the journey read", async () => {
     mocks.getOnboardingJourney.mockResolvedValueOnce({ status: "complete" });
     const signal = new AbortController().signal;

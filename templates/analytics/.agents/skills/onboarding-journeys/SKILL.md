@@ -148,9 +148,14 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   plus one overflow row to detect truncation. Each BigQuery page keeps a 25 GB
   billed-byte cap; by default, `maxTotalBytesBilled` reserves that cap for 11
   pages (275 GB), and can be raised deliberately to 1.275 TB (51 pages). Event
-  page reads also stop at a 45-second deadline. If the aggregate budget or
-  deadline cuts a read, `coverage.truncated` and `notes` identify why; read them
-  before interpreting counts. A truncated event sample skips replay reads and
+  page reads also stop after 15 seconds, and the whole request after 22, so a
+  hosted call answers before its gateway gives up. Pages after the first run up
+  to ten at a time. If the aggregate budget or time budget cuts a read,
+  `coverage.truncated` and `notes` identify why; read them before interpreting
+  counts. When the time budget stopped it, a note gives an
+  `observationWatermark`: call again with the same arguments plus that value
+  within 24 hours, and the pages and follow-ups that finished come from the
+  query cache, so each call gets further. Repeat until the note is gone. A truncated event sample skips replay reads and
   returns `sessionsWithReplay: null` because replay availability is unknown. If
   a read truncates, page boundaries may have shifted,
   or the terminal cohort cannot be covered in one query under the
@@ -190,7 +195,8 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   and identity-unavailable sessions. Identity-unavailable session evidence can
   report activity known from that exact session ID, but those sessions are not
   people and never enter person percentages.
-- `personFollowUp.observationWatermark` freezes both event and receive time at a UTC minute boundary, so repeated requests in that minute use the same read boundary.
+- `personFollowUp.observationWatermark` freezes both event and receive time at a UTC minute boundary, so repeated requests in that minute use the same read boundary. Pass it back as the `observationWatermark` argument to read as of that minute later on.
+  Each follow-up query has a 25 GB billed-byte cap.
   `observationFollowupDurationMs` summarizes capped follow-up among canonical
   people. `noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople`
   uses only identified people whose complete 30-day horizon elapsed. It
@@ -218,7 +224,7 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
 - A session is an analytics session id. One that began before `dateFrom`
   starts mid-journey, so start the window a day early.
 - Read `coverage` before using the numbers. `truncated: true` means the event
-  read hit `maxEventRows`, `maxTotalBytesBilled`, or its 45-second deadline, a
+  read hit `maxEventRows`, `maxTotalBytesBilled`, or its time budget, a
   session went past `maxDepth`, or the node list hit `maxNodes`; `notes` says
   which.
   Never report a truncated tree as the whole window.
