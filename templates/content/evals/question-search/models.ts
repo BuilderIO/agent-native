@@ -60,7 +60,13 @@ interface ChatProvider {
  * spending on its own.
  */
 function chatProviderFromEnv(env: NodeJS.ProcessEnv): ChatProvider | null {
-  if (env.SEARCH_BAKEOFF_PROVIDER?.trim() === "openrouter") {
+  const asked = env.SEARCH_BAKEOFF_PROVIDER?.trim();
+  // A misspelled name would otherwise fall through to OpenAI's account.
+  if (asked && asked !== "openai" && asked !== "openrouter")
+    throw new Error(
+      `SEARCH_BAKEOFF_PROVIDER must be "openai" or "openrouter", not "${asked}".`,
+    );
+  if (asked === "openrouter") {
     const key = env.OPENROUTER_API_KEY?.trim();
     // Without it the run would skip every model method and look complete.
     if (!key)

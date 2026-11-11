@@ -170,6 +170,15 @@ describe("bake-off model client", () => {
     ).toThrow("OPENROUTER_API_KEY");
   });
 
+  it("fails on a provider it doesn't know instead of using OpenAI", () => {
+    expect(() =>
+      bakeoffModelsFromEnv({
+        ...OPENAI_ENV,
+        SEARCH_BAKEOFF_PROVIDER: "OpenRouter",
+      }),
+    ).toThrow("SEARCH_BAKEOFF_PROVIDER");
+  });
+
   it("counts each Builder gateway request as a call", async () => {
     fetchMock
       .mockResolvedValueOnce(builderEmbeddings(32))
