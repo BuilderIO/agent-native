@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
@@ -2056,9 +2057,14 @@ function SourceListItem({
           <ShareButton
             resourceType="brain-source"
             resourceId={source.id}
+            shareUrl={
+              typeof window === "undefined"
+                ? undefined
+                : `${window.location.origin}${appPath(`/sources?sourceId=${encodeURIComponent(source.id)}`)}`
+            }
             allowedRoles={["viewer", "editor", "admin"]}
             resourceTitle={sourceName(source)}
-            triggerClassName="h-8 px-2"
+            triggerClassName="px-2"
           />
 
           {hasMenuActions ? (

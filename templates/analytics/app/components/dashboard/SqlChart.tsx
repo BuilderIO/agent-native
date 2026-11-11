@@ -285,10 +285,13 @@ export function formatSqlChartError(error: unknown): string {
       : typeof error === "string"
         ? error
         : stringifyValue(error);
+  // The action client names the failed action before the server's message,
+  // which says nothing to someone reading a panel.
   const readableMessage = message
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .replace(/^Action [\w-]+ failed:\s*/, "");
 
   if (/inactivity timeout|too much time has passed/i.test(readableMessage)) {
     return "This chart took too long to load. Try again.";

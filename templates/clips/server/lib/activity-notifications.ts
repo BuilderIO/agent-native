@@ -32,6 +32,7 @@ async function getRecording(recordingId: string) {
       ownerEmail: schema.recordings.ownerEmail,
       orgId: schema.recordings.orgId,
       password: schema.recordings.password,
+      visibility: schema.recordings.visibility,
       expiresAt: schema.recordings.expiresAt,
       trashedAt: schema.recordings.trashedAt,
     })
@@ -101,6 +102,7 @@ async function deliverRecordingCommentEmails(
       ownerEmail: recording.ownerEmail,
       recipientEmail: email,
       hasPassword: Boolean(recording.password),
+      visibility: recording.visibility,
       expiresAt: recording.expiresAt,
       trashedAt: recording.trashedAt,
     }),
@@ -170,6 +172,7 @@ async function deliverRecordingReactionEmails(
         ownerEmail: recording.ownerEmail,
         recipientEmail: email,
         hasPassword: Boolean(recording.password),
+        visibility: recording.visibility,
         expiresAt: recording.expiresAt,
         trashedAt: recording.trashedAt,
       }),

@@ -802,6 +802,10 @@ const messages = {
     saveThumbnail: "サムネイルを保存",
   },
   shareDialog: {
+    enterPassword: "パスワードを入力",
+    showPassword: "パスワードを表示",
+    hidePassword: "パスワードを非表示",
+    copyPassword: "パスワードをコピー",
     redactionsPendingTitle: "共有前にマスキングを適用",
     redactionsPendingBody:
       "未適用のマスキング: {{count}} 件。共有前にエディターで適用してください。動画には元の内容が残っています。",
