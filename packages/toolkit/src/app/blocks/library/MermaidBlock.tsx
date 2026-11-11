@@ -120,11 +120,14 @@ async function renderMermaidSvg(
       default: {
         initialize: (config: object) => void;
         render: (id: string, source: string) => Promise<{ svg: string }>;
-        mermaidAPI: { getSiteConfig: () => object };
+        // The stub that stands in for a missing `mermaid` has no settings.
+        mermaidAPI?: { getSiteConfig?: () => object };
       };
     }
   ).default;
-  const found = mermaid.mermaidAPI.getSiteConfig();
+  // A stub's `initialize` throws the missing-peer error that marks the
+  // renderer unavailable.
+  const found = mermaid.mermaidAPI?.getSiteConfig?.();
   mermaid.initialize({
     startOnLoad: false,
     securityLevel: "strict",
@@ -137,7 +140,7 @@ async function renderMermaidSvg(
     const { svg } = await mermaid.render(id, source);
     return sanitizeSvgMarkup(svg);
   } finally {
-    mermaid.initialize(found);
+    if (found) mermaid.initialize(found);
   }
 }
 
