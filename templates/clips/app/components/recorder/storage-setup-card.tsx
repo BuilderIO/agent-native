@@ -467,6 +467,29 @@ export function StorageSetupCard({
         {createsAccount && !connected && !actionConnecting ? (
           <BuilderConsent />
         ) : null}
+        {/* Someone who manages storage but can't connect Builder.io here
+            keeps the one way to finish this. */}
+        {!connected &&
+        storageSetupHref &&
+        builderConnect.statusResolved &&
+        !builderConnectionScope ? (
+          <Button asChild variant="secondary" className="w-full">
+            <a
+              href={storageSetupHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => {
+                readStorageBeforeSetup();
+                trackStorageStep("onboarding_method_clicked", {
+                  ...stepProperties,
+                  method_id: "s3",
+                });
+              }}
+            >
+              {t("storageSetup.customKeys")}
+            </a>
+          </Button>
+        ) : null}
         {!connected && !storageSetupHref ? (
           <p className="text-center text-xs text-muted-foreground">
             {t("clipsSettings.storageAskAdmin")}

@@ -4189,7 +4189,15 @@ export default function RecordRoute() {
         <BuilderOfferDialog
           open
           onOpenChange={(open) => {
-            if (!open) void navigate("/record", { replace: true });
+            if (!open) {
+              // Drop only the connect request; keep the space, folder and mode.
+              const params = new URLSearchParams(location.search);
+              params.delete("connectStorage");
+              const search = params.toString();
+              void navigate(`/record${search ? `?${search}` : ""}`, {
+                replace: true,
+              });
+            }
           }}
           source="clips_record_connect_link"
           milestone={
@@ -4277,14 +4285,20 @@ export default function RecordRoute() {
                 <div className="grid gap-2">
                   <PreRecordPanel
                     onStart={startFlow}
-                    wrapStartButton={(button, start) => (
-                      <LastClipStartGate
-                        onStart={start}
-                        onOpenChange={setLastClipPromptOpen}
-                      >
-                        {button}
-                      </LastClipStartGate>
-                    )}
+                    // An intake recording goes to the link owner's storage
+                    // and uses none of this person's free clips.
+                    wrapStartButton={
+                      clipIntake
+                        ? undefined
+                        : (button, start) => (
+                            <LastClipStartGate
+                              onStart={start}
+                              onOpenChange={setLastClipPromptOpen}
+                            >
+                              {button}
+                            </LastClipStartGate>
+                          )
+                    }
                     initialMode={
                       rememberedRecorderOptions?.mode ??
                       initialRecorderOptions.mode

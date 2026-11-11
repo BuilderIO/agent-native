@@ -787,6 +787,16 @@ describe("StorageSetupCard", () => {
     expect(container.textContent).not.toContain("freeClips.storageDescription");
   });
 
+  it("keeps custom keys for a manager who can't connect Builder.io here", async () => {
+    mocks.useBuilderConnectFlow.mockReturnValue(
+      flowState({ canConnect: { org: false, personal: false } }),
+    );
+    await renderCard();
+
+    expect(primaryButton()?.disabled).toBe(true);
+    expect(container.textContent).toContain("storageSetup.customKeys");
+  });
+
   it("asks members to find an owner or admin when they can't set up storage", async () => {
     mocks.storageSetupHref = null;
     await renderCard();
