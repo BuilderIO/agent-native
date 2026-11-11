@@ -1976,8 +1976,10 @@ export function AgentActivityItem({
       </div>
       {errorLine}
       <TraceCollapsibleContent
+        // A fresh node on each toggle: the recorder can drop a block marker
+        // changed on a node it has recorded, and the closed body stays mounted.
+        key={open ? "open" : "closed"}
         keepMounted
-        // Replays keep attributes, and a closed body stays mounted.
         {...(activity.status === "failed" || !open
           ? SESSION_REPLAY_BLOCK_PROPS
           : {})}
@@ -4431,6 +4433,7 @@ export function AgentSubagentStep({
       </div>
       {errorLine}
       <TraceCollapsibleContent
+        key={open ? "open" : "closed"}
         keepMounted
         {...(failed || !open ? SESSION_REPLAY_BLOCK_PROPS : {})}
         className="agentkit-subagent-content"

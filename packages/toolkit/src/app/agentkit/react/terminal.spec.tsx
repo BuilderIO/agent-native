@@ -45,7 +45,7 @@ describe("Terminal", () => {
     expect(status()).toBe("running");
   });
 
-  it("masks collapsed output from session replay until it is opened", async () => {
+  it("masks closed output in fresh nodes, so replay never keeps it", async () => {
     await render(
       <Terminal command="pnpm build" output={"token=abc\n"} exitCode={0} />,
     );
@@ -61,7 +61,17 @@ describe("Terminal", () => {
         .querySelector<HTMLButtonElement>(".agentkit-disclosure-summary")
         ?.click(),
     );
+    const opened = document.querySelector(".agentkit-terminal-body");
     expect(output()).toBeNull();
+
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(".agentkit-disclosure-summary")
+        ?.click(),
+    );
+    // Closing replaces the node instead of masking the one replay recorded.
+    expect(opened?.isConnected).toBe(false);
+    expect(output()).not.toBeNull();
   });
 
   it("opens when output starts streaming and marks a nonzero exit failed", async () => {

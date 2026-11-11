@@ -129,13 +129,15 @@ export function Terminal({
             </span>
           </div>
           <TraceCollapsibleContent
+            // A fresh node on each toggle: masking a node replay already
+            // recorded would not hide its text.
+            key={open ? "open" : "closed"}
             keepMounted
             className="agentkit-terminal-body"
           >
             <TerminalOutput
               output={output ?? ""}
               maxLines={maxLines}
-              // Kept in the DOM while closed, so replay masks it until opened.
               masked={failed || !open}
             />
           </TraceCollapsibleContent>
