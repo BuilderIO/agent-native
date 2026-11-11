@@ -8,6 +8,7 @@ import { isOrgMember } from "@agent-native/core/org";
 import {
   getSession,
   getForwardedRequestURL,
+  runWithRequestContext,
   signScopedAgentAccessToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
@@ -52,10 +53,21 @@ import {
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
 import { buildAgentEditedTimeline } from "./agent-edited-timeline.js";
+import {
+  openAgentFrameRange,
+  acquireAgentFrameRangeAdmission,
+  FRAME_RANGE_DEADLINE_MS,
+  type RemoteFrameInput,
+} from "./agent-frame-range.js";
 import { recordAgentView } from "./agent-views.js";
 import { isSupportedImageMimeType } from "./image-signature.js";
+import {
+  RecordingMediaFetchError,
+  sanitizeRecordingMediaError,
+} from "./recording-media-fetch-error.js";
 import { isRecordingExpiredForViewer } from "./recording-page-access.js";
-import { fetchS3ObjectByUrl } from "./s3-upload-provider.js";
+export { RecordingMediaFetchError } from "./recording-media-fetch-error.js";
+import { fetchS3ObjectByUrl, openS3Recording } from "./s3-upload-provider.js";
 import {
   getRecordingAccessTokenResourceId,
   verifySharePassword,
@@ -175,16 +187,6 @@ function sameOwnerEmail(
   return !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
-export class RecordingMediaFetchError extends Error {
-  constructor(
-    message: string,
-    readonly statusCode = 502,
-  ) {
-    super(message);
-    this.name = "RecordingMediaFetchError";
-  }
-}
-
 export function getServerAppBasePath(): string {
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
   const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
@@ -277,7 +279,13 @@ async function readResponseBytesWithLimit(
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      let result: ReadableStreamReadResult<Uint8Array>;
+      try {
+        result = await reader.read();
+      } catch (error) {
+        throw sanitizeRecordingMediaError(error);
+      }
+      const { done, value } = result;
       if (done) break;
       if (!value) continue;
 
@@ -335,7 +343,9 @@ async function writeResponseBodyToFileWithLimit(
         let result: ReadableStreamReadResult<Uint8Array>;
         try {
           result = await reader.read();
-        } catch {
+        } catch (error) {
+          if (error instanceof Error && /abort|timeout/i.test(error.name))
+            throw sanitizeRecordingMediaError(error);
           throw new RecordingMediaFetchError(
             "Recording media download failed while reading the response body.",
             502,
@@ -1171,11 +1181,16 @@ export async function fetchRecordingMediaResponse(
         500,
       );
     }
-    const response = await fetchS3ObjectByUrl(videoUrl, {
-      recordingId: options.recordingId,
-      storageMode: "hosted",
-      timeoutMs: 30_000,
-    });
+    let response: Response | null;
+    try {
+      response = await fetchS3ObjectByUrl(videoUrl, {
+        recordingId: options.recordingId,
+        storageMode: "hosted",
+        timeoutMs: 30_000,
+      });
+    } catch (error) {
+      throw sanitizeRecordingMediaError(error);
+    }
     if (!response) {
       throw new RecordingMediaFetchError(
         "Hosted recording media could not be found.",
@@ -1185,7 +1200,7 @@ export async function fetchRecordingMediaResponse(
     if (!response.ok) {
       await response.body?.cancel().catch(() => {});
       throw new RecordingMediaFetchError(
-        `Hosted recording media fetch failed: HTTP ${response.status} ${response.statusText}`,
+        `Hosted recording media fetch failed: HTTP ${response.status}`,
         response.status,
       );
     }
@@ -1304,9 +1319,18 @@ export async function loadRecordingMediaBytes(
   };
 }
 
+function isRangeVideoFormat(format: string | null): format is "mp4" | "webm" {
+  return format === "mp4" || format === "webm";
+}
+
 export async function loadRecordingMediaFile(
   recording: PublicAgentRecording,
-): Promise<{ path: string; mimeType: string; cleanup: () => Promise<void> }> {
+): Promise<{
+  path: string;
+  mimeType: string;
+  cleanup: () => Promise<void>;
+  remote?: RemoteFrameInput;
+}> {
   const videoUrl = recording.videoUrl ?? "";
   if (!videoUrl) {
     throw new RecordingMediaFetchError("Recording media is missing.", 404);
@@ -1315,9 +1339,93 @@ export async function loadRecordingMediaFile(
   if (embedProvider) {
     throw new Error(embedFramesUnavailableReason(embedProvider));
   }
-  assertFrameMediaFileSize(recording.videoSizeBytes);
-
   const fallbackMimeType = recordingFallbackMimeType(recording);
+  // Unknown or understated sizes retain the capped download path; they cannot
+  // authorize a signed read of an otherwise unverified source.
+  if (
+    typeof recording.videoSizeBytes === "number" &&
+    recording.videoSizeBytes > maxAgentFrameMediaFileBytes() &&
+    (recording.storageMode === "own" || recording.storageMode === "hosted") &&
+    isRangeVideoFormat(recording.videoFormat) &&
+    !isLocalRecordingBlob(videoUrl)
+  ) {
+    const storageMode = recording.storageMode;
+    const deadline = Date.now() + FRAME_RANGE_DEADLINE_MS;
+    const release = acquireAgentFrameRangeAdmission();
+    let settled = false;
+    let timedOut = false;
+    let handedOff = false;
+    try {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const setup = Promise.resolve()
+        .then(() =>
+          runWithRequestContext(
+            {
+              userEmail: recording.ownerEmail,
+              ...(recording.orgId ? { orgId: recording.orgId } : {}),
+            },
+            () =>
+              openS3Recording(videoUrl, {
+                recordingId: recording.id,
+                storageMode,
+                deadline,
+              }),
+          ),
+        )
+        .catch((error) => {
+          throw sanitizeRecordingMediaError(error);
+        })
+        .finally(() => {
+          settled = true;
+          if (timedOut) release();
+        });
+      let read: Awaited<typeof setup>;
+      try {
+        read = await Promise.race([
+          setup,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () =>
+                reject(
+                  new RecordingMediaFetchError(
+                    "Recording media fetch timed out.",
+                    504,
+                  ),
+                ),
+              Math.max(0, deadline - Date.now()),
+            );
+          }),
+        ]);
+      } catch (error) {
+        timedOut = !settled;
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+      if (Date.now() >= deadline) {
+        throw new RecordingMediaFetchError(
+          "Recording media fetch timed out.",
+          504,
+        );
+      }
+      if (read) {
+        const media = await openAgentFrameRange(
+          read,
+          recording.videoFormat === "mp4" ? "mov" : "matroska",
+          deadline,
+          release,
+        );
+        handedOff = true;
+        return { ...media, mimeType: fallbackMimeType };
+      }
+    } catch (error) {
+      if (error instanceof RecordingMediaFetchError) throw error;
+      throw sanitizeRecordingMediaError(error);
+    } finally {
+      if (!handedOff && !timedOut) release();
+    }
+  }
+  assertFrameMediaFileSize(recording.videoSizeBytes);
   const dir = await mkdtemp(join(tmpdir(), "clips-agent-frame-"));
   const path = join(
     dir,
