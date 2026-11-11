@@ -45,6 +45,25 @@ describe("Terminal", () => {
     expect(status()).toBe("running");
   });
 
+  it("masks collapsed output from session replay until it is opened", async () => {
+    await render(
+      <Terminal command="pnpm build" output={"token=abc\n"} exitCode={0} />,
+    );
+    const output = () =>
+      document.querySelector(".agentkit-terminal-body [data-an-mask]");
+    expect(
+      document.querySelector(".agentkit-terminal-body")?.textContent,
+    ).toContain("token=abc");
+    expect(output()).not.toBeNull();
+
+    await act(async () =>
+      document
+        .querySelector<HTMLButtonElement>(".agentkit-disclosure-summary")
+        ?.click(),
+    );
+    expect(output()).toBeNull();
+  });
+
   it("opens when output starts streaming and marks a nonzero exit failed", async () => {
     await render(<Terminal command="pnpm test" running output="" />);
     await render(

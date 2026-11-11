@@ -135,7 +135,8 @@ export function Terminal({
             <TerminalOutput
               output={output ?? ""}
               maxLines={maxLines}
-              masked={failed}
+              // Kept in the DOM while closed, so replay masks it until opened.
+              masked={failed || !open}
             />
           </TraceCollapsibleContent>
         </TraceCollapsible>

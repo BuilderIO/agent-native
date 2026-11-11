@@ -1977,8 +1977,10 @@ export function AgentActivityItem({
       {errorLine}
       <TraceCollapsibleContent
         keepMounted
-        // Summary parts can render links, and replays keep their attributes.
-        {...(activity.status === "failed" ? SESSION_REPLAY_BLOCK_PROPS : {})}
+        // Replays keep attributes, and a closed body stays mounted.
+        {...(activity.status === "failed" || !open
+          ? SESSION_REPLAY_BLOCK_PROPS
+          : {})}
         className="agentkit-activity-summary"
       >
         {activity.summary?.map((part, index) => {
@@ -4430,7 +4432,7 @@ export function AgentSubagentStep({
       {errorLine}
       <TraceCollapsibleContent
         keepMounted
-        {...(failed ? SESSION_REPLAY_BLOCK_PROPS : {})}
+        {...(failed || !open ? SESSION_REPLAY_BLOCK_PROPS : {})}
         className="agentkit-subagent-content"
       >
         <AgentSubagentStepContext.Provider value={agentId}>
