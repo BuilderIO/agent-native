@@ -299,28 +299,26 @@ export async function createSecret(
 
   if (existing[0]) {
     const found = existing[0];
-    await storeValueThenWriteRow(
+    await db
+      .update(schema.vaultSecrets)
+      .set({
+        name: input.name,
+        credentialKey,
+        value: SEALED_VAULT_VALUE,
+        provider: input.provider || null,
+        description: input.description || null,
+        updatedAt: timestamp,
+      })
+      .where(
+        and(
+          eq(schema.vaultSecrets.id, found.id),
+          ctxScope(schema.vaultSecrets, ctx),
+        ),
+      );
+    await storeSecretValue(
       ctxForSecretRow(found, ctx),
       { credentialKey, name: input.name },
       input.value,
-      async () => {
-        await db
-          .update(schema.vaultSecrets)
-          .set({
-            name: input.name,
-            credentialKey,
-            value: SEALED_VAULT_VALUE,
-            provider: input.provider || null,
-            description: input.description || null,
-            updatedAt: timestamp,
-          })
-          .where(
-            and(
-              eq(schema.vaultSecrets.id, found.id),
-              ctxScope(schema.vaultSecrets, ctx),
-            ),
-          );
-      },
     );
 
     await recordVaultAudit({
@@ -343,26 +341,20 @@ export async function createSecret(
   const secretId = id();
   const actor = ctx.ownerEmail;
 
-  await storeValueThenWriteRow(
-    ctx,
-    { credentialKey, name: input.name },
-    input.value,
-    async () => {
-      await db.insert(schema.vaultSecrets).values({
-        id: secretId,
-        ownerEmail: actor,
-        orgId: ctx.orgId,
-        name: input.name,
-        credentialKey,
-        value: SEALED_VAULT_VALUE,
-        provider: input.provider || null,
-        description: input.description || null,
-        createdBy: actor,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      });
-    },
-  );
+  await db.insert(schema.vaultSecrets).values({
+    id: secretId,
+    ownerEmail: actor,
+    orgId: ctx.orgId,
+    name: input.name,
+    credentialKey,
+    value: SEALED_VAULT_VALUE,
+    provider: input.provider || null,
+    description: input.description || null,
+    createdBy: actor,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  });
+  await storeSecretValue(ctx, { credentialKey, name: input.name }, input.value);
 
   await recordVaultAudit({
     action: "secret.created",
@@ -409,9 +401,6 @@ export async function updateSecret(
   if (patch.value !== undefined && !patch.value) {
     throw new Error("Secret value is required");
   }
-  // Rows saved before the vault stopped keeping plaintext still carry their
-  // value. Seal it now, so any edit to such a row finishes its migration.
-  const valueToStore = patch.value ?? (existing.value || undefined);
   const provider =
     patch.provider !== undefined ? patch.provider || null : existing.provider;
   const description =
@@ -436,7 +425,7 @@ export async function updateSecret(
   }
 
   const storeCtx = ctxForSecretRow(existing, ctx);
-  let valueForKey = valueToStore;
+  let valueForKey = patch.value;
   if (!valueForKey && credentialKey !== existing.credentialKey) {
     // A rename carries the stored value to the new key. A failed read throws;
     // only a missing copy means there is nothing to move.
@@ -447,33 +436,27 @@ export async function updateSecret(
     valueForKey = current?.value;
   }
 
-  const writeRow = async () => {
-    await db
-      .update(schema.vaultSecrets)
-      .set({
-        name,
-        credentialKey,
-        value: SEALED_VAULT_VALUE,
-        provider,
-        description,
-        updatedAt: now(),
-      })
-      .where(
-        and(
-          eq(schema.vaultSecrets.id, secretId),
-          ctxScope(schema.vaultSecrets, ctx),
-        ),
-      );
-  };
-  if (valueForKey) {
-    await storeValueThenWriteRow(
-      storeCtx,
-      { credentialKey, name },
-      valueForKey,
-      writeRow,
+  await db
+    .update(schema.vaultSecrets)
+    .set({
+      name,
+      credentialKey,
+      // Only a new value empties the row. A row that still holds an older
+      // plaintext value keeps it until it is cleared in bulk, so a label edit
+      // can never write that stale value over a newer one in the credential store.
+      ...(patch.value !== undefined ? { value: SEALED_VAULT_VALUE } : {}),
+      provider,
+      description,
+      updatedAt: now(),
+    })
+    .where(
+      and(
+        eq(schema.vaultSecrets.id, secretId),
+        ctxScope(schema.vaultSecrets, ctx),
+      ),
     );
-  } else {
-    await writeRow();
+  if (valueForKey) {
+    await storeSecretValue(storeCtx, { credentialKey, name }, valueForKey);
   }
 
   const auditMetadata = {
@@ -885,56 +868,6 @@ export async function getVaultSecretMetadata(
   } catch (error) {
     if (!isUnreadableSecretError(error)) throw error;
     return vaultSecretMetadata(row, "", "unreadable");
-  }
-}
-
-/**
- * Store a value, then write the vault row that owns it. If the row write fails,
- * put the key back as it was: restore its previous value, or drop it when no
- * vault row references it. A reported failure then never leaves apps reading a
- * value the vault did not accept.
- */
-async function storeValueThenWriteRow(
-  ctx: VaultCtx,
-  secret: { credentialKey: string; name: string },
-  value: string,
-  writeRow: () => Promise<void>,
-): Promise<void> {
-  const previous = await readPreviousValue(ctx, secret.credentialKey);
-  await storeSecretValue(ctx, secret, value);
-  try {
-    await writeRow();
-  } catch (error) {
-    try {
-      if (previous) await storeSecretValue(ctx, secret, previous);
-      else
-        await cleanupSyncedCredentialKeysIfUnused(ctx, [secret.credentialKey]);
-    } catch (rollbackError) {
-      // The row write's error is the one to report; this only names the key.
-      console.warn(
-        `[dispatch] could not undo the stored value for ${secret.credentialKey}`,
-        rollbackError instanceof Error ? rollbackError.message : rollbackError,
-      );
-    }
-    throw error;
-  }
-}
-
-/** The value now stored for a key, or undefined when none exists or it cannot be decrypted. */
-async function readPreviousValue(
-  ctx: VaultCtx,
-  credentialKey: string,
-): Promise<string | undefined> {
-  try {
-    const current = await readAppSecret({
-      key: credentialKey,
-      ...credentialStoreScopeForVaultCtx(ctx),
-    });
-    return current?.value;
-  } catch (error) {
-    // Saving again is how an unreadable key gets fixed, so it must not block.
-    if (!isUnreadableSecretError(error)) throw error;
-    return undefined;
   }
 }
 

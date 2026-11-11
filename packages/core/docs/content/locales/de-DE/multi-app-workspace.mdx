@@ -449,7 +449,7 @@ Das freigegebene Paket selbst wird niemals eigenständig bereitgestellt. Es hand
 
 Das Arbeitsbereichsmuster ist absichtlich eng. Ein paar Dinge werden bewusst noch nicht behandelt:
 
-- **Verschlüsselter Tresor für Anmeldeinformationen.** Bevorzugen Sie den Dispatch-Tresor für Anmeldeinformationen für Laufzeit-Apps (siehe [Shared environment variables](#shared-env)). Anmeldeinformationen, die vor der Einführung der Verschlüsselung gespeichert wurden (ältere Zeilen in der `settings`-Tabelle des Frameworks), werden beim ersten Lesen an Ort und Stelle verschlüsselt.
+- **Verschlüsselter Tresor für Anmeldeinformationen.** Bevorzugen Sie den Dispatch-Tresor für Anmeldeinformationen für Laufzeit-Apps (siehe [Shared environment variables](#shared-env)). Der Nicht-Vault-Fallback-Pfad – gemeinsam genutzte Anmeldeinformationen, die direkt in die `settings`-Tabelle des Frameworks geschrieben werden – speichert sie heute als Klartext. Wechseln Sie daher verantwortungsbewusst, wenn Sie sich darauf verlassen.
 - **Freigegebenen Code im privaten npm veröffentlichen.** Das freigegebene Paket ist nur `workspace:*`; Die gemeinsame Nutzung mehrerer Repositorys über eine private Registry ist möglich, aber kein Gerüst.
 - **Meinungsorientierte Komponentenbibliothek.** `packages/shared` ist der Ort, an dem _Sie_ gemeinsam genutzte Komponenten ablegen. Das Framework zwingt weder shadcn/ui noch ein anderes System in diesen Steckplatz.
 

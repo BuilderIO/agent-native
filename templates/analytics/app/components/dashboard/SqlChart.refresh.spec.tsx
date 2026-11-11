@@ -925,6 +925,13 @@ describe("SqlChart refresh feedback", () => {
     expect(
       formatSqlChartError(new Error("signal is aborted without reason")),
     ).toBe("This chart load was interrupted. Try again.");
+    expect(
+      formatSqlChartError(
+        new Error(
+          "Action query-dashboard-panel failed: program_error: Sample orders file is missing",
+        ),
+      ),
+    ).toBe("program_error: Sample orders file is missing");
 
     const panel = {
       id: "signups",

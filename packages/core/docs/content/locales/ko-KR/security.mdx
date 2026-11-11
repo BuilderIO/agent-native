@@ -320,7 +320,7 @@ pnpm action db-check-scoping --require-org  # org_id도 필요합니다.
 | OAuth 토큰(구글, GitHub)   | `saveOAuthTokens()`를 통한 `oauth_tokens` 매장           |
 | 세션 토큰                  | 자동(더 나은 인증이 이를 처리함)                         |
 
-사용자별/조직별 자격 증명과 vault는 저장 시 AES-256-GCM으로 암호화됩니다. Dispatch vault에는 평문 사본이 남지 않습니다. `vault_secrets`에는 이름과 메타데이터만 저장되며, 각 값은 `app_secrets`에만 존재합니다. 공유 워크스페이스 vault는 `WORKSPACE_SECRETS_ENCRYPTION_KEY`를 우선하고 `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`에서 파생된 레거시 후보를 사용합니다. 회전 중에는 `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`를 설정해 읽기가 행을 마이그레이션하도록 하세요. 암호화 기능이 추가되기 전에 저장된 평문 자격 증명 행은 처음 읽힐 때 제자리에서 암호화됩니다. 한 번에 모두 암호화하려면 `pnpm action db-migrate-encrypt-credentials`(멱등성, 비파괴)를 실행하세요.
+사용자별/조직별 자격 증명과 vault는 저장 시 AES-256-GCM으로 암호화됩니다. Dispatch vault에는 평문 사본이 남지 않습니다. `vault_secrets`에는 이름과 메타데이터만 저장되며, 각 값은 `app_secrets`에만 존재합니다. 공유 워크스페이스 vault는 `WORKSPACE_SECRETS_ENCRYPTION_KEY`를 우선하고 `SECRETS_ENCRYPTION_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`에서 파생된 레거시 후보를 사용합니다. 회전 중에는 `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`를 설정해 읽기가 행을 마이그레이션하도록 하세요. 기존 평문 행은 `pnpm action db-migrate-encrypt-credentials`(멱등성, 비파괴)로 암호화할 수 있습니다.
 
 `settings`, `application_state`, 소스 코드 또는 작업 응답에 비밀을 저장하지 마세요. 위의 자격 증명/볼트 API를 사용하세요. 암호화와 사용자별 범위 지정을 모두 처리합니다.
 

@@ -379,7 +379,7 @@ These settings only affect read-only page navigation. Framework tools, agent cha
 
 The workspace pattern is intentionally narrow. A few things it deliberately doesn't handle yet:
 
-- **Encrypted credential vault.** Prefer the Dispatch vault for runtime app credentials (see [Shared environment variables](#shared-env)). Credentials saved before encryption was added (older rows in the framework `settings` table) are encrypted in place the first time they are read.
+- **Encrypted credential vault.** Prefer the Dispatch vault for runtime app credentials (see [Shared environment variables](#shared-env)). The non-vault fallback path — shared credentials written directly to the framework `settings` table — stores them as plain text today, so rotate responsibly when you rely on it.
 - **Publishing shared code to private npm.** The shared package is `workspace:*` only; multi-repo sharing via a private registry is doable but not scaffolded.
 - **Opinionated component library.** `packages/shared` is where _you_ put shared components. The framework doesn't force shadcn/ui or any other system into that slot.
 

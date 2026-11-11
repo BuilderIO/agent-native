@@ -114,7 +114,7 @@ function isLocalDatabaseHost(): boolean {
   return URL.canParse(url) && isLoopbackHost(new URL(url).host);
 }
 
-export function isDevelopmentProcessOnSharedDatabase(): boolean {
+function isDevelopmentProcessOnSharedDatabase(): boolean {
   return !isDeployedServerRuntime() && !isLocalDatabaseHost();
 }
 

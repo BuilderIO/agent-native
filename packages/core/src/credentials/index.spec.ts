@@ -6,20 +6,11 @@ const store = new Map<string, { value: unknown }>();
 const readAppSecret = vi.fn();
 const deleteAppSecret = vi.fn();
 const isMissingAppSecretsTableError = vi.fn();
-const isDevelopmentProcessOnSharedDatabase = vi.fn();
-const replaceSettingIfValue = vi.fn();
-const captureError = vi.fn();
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret,
   deleteAppSecret,
-  isDevelopmentProcessOnSharedDatabase,
   isMissingAppSecretsTableError,
-}));
-
-vi.mock("../server/capture-error.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../server/capture-error.js")>()),
-  captureError: (...args: unknown[]) => captureError(...args),
 }));
 
 vi.mock("../settings/store.js", async (importOriginal) => ({
@@ -29,7 +20,6 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
     store.set(key, value);
   },
   deleteSetting: async (key: string) => store.delete(key),
-  replaceSettingIfValue: (...args: unknown[]) => replaceSettingIfValue(...args),
 }));
 
 let resolveOrgIdForEmail: (email: string) => Promise<string | null>;
@@ -55,21 +45,6 @@ beforeEach(() => {
   deleteAppSecret.mockReset();
   isMissingAppSecretsTableError.mockReset();
   isMissingAppSecretsTableError.mockReturnValue(false);
-  isDevelopmentProcessOnSharedDatabase.mockReset();
-  isDevelopmentProcessOnSharedDatabase.mockReturnValue(false);
-  captureError.mockReset();
-  replaceSettingIfValue.mockReset();
-  replaceSettingIfValue.mockImplementation(
-    async (
-      key: string,
-      expected: { value: unknown },
-      next: { value: unknown },
-    ) => {
-      if (store.get(key)?.value !== expected.value) return false;
-      store.set(key, next);
-      return true;
-    },
-  );
   resolveOrgIdForEmail = async () => null;
   readOrgMemberRole.mockReset();
   readOrgMemberRole.mockResolvedValue("member");
@@ -98,105 +73,6 @@ describe("credentials encryption at rest", () => {
     expect(await resolveCredential("LEGACY", { userEmail: "a@x.com" })).toBe(
       "plaintext-key",
     );
-  });
-
-  describe("sealing legacy plaintext rows on read", () => {
-    const userKey = (name: string) => `u:a@x.com:credential:${name}`;
-
-    it("encrypts the row in place and keeps returning the same value", async () => {
-      store.set(userKey("SEAL_ME"), { value: "plaintext-key" });
-      const { resolveCredential } = await import("./index.js");
-
-      expect(await resolveCredential("SEAL_ME", { userEmail: "a@x.com" })).toBe(
-        "plaintext-key",
-      );
-
-      expect(replaceSettingIfValue).toHaveBeenCalledOnce();
-      expect(replaceSettingIfValue).toHaveBeenCalledWith(
-        userKey("SEAL_ME"),
-        { value: "plaintext-key" },
-        { value: expect.stringMatching(/^v1:/) },
-      );
-      const sealed = store.get(userKey("SEAL_ME"))?.value as string;
-      expect(sealed).toMatch(/^v1:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/);
-      expect(sealed).not.toContain("plaintext-key");
-      expect(await resolveCredential("SEAL_ME", { userEmail: "a@x.com" })).toBe(
-        "plaintext-key",
-      );
-    });
-
-    it("leaves a row alone when it changed since it was read", async () => {
-      store.set(userKey("RACED"), { value: "plaintext-key" });
-      replaceSettingIfValue.mockResolvedValue(false);
-      const { resolveCredential } = await import("./index.js");
-
-      expect(await resolveCredential("RACED", { userEmail: "a@x.com" })).toBe(
-        "plaintext-key",
-      );
-      expect(store.get(userKey("RACED"))).toEqual({ value: "plaintext-key" });
-    });
-
-    it("still returns the value when sealing fails", async () => {
-      store.set(userKey("SEAL_FAILS"), { value: "plaintext-key" });
-      const failure = new Error("read-only role");
-      replaceSettingIfValue.mockRejectedValue(failure);
-      const { resolveCredential } = await import("./index.js");
-
-      expect(
-        await resolveCredential("SEAL_FAILS", { userEmail: "a@x.com" }),
-      ).toBe("plaintext-key");
-      expect(captureError).toHaveBeenCalledOnce();
-      expect(captureError).toHaveBeenCalledWith(failure, {
-        errorMessagePolicy: "omit",
-        tags: { source: "credentials", op: "seal-legacy-setting" },
-      });
-    });
-
-    it("tries each row once per process, so a failing seal does not write on every read", async () => {
-      store.set(userKey("ONCE"), { value: "plaintext-key" });
-      replaceSettingIfValue.mockResolvedValue(false);
-      const { resolveCredential } = await import("./index.js");
-
-      await resolveCredential("ONCE", { userEmail: "a@x.com" });
-      await resolveCredential("ONCE", { userEmail: "a@x.com" });
-      await resolveCredential("ONCE", { userEmail: "a@x.com" });
-
-      expect(replaceSettingIfValue).toHaveBeenCalledTimes(1);
-    });
-
-    it("does not try to seal an empty value", async () => {
-      store.set(userKey("EMPTY_VALUE"), { value: "" });
-      const { resolveCredential } = await import("./index.js");
-
-      await resolveCredential("EMPTY_VALUE", { userEmail: "a@x.com" });
-
-      expect(replaceSettingIfValue).not.toHaveBeenCalled();
-    });
-
-    it("does not seal from a development process on a shared database", async () => {
-      store.set(userKey("SHARED_DB"), { value: "plaintext-key" });
-      isDevelopmentProcessOnSharedDatabase.mockReturnValue(true);
-      const { resolveCredential } = await import("./index.js");
-
-      expect(
-        await resolveCredential("SHARED_DB", { userEmail: "a@x.com" }),
-      ).toBe("plaintext-key");
-      expect(replaceSettingIfValue).not.toHaveBeenCalled();
-      expect(store.get(userKey("SHARED_DB"))).toEqual({
-        value: "plaintext-key",
-      });
-    });
-
-    it("never seals an already-encrypted row again", async () => {
-      const { saveCredential, resolveCredential } = await import("./index.js");
-      await saveCredential("ALREADY_SEALED", "sk-secret-value", {
-        userEmail: "a@x.com",
-      });
-
-      await resolveCredential("ALREADY_SEALED", { userEmail: "a@x.com" });
-
-      expect(replaceSettingIfValue).not.toHaveBeenCalled();
-    });
   });
 
   it("encrypts org-scoped credentials too", async () => {

@@ -26,7 +26,6 @@ import {
   IconX,
   IconDotsVertical,
   IconExternalLink,
-  IconShare3,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -1325,7 +1324,6 @@ function AgentPanelInner({
                 allowedRoles={["viewer", "editor", "admin"]}
                 resourceTitle={activeTab.label || t("agentPanel.chat")}
                 shareUrl={getChatThreadShareUrl(activeTab.id)}
-                triggerClassName="h-6 px-2 text-xs"
                 defaultOpen={onCollapse && shareFromMenuOpen}
                 onOpenChange={onCollapse ? setShareFromMenuOpen : undefined}
               />
@@ -1844,18 +1842,7 @@ function AgentPanelInner({
                       allowedRoles={["viewer", "editor", "admin"]}
                       resourceTitle={activeTab.label || t("agentPanel.chat")}
                       shareUrl={getChatThreadShareUrl(activeTab.id)}
-                      triggerContent={
-                        pageHeaderShareTriggerContent ?? (
-                          <IconShare3 size={16} aria-hidden="true" />
-                        )
-                      }
-                      triggerClassName={cn(
-                        "h-6 border-0 bg-transparent text-xs shadow-none hover:bg-accent/60 [&_svg]:size-4",
-                        pageHeaderShareTriggerContent === undefined ||
-                          pageHeaderShareTriggerContent === null
-                          ? "size-6 p-0"
-                          : "w-auto px-2",
-                      )}
+                      triggerContent={pageHeaderShareTriggerContent}
                     />
                   ) : null}
                   {toolbarSlot}

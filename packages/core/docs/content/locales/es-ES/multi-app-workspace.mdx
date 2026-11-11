@@ -449,7 +449,7 @@ El paquete compartido en sí nunca se implementa de forma independiente. Es un d
 
 El patrón del espacio de trabajo es intencionalmente estrecho. Algunas cosas que deliberadamente no maneja todavía:
 
-- **Bóveda de credenciales cifradas.** Prefiera la bóveda de Dispatch para las credenciales de la aplicación en tiempo de ejecución (consulte [Shared environment variables](#shared-env)). Las credenciales guardadas antes de añadir el cifrado (filas antiguas de la tabla `settings` del marco) se cifran en su lugar la primera vez que se leen.
+- **Bóveda de credenciales cifradas.** Prefiera la bóveda de Dispatch para las credenciales de la aplicación en tiempo de ejecución (consulte [Shared environment variables](#shared-env)). La ruta alternativa que no es la bóveda (credenciales compartidas escritas directamente en la tabla `settings` del marco) las almacena hoy como texto sin formato, por lo que debe rotarlas de manera responsable cuando confíe en ella.
 - **Publicación de código compartido en npm privado.** El paquete compartido es solo `workspace:*`; Es posible compartir varios repositorios a través de un registro privado, pero no mediante andamios.
 - **Biblioteca de componentes con opinión.** `packages/shared` es donde _usted_ coloca los componentes compartidos. El marco no fuerza a shadcn/ui ni a ningún otro sistema a ingresar en esa ranura.
 

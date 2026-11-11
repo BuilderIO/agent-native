@@ -449,7 +449,7 @@ O pacote compartilhado em si nunca é implantado de forma independente. É uma d
 
 O padrão do espaço de trabalho é intencionalmente estreito. Algumas coisas que ele deliberadamente ainda não resolve:
 
-- **Cofre de credenciais criptografadas.** Prefira o cofre do Dispatch para credenciais de aplicativos de tempo de execução (consulte [Shared environment variables](#shared-env)). As credenciais salvas antes da adição da criptografia (linhas antigas da tabela `settings` do framework) são criptografadas no local na primeira vez que são lidas.
+- **Cofre de credenciais criptografadas.** Prefira o cofre do Dispatch para credenciais de aplicativos de tempo de execução (consulte [Shared environment variables](#shared-env)). O caminho alternativo que não é do Vault (credenciais compartilhadas gravadas diretamente na tabela `settings` da estrutura) as armazena como texto simples hoje, portanto, alterne com responsabilidade quando você confiar nele.
 - **Publicando código compartilhado em npm privado.** O pacote compartilhado é apenas `workspace:*`; o compartilhamento de vários repositórios por meio de um registro privado é possível, mas não é estruturado.
 - **Biblioteca de componentes opinativos.** `packages/shared` é onde _você_ coloca os componentes compartilhados. A estrutura não força o shadcn/ui ou qualquer outro sistema a entrar nesse slot.
 

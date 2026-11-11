@@ -449,7 +449,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 工作區圖案故意變窄。它故意不處理一些事情：
 
-- **加密憑證保管庫。**首選調度保管庫來取得執行時應用程式憑證（請參閱 [Shared environment variables](#shared-env)）。在加入加密之前儲存的憑證（框架 `settings` 表中的舊資料列）會在首次讀取時就地加密。
+- **加密憑證保管庫。**首選調度保管庫來取得執行時應用程式憑證（請參閱 [Shared environment variables](#shared-env)）。非保管庫回退路徑（直接寫入框架 `settings` 表的共用憑證）現在將它們儲存為純文字，因此當您依賴它時，請負責任地輪換。
 - **將共用程式碼發布到私人npm。**共用包僅限`workspace:*`；透過私人註冊表進行多儲存庫共用是可行的，但無法搭建。
 - **固定元件庫。** `packages/shared` 是您放置共用元件的位置。此框架不會強制 shadcn/ui 或任何其他系統進入該插槽。
 

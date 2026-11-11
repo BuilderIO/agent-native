@@ -378,13 +378,41 @@ describe("vault writes keep the value out of vault_secrets", () => {
       value: "",
     });
     expect(JSON.stringify(writes)).not.toContain("sk-test-key");
-    // The value must be stored before the row claims it exists.
-    expect(mocks.writeAppSecret.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.getDb.mock.invocationCallOrder.at(-1)!,
-    );
   });
 
-  it("saves nothing when the encrypted write fails", async () => {
+  it("stores nothing when the vault row cannot be written", async () => {
+    actAsOrgAdmin();
+    fakeVaultDb([], { failInsert: new Error("row insert failed") });
+
+    await expect(
+      createSecret({
+        credentialKey: "OPENAI_API_KEY",
+        value: "sk-test-key",
+        name: "OpenAI API Key",
+      }),
+    ).rejects.toThrow("row insert failed");
+
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("leaves an existing key's stored value alone when its row cannot be updated", async () => {
+    actAsOrgAdmin();
+    fakeVaultDb([existingRow()], {
+      failUpdate: new Error("row update failed"),
+    });
+
+    await expect(
+      createSecret({
+        credentialKey: "OPENAI_API_KEY",
+        value: "sk-rotated",
+        name: "OpenAI API Key",
+      }),
+    ).rejects.toThrow("row update failed");
+
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("reports the encrypted write's failure after the row is saved", async () => {
     actAsOrgAdmin();
     const writes = fakeVaultDb([]);
     mocks.writeAppSecret.mockRejectedValue(new Error("store unavailable"));
@@ -397,7 +425,8 @@ describe("vault writes keep the value out of vault_secrets", () => {
       }),
     ).rejects.toThrow("store unavailable");
 
-    expect(writes.inserted).toEqual([]);
+    expect(writes.inserted).toHaveLength(1);
+    expect(JSON.stringify(writes)).not.toContain("sk-test-key");
   });
 
   it("rejects an empty value instead of saving a secret with nothing behind it", async () => {
@@ -435,7 +464,7 @@ describe("vault writes keep the value out of vault_secrets", () => {
     expect(writes.updated[0]).toMatchObject({ value: "" });
   });
 
-  it("lets metadata-only edits through on a row that holds no plaintext", async () => {
+  it("lets metadata-only edits through without touching the value", async () => {
     actAsOrgAdmin();
     const writes = fakeVaultDb([existingRow()]);
 
@@ -445,8 +474,8 @@ describe("vault writes keep the value out of vault_secrets", () => {
     expect(writes.updated[0]).toMatchObject({
       name: "Renamed",
       description: "note",
-      value: "",
     });
+    expect(writes.updated[0]).not.toHaveProperty("value");
   });
 
   it("stores a new value from an edit", async () => {
@@ -474,20 +503,15 @@ describe("vault writes keep the value out of vault_secrets", () => {
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
   });
 
-  it("seals a legacy plaintext row the first time it is edited", async () => {
+  it("leaves a legacy row's value and the stored copy alone on a label edit", async () => {
     actAsOrgAdmin();
     const writes = fakeVaultDb([existingRow({ value: "sk-legacy" })]);
 
     await updateSecret("secret-1", { name: "Renamed" });
 
-    expect(mocks.writeAppSecret).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ...orgStore("OPENAI_API_KEY"),
-        value: "sk-legacy",
-      }),
-    );
-    expect(writes.updated[0]).toMatchObject({ value: "" });
-    expect(JSON.stringify(writes)).not.toContain("sk-legacy");
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+    expect(writes.updated[0]).toMatchObject({ name: "Renamed" });
+    expect(writes.updated[0]).not.toHaveProperty("value");
   });
 
   it("carries the stored value to the new key on a rename", async () => {
@@ -511,8 +535,8 @@ describe("vault writes keep the value out of vault_secrets", () => {
     );
     expect(writes.updated[0]).toMatchObject({
       credentialKey: "OPENAI_KEY_V2",
-      value: "",
     });
+    expect(writes.updated[0]).not.toHaveProperty("value");
   });
 
   it("renames a row with no stored copy without inventing a value", async () => {
@@ -523,168 +547,6 @@ describe("vault writes keep the value out of vault_secrets", () => {
     await updateSecret("secret-1", { credentialKey: "OPENAI_KEY_V2" });
 
     expect(mocks.writeAppSecret).not.toHaveBeenCalled();
-  });
-
-  describe("when the vault row cannot be written after the value is stored", () => {
-    it("removes the stored value of a new key, so no key is left that the vault does not own", async () => {
-      actAsOrgAdmin();
-      fakeVaultDb([], { failInsert: new Error("insert failed") });
-
-      await expect(
-        createSecret({
-          credentialKey: "OPENAI_API_KEY",
-          value: "sk-test-key",
-          name: "OpenAI API Key",
-        }),
-      ).rejects.toThrow("insert failed");
-
-      expect(mocks.deleteAppSecret).toHaveBeenCalledWith(
-        orgStore("OPENAI_API_KEY"),
-      );
-    });
-
-    it("puts the previous value back when an overwrite of a key a vault row owns fails", async () => {
-      actAsOrgAdmin();
-      fakeVaultDb([existingRow()], { failUpdate: new Error("update failed") });
-      mocks.readAppSecret.mockResolvedValue({
-        value: "sk-old",
-        last4: "••••-old",
-      });
-
-      await expect(
-        createSecret({
-          credentialKey: "OPENAI_API_KEY",
-          value: "sk-rotated",
-          name: "OpenAI API Key",
-        }),
-      ).rejects.toThrow("update failed");
-
-      expect(
-        mocks.writeAppSecret.mock.calls.map(([args]) => args.value),
-      ).toEqual(["sk-rotated", "sk-old"]);
-      expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
-    });
-
-    it("puts the previous value back when an edit's row write fails", async () => {
-      actAsOrgAdmin();
-      fakeVaultDb([existingRow()], { failUpdate: new Error("update failed") });
-      mocks.readAppSecret.mockResolvedValue({
-        value: "sk-old",
-        last4: "••••-old",
-      });
-
-      await expect(
-        updateSecret("secret-1", { value: "sk-rotated" }),
-      ).rejects.toThrow("update failed");
-
-      expect(
-        mocks.writeAppSecret.mock.calls.map(([args]) => args.value),
-      ).toEqual(["sk-rotated", "sk-old"]);
-    });
-
-    it("removes the value copied to a new key when a rename's row write fails", async () => {
-      actAsOrgAdmin();
-      // Selects, in order: the row, the new-key conflict check, then the
-      // rollback's "does any vault row still use this key" lookup.
-      fakeVaultDb([], {
-        selects: [[existingRow()], [], []],
-        failUpdate: new Error("update failed"),
-      });
-      // Reads, in order: the old key's value, then what the new key holds now.
-      mocks.readAppSecret
-        .mockResolvedValueOnce({ value: "sk-stored", last4: "••••ored" })
-        .mockResolvedValueOnce(null);
-
-      await expect(
-        updateSecret("secret-1", { credentialKey: "OPENAI_KEY_V2" }),
-      ).rejects.toThrow("update failed");
-
-      expect(mocks.deleteAppSecret).toHaveBeenCalledWith(
-        orgStore("OPENAI_KEY_V2"),
-      );
-    });
-
-    it("still saves over a copy this deployment cannot decrypt, and reports the row's error", async () => {
-      actAsOrgAdmin();
-      fakeVaultDb([existingRow()], { failUpdate: new Error("update failed") });
-      mocks.readAppSecret.mockRejectedValue(
-        Object.assign(new Error("unreadable"), {
-          errorCode: "app_secret_unreadable",
-        }),
-      );
-
-      await expect(
-        updateSecret("secret-1", { value: "sk-rotated" }),
-      ).rejects.toThrow("update failed");
-
-      // There is no old value to restore, so only the new one was written.
-      expect(
-        mocks.writeAppSecret.mock.calls.map(([args]) => args.value),
-      ).toEqual(["sk-rotated"]);
-    });
-
-    it("stores nothing when the key's current value cannot be checked", async () => {
-      actAsOrgAdmin();
-      const writes = fakeVaultDb([existingRow()]);
-      mocks.readAppSecret.mockRejectedValue(new Error("store unavailable"));
-
-      await expect(
-        updateSecret("secret-1", { value: "sk-rotated" }),
-      ).rejects.toThrow("store unavailable");
-
-      expect(mocks.writeAppSecret).not.toHaveBeenCalled();
-      expect(writes.updated).toEqual([]);
-    });
-
-    it("reports the row write's error even when restoring the previous value also fails", async () => {
-      actAsOrgAdmin();
-      fakeVaultDb([existingRow()], { failUpdate: new Error("update failed") });
-      mocks.readAppSecret.mockResolvedValue({
-        value: "sk-old",
-        last4: "••••-old",
-      });
-      mocks.writeAppSecret
-        .mockResolvedValueOnce("id-1")
-        .mockRejectedValueOnce(new Error("restore failed"));
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-      try {
-        await expect(
-          updateSecret("secret-1", { value: "sk-rotated" }),
-        ).rejects.toThrow("update failed");
-        expect(warn).toHaveBeenCalledWith(
-          expect.stringContaining("OPENAI_API_KEY"),
-          "restore failed",
-        );
-        expect(JSON.stringify(warn.mock.calls)).not.toContain("sk-");
-      } finally {
-        warn.mockRestore();
-      }
-    });
-
-    it("reports the row write's error even when the cleanup also fails", async () => {
-      actAsOrgAdmin();
-      fakeVaultDb([], { failInsert: new Error("insert failed") });
-      mocks.deleteAppSecret.mockRejectedValue(new Error("delete failed"));
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-      try {
-        await expect(
-          createSecret({
-            credentialKey: "OPENAI_API_KEY",
-            value: "sk-test-key",
-            name: "OpenAI API Key",
-          }),
-        ).rejects.toThrow("insert failed");
-        expect(warn).toHaveBeenCalledWith(
-          expect.stringContaining("OPENAI_API_KEY"),
-          "delete failed",
-        );
-        expect(JSON.stringify(warn.mock.calls)).not.toContain("sk-test-key");
-      } finally {
-        warn.mockRestore();
-      }
-    });
   });
 
   it("fails the rename when the stored copy cannot be read", async () => {

@@ -449,7 +449,7 @@ Le package partagé lui-même n’est jamais déployé de manière autonome. Il 
 
 Le modèle de l'espace de travail est intentionnellement étroit. Quelques éléments qu'il ne gère pas encore délibérément :
 
-- **Coffre-fort d'informations d'identification chiffré.** Préférez le coffre-fort Dispatch pour les informations d'identification de l'application d'exécution (voir [Shared environment variables](#shared-env)). Les informations d’identification enregistrées avant l’ajout du chiffrement (anciennes lignes de la table `settings` du framework) sont chiffrées sur place à leur première lecture.
+- **Coffre-fort d'informations d'identification chiffré.** Préférez le coffre-fort Dispatch pour les informations d'identification de l'application d'exécution (voir [Shared environment variables](#shared-env)). Le chemin de secours hors coffre-fort (les informations d'identification partagées écrites directement dans la table `settings` du framework) les stocke aujourd'hui sous forme de texte brut, alors effectuez une rotation responsable lorsque vous vous en servez.
 - **Publication du code partagé sur npm privé.** Le package partagé concerne uniquement `workspace:*` ; Le partage multi-repo via un registre privé est faisable mais pas échafaudé.
 - **Bibliothèque de composants avisés.** `packages/shared` est l'endroit où _vous_ placez les composants partagés. Le framework ne force pas shadcn/ui ou tout autre système à accéder à cet emplacement.
 
