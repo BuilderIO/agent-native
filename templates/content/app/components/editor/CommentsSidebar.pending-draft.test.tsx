@@ -678,9 +678,14 @@ describe("new comment responsive draft", () => {
       "utf8",
     );
     expect(source).toContain("usePendingCommentDraft(documentId)");
-    // The rail shows a new comment only while its Blocks field tab is open.
+    // The rail shows a new comment only while its Blocks field tab is open,
+    // and Info only under the Property it's on. Beside a page with no
+    // Properties on it, a new comment on one waits in Info.
     expect(source).toMatch(
-      /pendingComment=\{\s*presentation === "history" \|\| blockFieldComments\.pendingVisible\s*\? pendingComment\s*: null\s*\}/,
+      /pendingComment=\{\s*infoProperty\s*\? pendingComment\?\.property\?\.propertyId === infoProperty\s*\? pendingComment\s*: null\s*: presentation === "history" \|\| blockFieldComments\.pendingVisible\s*\? pagePendingComment\s*: null\s*\}/,
+    );
+    expect(source).toMatch(
+      /const pagePendingComment =\s*pendingComment\?\.property &&\s*!\(\s*host === "preview" &&/,
     );
     expect(source).toContain("onPendingChange={changePendingComment}");
     expect(source).toContain("if (!completePendingComment(id)) return;");

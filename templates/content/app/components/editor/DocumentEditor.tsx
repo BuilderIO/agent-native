@@ -8781,8 +8781,22 @@ function PageEditorSessionBody({
     changePendingComment,
     completePendingComment,
   } = usePendingCommentDraft(documentId);
+  // The page shows Properties only in a Collection's peek. Elsewhere a new
+  // Comment on one is written, and waits, under its row in Info, so the
+  // page's margin and Discussion leave it out.
+  const pagePendingComment =
+    pendingComment?.property &&
+    !(
+      host === "preview" &&
+      !!document.databaseMembership &&
+      !isLocalFileDocument
+    )
+      ? null
+      : pendingComment;
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
+  // The Property whose threads, or new Comment, Info shows under its row.
+  const [infoPropertyId, setInfoPropertyId] = useState<string | null>(null);
   const pagePanelRef = useRef<HTMLElement>(null);
   const pagePanelSpacerRef = useRef<HTMLDivElement>(null);
   const pagePanelHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -9293,7 +9307,7 @@ function PageEditorSessionBody({
     selectedSuggestionId,
     focusSuggestionId,
     hoveredThreadId,
-    pendingComment,
+    pendingComment: pagePendingComment,
     showCommentIndicators,
     onComment: canComment ? handleFieldComment : undefined,
     onBlockComment: canComment ? handleFieldBlockComment : undefined,
@@ -9316,7 +9330,7 @@ function PageEditorSessionBody({
         commentAi.freshResolutions,
       ),
     hasSelectedCommentThread,
-    hasPendingComment: !!pendingComment,
+    hasPendingComment: !!pagePendingComment,
   });
   const pagePanel = usePagePanelMotion(requestedPanelTab, marginWanted);
   // The margin gives its space back with the panel's arrival and takes it again
@@ -9349,7 +9363,7 @@ function PageEditorSessionBody({
     utilityPanel === "comments" &&
     (!hasInlineCommentSpace || !!pagePanel.tab) &&
     !blockFieldComments.tabSwitchPending &&
-    ((!!pendingComment && blockFieldComments.pendingVisible) ||
+    ((!!pagePendingComment && blockFieldComments.pendingVisible) ||
       !!selectedThreadId);
   // Discussion steps aside only where it covers the page, and comes back once
   // the window has room for it beside the page, or once its thread resolves
@@ -9408,7 +9422,8 @@ function PageEditorSessionBody({
       setDiscussionPeekThreadId(null);
       setSelectedSuggestionId(null);
       setHoveredThreadId(null);
-      setSelectedThreadId(thread.threadId);
+      setSelectedThreadId(null);
+      setInfoPropertyId(propertyId);
       setCommentsBrowseOpen(false);
       setUtilityPanel("info");
       // Info draws in the panel's next frame.
@@ -9426,7 +9441,8 @@ function PageEditorSessionBody({
               : "smooth",
           });
           pulseShownSubject([row]);
-          // The row's open threads, or with none open, its way to start one.
+          // The row's count, which closes its threads again, or with none
+          // open, its way to start one.
           row
             .querySelector<HTMLElement>(
               "[data-property-comment-marker], [data-property-comment-start]",
@@ -9760,6 +9776,71 @@ function PageEditorSessionBody({
     },
     [clearCommentFocus, replyDrafts.setOpenReply],
   );
+
+  const pendingPropertyId = pendingComment?.property?.propertyId;
+  // Info keeps a Property's Comments under its row, so starting one, opening
+  // its threads, or replying leaves Info open.
+  const startInfoPropertyComment = useCallback(
+    (property: DocumentProperty) => {
+      // One already started on this Property opens again as it was.
+      if (pendingPropertyId !== property.definition.id) {
+        setPendingComment({
+          quotedText: "",
+          offsetTop: 0,
+          property: commentPropertyTarget(property),
+          databaseId: pagePropertiesDatabaseId,
+        });
+      }
+      setInfoPropertyId(property.definition.id);
+      setSelectedSuggestionId(null);
+      setSelectedThreadId(null);
+      setHoveredThreadId(null);
+    },
+    [pagePropertiesDatabaseId, pendingPropertyId, setPendingComment],
+  );
+  const toggleInfoProperty = useCallback(
+    (propertyId: string) => {
+      // A new Comment with nothing written closes; one with words in it stays
+      // under its own row.
+      setPendingComment(null, { keepWritten: true });
+      replyDrafts.setOpenReply(null);
+      setSelectedThreadId(null);
+      setHoveredThreadId(null);
+      setInfoPropertyId((current) =>
+        current === propertyId ? null : propertyId,
+      );
+    },
+    [replyDrafts.setOpenReply, setPendingComment],
+  );
+  const selectInfoThread = useCallback(
+    (threadId: string) => {
+      setSelectedSuggestionId(null);
+      setPendingComment(null, { keepWritten: true });
+      setHoveredThreadId(null);
+      setSelectedThreadId(threadId);
+    },
+    [setPendingComment],
+  );
+  // Once a new Comment in Info is posted or dropped, focus goes back to its
+  // row's Comment control.
+  const focusInfoPropertyControl = useCallback((propertyId: string) => {
+    requestAnimationFrame(() => {
+      const control = pagePanelRef.current?.querySelector<HTMLElement>(
+        `[data-property-row="${CSS.escape(propertyId)}"] :is([data-property-comment-marker], [data-property-comment-start])`,
+      );
+      control?.focus({ preventScroll: true });
+    });
+  }, []);
+  // Leaving Info closes the open Property's threads, and a new Comment on it
+  // with nothing written. One with words in it waits under its row for Info.
+  const infoShown = requestedPanelTab === "info";
+  useEffect(() => {
+    if (infoShown || !infoPropertyId) return;
+    setInfoPropertyId(null);
+    if (pendingPropertyId === infoPropertyId) {
+      setPendingComment(null, { keepWritten: true });
+    }
+  }, [infoShown, infoPropertyId, pendingPropertyId, setPendingComment]);
 
   const handlePagePanelChange = useCallback(
     (next: DocumentPagePanelTab | null) => {
@@ -10755,6 +10836,8 @@ function PageEditorSessionBody({
     alignToAnchors = hasInlineCommentSpace,
     presentation: "inline" | "history" = "inline",
     surface?: "rail" | "popover" | "panel",
+    /** Just this Property's threads and new Comment, under its row in Info. */
+    infoProperty?: string,
   ) => (
     <CommentsSidebar
       compact={!hasInlineCommentSpace}
@@ -10766,24 +10849,38 @@ function PageEditorSessionBody({
         presentation === "history" ? setShowCommentIndicators : undefined
       }
       threads={
-        presentation === "history"
-          ? documentEditorCommentThreads(threads)
-          : clipRailThreads.length
-            ? [...blockFieldComments.railThreads, ...clipRailThreads]
-            : blockFieldComments.railThreads
+        infoProperty
+          ? infoPropertyId === infoProperty
+            ? (threads ?? []).filter(
+                (thread) => thread.property?.propertyId === infoProperty,
+              )
+            : []
+          : presentation === "history"
+            ? documentEditorCommentThreads(threads)
+            : clipRailThreads.length
+              ? [...blockFieldComments.railThreads, ...clipRailThreads]
+              : blockFieldComments.railThreads
       }
       documentProperties={discussionProperties}
       isLoading={commentsLoading}
       pendingComment={
-        presentation === "history" || blockFieldComments.pendingVisible
-          ? pendingComment
-          : null
+        infoProperty
+          ? pendingComment?.property?.propertyId === infoProperty
+            ? pendingComment
+            : null
+          : presentation === "history" || blockFieldComments.pendingVisible
+            ? pagePendingComment
+            : null
       }
       pendingTargetValid={pendingCommentTargetValid}
       onPendingChange={changePendingComment}
       onPendingDone={(id, threadId) => {
         if (!completePendingComment(id)) return;
-        if (threadId) {
+        if (infoProperty) {
+          // Info stays, a posted thread joining the others under the row.
+          if (threadId) setInfoPropertyId(infoProperty);
+          focusInfoPropertyControl(infoProperty);
+        } else if (threadId) {
           setSelectedThreadId(threadId);
         } else if (!hasInlineCommentSpace) {
           setUtilityPanel(null);
@@ -10793,7 +10890,9 @@ function PageEditorSessionBody({
       activeThreadId={activeThreadId}
       selectedThreadId={selectedThreadId}
       onActivateThread={(threadId) =>
-        activateCommentThread(threadId, presentation === "history")
+        infoProperty
+          ? selectInfoThread(threadId)
+          : activateCommentThread(threadId, presentation === "history")
       }
       activeSuggestionId={editingSuggestionId ?? selectedSuggestionId}
       unplaceableSuggestionRevisions={unplaceableSuggestionRevisions}
@@ -11071,6 +11170,7 @@ function PageEditorSessionBody({
       visibleThreadId={visibleThreadId}
       presentation={presentation}
       surface={surface}
+      underSubject={!!infoProperty}
       onClose={surface === "popover" ? handleEditorEscape : undefined}
     />
   );
@@ -11097,7 +11197,24 @@ function PageEditorSessionBody({
   const pagePanelBody =
     pagePanel.rendered === "info" ? (
       <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-        <PropertyCommentsContext.Provider value={propertyComments}>
+        <PropertyCommentsContext.Provider
+          value={{
+            ...propertyComments,
+            startComment: startInfoPropertyComment,
+            inline: {
+              openPropertyId: infoPropertyId,
+              toggle: toggleInfoProperty,
+              renderThreads: (propertyId) =>
+                renderCommentsSidebar(
+                  undefined,
+                  false,
+                  "inline",
+                  "panel",
+                  propertyId,
+                ),
+            },
+          }}
+        >
           <DocumentInfoPanel
             document={document}
             documentContent={exportContent}
@@ -12125,7 +12242,7 @@ function PageEditorSessionBody({
                     {renderCommentsSidebar(
                       // A thread opened while a new comment waits shows first.
                       !selectedThreadId &&
-                        pendingComment &&
+                        pagePendingComment &&
                         blockFieldComments.pendingVisible
                         ? "__pending-only__"
                         : selectedThreadId,

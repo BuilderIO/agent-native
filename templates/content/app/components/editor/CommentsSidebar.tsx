@@ -1217,6 +1217,11 @@ interface CommentsSidebarOptions {
   surface?: CommentSurface;
   /** Closes the anchored popover; shown as its header close button. */
   onClose?: () => void;
+  /**
+   * The threads sit right under what they're on, as a Property's do in Info,
+   * one after another, without a line saying what that is.
+   */
+  underSubject?: boolean;
   /** Extra header actions for each comment thread's card. */
   renderThreadActions?: (thread: CommentThread) => ReactNode;
   /** Whether comment highlights show on the page; the panel can switch them. */
@@ -1304,6 +1309,7 @@ export function CommentsSidebar({
   presentation = "inline",
   surface: surfaceProp,
   onClose,
+  underSubject = false,
   renderThreadActions,
   highlightsVisible = true,
   onHighlightsVisibleChange,
@@ -1458,7 +1464,12 @@ export function CommentsSidebar({
   const pendingInputRef = useRef<TiptapComposerHandle>(null);
 
   const openThreads = useMemo(() => {
-    if (presentation === "inline" && !alignToAnchors && activeSuggestionId)
+    if (
+      presentation === "inline" &&
+      !alignToAnchors &&
+      !underSubject &&
+      activeSuggestionId
+    )
       return [];
     const open =
       threads?.filter(
@@ -1479,6 +1490,7 @@ export function CommentsSidebar({
     visibleThreadId,
     presentation,
     alignToAnchors,
+    underSubject,
     activeSuggestionId,
     selectedThreadId,
     commentAi?.freshResolutions,
@@ -3534,7 +3546,7 @@ export function CommentsSidebar({
         showQuote={inStack || !!thread.clip}
         propertyTarget={propertyTarget}
         subject={
-          surface === "panel" ? (
+          underSubject ? null : surface === "panel" ? (
             <DiscussionThreadSubject
               quote={quote}
               propertyTarget={propertyTarget}
@@ -4205,7 +4217,10 @@ export function CommentsSidebar({
   return (
     <div
       ref={sidebarRef}
-      className="relative flow-root w-full min-w-0 shrink-0 pb-16"
+      className={cn(
+        "relative flow-root w-full min-w-0 shrink-0",
+        underSubject ? "divide-y divide-border" : "pb-16",
+      )}
       data-comments-sidebar
       onClick={(event) => {
         // The margin's empty space is outside every card, so it folds.
@@ -4250,7 +4265,7 @@ export function CommentsSidebar({
               ? composingStack
                 ? "absolute inset-x-0 z-10 pb-2"
                 : "absolute left-2 right-4 z-10"
-              : surface === "popover"
+              : surface === "popover" || underSubject
                 ? "relative"
                 : "relative mx-2 mt-3",
           )}
@@ -4262,7 +4277,9 @@ export function CommentsSidebar({
           {composingStack ? <CommentStackSheets /> : null}
           <div
             className={cn(
-              "relative overflow-hidden rounded-xl bg-popover ring-1 ring-border/60 shadow-comment-raised",
+              "relative",
+              !underSubject &&
+                "overflow-hidden rounded-xl bg-popover ring-1 ring-border/60 shadow-comment-raised",
               composingStack && "mx-2 mr-4",
             )}
           >
@@ -4294,7 +4311,7 @@ export function CommentsSidebar({
                 />
               </div>
               <div className="min-w-0 flex-1">
-                {displayedPendingComment.property ? (
+                {displayedPendingComment.property && !underSubject ? (
                   <PropertyThreadTargetLabel
                     className="mb-2"
                     target={propertyThreadTarget(
@@ -4425,7 +4442,12 @@ export function CommentsSidebar({
             key={thread.threadId}
             className="relative transition-transform duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transition-none"
             data-comment-layout-thread={thread.threadId}
-            style={{ marginTop, transform: `translateY(${translateY}px)` }}
+            style={
+              // Under their subject, threads simply follow one another.
+              underSubject
+                ? undefined
+                : { marginTop, transform: `translateY(${translateY}px)` }
+            }
           >
             {startsOrphanedSection ? (
               <div

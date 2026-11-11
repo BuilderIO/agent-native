@@ -179,6 +179,7 @@ describe("Property comments in the comments sidebar", () => {
     expect(label?.getAttribute("data-comment-property-target")).toBe("current");
     expect(label?.textContent).toContain("Score");
     expect(label?.textContent).toContain("5");
+    expect(label?.querySelector(".truncate")).toBeNull();
     expect(container.textContent).not.toContain("comments.selectTextToComment");
 
     await setRichEditorValue(richEditor(container)!, "This should be 8");
@@ -273,6 +274,8 @@ describe("Property comments in the comments sidebar", () => {
       'comments.showPropertyInInfo:{"property":"Score"}',
     );
     expect(subject()?.textContent).toContain("Score · 5");
+    // A Property's value shows in full.
+    expect(subject()?.querySelector(".line-clamp-2")).toBeNull();
     await act(async () => subject()?.click());
     expect(showSubject).toHaveBeenCalledWith(scoreThread);
 
@@ -280,6 +283,81 @@ describe("Property comments in the comments sidebar", () => {
     await render(<Discussion properties={[]} />);
     await settle();
     expect(subject()?.tagName).toBe("DIV");
+  });
+});
+
+describe("a Property's threads under its row in Info", () => {
+  it("lists them flat with no line naming the Property, and writes a new one there", async () => {
+    let owner!: ReturnType<typeof usePendingCommentDraft>;
+    function Info() {
+      owner = usePendingCommentDraft("row-1");
+      const replyDrafts = useCommentReplyDrafts("row-1");
+      return (
+        <CommentsSidebar
+          documentId="row-1"
+          replyDrafts={replyDrafts}
+          threads={[
+            thread("t1", {
+              propertyId: "score",
+              propertyName: "Score",
+              propertyValue: "5",
+            }),
+            thread("t2", {
+              propertyId: "score",
+              propertyName: "Score",
+              propertyValue: "5",
+            }),
+          ]}
+          documentProperties={[score(5)]}
+          pendingComment={owner.pendingComment}
+          onPendingChange={owner.changePendingComment}
+          onPendingDone={(id) => owner.completePendingComment(id)}
+          alignToAnchors={false}
+          surface="panel"
+          underSubject
+          forceVisible
+        />
+      );
+    }
+    await render(<Info />);
+    await settle();
+    const cards = [...container.querySelectorAll("[data-thread-card]")];
+    expect(cards.map((card) => card.getAttribute("data-thread-card"))).toEqual([
+      "t1",
+      "t2",
+    ]);
+    expect(
+      cards.every(
+        (card) => card.getAttribute("data-comment-surface") === "panel",
+      ),
+    ).toBe(true);
+    expect(
+      container.querySelector("[data-comment-property-target]"),
+    ).toBeNull();
+    expect(container.querySelector("[data-discussion-subject]")).toBeNull();
+    for (const layout of container.querySelectorAll<HTMLElement>(
+      "[data-comment-layout-thread]",
+    ))
+      expect(layout.style.marginTop).toBe("");
+
+    await act(async () =>
+      owner.setPendingComment({
+        quotedText: "",
+        offsetTop: 0,
+        property: {
+          propertyId: "score",
+          propertyName: "Score",
+          propertyValue: "5",
+        },
+        databaseId: "db-1",
+      }),
+    );
+    await settle();
+    expect(container.querySelector("[data-comment-pending]")).not.toBeNull();
+    expect(richEditor(container)).toBeTruthy();
+    expect(
+      container.querySelector("[data-comment-property-target]"),
+    ).toBeNull();
   });
 });
 
@@ -446,5 +524,68 @@ describe("PropertyCommentControl", () => {
     await act(async () => marker.click());
     expect(value.openThread).toHaveBeenCalledWith("latest");
     expect(container.querySelector("[data-property-comment-start]")).toBeNull();
+  });
+
+  it("opens and closes the threads under the row in Info", async () => {
+    const value = controls({
+      openThreadsByProperty: openThreadsByProperty([
+        thread("only", {
+          propertyId: "score",
+          propertyName: "Score",
+          propertyValue: "5",
+        }),
+      ]),
+    });
+    const toggle = vi.fn();
+    const renderInfo = (openPropertyId: string | null) =>
+      render(
+        <PropertyCommentsContext.Provider
+          value={{
+            ...value,
+            inline: { openPropertyId, toggle, renderThreads: () => null },
+          }}
+        >
+          <PropertyCommentControl property={score(5)} />
+        </PropertyCommentsContext.Provider>,
+      );
+    await renderInfo(null);
+    const marker = () =>
+      container.querySelector<HTMLButtonElement>(
+        "[data-property-comment-marker]",
+      );
+    expect(marker()?.textContent).toBe("1");
+    expect(marker()?.getAttribute("aria-expanded")).toBe("false");
+    // Info has no margin to place it in, and the page opens a thread at its
+    // place when clicked.
+    expect(marker()?.hasAttribute("data-comment-thread")).toBe(false);
+    await act(async () => marker()?.click());
+    expect(toggle).toHaveBeenCalledWith("score");
+    expect(value.openThread).not.toHaveBeenCalled();
+
+    await renderInfo("score");
+    expect(marker()?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("leaves aria-expanded off the count beside the page", async () => {
+    await render(
+      <PropertyCommentsContext.Provider
+        value={controls({
+          openThreadsByProperty: openThreadsByProperty([
+            thread("only", {
+              propertyId: "score",
+              propertyName: "Score",
+              propertyValue: "5",
+            }),
+          ]),
+        })}
+      >
+        <PropertyCommentControl property={score(5)} />
+      </PropertyCommentsContext.Provider>,
+    );
+    expect(
+      container
+        .querySelector("[data-property-comment-marker]")
+        ?.hasAttribute("aria-expanded"),
+    ).toBe(false);
   });
 });

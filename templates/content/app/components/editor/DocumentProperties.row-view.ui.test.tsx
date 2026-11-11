@@ -600,4 +600,101 @@ describe("a row's Properties in its view", () => {
     );
     expect(rowIds()).toEqual(["b", "c"]);
   });
+
+  it("opens the line for a Property whose threads are open in Info", () => {
+    renderProperties(
+      { type: "board", hiddenPropertyIds: ["a"] },
+      {
+        comments: {
+          inline: {
+            openPropertyId: "a",
+            toggle: vi.fn(),
+            renderThreads: () => null,
+          },
+        },
+      },
+    );
+    expect(rowIds()).toEqual(["b", "c", "a"]);
+  });
+});
+
+describe("a Property's threads in Info", () => {
+  const thread = { threadId: "thread" } as never;
+  const inline = (openPropertyId: string | null) => ({
+    openPropertyId,
+    toggle: vi.fn(),
+    renderThreads: (propertyId: string) => (
+      <p data-threads-for={propertyId}>threads</p>
+    ),
+  });
+
+  it("shows the open Property's threads right under its row", () => {
+    renderProperties(null, {
+      comments: {
+        openThreadsByProperty: new Map([["b", [thread]]]),
+        inline: inline("b"),
+      },
+    });
+    const box = document.querySelector("[data-property-threads]");
+    expect(box?.getAttribute("data-property-threads")).toBe("b");
+    expect(box?.previousElementSibling?.getAttribute("data-property-row")).toBe(
+      "b",
+    );
+    expect(box?.querySelector("[data-threads-for]")?.textContent).toBe(
+      "threads",
+    );
+    expect(
+      document
+        .querySelector('[data-property-row="b"]')
+        ?.classList.contains("comment-property-row--active"),
+    ).toBe(true);
+  });
+
+  it("shows a new Comment there before the Property has threads", () => {
+    renderProperties(null, {
+      comments: { pendingPropertyId: "a", inline: inline("a") },
+    });
+    expect(
+      document
+        .querySelector("[data-property-threads]")
+        ?.getAttribute("data-property-threads"),
+    ).toBe("a");
+  });
+
+  it("keeps a new Comment under its row while another Property's threads open", () => {
+    renderProperties(null, {
+      comments: {
+        openThreadsByProperty: new Map([["b", [thread]]]),
+        pendingPropertyId: "a",
+        inline: inline("b"),
+      },
+    });
+    expect(
+      [...document.querySelectorAll("[data-property-threads]")].map((box) =>
+        box.getAttribute("data-property-threads"),
+      ),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("shows nothing under a row that has neither", () => {
+    renderProperties(null, { comments: { inline: inline("a") } });
+    expect(document.querySelector("[data-property-threads]")).toBeNull();
+  });
+
+  it("leaves a closed Property's threads out", () => {
+    renderProperties(null, {
+      comments: {
+        openThreadsByProperty: new Map([["b", [thread]]]),
+        inline: inline(null),
+      },
+    });
+    expect(document.querySelector("[data-property-threads]")).toBeNull();
+  });
+
+  it("keeps the threads beside the page while Properties are on it", () => {
+    renderProperties(null, {
+      comments: { openThreadsByProperty: new Map([["b", [thread]]]) },
+    });
+    expect(document.querySelector("[data-property-threads]")).toBeNull();
+  });
 });
