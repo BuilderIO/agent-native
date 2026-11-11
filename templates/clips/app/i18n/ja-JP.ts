@@ -629,6 +629,8 @@ const messages = {
     them: "彼ら",
     me: "自分",
     regeneratingNotes: "要約を再生成中",
+    notesAlreadyGenerating:
+      "要約はすでに生成中です。完了するとここに表示されます。",
     meetingRemoved: "会議が削除されました",
     couldNotRemoveMeeting: "会議を削除できませんでした",
     couldNotLoadMeeting: "この会議を読み込めませんでした。",
@@ -714,6 +716,8 @@ const messages = {
     noMatches: "一致はありません。",
     noTranscript: "まだトランスクリプトはありません。",
     noTranscriptCaptured: "記録はキャプチャされませんでした。",
+    unreadableDescription:
+      "保存されている文字起こしが破損しています。再生成すると、クリップの音声から新しい文字起こしが作成されます。",
     partialTranscript:
       "一部のみの文字起こし: 録画が途中で途切れたため、欠けている部分があるかもしれません。",
     backupFailed:

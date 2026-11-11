@@ -139,8 +139,10 @@ describe("placing a piece of an agent's edit after its siblings", () => {
     expect(reversed.body).toBe(approved);
   });
 
-  it("needed the text the siblings wrote", () => {
-    expect(acceptInOrder([...host, ...vendor], false).failed).not.toBeNull();
+  it("places every piece from the siblings' ranges alone", () => {
+    const result = acceptInOrder([...host, ...vendor], false);
+    expect(result.failed).toBeNull();
+    expect(result.body).toBe(approved);
   });
 
   it("places every piece after an edit to the Page below them", () => {

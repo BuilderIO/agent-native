@@ -361,6 +361,7 @@ pub fn run() {
             recording_indicator::recording_pill_save_expanded_size,
             recording_indicator::recording_pill_set_detached,
             notifications::take_pending_meeting_notification,
+            notifications::meeting_notification_show,
             notifications::notify_meeting_starting,
             notifications::dismiss_meeting_notification,
             notifications::debug_write_snapshot,

@@ -125,6 +125,12 @@ describe("AgentJobsTab organization automations", () => {
                 createdBy: "owner@example.com",
                 mcpTools: [],
                 canUpdate: true,
+                capabilities: {
+                  canEdit: true,
+                  canOperate: true,
+                  canDelete: true,
+                  canManageSharing: true,
+                },
               },
             ]
           : [],
@@ -159,6 +165,12 @@ describe("AgentJobsTab organization automations", () => {
                 nextRun: null,
                 createdBy: "owner@example.com",
                 canUpdate: true,
+                capabilities: {
+                  canEdit: true,
+                  canOperate: true,
+                  canDelete: true,
+                  canManageSharing: true,
+                },
               },
             ]
           : [],
@@ -305,6 +317,44 @@ describe("AgentJobsTab organization automations", () => {
     expect(notice?.textContent).toContain(
       "Couldn't check whether schedules run here",
     );
+  });
+
+  it("keeps editing controls but hides Run now when operation is unavailable", () => {
+    const existing = jobMocks.useAutomations.getMockImplementation();
+    if (!existing) throw new Error("Automation fixture is not configured");
+    jobMocks.useAutomations.mockImplementation((scope: "user" | "org") => {
+      const result = existing(scope);
+      return {
+        ...result,
+        data: result.data.map((automation: { capabilities: object }) => ({
+          ...automation,
+          capabilities: { ...automation.capabilities, canOperate: false },
+        })),
+      };
+    });
+
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+    const row = Array.from(container.querySelectorAll("article")).find(
+      (article) => article.textContent?.includes("new lead alert"),
+    );
+    expect(row?.querySelector('[role="switch"]')).not.toBeNull();
+    const trigger = row?.querySelector<HTMLButtonElement>(
+      'button[aria-haspopup="menu"]',
+    );
+    if (!trigger) throw new Error("Automation menu trigger not found");
+    act(() => {
+      trigger.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const items = Array.from(
+      document.querySelectorAll('[role="menuitem"]'),
+    ).map((item) => item.textContent?.trim());
+    expect(items).toContain("Edit");
+    expect(items).toContain("Delete");
+    expect(items).not.toContain("Run now");
   });
 
   it("routes organization event updates through the organization mutation", () => {

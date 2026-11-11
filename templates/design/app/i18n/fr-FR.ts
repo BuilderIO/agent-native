@@ -2617,6 +2617,9 @@ export default {
     changesDiscarded:
       "Certaines modifications n’ont pas pu être enregistrées car le fichier n’existe plus et ont été ignorées.",
     offline: "Hors ligne",
+    unsaved: "Non enregistré",
+    saveRetrying:
+      "Impossible d’enregistrer vos modifications. Nouvelle tentative automatique en cours.",
     saving: "Enregistrement...",
     clearedAllAnnotations: "Toutes les annotations ont été effacées",
     annotationsDiscardedOnViewChange:

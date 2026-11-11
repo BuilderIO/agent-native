@@ -63,6 +63,7 @@ import {
   s3MediaCleanupFingerprint,
   fetchS3OrganizationLogoByLegacyUrl,
   fetchS3ObjectByUrl,
+  openS3Recording,
   isS3ObjectUrlBoundToRecording,
   s3FileUploadProvider,
   s3ObjectSizeBytesByUrl,
@@ -266,6 +267,148 @@ describe("s3FileUploadProvider", () => {
     ]) {
       delete process.env[key];
     }
+  });
+
+  it("binds a range reader to one recording and one resolved storage configuration", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips",
+      S3_ACCESS_KEY_ID: "fake-access",
+      S3_SECRET_ACCESS_KEY: "fake-secret",
+      S3_ENDPOINT: "https://s3.example.test",
+    };
+    mockResolveSecret.mockImplementation(
+      async (key: string) => values[key] ?? null,
+    );
+    mockSsrfSafeFetch.mockImplementation(
+      async () => new Response("x", { status: 206 }),
+    );
+    const url = "https://s3.example.test/clips/clips/rec-1/video.mp4";
+    expect(
+      await openS3Recording(url, { recordingId: "other", storageMode: "own" }),
+    ).toBeNull();
+    const reader = await openS3Recording(url, {
+      recordingId: "rec-1",
+      storageMode: "own",
+    });
+    expect(reader).not.toBeNull();
+    values.S3_ENDPOINT = "https://different.example.test";
+    mockPrefetchSecrets.mockClear();
+    if (!reader) throw new Error("missing scoped reader");
+    await (await reader("bytes=0-0", 1000)).body?.cancel();
+    await (await reader("bytes=2-2", 1000)).body?.cancel();
+    expect(mockPrefetchSecrets).not.toHaveBeenCalled();
+    expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(2);
+    for (const [requestUrl] of mockSsrfSafeFetch.mock.calls) {
+      expect(requestUrl).toBe(
+        "https://s3.example.test/clips/clips/rec-1/video.mp4",
+      );
+    }
+  });
+
+  it("forwards recording range cancellation to the storage request", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips",
+      S3_ACCESS_KEY_ID: "fake-access",
+      S3_SECRET_ACCESS_KEY: "fake-secret",
+      S3_ENDPOINT: "https://s3.example.test",
+    };
+    mockResolveSecret.mockImplementation(
+      async (key: string) => values[key] ?? null,
+    );
+    let started!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let upstreamSignal: AbortSignal | null | undefined;
+    mockSsrfSafeFetch.mockImplementation((_url: string, init: RequestInit) => {
+      upstreamSignal = init.signal;
+      started();
+      return new Promise((_resolve, reject) =>
+        init.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason),
+          { once: true },
+        ),
+      );
+    });
+    const reader = await openS3Recording(
+      "https://s3.example.test/clips/clips/rec-1/video.mp4",
+      { recordingId: "rec-1", storageMode: "own" },
+    );
+    if (!reader) throw new Error("missing scoped reader");
+    const controller = new AbortController();
+    const request = reader("bytes=0-0", 5_000, controller.signal);
+    const rejected = expect(request).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await fetchStarted;
+    controller.abort();
+    await rejected;
+    expect(upstreamSignal?.aborted).toBe(true);
+  });
+
+  it("does not start credential lookups after a stalled prefetch passes the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let finish!: () => void;
+      mockPrefetchSecrets.mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+      );
+      const request = openS3Recording(
+        "https://s3.example.test/clips/clips/rec-1/video.mp4",
+        {
+          recordingId: "rec-1",
+          storageMode: "own",
+          deadline: Date.now() + 100,
+        },
+      );
+      const rejected = expect(request).rejects.toMatchObject({
+        name: "TimeoutError",
+      });
+      await vi.advanceTimersByTimeAsync(101);
+      finish();
+      await rejected;
+      expect(mockResolveSecret).not.toHaveBeenCalled();
+      expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for all deadline-bound credential lookups even when one fails", async () => {
+    let finish!: () => void;
+    const stalled = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      if (key === "S3_BUCKET") throw new Error("lookup failed");
+      if (key === "S3_ACCESS_KEY_ID") await stalled;
+      return null;
+    });
+    let settled = false;
+    const request = openS3Recording(
+      "https://s3.example.test/clips/clips/rec-1/video.mp4",
+      {
+        recordingId: "rec-1",
+        storageMode: "own",
+        deadline: Date.now() + 10_000,
+      },
+    );
+    const result = request.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    finish();
+    await result;
+    await expect(request).rejects.toThrow("lookup failed");
   });
 
   it("prefetches the S3 and R2 request secrets before resolving them", async () => {

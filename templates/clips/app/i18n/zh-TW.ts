@@ -580,6 +580,7 @@ const messages = {
     them: "他們",
     me: "我",
     regeneratingNotes: "正在重新產生摘要",
+    notesAlreadyGenerating: "摘要已在產生中，完成後會顯示在這裡。",
     meetingRemoved: "會議已刪除",
     couldNotRemoveMeeting: "無法刪除會議",
     couldNotLoadMeeting: "無法載入該會議。",
@@ -660,6 +661,8 @@ const messages = {
     noMatches: "沒有符合項目。",
     noTranscript: "還沒有逐字稿。",
     noTranscriptCaptured: "沒有擷取到任何逐字稿。",
+    unreadableDescription:
+      "已儲存的逐字稿已損毀。重新產生會根據片段的音訊建立新的逐字稿。",
     partialTranscript: "部分逐字稿：錄製內容被截斷，可能缺少部分內容。",
     backupFailed:
       "本機未擷取到任何語音，備份轉錄也未完成。請重試或檢查麥克風和語音權限。",
