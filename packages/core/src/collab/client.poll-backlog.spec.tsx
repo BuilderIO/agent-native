@@ -25,6 +25,9 @@ import {
 const PAGES = 6;
 // useCollaborativeDoc's default poll interval.
 const INTERVAL_MS = 2_000;
+// Deeper than any test reads, and finite, so a broken cap fails the count
+// instead of reading forever.
+const DEEP_BACKLOG = 10 * MAX_BACKLOG_PAGES;
 
 /**
  * A change feed `pages` pages deep, one cursor step per page. `stuck`
@@ -158,7 +161,7 @@ describe("collab poll reading a change-feed backlog", () => {
   });
 
   it("waits one interval after MAX_BACKLOG_PAGES pages", async () => {
-    const { mock, counts } = backlogFetch(Number.MAX_SAFE_INTEGER);
+    const { mock, counts } = backlogFetch(DEEP_BACKLOG);
     render(mock);
     const run = MAX_BACKLOG_PAGES + 1;
 
@@ -171,7 +174,7 @@ describe("collab poll reading a change-feed backlog", () => {
   });
 
   it("starts a full run after a failed page", async () => {
-    const { mock, counts } = backlogFetch(Number.MAX_SAFE_INTEGER, {
+    const { mock, counts } = backlogFetch(DEEP_BACKLOG, {
       failAt: 5,
     });
     render(mock);

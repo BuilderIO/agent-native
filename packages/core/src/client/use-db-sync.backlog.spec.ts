@@ -135,7 +135,9 @@ describe("reading a change-feed backlog", () => {
   });
 
   it("waits one interval after MAX_BACKLOG_PAGES pages, without growing its idle backoff", async () => {
-    const server = backlogServer(Number.MAX_SAFE_INTEGER);
+    // Deep enough for every run below, and finite, so a broken cap fails
+    // the count instead of reading forever.
+    const server = backlogServer(10 * MAX_BACKLOG_PAGES);
     const unsub = subscribe();
     const run = MAX_BACKLOG_PAGES + 1;
 

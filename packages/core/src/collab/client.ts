@@ -22,6 +22,7 @@ import {
   REALTIME_CAP_NO_AWARENESS,
   REALTIME_CAP_POLL_LIVE,
 } from "../realtime-protocol.js";
+import { isSurfaceHidden } from "../shared/surface-visibility.js";
 import {
   forgetAwarenessClientSequence,
   postAwarenessState,
@@ -2579,8 +2580,9 @@ class CollabDocConnection {
     }
 
     // Visibility is read here, after the awaits above, so a tab hidden
-    // mid-page doesn't read ahead.
-    if (readNextPage && !isDocumentHidden()) {
+    // mid-page doesn't read ahead; a host-hidden surface counts, as in the
+    // shared poller.
+    if (readNextPage && !isSurfaceHidden()) {
       this.backlogPages++;
       this.schedulePoll(generation, 0);
       return;
