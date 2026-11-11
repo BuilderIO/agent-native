@@ -128,7 +128,10 @@ export function Terminal({
               />
             </span>
           </div>
-          <TraceCollapsibleContent className="agentkit-terminal-body">
+          <TraceCollapsibleContent
+            keepMounted
+            className="agentkit-terminal-body"
+          >
             <TerminalOutput
               output={output ?? ""}
               maxLines={maxLines}

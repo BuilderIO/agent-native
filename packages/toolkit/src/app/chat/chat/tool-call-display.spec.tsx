@@ -538,7 +538,12 @@ describe("ToolCallDisplay native renderers", () => {
       "button[aria-expanded]",
     );
     expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
-    expect(container.textContent).not.toContain(errorMessage);
+    // Closed, the output stays in the DOM, hidden, for find-in-page.
+    expect(
+      container
+        .querySelector(".agentkit-terminal-body")
+        ?.getAttribute("hidden"),
+    ).toBe("until-found");
     expect(container.querySelector(".text-destructive")).toBeNull();
 
     act(() => disclosure?.click());
