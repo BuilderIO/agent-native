@@ -224,6 +224,15 @@ describe("the Discussion panel", () => {
   const click = async (selector: string) => {
     await act(async () => button(selector).click());
   };
+  // Sort and Filter are Content's menus, which open on a press or Enter, not a
+  // bare click().
+  const openMenu = async (selector: string) => {
+    await act(async () => {
+      button(selector).dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+  };
   const filterOption = (group: string, option: string) =>
     `[data-discussion-filter-group="${group}"] [data-discussion-filter-option="${option}"]`;
   const storedFilters = () => window.localStorage.getItem(FILTERS_KEY);
@@ -320,11 +329,11 @@ describe("the Discussion panel", () => {
 
   it("remembers the sort and a Page's filters, and forgets the filters once they're back to default", async () => {
     render();
-    await click("[data-discussion-sort-trigger]");
+    await openMenu("[data-discussion-sort-trigger]");
     await click('[data-discussion-sort="activity"]');
     expect(window.localStorage.getItem(SORT_KEY)).toBe('"activity"');
 
-    await click("[data-discussion-filter-trigger]");
+    await openMenu("[data-discussion-filter-trigger]");
     await click(filterOption("target", "page"));
     expect(JSON.parse(storedFilters()!)).toEqual({
       kind: "all",
@@ -343,7 +352,7 @@ describe("the Discussion panel", () => {
     });
     expect(card("text-1")).toBeNull();
 
-    await click("[data-discussion-filter-trigger]");
+    await openMenu("[data-discussion-filter-trigger]");
     await click(filterOption("target", "all"));
     expect(storedFilters()).toBeNull();
     expect(card("text-1")).not.toBeNull();
@@ -431,10 +440,11 @@ describe("the Discussion panel", () => {
     expect(
       container.querySelectorAll("[data-discussion-filter-trigger]"),
     ).toHaveLength(1);
+    // oracle-change: the options are menu items now, checked rather than pressed.
     const pressed = (group: string, option: string) =>
-      button(filterOption(group, option)).getAttribute("aria-pressed");
+      button(filterOption(group, option)).getAttribute("aria-checked");
 
-    await click("[data-discussion-filter-trigger]");
+    await openMenu("[data-discussion-filter-trigger]");
     expect(pressed("status", "open")).toBe("true");
     expect(pressed("status", "resolved")).toBe("false");
 

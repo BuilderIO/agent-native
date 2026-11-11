@@ -8,12 +8,20 @@ import {
   IconAdjustmentsHorizontal,
   IconArrowLeft,
   IconArrowsSort,
+  IconCheck,
   IconChevronRight,
   IconEye,
   IconEyeOff,
   IconSearch,
 } from "@tabler/icons-react";
-import { forwardRef, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  forwardRef,
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -25,10 +33,14 @@ import {
 } from "@/components/editor/database/ContentTable";
 import { Button } from "@/components/ui/button";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { CommentThread } from "@/hooks/use-comments";
 import { cn } from "@/lib/utils";
 
@@ -284,8 +296,6 @@ export type DiscussionFilterGroup = {
   key: string;
   label: string;
   options: FilterOption[];
-  /** Two columns for short labels; one for names. */
-  columns?: 1 | 2;
 };
 
 /**
@@ -358,8 +368,9 @@ export function DiscussionToolbar({
         open={searchOpen && !inHead}
         buttonClassName={buttonSize}
       />
-      <Popover>
-        <PopoverTrigger asChild>
+      {/* Content's own menu, as the page's ⋮ and Collections' sort use. */}
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
           <ContentTableToolbarButton
             label={t("comments.sortBy")}
             active={sort !== "page"}
@@ -368,30 +379,30 @@ export function DiscussionToolbar({
           >
             <IconArrowsSort className="size-3.5" />
           </ContentTableToolbarButton>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          className="grid w-52 gap-1 p-2"
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align={inHead ? "end" : "start"}
+          className="w-52"
           container={portalContainer}
         >
           {DISCUSSION_SORTS.map((value) => (
-            <Button
+            <DropdownMenuItem
               key={value}
-              type="button"
-              size="sm"
-              variant={sort === value ? "secondary" : "ghost"}
-              className="justify-start"
-              aria-pressed={sort === value}
+              role="menuitemradio"
+              aria-checked={sort === value}
               data-discussion-sort={value}
-              onClick={() => onSortChange(value)}
+              onSelect={() => onSortChange(value)}
             >
-              {sortLabel(value)}
-            </Button>
+              <span className="flex-1">{sortLabel(value)}</span>
+              {sort === value ? (
+                <IconCheck className="size-4 text-muted-foreground" />
+              ) : null}
+            </DropdownMenuItem>
           ))}
-        </PopoverContent>
-      </Popover>
-      <Popover>
-        <PopoverTrigger asChild>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
           <ContentTableToolbarButton
             label={t("comments.filter")}
             active={chips.length > 0}
@@ -401,48 +412,50 @@ export function DiscussionToolbar({
           >
             <IconAdjustmentsHorizontal className="size-3.5" />
           </ContentTableToolbarButton>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          className="grid max-h-[min(32rem,var(--radix-popover-content-available-height))] w-72 gap-3 overflow-y-auto"
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align={inHead ? "end" : "start"}
+          className="max-h-[min(32rem,var(--radix-dropdown-menu-content-available-height))] w-60 overflow-y-auto"
           container={portalContainer}
         >
-          {filterGroups.map((group) => (
-            <fieldset
-              key={group.key}
-              className="grid gap-1.5"
-              data-discussion-filter-group={group.key}
-            >
-              <legend className="text-xs font-medium">{group.label}</legend>
-              <div
-                className={
-                  group.columns === 1 ? "grid gap-1" : "grid grid-cols-2 gap-1"
-                }
-              >
+          {filterGroups.map((group, index) => (
+            <Fragment key={group.key}>
+              {index ? <DropdownMenuSeparator /> : null}
+              <DropdownMenuGroup data-discussion-filter-group={group.key}>
+                <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
                 {group.options.map((option) => (
-                  <Button
+                  <DropdownMenuItem
                     key={option.key}
-                    type="button"
-                    size="sm"
-                    variant={option.selected ? "secondary" : "ghost"}
-                    className="justify-start truncate"
-                    aria-pressed={option.selected}
+                    role="menuitemcheckbox"
+                    aria-checked={option.selected}
                     data-discussion-filter-option={option.key}
-                    onClick={option.onSelect}
+                    // Choosing keeps the menu open for the next filter.
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      option.onSelect();
+                    }}
                   >
-                    {option.label}
-                  </Button>
+                    <span className="min-w-0 flex-1 truncate">
+                      {option.label}
+                    </span>
+                    {option.selected ? (
+                      <IconCheck className="size-4 text-muted-foreground" />
+                    ) : null}
+                  </DropdownMenuItem>
                 ))}
-              </div>
-            </fieldset>
+              </DropdownMenuGroup>
+            </Fragment>
           ))}
           {chips.length ? (
-            <Button variant="ghost" size="sm" onClick={onClearFilters}>
-              {t("comments.clearFilters")}
-            </Button>
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onClearFilters}>
+                {t("comments.clearFilters")}
+              </DropdownMenuItem>
+            </>
           ) : null}
-        </PopoverContent>
-      </Popover>
+        </DropdownMenuContent>
+      </DropdownMenu>
       {onHighlightsVisibleChange ? (
         <ContentTableToolbarButton
           label={t(

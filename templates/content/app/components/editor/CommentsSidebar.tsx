@@ -3956,7 +3956,6 @@ export function CommentsSidebar({
       {
         key: "person",
         label: t("comments.authorFilter"),
-        columns: 1,
         options: [
           {
             key: "mentions-me",
@@ -3984,7 +3983,6 @@ export function CommentsSidebar({
             {
               key: "tab",
               label: t("comments.tabFilter"),
-              columns: 1 as const,
               options: [
                 {
                   key: "all-tabs",
