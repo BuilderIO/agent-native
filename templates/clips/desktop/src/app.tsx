@@ -1519,6 +1519,12 @@ export function App({
     if (popoverVisible) void refreshVideoStorageStatus();
   }, [popoverVisible, refreshVideoStorageStatus]);
 
+  // The last-clip prompt shows once; hiding the popover counts as passing
+  // on it, so Start is back the next time it opens.
+  useEffect(() => {
+    if (!popoverVisible) setLastClipPromptOpen(false);
+  }, [popoverVisible]);
+
   useEffect(() => {
     if (
       !shouldPollVideoStorageStatus(authStatus === "authed", videoStorageStatus)

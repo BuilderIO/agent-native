@@ -437,7 +437,17 @@ export function StorageSetupCard({
         <Button
           type="button"
           className="w-full"
-          disabled={actionConnecting || connected || !builderConnectionScope}
+          disabled={
+            actionConnecting ||
+            connected ||
+            !builderConnectionScope ||
+            // Where accounts can be created here, a click before the status
+            // loads can't tell a new account from a sign-in. Elsewhere, or
+            // when the status can't load, sign-in is the path.
+            (builderConnect.agentNativeProvisioningEnabled &&
+              !builderConnect.statusResolved &&
+              !builderConnect.statusUnavailable)
+          }
           aria-busy={actionConnecting}
           data-testid="storage-setup-builder-primary"
           onClick={() => {

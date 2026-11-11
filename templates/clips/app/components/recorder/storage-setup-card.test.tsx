@@ -307,6 +307,18 @@ describe("StorageSetupCard", () => {
     });
   });
 
+  it("waits for the status before choosing between a new account and sign-in", async () => {
+    mocks.useBuilderConnectFlow.mockReturnValue(
+      flowState({
+        agentNativeProvisioningEnabled: true,
+        statusResolved: false,
+      }),
+    );
+    await renderCard();
+
+    expect(primaryButton()?.disabled).toBe(true);
+  });
+
   it("offers only sign-in when activation finds an existing account", async () => {
     mocks.useBuilderConnectFlow.mockReturnValue(
       flowState({ accountExists: true }),
