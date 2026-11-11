@@ -410,6 +410,7 @@ jobs:
               );
               const removed = [];
               const waiting = [];
+              const failed = [];
               for (const [tagPrefix, workflow] of [
                 ["v", "desktop-release.yml"],
                 ["clips-v", "clips-desktop-release.yml"],
@@ -424,15 +425,17 @@ jobs:
                   if (version && (!newest || compareStableVersions(version, newest) > 0)) newest = version;
                 }
                 if (!newest) continue;
-                const tags = await github.paginate(github.rest.git.listMatchingRefs, {
-                  owner,
-                  repo,
-                  ref: `tags/${tagPrefix}`,
-                  per_page: 100,
-                });
+                const tagNames = new Set(
+                  (await github.paginate(github.rest.git.listMatchingRefs, {
+                    owner,
+                    repo,
+                    ref: `tags/${tagPrefix}`,
+                    per_page: 100,
+                  })).map((tag) => tag.ref.replace(/^refs\/tags\//, "")),
+                );
                 const superseded = [
                   ...new Set([
-                    ...tags.map((tag) => tag.ref.replace(/^refs\/tags\//, "")),
+                    ...tagNames,
                     ...releases.filter((release) => release.draft).map((release) => release.tag_name),
                   ]),
                 ].filter((tag) => {
@@ -460,32 +463,37 @@ jobs:
                   continue;
                 }
                 for (const tag of superseded) {
-                  for (const release of releases) {
-                    if (!release.draft || release.tag_name !== tag) continue;
-                    try {
-                      await github.rest.repos.deleteRelease({
+                  try {
+                    for (const release of releases) {
+                      if (!release.draft || release.tag_name !== tag) continue;
+                      try {
+                        await github.rest.repos.deleteRelease({
+                          owner,
+                          repo,
+                          release_id: release.id,
+                        });
+                      } catch (error) {
+                        if (error.status !== 404) throw error;
+                      }
+                    }
+                    // A draft has no tag until it is published, and GitHub
+                    // answers 422, not 404, for deleting a tag that is not there.
+                    if (tagNames.has(tag)) {
+                      await github.rest.git.deleteRef({
                         owner,
                         repo,
-                        release_id: release.id,
+                        ref: `tags/${tag}`,
                       });
-                    } catch (error) {
-                      if (error.status !== 404) throw error;
                     }
-                  }
-                  try {
-                    await github.rest.git.deleteRef({
-                      owner,
-                      repo,
-                      ref: `tags/${tag}`,
-                    });
                   } catch (error) {
-                    if (error.status !== 404) throw error;
+                    failed.push(`${tag} (${error instanceof Error ? error.message : String(error)})`);
+                    continue;
                   }
                   core.info(`Removed superseded stable reservation ${tag}.`);
                   removed.push(tag);
                 }
               }
-              return { removed, waiting };
+              return { removed, waiting, failed };
             }
 
             async function getFirstParentSha(ref) {
@@ -546,7 +554,11 @@ jobs:
                   const retryable = status === 404 ? !readOnce : isTransientDispatchFailure(error);
                   if (!retryable) throw error;
                   failedReads += 1;
-                  const message = error instanceof Error ? error.message : String(error);
+                  // GitHub's 500s can come with an empty message.
+                  const message = [
+                    status && `HTTP ${status}`,
+                    error instanceof Error ? error.message : String(error),
+                  ].filter(Boolean).join(": ");
                   if (failedReads >= maxFailedRunReads) {
                     throw new Error(
                       `${label} could not be read ${failedReads} times in a row: ${run.url}: ${message}`,
@@ -1258,12 +1270,16 @@ jobs:
 
             let reservationCleanup;
             try {
-              const { removed, waiting } = await removeSupersededReservations();
+              const { removed, waiting, failed } = await removeSupersededReservations();
+              if (failed.length > 0) {
+                core.warning(`Could not remove superseded stable reservations: ${failed.join(", ")}`);
+              }
               reservationCleanup = [
                 removed.length > 0 ? `removed ${removed.join(", ")}` : "none removed",
                 ...(waiting.length > 0
                   ? [`kept while a release run is active: ${waiting.join(", ")}`]
                   : []),
+                ...(failed.length > 0 ? [`could not remove ${failed.join(", ")}`] : []),
               ].join("; ");
             } catch (error) {
               const message = error instanceof Error ? error.message : String(error);

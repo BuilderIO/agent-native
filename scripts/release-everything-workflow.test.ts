@@ -1040,7 +1040,9 @@ ${slice(
 return removeSupersededReservations;`,
     ) as (
       ...args: unknown[]
-    ) => Promise<() => Promise<{ removed: string[]; waiting: string[] }>>;
+    ) => Promise<
+      () => Promise<{ removed: string[]; waiting: string[]; failed: string[] }>
+    >;
 
     type Release = {
       id: number;
@@ -1073,8 +1075,9 @@ return removeSupersededReservations;`,
       const deletedReleases: number[] = [];
       const deletedRefs: string[] = [];
       const listedPrefixes: string[] = [];
-      const notFound = () =>
-        Object.assign(new Error("Not found"), { status: 404 });
+      // What GitHub answered for v0.1.221 in run 42891130345.
+      const missingRef = () =>
+        Object.assign(new Error("Reference does not exist"), { status: 422 });
       const remove = await createSweep(
         {
           paginate: async (
@@ -1105,7 +1108,7 @@ return removeSupersededReservations;`,
               deleteRef: async ({ ref }: { ref: string }) => {
                 deletedRefs.push(ref);
                 if (!remainingTags.delete(ref.replace(/^tags\//, ""))) {
-                  throw notFound();
+                  throw missingRef();
                 }
               },
             },
@@ -1192,13 +1195,13 @@ return removeSupersededReservations;`,
     assert.deepEqual(await swept.result, {
       removed: ["v1.2.1", "v1.2.4", "clips-v3.4.3", "clips-v3.4.4"],
       waiting: [],
+      failed: [],
     });
     assert.deepEqual(swept.deletedReleases, [3, 4, 10]);
     assert.deepEqual(swept.deletedRefs, [
       "tags/v1.2.1",
       "tags/v1.2.4",
       "tags/clips-v3.4.3",
-      "tags/clips-v3.4.4",
     ]);
     assert.deepEqual([...swept.remainingTags], kept);
     assert.deepEqual(swept.listedPrefixes, ["tags/v", "tags/clips-v"]);
@@ -1216,6 +1219,7 @@ return removeSupersededReservations;`,
     assert.deepEqual(await clipsRunning.result, {
       removed: ["v1.2.1", "v1.2.4"],
       waiting: ["clips-v3.4.3", "clips-v3.4.4"],
+      failed: [],
     });
     assert.deepEqual(clipsRunning.deletedReleases, [3, 4]);
     assert.equal(clipsRunning.remainingTags.has("clips-v3.4.3"), true);
@@ -1225,17 +1229,29 @@ return removeSupersededReservations;`,
       releases: [release(3, "v1.2.4", "draft")],
       tags: ["v1.2.4"],
     });
-    assert.deepEqual(await unpublished.result, { removed: [], waiting: [] });
+    assert.deepEqual(await unpublished.result, {
+      removed: [],
+      waiting: [],
+      failed: [],
+    });
     assert.deepEqual(unpublished.listedPrefixes, []);
 
-    const deleteFailure = Object.assign(new Error("HTTP 500"), { status: 500 });
+    // A failed reservation is reported and keeps its tag, and the rest are
+    // still removed.
     const failing = await sweep({
       releases,
       tags,
-      deleteReleaseError: deleteFailure,
+      deleteReleaseError: Object.assign(new Error("Server Error"), {
+        status: 500,
+      }),
     });
-    await assert.rejects(failing.result, (error) => error === deleteFailure);
+    assert.deepEqual(await failing.result, {
+      removed: ["v1.2.1", "clips-v3.4.3"],
+      waiting: [],
+      failed: ["v1.2.4 (Server Error)", "clips-v3.4.4 (Server Error)"],
+    });
     assert.equal(failing.remainingTags.has("v1.2.4"), true);
+    assert.equal(failing.remainingTags.has("v1.2.1"), false);
   });
 
   it("uses the docs publisher for www instead of the app-site fleet", () => {
@@ -2658,8 +2674,15 @@ ${slice("function neverStartedFailures", "function requireSingleJob")}; return w
     assert.deepEqual(await notVisibleYet.result, succeeded);
     assert.equal(notVisibleYet.polls(), 4);
     assert.deepEqual(notVisibleYet.warnings, [
-      "Stable package release preparation: could not read run (Not Found); retrying.",
-      "Stable package release preparation: could not read run (Not Found); retrying.",
+      "Stable package release preparation: could not read run (HTTP 404: Not Found); retrying.",
+      "Stable package release preparation: could not read run (HTTP 404: Not Found); retrying.",
+    ]);
+
+    // Run 42891130345: GitHub's 500 had no message.
+    const unexplained = wait([httpError(500, ""), succeeded]);
+    assert.deepEqual(await unexplained.result, succeeded);
+    assert.deepEqual(unexplained.warnings, [
+      "Stable package release preparation: could not read run (HTTP 500); retrying.",
     ]);
 
     const gone = httpError(404, "Not Found");
@@ -2683,7 +2706,7 @@ ${slice("function neverStartedFailures", "function requireSingleJob")}; return w
     const outage = wait([httpError(503, "Service Unavailable")]);
     await assert.rejects(
       outage.result,
-      /^Error: Stable package release preparation could not be read 20 times in a row: run: Service Unavailable$/,
+      /^Error: Stable package release preparation could not be read 20 times in a row: run: HTTP 503: Service Unavailable$/,
     );
     assert.equal(outage.polls(), 20);
 
