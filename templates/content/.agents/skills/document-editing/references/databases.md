@@ -140,7 +140,8 @@ page.
 
 To fill or move a whole field, read it with `list-content-database-blocks` and
 write it with `set-document-property`, passing that read's `fieldRevision` as
-`expectedBlocksFieldRevision`. Read every page first: the list returns 50
+`expectedBlocksFieldRevision`, or its `baseRevision` for the main field, which
+is the page's body. Read every page first: the list returns 50
 blocks unless you pass `limit` (up to 100), and `page.nextCursor` continues it.
 A field's text is the NFM of its top-level blocks (`parentId: null`) joined
 with newlines; a nested block's NFM is already inside its parent's, so copying
