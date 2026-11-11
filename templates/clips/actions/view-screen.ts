@@ -526,6 +526,7 @@ async function addRecordingContext(
   // share flow for nonowners; the screen still carries permitted metadata.
   const passwordProtected = isRecordingPasswordProtectedForViewer({
     hasPassword: recording.hasPassword,
+    visibility: recording.visibility,
     viewerIsOwner: sameOwnerEmail(recording.ownerEmail, getRequestUserEmail()),
   });
   const [transcript, comments, browserDiagnosticsSummary, bugReportSummary] =

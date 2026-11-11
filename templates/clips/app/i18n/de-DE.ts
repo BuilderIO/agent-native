@@ -822,6 +822,10 @@ const messages = {
     saveThumbnail: "Thumbnail speichern",
   },
   shareDialog: {
+    enterPassword: "Passwort eingeben",
+    showPassword: "Passwort anzeigen",
+    hidePassword: "Passwort verbergen",
+    copyPassword: "Passwort kopieren",
     redactionsPendingTitle: "Schwärzungen vor dem Teilen abschließen",
     redactionsPendingBody:
       "Ausstehende Schwärzungen: {{count}}. Wende sie im Editor an, bevor du teilst; das Video enthält noch den ursprünglichen Inhalt.",
