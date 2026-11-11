@@ -66,6 +66,15 @@ describe("previewFrameSize", () => {
     });
   });
 
+  it("previews fixed artwork at the default frame whatever the primary viewport", () => {
+    expect(
+      size({
+        prompt: "Design a poster for our jazz night",
+        primaryViewport: "mobile",
+      }),
+    ).toEqual({ width: 1440, height: 900 });
+  });
+
   it("uses the widest requested device", () => {
     expect(
       size({ prompt: "A dashboard", devices: ["mobile", "tablet"] }),

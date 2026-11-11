@@ -84,12 +84,14 @@ export function previewFrameSize(
   // Device versions a fixed-artwork prompt names ("a poster with a mobile
   // version") win over `devices` and `fixedCanvas`, as they do in the action.
   let promptDevices: GenerationViewport[] = [];
+  let fixedArtwork = false;
   if (isJsonStringComplete(input, ["prompt"])) {
     const prompt = readJsonPath(input.value, ["prompt"]);
     const intent =
       typeof prompt === "string" ? resolveCanvasIntent(prompt) : undefined;
     if (intent?.kind === "fixed" && intent.dimensions) return intent.dimensions;
     if (intent?.kind === "fixed" && typeof prompt === "string") {
+      fixedArtwork = true;
       promptDevices = requestedCanvasDeviceVariants(prompt);
     }
   }
@@ -117,7 +119,8 @@ export function previewFrameSize(
     : [];
   const primaryViewport = readJsonPath(input.value, ["primaryViewport"]);
   // Like the action, an empty device list means the same as leaving it out,
-  // and `fixedCanvas: true` replaces the devices with none.
+  // and `fixedCanvas: true` replaces the devices with none. Fixed artwork
+  // without devices is one canvas too, whatever `primaryViewport` says.
   const resolvedDevices =
     promptDevices.length > 0
       ? promptDevices
@@ -125,11 +128,13 @@ export function previewFrameSize(
         ? []
         : devices.length > 0
           ? devices
-          : devicesForPrimaryViewport(
-              isGenerationViewport(primaryViewport)
-                ? primaryViewport
-                : DEFAULT_GENERATION_VIEWPORT,
-            );
+          : fixedArtwork
+            ? []
+            : devicesForPrimaryViewport(
+                isGenerationViewport(primaryViewport)
+                  ? primaryViewport
+                  : DEFAULT_GENERATION_VIEWPORT,
+              );
   return GENERATION_VIEWPORT_SIZES[widestGenerationDevice(resolvedDevices)];
 }
 
