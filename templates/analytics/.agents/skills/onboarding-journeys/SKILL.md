@@ -155,7 +155,9 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   counts. When the time budget stopped it, a note gives an
   `observationWatermark`: call again with the same arguments plus that value
   within 5 minutes, and the pages and follow-ups that finished come from the
-  query cache, so each call gets further. Repeat until the note is gone. A truncated event sample skips replay reads and
+  query cache, so each call gets further. Repeat until the note is gone. A
+  note that a follow-up needed more than the 20 seconds one query may run means a
+  retry will not finish it; ask for a shorter date range instead. A truncated event sample skips replay reads and
   returns `sessionsWithReplay: null` because replay availability is unknown. If
   a read truncates, page boundaries may have shifted,
   or the terminal cohort cannot be covered in one query under the

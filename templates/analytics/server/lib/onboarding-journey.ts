@@ -1031,20 +1031,13 @@ function incompleteFollowup(
   };
 }
 
-function followupTimeoutMs(budgetEndsAt: number): number {
-  return Math.min(
-    ONBOARDING_QUERY_TIMEOUT_MS,
-    Math.max(1_000, budgetEndsAt - performance.now()),
-  );
-}
-
 async function readFollowup(
   scope: AnalyticsScope,
   filters: OnboardingJourneyEventsFilters,
   read: EventRead,
   terminals: readonly OnboardingJourneyTerminalStep[],
   observation: OnboardingJourneyObservationWindow,
-  budgetEndsAt: number,
+  timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<JourneyFollowup> {
   throwIfAborted(signal);
@@ -1112,7 +1105,7 @@ async function readFollowup(
   try {
     result = await queryFirstPartyAnalytics(sql, scope, {
       cache: true,
-      timeoutMs: followupTimeoutMs(budgetEndsAt),
+      timeoutMs,
       maxBytesBilled: ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
       eventDateRange: onboardingJourneyEventDateRange(filters, observation),
       signal,
@@ -1436,7 +1429,7 @@ async function readPersonFollowup(
   terminals: readonly OnboardingJourneyPersonMember[],
   sessionsWithoutSelectedStep: number,
   observation: OnboardingJourneyObservationWindow,
-  budgetEndsAt: number,
+  timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<JourneyPersonFollowup> {
   throwIfAborted(signal);
@@ -1677,7 +1670,7 @@ async function readPersonFollowup(
   try {
     result = await queryFirstPartyAnalytics(sql, scope, {
       cache: true,
-      timeoutMs: followupTimeoutMs(budgetEndsAt),
+      timeoutMs,
       maxBytesBilled: ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
       eventDateRange,
       ...ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
@@ -2397,6 +2390,10 @@ export async function getOnboardingJourney(
   );
   // Both follow-ups share what is left of the budget, so they run side by
   // side; a failure in one cancels the other.
+  const followupTimeoutMs = Math.min(
+    ONBOARDING_QUERY_TIMEOUT_MS,
+    Math.max(1_000, budgetEndsAt - performance.now()),
+  );
   const followupAbort = new AbortController();
   const followupSignal = signal
     ? AbortSignal.any([signal, followupAbort.signal])
@@ -2414,7 +2411,7 @@ export async function getOnboardingJourney(
         read,
         terminalSteps,
         observation,
-        budgetEndsAt,
+        followupTimeoutMs,
         followupSignal,
       ),
     ),
@@ -2427,7 +2424,7 @@ export async function getOnboardingJourney(
             terminalSteps,
             sessionsWithoutSteps,
             observation,
-            budgetEndsAt,
+            followupTimeoutMs,
             followupSignal,
           ),
         )
@@ -2569,13 +2566,22 @@ export async function getOnboardingJourney(
       `${sessionsWithoutSteps + standalone.sessionsWithoutSteps} sessions had events but no step with a meaning (for example a pageview without a path) and are not in a tree.`,
     );
   }
+  const followupTimedOut =
+    followUp.incompleteReason === "followup_aggregate_query_timeout" ||
+    personFollowUp?.incompleteReason === "person_followup_query_timeout";
+  // A follow-up that had a query's full time and still ran out will run out
+  // again, so only a cut-short one is worth calling again for.
+  const followupCutShort = followupTimeoutMs < ONBOARDING_QUERY_TIMEOUT_MS;
   if (
     read.truncationReason === "read_deadline" ||
-    followUp.incompleteReason === "followup_aggregate_query_timeout" ||
-    personFollowUp?.incompleteReason === "person_followup_query_timeout"
+    (followupTimedOut && followupCutShort)
   ) {
     notes.push(
-      `Queries stopped at this request's ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000}-second time budget. Call again with the same arguments and observationWatermark="${observation.observationWatermark}" within 5 minutes: the queries that finished are cached, so the next call continues from them.`,
+      `This request stopped at its time budget (${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000} seconds for the event read, ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000} in all). Call again with the same arguments and observationWatermark="${observation.observationWatermark}" within 5 minutes: the queries that finished are cached, so the next call continues from them.`,
+    );
+  } else if (followupTimedOut) {
+    notes.push(
+      `A follow-up query needed more than the ${ONBOARDING_QUERY_TIMEOUT_MS / 1000} seconds one query may run, so calling again will not finish it; a shorter date range reads less.`,
     );
   }
   const head = {
