@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   CreativeContextShareSheet,
   parseCreativeContexts,
@@ -45,6 +46,7 @@ import {
 import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/toolkit/app/onboarding";
 import { ClientOnly } from "@agent-native/toolkit/app/shared";
 import { OwnershipFilter } from "@agent-native/toolkit/app/sharing/OwnershipFilter";
+import type { DesignBrief } from "@shared/design-briefs";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
 import { FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { derivePromptTitle } from "@shared/prompt-title";
@@ -609,7 +611,9 @@ export default function Index() {
           pinnedPackId: null,
         })
         .catch((error) => {
-          toast.error(t("creativeContext.stateSaveFailed"));
+          reportWriteFailure(error, {
+            label: t("creativeContext.stateSaveFailed"),
+          });
           throw error;
         });
     },
@@ -688,6 +692,11 @@ export default function Index() {
     systemsError: designSystemsError,
     retrySystems: () => void refetchDesignSystems(),
   });
+  const { briefsFor: homeBriefsFor } = homeContext;
+  // Submitting navigates away, and unmounting discards every Figma
+  // attachment the context still holds; accepting hands the sent ones over.
+  const acceptHomeContext = useRef(homeContext.submissionAccepted);
+  acceptHomeContext.current = homeContext.submissionAccepted;
 
   const resolveAppDesignSystemId = useCallback(async () => {
     const linkedSystemId = selectedTemplate?.designSystemId;
@@ -816,6 +825,7 @@ export default function Index() {
       title: string,
       designSystemId: string | null | undefined,
       creationMethod: "prompt" | "blank",
+      briefs: readonly DesignBrief[] = [],
     ): { id: string; title: string; ready: Promise<void> } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
@@ -864,6 +874,7 @@ export default function Index() {
           projectType,
           ...(designSystemId !== undefined ? { designSystemId } : {}),
           creationMethod,
+          ...(briefs.length ? { briefs } : {}),
         } as any)
         .then(() => {
           void queryClient.invalidateQueries({
@@ -960,11 +971,13 @@ export default function Index() {
         const title = trimmedPrompt
           ? derivePromptTitle(trimmedPrompt)
           : selectedTemplate.title;
+        const templateBriefs = homeBriefsFor(options.contextItems);
         const retryKey = designTemplateRetryKey({
           templateId: selectedTemplate.id,
           title,
           designSystemId,
           prompt,
+          briefs: templateBriefs,
         });
         const previousRetry = templateCopyIdsRef.current.get(
           selectedTemplate.id,
@@ -983,6 +996,7 @@ export default function Index() {
             retryKey,
             ...(designSystemId !== undefined ? { designSystemId } : {}),
             ...(trimmedPrompt ? { prompt } : {}),
+            ...(templateBriefs.length ? { briefs: templateBriefs } : {}),
           });
           if (!result.id) {
             throw new Error("Template copy did not return a design ID");
@@ -1028,6 +1042,8 @@ export default function Index() {
               queryKey: ["action", "list-designs"],
             })
             .catch(() => {});
+          if (result.adaptationPending && options.contextItems)
+            acceptHomeContext.current(options.contextItems);
           reportPromptSubmitted(result.id);
           void navigate(`/design/${result.id}`);
           return;
@@ -1048,6 +1064,7 @@ export default function Index() {
         derivedTitle,
         designSystemId,
         "prompt",
+        homeBriefsFor(options.contextItems),
       );
       // The title action needs the saved design, and create-design is still in flight.
       void ready.then(
@@ -1066,7 +1083,7 @@ export default function Index() {
             designSystemId,
             message: error instanceof Error ? error.message : String(error),
           });
-          toast.error(t("home.failedToCreateDesign"));
+          reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
           throw error;
         }
         void createFusionAppMutation
@@ -1122,11 +1139,16 @@ export default function Index() {
             designSystemId,
             message: error instanceof Error ? error.message : String(error),
           });
-          toast.error(t("home.failedToCreateDesign"));
+          reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
           throw error;
         }
       }
 
+      if (
+        !(fullAppBuildingEnabled && newDesignMode === "app") &&
+        options.contextItems
+      )
+        acceptHomeContext.current(options.contextItems);
       reportPromptSubmitted(id);
       homeSuggestionPromptSourceRef.current = false;
       homeSuggestionPromptTextRef.current = null;
@@ -1141,6 +1163,7 @@ export default function Index() {
       designSystems,
       fullAppBuildingEnabled,
       handleGenerateDesignTitle,
+      homeBriefsFor,
       navigate,
       newDesignMode,
       newDesignSystemId,
@@ -1171,7 +1194,7 @@ export default function Index() {
     } catch (error) {
       skipToEditorPendingRef.current = false;
       setNewDesignHandoffPending(false);
-      toast.error(t("home.failedToCreateDesign"));
+      reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
       throw error;
     }
   }, [
@@ -1391,6 +1414,7 @@ export default function Index() {
   return (
     <>
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
+      {homeContext.dialogs}
       <PromptHome
         title={t("home.designPromptTitle")}
         focusComposer={focusComposer}
@@ -1460,6 +1484,7 @@ export default function Index() {
                 submissionErrorRef.current = true;
               }}
               beforeSubmitContext={homeContext.prepareSubmission}
+              onPasteContext={homeContext.onPasteContext}
               submissionIdentity={homeContext.identity}
               contextItems={homeContext.contextItems}
               contextMenuItems={homeContext.menuItems}

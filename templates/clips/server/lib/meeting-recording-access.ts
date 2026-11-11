@@ -27,6 +27,7 @@ export function meetingRecordingReference(recording: RecordingReference) {
 export function isMeetingRecordingAvailable(
   recording: {
     ownerEmail: string;
+    visibility?: "private" | "org" | "public" | null;
     expiresAt?: string | null;
     trashedAt?: string | null;
     failureCode?: string | null;
@@ -56,6 +57,7 @@ export async function loadMeetingRecordingContent(
           status: schema.recordings.status,
           durationMs: schema.recordings.durationMs,
           ownerEmail: schema.recordings.ownerEmail,
+          visibility: schema.recordings.visibility,
           expiresAt: schema.recordings.expiresAt,
           trashedAt: schema.recordings.trashedAt,
           failureCode: schema.recordings.failureCode,
@@ -111,7 +113,11 @@ export function meetingRecordingTranscriptFilter(
   return and(
     recordingExpiryQuery(viewerEmail).available,
     or(owner, sql`nullif(${schema.recordings.trashedAt}, '') is null`),
-    or(owner, sql`nullif(${schema.recordings.password}, '') is null`),
+    or(
+      owner,
+      ne(schema.recordings.visibility, "public"),
+      sql`nullif(${schema.recordings.password}, '') is null`,
+    ),
     or(
       isNull(schema.recordings.failureCode),
       ne(schema.recordings.failureCode, "taken_down"),

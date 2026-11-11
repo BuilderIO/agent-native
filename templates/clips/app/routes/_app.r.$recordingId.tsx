@@ -80,7 +80,6 @@ import {
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   Link,
   useParams,
@@ -1145,7 +1144,7 @@ export default function RecordingPage() {
     if (
       typeof window === "undefined" ||
       !recording?.id ||
-      recording.hasPassword === true ||
+      (recording.visibility === "public" && recording.hasPassword !== false) ||
       (recording.visibility !== "public" && role !== "owner")
     ) {
       return null;
@@ -1154,7 +1153,7 @@ export default function RecordingPage() {
       origin: window.location.origin,
       basePath: appBasePath(),
     }).contextUrl;
-  }, [recording?.id, recording?.visibility, role]);
+  }, [recording?.hasPassword, recording?.id, recording?.visibility, role]);
   useClipAgentWebMcp({
     recordingId: recording?.id ?? "",
     agentContextUrl: directAgentContextUrl,
@@ -1181,6 +1180,8 @@ export default function RecordingPage() {
   const transcriptFullText = playerDataQ.data?.transcript?.fullText ?? null;
   const transcriptStatus = playerDataQ.data?.transcript?.status;
   const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
+  const transcriptUnreadable =
+    playerDataQ.data?.transcript?.segmentsUnreadable === true;
   useEffect(() => {
     if (!recording?.id || !transcriptStatus) return;
     if (transcriptLifecycleRecordingIdRef.current !== recording.id) {
@@ -2008,7 +2009,9 @@ export default function RecordingPage() {
       thumbnailUrl={recording.thumbnailUrl}
       animatedThumbnailUrl={recording.animatedThumbnailUrl}
       isLoomRecording={isEmbedBacked}
-      hasPassword={Boolean(recording.hasPassword)}
+      {...(recording.hasPassword !== undefined && {
+        hasPassword: recording.hasPassword,
+      })}
       expiresAt={recording.expiresAt}
       viewerReshareOnly={viewerReshareOnly}
     >
@@ -3100,6 +3103,7 @@ export default function RecordingPage() {
                   : transcriptStatus
               }
               failureReason={transcriptFailureReason}
+              unreadable={transcriptUnreadable}
               recordingTitle={recording.title}
               onRetry={
                 canTranscribe
@@ -3700,32 +3704,26 @@ export default function RecordingPage() {
                         }}
                         className="h-full w-full rounded-none sm:rounded-2xl"
                       />
-                      {commentOpen && canComment
-                        ? (() => {
-                            const composer = (
-                              <TimestampedCommentBar
-                                recordingId={recording.id}
-                                atMs={commentAtMs}
-                                draft={commentDraft}
-                                onDraftChange={setCommentDraft}
-                                onClose={() => setCommentOpen(false)}
-                                onAdded={() => {
-                                  if (isCompactLayout) setPanel("comments");
-                                  void playerDataQ.refetch();
-                                }}
-                              />
-                            );
-                            // The Fullscreen API only paints the player's own
-                            // element, so portal the composer there instead of
-                            // exiting fullscreen when it's open.
-                            const fullscreenContainer =
-                              isPlayerFullscreen &&
-                              playerRef.current?.container;
-                            return fullscreenContainer
-                              ? createPortal(composer, fullscreenContainer)
-                              : composer;
-                          })()
-                        : null}
+                      <TimestampedCommentBar
+                        open={commentOpen && canComment}
+                        recordingId={recording.id}
+                        atMs={commentAtMs}
+                        draft={commentDraft}
+                        onDraftChange={setCommentDraft}
+                        onClose={() => setCommentOpen(false)}
+                        onAdded={() => {
+                          if (isCompactLayout) setPanel("comments");
+                          void playerDataQ.refetch();
+                        }}
+                        // The Fullscreen API only paints the player's own
+                        // element, so the composer moves there instead of
+                        // exiting fullscreen when it's open.
+                        portalContainer={
+                          isPlayerFullscreen
+                            ? playerRef.current?.container
+                            : undefined
+                        }
+                      />
                     </div>
                   )}
                 </div>

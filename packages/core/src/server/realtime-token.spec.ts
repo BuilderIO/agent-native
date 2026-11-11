@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
 import { verifyRealtimeSubscribeToken } from "./short-lived-token.js";
 
 const mockGetSession = vi.hoisted(() => vi.fn());
@@ -71,6 +72,40 @@ describe("realtime-token mint endpoint", () => {
       owner: "alice@example.com",
       orgId: "org-1",
     });
+  });
+
+  it.each([
+    { code: "57014", status: 503 },
+    { code: "42501", status: 500 },
+  ])(
+    "preserves org lookup failure $code before scoped work",
+    async ({ code, status }) => {
+      const cause = Object.assign(new Error("Fake membership lookup failure"), {
+        code,
+      });
+      const error = sessionResolutionFailure(cause);
+      mockGetOrgContext.mockRejectedValue(error);
+
+      await expect(invoke({ method: "GET" })).rejects.toBe(error);
+      expect(error).toMatchObject({ statusCode: status, cause });
+      expect(mockResolveProjectId).not.toHaveBeenCalled();
+      expect(mockRegisteredChannel).not.toHaveBeenCalled();
+    },
+  );
+
+  it("mints a Personal token rather than restoring a stale session org", async () => {
+    mockGetSession.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "stale-org",
+    });
+    mockGetOrgContext.mockResolvedValue({ orgId: null });
+    const { body } = await invoke({ method: "GET" });
+    const verified = verifyRealtimeSubscribeToken(body.token, {
+      projectId: "proj_scoped",
+      key: SECRET,
+    });
+    expect(verified).toMatchObject({ ok: true, owner: "alice@example.com" });
+    expect(verified).toHaveProperty("orgId", undefined);
   });
 
   it("marks every response uncacheable (private, no-store)", async () => {

@@ -5,7 +5,11 @@ import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
+import * as org from "../org/context.js";
+import * as auth from "./auth.js";
 import { createServer } from "./create-server.js";
+import * as credentials from "./credential-provider.js";
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
 
 describe("createServer", () => {
   afterEach(() => {
@@ -145,6 +149,39 @@ describe("createServer", () => {
     );
   });
 
+  it.each([
+    { code: "57014", status: 503 },
+    { code: "42501", status: 500 },
+  ])(
+    "does not probe Personal credentials after org failure $code",
+    async ({ code, status }) => {
+      const cause = Object.assign(new Error("Fake membership failure"), {
+        code,
+      });
+      const error = sessionResolutionFailure(cause);
+      vi.spyOn(auth, "getSession").mockResolvedValue({
+        email: "member@example.test",
+        orgId: "stale-org",
+      });
+      vi.spyOn(org, "getOrgContext").mockRejectedValue(error);
+      const secret = vi
+        .spyOn(credentials, "resolveSecret")
+        .mockResolvedValue("fake-secret");
+      const { app } = createServer({
+        envKeys: [{ key: "OPENAI_API_KEY", label: "OpenAI" }],
+      });
+      const response = await app.request(
+        "http://localhost/_agent-native/env-status",
+      );
+      expect(response.status).toBe(status);
+      expect(response.headers.get("Retry-After")).toBe(
+        status === 503 ? "5" : null,
+      );
+      expect(secret).not.toHaveBeenCalled();
+      expect(await response.text()).not.toContain(cause.message);
+    },
+  );
+
   it("reports deploy-time env values as configured", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://deploy.example/db");
     const { app } = createServer({
@@ -243,6 +280,34 @@ describe("createServer", () => {
     expect(JSON.stringify(body)).not.toContain("a".repeat(64));
   });
 
+  it("reports a required env var the app declared at build time", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DATABASE_URL", "postgres://deploy.example/db");
+    vi.stubEnv("BETTER_AUTH_SECRET", "a".repeat(64));
+    vi.stubEnv("AGENT_NATIVE_BUILD_REQUIRED_ENV", '["NOTION_API_KEY"]');
+    vi.stubEnv("NOTION_API_KEY", "");
+    const { app } = createServer();
+
+    const missing = await app.request(
+      "http://localhost/_agent-native/ping?configuration=1",
+    );
+    const { configuration } = await missing.json();
+    expect(configuration.issues).toEqual([
+      expect.objectContaining({
+        code: "missing-required-env",
+        envKeys: ["NOTION_API_KEY"],
+      }),
+    ]);
+
+    vi.stubEnv("NOTION_API_KEY", "secret-notion-value");
+    const configured = await app.request(
+      "http://localhost/_agent-native/ping?configuration=1",
+    );
+    const body = await configured.json();
+    expect(body.configuration.issues).toEqual([]);
+    expect(JSON.stringify(body)).not.toContain("secret-notion-value");
+  });
+
   describe("missing-settings line of the configuration probe", () => {
     // Cleared explicitly so ambient deploy markers and secrets in the shell or
     // a leaked stub cannot decide the answer.
@@ -330,6 +395,21 @@ describe("createServer", () => {
       ]) {
         expect(codesOf(configuration)).not.toContain(code);
       }
+    });
+
+    it("asks a new local app to fix nothing", async () => {
+      // The setup prompt has the agent read this probe; an "ok" answer must
+      // not come with instructions to change the deployment.
+      stubUnconfiguredDeploy();
+      vi.stubEnv("NODE_ENV", "development");
+      const { app } = createServer();
+
+      const res = await app.request(
+        "http://localhost/_agent-native/ping?configuration=1",
+      );
+
+      const { configuration } = await res.json();
+      expect(configuration).toMatchObject({ status: "ok", prompt: "" });
     });
   });
 

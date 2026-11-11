@@ -365,6 +365,101 @@ describe("suggest-document-edit", () => {
     );
   });
 
+  it("names the proposal when a suggestion ID is passed as the proposal ID", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage(
+          "The launch is next week.\nThe team is ready.",
+        );
+        const summary = "Tighten the launch note";
+        const first = (await suggestDocumentEdit.run(
+          {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `wrong-id-first-${id}`,
+            find: "The launch is next week.",
+            replace: "The launch is on Tuesday.",
+            summary,
+          },
+          ctx,
+        )) as { proposalId: string; suggestionId: string };
+        const second = {
+          id,
+          baseRevision: revision,
+          idempotencyKey: `wrong-id-second-${id}`,
+          find: "The team is ready.",
+          replace: "The team is set.",
+          summary,
+        };
+
+        const wrong = await suggestDocumentEdit
+          .run({ ...second, proposalId: first.suggestionId }, ctx)
+          .catch((error: unknown) => error);
+        expect(wrong).toMatchObject({
+          errorCode: "suggestion_id_not_proposal_id",
+          statusCode: 400,
+          details: {
+            suggestionId: first.suggestionId,
+            proposalId: first.proposalId,
+          },
+        });
+        expect((wrong as Error).message).toContain(first.proposalId);
+
+        // Another page's suggestion says nothing about this page's proposals.
+        const other = await createPage("Another page.");
+        await expect(
+          suggestDocumentEdit.run(
+            {
+              id: other.id,
+              baseRevision: other.revision,
+              idempotencyKey: `wrong-id-other-${other.id}`,
+              proposalId: first.suggestionId,
+              find: "Another page.",
+              replace: "A different page.",
+              summary,
+            },
+            ctx,
+          ),
+        ).rejects.toMatchObject({ errorCode: "not_found" });
+
+        // Nor does another author's suggestion: only its author can append.
+        const collaborator = "wrong-id-collaborator@example.com";
+        await getDb()
+          .insert(schema.documentShares)
+          .values({
+            id: `wrong-id-share-${id}`,
+            resourceId: id,
+            principalType: "user",
+            principalId: collaborator,
+            role: "commenter",
+            createdBy: ctx.userEmail,
+            createdAt: Date.now(),
+          });
+        await runWithRequestContext(
+          { userEmail: collaborator, orgId: null },
+          () =>
+            expect(
+              suggestDocumentEdit.run(
+                {
+                  ...second,
+                  idempotencyKey: `wrong-id-collaborator-${id}`,
+                  proposalId: first.suggestionId,
+                },
+                { ...ctx, userEmail: collaborator },
+              ),
+            ).rejects.toMatchObject({ errorCode: "not_found" }),
+        );
+
+        const retried = (await suggestDocumentEdit.run(
+          { ...second, proposalId: first.proposalId },
+          ctx,
+        )) as { proposalId: string };
+        expect(retried.proposalId).toBe(first.proposalId);
+      },
+    );
+  });
+
   it("creates a pending suggestion and leaves the page unchanged", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },

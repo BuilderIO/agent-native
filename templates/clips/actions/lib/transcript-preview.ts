@@ -68,10 +68,13 @@ export function boundTranscriptForAgent<T>({
   fullText,
   segments,
   fullTextOffset = 0,
+  action = "get-recording-player-data",
 }: {
   fullText: string | null | undefined;
   segments: T[];
   fullTextOffset?: number;
+  /** The action the note tells the agent to call again for the next chunk. */
+  action?: string;
 }): BoundedAgentTranscript<T> {
   const text = fullText ?? "";
   const offset = Math.min(Math.max(0, Math.floor(fullTextOffset)), text.length);
@@ -104,7 +107,7 @@ export function boundTranscriptForAgent<T>({
     previewTruncated,
     note:
       nextFullTextOffset !== null
-        ? `Agent transcript payload is bounded to ${AGENT_TRANSCRIPT_MAX_CHARS.toLocaleString()} text characters. It may end mid-sentence; call get-recording-player-data again with transcriptOffset=${nextFullTextOffset} to continue.`
+        ? `Agent transcript payload is bounded to ${AGENT_TRANSCRIPT_MAX_CHARS.toLocaleString()} text characters. It may end mid-sentence; call ${action} again with transcriptOffset=${nextFullTextOffset} to continue.`
         : previewTruncated
           ? `This is the final transcript text chunk. Segments are bounded to ${AGENT_TRANSCRIPT_SEGMENT_MAX_CHARS.toLocaleString()} serialized characters.`
           : "The complete transcript fits in this agent payload.",

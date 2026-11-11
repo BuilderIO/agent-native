@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
@@ -29,7 +30,6 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { toast } from "sonner";
 
 import { useDecks } from "@/context/DeckContext";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
@@ -270,8 +270,8 @@ export function Layout({ children }: LayoutProps) {
       beforeStart: async () => {
         try {
           await flushDeckSave(deckId);
-        } catch {
-          toast.error(t("settings.saveFailed"));
+        } catch (error) {
+          reportWriteFailure(error, { label: t("settings.saveFailed") });
         }
       },
       list: {
