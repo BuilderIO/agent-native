@@ -62,6 +62,9 @@ export function useFreeClipsGate(action: "record" | "upload") {
   // The actions held while the prompt is open. A repeat of the same control
   // replaces its action; `queue` keeps each one, for drops of separate files.
   const pendingRef = useRef<(() => void)[]>([]);
+  // Queued drops already hold their files, so they can go ahead on their
+  // own; a click's action (a file picker, a recording) needs a fresh click.
+  const resumableRef = useRef(false);
   const openRef = useRef(false);
   const status = storage.data;
   const usedUp = status?.denyReason === "exhausted";
@@ -88,6 +91,7 @@ export function useFreeClipsGate(action: "record" | "upload") {
     if (lastClip) markLastClipPromptSeen();
     pendingRef.current =
       queue && openRef.current ? [...pendingRef.current, proceed] : [proceed];
+    resumableRef.current = queue;
     openRef.current = true;
     // After the click settles, so a menu closing on it can't close this too.
     setTimeout(() => setOpen(true), 0);
@@ -102,11 +106,12 @@ export function useFreeClipsGate(action: "record" | "upload") {
   };
 
   // Storage that became usable under the prompt (Builder.io connected) lets
-  // the held actions go ahead; anything else just closes it.
+  // held drops go ahead; anything else just closes it.
   const storageUsable = status?.configured === true;
   useEffect(() => {
     if (!open || promptApplies) return;
-    const pending = storageUsable ? pendingRef.current : [];
+    const pending =
+      storageUsable && resumableRef.current ? pendingRef.current : [];
     pendingRef.current = [];
     openRef.current = false;
     setOpen(false);
