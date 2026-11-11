@@ -213,6 +213,25 @@ describe("FirstRunOnboardingStartupGate", () => {
         ?.getAttribute("data-mount-id"),
     ).toBe(mountId);
     expect(container.querySelector("[data-first-run-cover]")).toBeNull();
+    expect(
+      container
+        .querySelector("[data-testid='app-content']")
+        ?.closest("[inert]"),
+    ).not.toBeNull();
+  });
+
+  it("paints a skeleton, not a blank screen, when the caller passes no cover", async () => {
+    mocks.fetchStatus.mockReturnValue(new Promise(() => {}));
+    await act(async () => {
+      root.render(
+        <FirstRunOnboardingStartupGate>
+          <div data-testid="app-content">app</div>
+        </FirstRunOnboardingStartupGate>,
+      );
+    });
+    expect(
+      container.querySelector("[data-first-run-cover] .skeleton-shimmer"),
+    ).not.toBeNull();
   });
 
   it("holds the status read while the session preloads, then reads once it resolves", async () => {

@@ -6,6 +6,7 @@ import { useOnboardingPreviewMode } from "@agent-native/core/client/onboarding/u
 import { useSessionPreloading } from "@agent-native/core/client/use-session";
 import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run-onboarding";
 import { Button } from "@agent-native/toolkit/ui/button";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import React, { Suspense, lazy, useEffect, useState } from "react";
 
 import { clearFirstRunFirstPaint } from "./first-run-first-paint.js";
@@ -54,11 +55,20 @@ function readFirstRunOnboardingCookieState(): FirstRunCookieState {
   }
 }
 
+function DefaultStartupCover() {
+  return (
+    <div className="flex h-full gap-4 p-4">
+      <Skeleton className="h-full w-60" />
+      <Skeleton className="h-full flex-1" />
+    </div>
+  );
+}
+
 export function FirstRunOnboardingStartupGate({
   children,
   suppressSurface = false,
   deferSurface = false,
-  cover = null,
+  cover = <DefaultStartupCover />,
 }: {
   children: React.ReactNode;
   suppressSurface?: boolean;
@@ -167,7 +177,8 @@ export function FirstRunOnboardingStartupGate({
 
   // Deferral alone does not block the app: an ineligible user keeps using it
   // while another startup operation settles.
-  const appIsInert = coversApp || (gateOwnsSurface && !deferSurface);
+  const appIsInert =
+    coversApp || ownsSurface || (gateOwnsSurface && !deferSurface);
   const coverElement = (
     <div
       aria-busy="true"

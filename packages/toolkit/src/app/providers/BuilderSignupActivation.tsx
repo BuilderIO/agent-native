@@ -240,7 +240,9 @@ export function BuilderSignupActivationCover({
       ) : statusError ? (
         <div
           role="alert"
-          className="fixed bottom-4 right-4 z-50 flex max-w-sm flex-col items-start gap-3 rounded-lg border bg-background p-4 shadow-lg"
+          // Above the first-run gate's cover, which stays up while an unknown
+          // eligibility defers onboarding.
+          className="fixed bottom-4 right-4 z-[110] flex max-w-sm flex-col items-start gap-3 rounded-lg border bg-background p-4 shadow-lg"
         >
           {retryContent}
         </div>
@@ -275,9 +277,7 @@ export function BuilderSignupStartupGate({
       retryStatus={retryStatus}
     >
       <FirstRunOnboardingStartupGate
-        // An unknown eligibility keeps onboarding deferred, but its Retry
-        // notice needs the app usable rather than under a startup cover.
-        suppressSurface={suppressSurface || (statusError && !activating)}
+        suppressSurface={suppressSurface}
         deferSurface={resolving || activating}
         cover={cover}
       >
