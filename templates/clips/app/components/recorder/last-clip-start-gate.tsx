@@ -2,6 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   cloneElement,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type MouseEvent,
@@ -58,7 +59,9 @@ export function LastClipStartGate({
 
   // Builder.io connecting, or the count moving, ends what the prompt is
   // about; Start comes back in its place.
-  useEffect(() => {
+  // Before paint, so the stale prompt never shows and Start mounts already
+  // holding `autoFocus` (React applies it only on mount).
+  useLayoutEffect(() => {
     if (!open || oneClipLeft) return;
     setOpenState(false);
     setRestoreFocus(true);
@@ -68,7 +71,7 @@ export function LastClipStartGate({
     if (restoreFocus) setRestoreFocus(false);
   }, [restoreFocus]);
 
-  if (open && status && oneClipLeft) {
+  if (open && status) {
     return (
       <LastClipPrompt
         limit={status.hostedLimit}

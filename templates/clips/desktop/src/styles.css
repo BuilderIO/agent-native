@@ -5894,3 +5894,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-weight: 500;
   color: rgba(255, 255, 255, 0.45);
 }
+
+/* Takes focus in place of Start; the block itself shows no ring. */
+.hosted-clips-limit:focus {
+  outline: none;
+}

@@ -346,6 +346,7 @@
 
         <section
           id="free-clips-limit"
+          tabindex="-1"
           class="last-clip-block"
           aria-labelledby="free-clips-limit-title"
           hidden
@@ -363,6 +364,7 @@
         </section>
         <section
           id="last-clip-prompt"
+          tabindex="-1"
           class="last-clip-block"
           aria-labelledby="last-clip-title"
           hidden
@@ -377,7 +379,11 @@
           <button id="last-clip-activate" class="primary" type="button">
             Continue with Builder.io
           </button>
-          <button id="last-clip-record" class="free-clips-secondary" type="button">
+          <button
+            id="last-clip-record"
+            class="free-clips-secondary"
+            type="button"
+          >
             Record my last free clip
           </button>
         </section>

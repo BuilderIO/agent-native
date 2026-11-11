@@ -4990,6 +4990,21 @@ export function App({
     !isRecording && localRecordingMode === "off" && hostedClipsExhausted;
   const showLastClipPrompt =
     lastClipPromptOpen && !isRecording && hostedClipsRemaining === 1;
+  // The prompt takes Start's place, so it takes focus too, and hands it back
+  // to Start if it closes without recording.
+  const lastClipPromptRef = useRef<HTMLElement>(null);
+  const lastClipPromptShownRef = useRef(false);
+  useEffect(() => {
+    const wasShown = lastClipPromptShownRef.current;
+    lastClipPromptShownRef.current = showLastClipPrompt;
+    if (showLastClipPrompt && !wasShown) {
+      lastClipPromptRef.current?.focus();
+    } else if (!showLastClipPrompt && wasShown && !isRecording) {
+      document
+        .querySelector<HTMLElement>("[data-recovery-focus-fallback]")
+        ?.focus();
+    }
+  }, [isRecording, showLastClipPrompt]);
   const startButtonLoading =
     (recordingReadinessPending || recordingStartPending) &&
     !recordingStopFinalizing;
@@ -5614,6 +5629,8 @@ export function App({
 
         {showLastClipPrompt ? (
           <section
+            ref={lastClipPromptRef}
+            tabIndex={-1}
             className="hosted-clips-limit"
             aria-labelledby="last-clip-title"
           >

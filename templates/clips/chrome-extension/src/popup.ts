@@ -953,17 +953,24 @@ function markLastClipPromptSeen(): void {
 
 /** The first Start with one free clip left asks once before recording it. */
 function showLastClipPrompt(): void {
-  byId<HTMLButtonElement>("start").hidden = true;
-  byId<HTMLElement>("last-clip-prompt").hidden = false;
+  showInPlaceOfStart(byId<HTMLElement>("last-clip-prompt"));
+}
+
+/** Hides Start for `block`, taking focus with it if Start had it. */
+function showInPlaceOfStart(block: HTMLElement): void {
+  const start = byId<HTMLButtonElement>("start");
+  const hadFocus = document.activeElement === start;
+  start.hidden = true;
+  block.hidden = false;
+  if (hadFocus) block.focus();
 }
 
 function showFreeClipsLimit(limit: number): void {
-  byId<HTMLButtonElement>("start").hidden = true;
   byId<HTMLHeadingElement>("free-clips-limit-title").textContent =
     limit === 1
       ? "Nice work on your first clip"
       : `Nice work on your first ${limit} clips`;
-  byId<HTMLElement>("free-clips-limit").hidden = false;
+  showInPlaceOfStart(byId<HTMLElement>("free-clips-limit"));
 }
 
 async function init(): Promise<void> {

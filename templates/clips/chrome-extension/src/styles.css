@@ -1124,3 +1124,8 @@ h1 {
   font-size: 13px;
   font-weight: 500;
 }
+
+/* Takes focus in place of Start; the block itself shows no ring. */
+.last-clip-block:focus {
+  outline: none;
+}
