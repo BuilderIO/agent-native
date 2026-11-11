@@ -299,6 +299,8 @@ export interface ReferencedSkill extends Pick<
   content: string;
   /** Whether it is the copy `requiredSkillResource` finds at its path. */
   required: boolean;
+  /** Whether the prompt can list it: its scope runs and its lab, if any, is on. */
+  visible: boolean;
 }
 
 /** How many Required skills a reference reads at once. */
@@ -332,7 +334,10 @@ export async function readSkillReference<T extends ReferencedSkill>(
   const replacement = orderSkills(
     sameName.filter((other) => other !== null),
   ).at(0);
-  return (replacement ?? skill).content;
+  // A Required skill the prompt can't list still holds its name there, so
+  // the person's same-named one stays unread here too.
+  const read = replacement ?? skill;
+  return read.visible ? read.content : null;
 }
 
 async function listOrgMemberEmails(orgId: string): Promise<string[]> {

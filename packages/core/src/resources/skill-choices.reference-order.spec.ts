@@ -17,6 +17,7 @@ const files: Record<string, ReferencedSkill> = {
     content: "The organization's own.",
     updatedAt: 1,
     required: true,
+    visible: true,
   },
   [LEGACY]: {
     path: LEGACY,
@@ -25,6 +26,7 @@ const files: Record<string, ReferencedSkill> = {
     content: "Shared before organizations.",
     updatedAt: 9,
     required: true,
+    visible: true,
   },
   [DISPATCH]: {
     path: DISPATCH,
@@ -33,6 +35,7 @@ const files: Record<string, ReferencedSkill> = {
     content: "Dispatch's.",
     updatedAt: 20,
     required: true,
+    visible: true,
   },
 };
 

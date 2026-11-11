@@ -4143,13 +4143,7 @@ export async function resolveSkillReferenceContent(
         const full = chosen
           ? await resourceGet(chosen.id, { ...resourceOptions })
           : null;
-        if (
-          !chosen ||
-          !full?.content ||
-          !(await isRuntimeVisibleSkillContent(full.content, ownerEmail))
-        ) {
-          return null;
-        }
+        if (!chosen || !full?.content) return null;
         const name =
           parseSkillFrontmatter(full.content).name ||
           getSkillNameFromPath(chosen.path);
@@ -4160,6 +4154,7 @@ export async function resolveSkillReferenceContent(
           path: chosen.path,
           updatedAt: chosen.updatedAt,
           required: chosen.id === requiredSkillResource(effective, choices)?.id,
+          visible: await isRuntimeVisibleSkillContent(full.content, ownerEmail),
         };
       };
       // Same-named Required skills in the order the prompt keeps them.

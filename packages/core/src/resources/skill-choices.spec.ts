@@ -432,6 +432,7 @@ describe("readSkillReference", () => {
   const DISPATCH = "skills/dispatch-release-notes/SKILL.md";
   const NEWER = "skills/release-notes-v2/SKILL.md";
   const STALE = "skills/old-release-notes/SKILL.md";
+  const HIDDEN = "skills/lab-release-notes/SKILL.md";
   // Every copy here but the person's own is the Required one at its path.
   const skillAt = (
     path: string,
@@ -439,6 +440,7 @@ describe("readSkillReference", () => {
     name: string,
     content: string,
     updatedAt: number,
+    visible = true,
   ): ReferencedSkill => ({
     path,
     owner,
@@ -446,6 +448,7 @@ describe("readSkillReference", () => {
     content,
     updatedAt,
     required: owner !== "ana@x.com",
+    visible,
   });
   const files: Record<string, ReferencedSkill> = {
     [MINE]: skillAt(MINE, "ana@x.com", "release-notes", "Mine.", 5),
@@ -461,6 +464,14 @@ describe("readSkillReference", () => {
     [NEWER]: skillAt(NEWER, "org", "release-notes", "The newer one.", 2),
     // The organization's skill here was deleted; its mark and Ana's copy stay.
     [STALE]: skillAt(STALE, "ana@x.com", "release-notes", "Ana's old one.", 7),
+    [HIDDEN]: skillAt(
+      HIDDEN,
+      "org",
+      "release-notes",
+      "Behind a lab.",
+      3,
+      false,
+    ),
   };
   const readSkill = vi.fn(async (path: string) => files[path] ?? null);
   const asListed = (skills: ReferencedSkill[]) => skills;
@@ -533,6 +544,18 @@ describe("readSkillReference", () => {
         [DISPATCH, NEWER, ORG].sort(),
       );
     }
+  });
+
+  it("reads nothing for a name a Required skill the prompt can't list holds", async () => {
+    await expect(
+      readSkillReference(MINE, requiring(HIDDEN), readSkill, asListed),
+    ).resolves.toBeNull();
+    await expect(
+      readSkillReference(HIDDEN, requiring(HIDDEN), readSkill, asListed),
+    ).resolves.toBeNull();
+    await expect(
+      readSkillReference(OTHER, requiring(HIDDEN, OTHER), readSkill, asListed),
+    ).resolves.toBe("Brand voice.");
   });
 
   it("ignores a person's own skill left at a Required path", async () => {
