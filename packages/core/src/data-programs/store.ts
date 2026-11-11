@@ -219,19 +219,30 @@ export async function upsertDataProgram(
   const refreshMode = input.refreshMode ?? existing?.refreshMode ?? "ttl";
 
   if (existing) {
+    const next = {
+      title: input.title,
+      description: input.description ?? existing.description,
+      code: input.code,
+      paramsSchema: input.paramsSchema ?? null,
+      defaultParams: input.defaultParams ?? null,
+      outputColumns: input.outputColumns ?? existing.outputColumns,
+      refreshMode,
+      refreshTtlMs,
+      background: Boolean(input.background),
+    };
+    // Reads treat runs from before updatedAt as stale, and seeded programs
+    // are saved again on every ensure, so a save that changes nothing keeps it.
+    const unchanged =
+      existing.archivedAt === null &&
+      (Object.keys(next) as (keyof typeof next)[]).every(
+        (key) => next[key] === existing[key],
+      );
     const updated = await db
       .update(dataPrograms)
       .set({
-        title: input.title,
-        description: input.description ?? existing.description,
-        code: input.code,
-        paramsSchema: input.paramsSchema ?? null,
-        defaultParams: input.defaultParams ?? null,
-        outputColumns: input.outputColumns ?? existing.outputColumns,
-        refreshMode,
-        refreshTtlMs,
-        background: input.background ? 1 : 0,
-        updatedAt: now,
+        ...next,
+        background: next.background ? 1 : 0,
+        updatedAt: unchanged ? existing.updatedAt : now,
         archivedAt: null,
       })
       .where(

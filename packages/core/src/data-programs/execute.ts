@@ -371,10 +371,12 @@ async function executeProgramCode(
       logsTail,
     };
   } catch (err) {
+    // The run row and get-data-program show this message to every viewer.
+    console.error("[data-programs] sandbox executor failed:", err);
     return {
       ok: false,
       code: "sandbox_error",
-      message: err instanceof Error ? err.message : String(err),
+      message: "The sandbox failed before the program finished.",
       logsTail: "",
     };
   }

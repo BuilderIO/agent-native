@@ -454,6 +454,39 @@ describe("data-programs/execute", () => {
       expect(result.error.code).toBe("sandbox_error");
     });
 
+    it("records a fixed message, not the executor's own, when the sandbox executor throws", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      storeMocks.getDataProgram.mockResolvedValue(makeProgram());
+      accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
+      storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
+      vi.doMock("../coding-tools/run-code.js", () => ({
+        executeSandboxCode: vi
+          .fn()
+          .mockRejectedValue(new Error("spawn /srv/sandbox/bin/node ENOENT")),
+      }));
+      const { runDataProgram } = await loadExecute();
+
+      const result = await runDataProgram({
+        programId: PROGRAM_ID,
+        ctx: { userEmail: OWNER },
+        triggeredBy: "panel_view",
+      });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toEqual({
+        code: "sandbox_error",
+        message: "The sandbox failed before the program finished.",
+      });
+      expect(storeMocks.updateDataProgramRun).toHaveBeenCalledWith(
+        "dpr_running",
+        expect.objectContaining({
+          errorCode: "sandbox_error",
+          errorMessage: "The sandbox failed before the program finished.",
+        }),
+      );
+    });
+
     it("surfaces timeout as a distinct error code", async () => {
       storeMocks.getDataProgram.mockResolvedValue(makeProgram());
       accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });

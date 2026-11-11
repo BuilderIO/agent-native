@@ -197,6 +197,30 @@ describe("data-programs/store", () => {
       expect(byName?.code).toBe("emit([{a:1}])");
     });
 
+    it("keeps updatedAt when a save changes nothing", async () => {
+      const { ensureDataProgramTables, upsertDataProgram } = await loadStore();
+      await ensureDataProgramTables();
+      const input = {
+        appId,
+        name: "seeded",
+        title: "Seeded",
+        code: "emit([])",
+        ownerEmail: owner,
+        background: true,
+      };
+      const first = await upsertDataProgram(input);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      const same = await upsertDataProgram(input);
+      expect(same.updatedAt).toBe(first.updatedAt);
+
+      const edited = await upsertDataProgram({
+        ...input,
+        code: "emit([{a:1}])",
+      });
+      expect(edited.updatedAt).not.toBe(first.updatedAt);
+    });
+
     it("floors refreshTtlMs at MIN_REFRESH_TTL_MS", async () => {
       const { ensureDataProgramTables, upsertDataProgram, MIN_REFRESH_TTL_MS } =
         await loadStore();
