@@ -293,6 +293,10 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
 
   "export-resource-pack": "resources",
   "import-resource-pack": "resources",
+  "get-skill-choices": "resources",
+  "get-skill-choice-counts": "resources",
+  "set-skill-switch": "resources",
+  "set-skill-mark": "resources",
 
   "create-resource-version": "history",
   "list-resource-versions": "history",

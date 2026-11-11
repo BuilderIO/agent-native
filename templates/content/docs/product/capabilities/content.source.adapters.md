@@ -137,9 +137,11 @@ authorization and fidelity behavior. This Capability remains `in_progress`.
 The bounded Builder OAuth consumer requests general content read/write scopes,
 uses the existing models, query-data, and Write API routes, and binds
 subsequent mutation calls to the Builder space observed during source refresh.
-Focused client tests cover general OAuth precedence, legacy and Publish grant
-separation, raw draft-inclusive enumeration, exact-entry reads, cross-space
-rejection, and ambiguous writes without replay. This is adapter substrate, not
+Sources never fall back to deploy keys; only the separate Builder docs sync
+still uses them. Focused client tests cover general OAuth precedence, Publish
+grant separation, the absence of a deploy-key fallback, raw draft-inclusive
+enumeration, exact-entry reads, cross-space rejection, and ambiguous writes
+without replay. This is adapter substrate, not
 certification: Builder model discovery remains developer/admin-only, indexed
 reads do not expose the editable autosave head, and the Write API has no
 conditional write.

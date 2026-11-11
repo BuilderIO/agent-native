@@ -71,6 +71,12 @@ import {
   isWithinCreateSettlingWindow,
 } from "../lib/document-scoped-read-retry";
 import {
+  confirmCreatedFilesRow,
+  forgetCreatedFilesRows,
+  removeCreatedFilesRows,
+  showCreatedFilesRow,
+} from "../lib/files-navigation";
+import {
   isDocumentCreationConfirmed,
   isDocumentCreationPending,
 } from "../lib/optimistic-document";
@@ -116,9 +122,12 @@ import {
   contentDatabaseNavigationQueryFilter,
   invalidateContentDatabaseNavigationQueries,
   removeOptimisticItemFromContentDatabase,
+  removeTrashedPagesFromCachedCollections,
   useRestoreContentDatabase,
 } from "./use-content-database";
 import { CONTENT_LINK_TARGETS_QUERY_KEY } from "./use-content-links";
+import { removeTrashedFromCachedRecent } from "./use-content-recent";
+import { DELETE_DOCUMENT_MUTATION_KEY } from "./use-pending-trash";
 
 export {
   documentQueryFilter,
@@ -656,39 +665,63 @@ const NAVIGATION_CONTEXT_QUERY_KEY = [
   "get-content-navigation-context",
 ] as const;
 
+function cachedNavigationPath(
+  queryClient: Pick<QueryClient, "getQueriesData">,
+  documentId: string,
+): ContentNavigationContext | null {
+  for (const [
+    ,
+    context,
+  ] of queryClient.getQueriesData<ContentNavigationContext>({
+    queryKey: NAVIGATION_CONTEXT_QUERY_KEY,
+  })) {
+    if (!context) continue;
+    const index = context.path.findIndex((entry) => entry.id === documentId);
+    if (index >= 0) {
+      return { ...context, path: context.path.slice(0, index + 1) };
+    }
+  }
+  return null;
+}
+
 /**
- * An optimistic page opens before the server has it, so its path read fails
- * and the sidebar would stop revealing the page's ancestors. Seed the path from
- * the parent's cached one and show the parent as expandable; the create's
- * refresh replaces both, and `removeCreatedDocumentNavigation` undoes them.
- * The sidebar reveals a path only through its space's Files membership, so
- * the new entry claims that membership too.
+ * Shows a page this tab is creating in the Files sidebar: its parent becomes
+ * expandable, in its branch rows and in every cached path through it, and the
+ * page stays at the end of its branch until the server lists it.
+ * `removeCreatedDocumentNavigation` undoes them.
  */
-export function seedCreatedDocumentNavigation(
-  queryClient: Pick<
-    QueryClient,
-    "getQueriesData" | "setQueriesData" | "setQueryData"
-  >,
+export function showCreatedDocumentInFiles(
+  queryClient: QueryClient,
   document: Document,
-  workspaceFilesDatabaseId: string | null,
+  filesDatabaseId: string | null,
+  type: "page" | "database" = "page",
 ) {
   const parentId = document.parentId ?? null;
-  let parentPath: ContentNavigationPathEntry[] = [];
   if (parentId) {
-    for (const [
-      ,
-      context,
-    ] of queryClient.getQueriesData<ContentNavigationContext>({
-      queryKey: NAVIGATION_CONTEXT_QUERY_KEY,
-    })) {
-      const index =
-        context?.path?.findIndex((entry) => entry.id === parentId) ?? -1;
-      if (index >= 0) {
-        parentPath = context!.path.slice(0, index + 1);
-        workspaceFilesDatabaseId ??= context!.workspaceFilesDatabaseId;
-        break;
-      }
-    }
+    // A child page belongs to the Files tree its parent is drawn in.
+    const parentBranch = queryClient.getQueriesData<unknown>(
+      contentNavigationBranchFilter({ documentIds: [parentId] }),
+    )[0]?.[0][2] as { databaseId?: unknown } | undefined;
+    filesDatabaseId =
+      (typeof parentBranch?.databaseId === "string"
+        ? parentBranch.databaseId
+        : null) ??
+      cachedNavigationPath(queryClient, parentId)?.workspaceFilesDatabaseId ??
+      filesDatabaseId;
+    queryClient.setQueriesData<ContentNavigationContext>(
+      { queryKey: NAVIGATION_CONTEXT_QUERY_KEY },
+      (current) =>
+        current?.path.some(
+          (entry) => entry.id === parentId && entry.hasChildren !== true,
+        )
+          ? {
+              ...current,
+              path: current.path.map((entry) =>
+                entry.id === parentId ? { ...entry, hasChildren: true } : entry,
+              ),
+            }
+          : current,
+    );
     queryClient.setQueriesData<ContentDatabaseNavigationPageResponse>(
       contentNavigationBranchFilter({ documentIds: [parentId] }),
       (current) =>
@@ -701,6 +734,41 @@ export function seedCreatedDocumentNavigation(
           ),
         },
     );
+  }
+  if (filesDatabaseId) {
+    showCreatedFilesRow(queryClient, filesDatabaseId, document, type);
+  }
+}
+
+/**
+ * An optimistic page opens before the server has it, so its path read fails
+ * and the sidebar would stop revealing the page's ancestors. Seed the path from
+ * the parent's cached one and show the page in its Files branch; the create's
+ * refresh replaces both, and `removeCreatedDocumentNavigation` undoes them.
+ * The sidebar reveals a path only through its space's Files membership, so
+ * the new entry claims that membership too.
+ */
+export function seedCreatedDocumentNavigation(
+  queryClient: QueryClient,
+  document: Document,
+  workspaceFilesDatabaseId: string | null,
+  type: "page" | "database" = "page",
+) {
+  const parentId = document.parentId ?? null;
+  // First, so the parent's cached path below already shows it as expandable.
+  showCreatedDocumentInFiles(
+    queryClient,
+    document,
+    workspaceFilesDatabaseId,
+    type,
+  );
+  let parentPath: ContentNavigationPathEntry[] = [];
+  if (parentId) {
+    const parentContext = cachedNavigationPath(queryClient, parentId);
+    if (parentContext) {
+      parentPath = parentContext.path;
+      workspaceFilesDatabaseId ??= parentContext.workspaceFilesDatabaseId;
+    }
   }
   queryClient.setQueryData<ContentNavigationContext>(
     [...NAVIGATION_CONTEXT_QUERY_KEY, { id: document.id }],
@@ -730,9 +798,10 @@ export function seedCreatedDocumentNavigation(
 }
 
 export function removeCreatedDocumentNavigation(
-  queryClient: Pick<QueryClient, "invalidateQueries" | "removeQueries">,
+  queryClient: QueryClient,
   document: Pick<Document, "id" | "parentId">,
 ) {
+  removeCreatedFilesRows(queryClient, [document.id]);
   queryClient.removeQueries({
     queryKey: [...NAVIGATION_CONTEXT_QUERY_KEY, { id: document.id }],
     exact: true,
@@ -740,6 +809,7 @@ export function removeCreatedDocumentNavigation(
   if (document.parentId) {
     invalidateContentQueries(queryClient, [
       contentNavigationBranchFilter({ documentIds: [document.parentId] }),
+      contentNavigationContextFilter([document.parentId]),
     ]);
   }
 }
@@ -1441,7 +1511,12 @@ export function useCreateDocument() {
     "create-document",
     {
       skipActionQueryInvalidation: true,
-      onSuccess: (created) =>
+      onSuccess: (created, variables) => {
+        // Before the reread below starts, so that reread can settle the row.
+        confirmCreatedFilesRow(queryClient, created.id);
+        if (variables.id && variables.id !== created.id) {
+          removeCreatedFilesRows(queryClient, [variables.id]);
+        }
         invalidateContentQueries(queryClient, [
           ...contentPlacementTargets(queryClient, {
             documentIds: [created.id],
@@ -1451,7 +1526,8 @@ export function useCreateDocument() {
               : contentSpaceFilesDatabaseId(queryClient, created.spaceId),
           }),
           ...SEARCH_QUERY_KEYS,
-        ]),
+        ]);
+      },
     },
   );
 }
@@ -1980,6 +2056,21 @@ export function useDeleteDocument() {
     },
     { id: string; databaseDocumentId?: string; activeDocumentId?: string }
   >("delete-document", {
+    mutationKey: DELETE_DOCUMENT_MUTATION_KEY,
+    onSuccess: (data, variables) => {
+      // Taking a page out of Favorites deletes nothing; the page stays.
+      if (data.deleted > 0) {
+        forgetCreatedFilesRows(queryClient, [variables.id]);
+        removeTrashedFromCachedRecent(queryClient, {
+          documentIds: [variables.id],
+        });
+      }
+    },
+    onSettled: (data, _error, variables) => {
+      if (data && data.deleted > 0) {
+        removeTrashedPagesFromCachedCollections(queryClient, [variables.id]);
+      }
+    },
     invalidates: (_data, variables) => [
       ...contentPlacementTargets(queryClient, { documentIds: [variables.id] }),
       contentDatabaseItemsContainingDocumentFilter(variables.id),
@@ -2005,6 +2096,7 @@ export function useRollbackCreatedSlashDocument() {
     },
     { id: string; parentId: string }
   >("rollback-created-slash-document", {
+    onSuccess: (_result, { id }) => removeCreatedFilesRows(queryClient, [id]),
     invalidates: (_result, { id, parentId }) => [
       ...contentPlacementTargets(queryClient, {
         documentIds: [id],
@@ -2123,6 +2215,8 @@ export function useMoveDocument() {
     Document,
     DocumentMoveRequest & { id: string }
   >("move-document", {
+    onSuccess: (_data, variables) =>
+      forgetCreatedFilesRows(queryClient, [variables.id]),
     invalidates: (_data, variables) => [
       ...contentPlacementTargets(queryClient, {
         documentIds: [variables.id],

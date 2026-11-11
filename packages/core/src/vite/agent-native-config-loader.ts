@@ -15,6 +15,7 @@ import {
   type AgentNativeFirstRunOnboardingMode,
 } from "../config.js";
 import { parseHostedHarnessBuildValue } from "../server/hosted-harness-build-mode.js";
+import { parseRequiredEnvBuildValue } from "../server/required-env-build.js";
 
 export const AGENT_NATIVE_CONFIG_FILE_CANDIDATES = [
   "agent-native.config.ts",
@@ -159,6 +160,12 @@ export function resolveHarnessBuildReplacement(
   return JSON.stringify(config.harness ?? null);
 }
 
+export function resolveRequiredEnvBuildReplacement(
+  config: AgentNativeConfig,
+): string {
+  return JSON.stringify(config.runtime?.environment?.required ?? []);
+}
+
 const AGENT_NATIVE_BUILD_CONFIG_MARKER = path.join(
   ".agent-native",
   "build-config.json",
@@ -167,6 +174,8 @@ const AGENT_NATIVE_BUILD_CONFIG_MARKER = path.join(
 export interface AgentNativeBuildConfigMarker {
   firstRunOnboarding: AgentNativeFirstRunOnboardingMode | "";
   harness: string;
+  /** Absent in markers written before the probe read required env names. */
+  requiredEnv?: string;
 }
 
 const FIRST_RUN_ONBOARDING_MARKER_VALUES = new Set<string>([
@@ -217,12 +226,16 @@ export function readAgentNativeBuildConfigMarker(
     !FIRST_RUN_ONBOARDING_MARKER_VALUES.has(
       record.firstRunOnboarding as string,
     ) ||
-    typeof record.harness !== "string"
+    typeof record.harness !== "string" ||
+    (record.requiredEnv !== undefined && typeof record.requiredEnv !== "string")
   ) {
     throw new Error(`Invalid agent-native build config marker: ${filePath}`);
   }
   try {
     parseHostedHarnessBuildValue(record.harness);
+    if (record.requiredEnv !== undefined) {
+      parseRequiredEnvBuildValue(record.requiredEnv);
+    }
   } catch (error) {
     throw new Error(`Invalid agent-native build config marker: ${filePath}`, {
       cause: error,
@@ -231,6 +244,9 @@ export function readAgentNativeBuildConfigMarker(
   return {
     firstRunOnboarding: record.firstRunOnboarding!,
     harness: record.harness,
+    ...(record.requiredEnv !== undefined
+      ? { requiredEnv: record.requiredEnv }
+      : {}),
   };
 }
 

@@ -39,6 +39,7 @@ describe("framework secret registrations", () => {
       label: "Figma access token",
       scope: "user",
       kind: "api-key",
+      urlAllowlist: ["https://api.figma.com"],
       docsUrl:
         "https://developers.figma.com/docs/rest-api/personal-access-tokens/",
     });

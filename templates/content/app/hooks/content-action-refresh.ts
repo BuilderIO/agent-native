@@ -69,7 +69,11 @@ const DOCUMENT_MUTATIONS = new Set([
   "sync-manifest-local-folder-source",
   "transcribe-media",
   "undo-content-import",
+  // Row writes edit the row's page, which may be open.
+  "update-database-item",
+  "update-database-items",
   "update-document",
+  "upsert-database-item-by-key",
 ]);
 
 const DATABASE_RESULT_MUTATIONS = new Set([
@@ -131,6 +135,26 @@ const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
   "link-github-folder",
   "refresh-content-database-source",
   "sync-github-folder",
+]);
+
+// A path entry's `hasChildren` reads the same rows and view as the Files tree,
+// and any document write can add, move, or trash the pages a path counts.
+const NAVIGATION_CONTEXT_MUTATIONS = new Set([
+  ...DOCUMENT_MUTATIONS,
+  ...DATABASE_RESULT_MUTATIONS,
+  ...DATABASE_PRESENTATION_MUTATIONS,
+  ...DATABASE_LIFECYCLE_MUTATIONS,
+  ...DOCUMENT_DISCOVERY_MUTATIONS,
+  // These add or trash a page under a parent, and no list above names them.
+  "clone-creative-context-document",
+  "create-content-database",
+  "create-inline-content-database",
+  "duplicate-page",
+  "rollback-created-slash-document",
+  // `hasChildren` counts only the pages the caller can see.
+  "set-resource-visibility",
+  "share-resource",
+  "unshare-resource",
 ]);
 
 /**
@@ -403,6 +427,14 @@ function queryReadsFilesNavigation(query: ActionQuery): boolean {
   return !!args && typeof args === "object" && "navigation" in args;
 }
 
+function queryIsActiveNavigationContext(query: ActionQuery): boolean {
+  return (
+    query.queryKey[0] === "action" &&
+    query.queryKey[1] === "get-content-navigation-context" &&
+    query.isActive?.() === true
+  );
+}
+
 function queryTargetsActiveNavigationOrRecent(query: ActionQuery): boolean {
   if (query.queryKey[0] !== "action" || query.isActive?.() !== true)
     return false;
@@ -570,6 +602,12 @@ export function contentActionInvalidatePredicate(
     if (
       queryTargetsActiveDatabasePresentation(query) &&
       eventsIncludeMutation(events, DATABASE_PRESENTATION_MUTATIONS)
+    ) {
+      return true;
+    }
+    if (
+      queryIsActiveNavigationContext(query) &&
+      eventsIncludeMutation(events, NAVIGATION_CONTEXT_MUTATIONS)
     ) {
       return true;
     }
