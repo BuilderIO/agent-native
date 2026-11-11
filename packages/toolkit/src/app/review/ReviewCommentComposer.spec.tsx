@@ -1201,6 +1201,55 @@ describe("ReviewCommentComposer", () => {
     expect(editorDom().textContent).toBe("");
   });
 
+  it("chips the people a comment mentions when they load after its text", async () => {
+    const onChange = vi.fn();
+    const box = (mentions: ReviewMention[]) => (
+      <ReviewCommentComposer
+        value="Hi @Alice, and more"
+        mentions={mentions}
+        onChange={onChange}
+        onSubmit={() => {}}
+      />
+    );
+    await render(box([]));
+    expect(
+      container.querySelectorAll("[data-review-mention-chip]"),
+    ).toHaveLength(0);
+    // After "and".
+    placeCaret(15);
+
+    await render(box([alice]));
+
+    expect(
+      container.querySelector("[data-review-mention-chip]")?.textContent,
+    ).toBe("@Alice");
+    // "Hi ", the chip and ", and": the caret holds its place in the text.
+    expect(editorDom().editor.state.selection.from).toBe(10);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("opens a mail-link mention as a chip, and saves it as written", async () => {
+    const onChange = vi.fn();
+    await render(
+      <ReviewCommentComposer
+        value="Ask @[Alex Kim](mailto:alex%40example.com) first"
+        mentions={[]}
+        onChange={onChange}
+        onSubmit={() => {}}
+      />,
+    );
+    expect(
+      container.querySelector("[data-review-mention-chip]")?.textContent,
+    ).toBe("@Alex Kim");
+
+    placeCaret(editorDom().editor.state.doc.content.size - 1);
+    typeText("!");
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      "Ask @[Alex Kim](mailto:alex%40example.com) first!",
+    );
+  });
+
   describe("mention combobox", () => {
     // A `role="textbox"` does not allow these, and axe reports them as critical.
     function expectTextboxOmitsPopupState(dom: HTMLElement) {

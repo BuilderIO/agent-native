@@ -232,6 +232,64 @@ describe("comment Markdown and the box's document", () => {
     );
   });
 
+  it("keeps a typed web address apart from formatting right after it", () => {
+    const text = (value: string, ...marks: string[]): CommentDocNode => ({
+      type: "text",
+      text: value,
+      ...(marks.length ? { marks: marks.map((type) => ({ type })) } : {}),
+    });
+    const linked: CommentDocNode = {
+      type: "text",
+      text: "https://example.com",
+      marks: [{ type: "link", attrs: { href: "https://example.com" } }],
+    };
+    // Written bare, the address would run on into the marks after it.
+    for (const { content, saved } of [
+      {
+        content: [text("https://example.com"), text("now", "bold")],
+        saved: "<https://example.com>**now**",
+      },
+      {
+        content: [text("see https://example.com."), text("now", "italic")],
+        saved: "see <https://example.com>.*now*",
+      },
+      {
+        content: [
+          text("x", "code"),
+          text("https://example.com"),
+          text("now", "strike"),
+        ],
+        saved: "`x`<https://example.com>~~now~~",
+      },
+      {
+        content: [linked, text("."), text("now", "bold")],
+        saved: "<https://example.com>.**now**",
+      },
+    ]) {
+      expect(commentDocToMarkdown(inline(...content))).toBe(saved);
+      expect(commentMarkdownToDoc(saved).content?.[0]?.content?.at(-1)).toEqual(
+        content.at(-1),
+      );
+      expect(roundTrip(saved)).toBe(saved);
+    }
+  });
+
+  it("opens a mail-link mention as a chip that saves as written", () => {
+    const written =
+      "Ask @[Alex Kim](mailto:alex%40example.com) and **@[Sam](mailto:sam@example.com)**";
+    expect(chips(commentMarkdownToDoc(written))).toEqual(["Alex Kim", "Sam"]);
+    expect(roundTrip(written)).toBe(written);
+    expect(
+      commentMarkdownToDoc("@[Sam](mailto:sam@example.com)").content?.[0]
+        ?.content?.[0]?.attrs,
+    ).toEqual({
+      label: "Sam",
+      email: "sam@example.com",
+      id: null,
+      mailto: "sam@example.com",
+    });
+  });
+
   it("chips only the links it swapped in for mentions", () => {
     expect(
       commentMarkdownToDoc(
@@ -378,6 +436,9 @@ describe("comment Markdown and the box's document", () => {
     expect(roundTrip(long)).toBe(long);
     const ticks = `${head}\n\n*a* \`b\` past the limit`;
     expect(roundTrip(ticks)).toBe(ticks);
+    // Spaces and empty lines show there too, so they save as typed.
+    const spaced = `${head}\n\n  indented  \n\n\n\nafter`;
+    expect(roundTrip(spaced)).toBe(spaced);
     // Code's backslashes are as typed, so code there keeps them.
     const withCode = commentDocToMarkdown({
       type: "doc",

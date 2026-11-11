@@ -8,7 +8,8 @@
  * The document is the box editor's JSON: `paragraph` is one line, and an empty
  * one is the blank line between two paragraphs of Markdown. Marks are `bold`,
  * `italic`, `strike`, `code` and `link`; a mention is a `reviewMention` node
- * that saves as `@label`, as the plain box saved it.
+ * that saves as `@label`, as the plain box saved it, or with a `mailto`
+ * address as the `@[Name](mailto:…)` it was written as.
  */
 
 import type {
@@ -131,22 +132,64 @@ export function commentDocToMarkdown(content: CommentDocNode): string {
     type: "root",
     children: flowToMarkdown(content.content ?? []),
   };
-  return withPlainTail(toMarkdown(root, WRITE_OPTIONS).replace(/\n+$/, ""));
+  return withPlainTail(
+    toMarkdown(root, WRITE_OPTIONS).replace(/\n+$/, ""),
+    content.content ?? [],
+  );
 }
 
 /**
- * Past the Markdown limit the renderer shows a comment as written, where the
- * escapes that keep text from formatting would show too, so that part saves
- * without them, except in code, whose backslashes are as typed. Not when
- * dropping them would move where the limit cuts.
+ * Past the Markdown limit the renderer shows a comment as written, spaces and
+ * empty lines too, so that part saves as the box's lines are typed. Where it
+ * isn't just lines of text, it saves without the escapes that would show
+ * there, except in code, whose backslashes are as typed. Not when either
+ * would move where the limit cuts.
  */
-function withPlainTail(markdown: string): string {
+function withPlainTail(
+  markdown: string,
+  blocks: readonly CommentDocNode[],
+): string {
   const { markdown: head, rest } = splitCommentAtMarkdownLimit(markdown);
   if (!rest) return markdown;
-  const plain = `${markdown.slice(0, markdown.length - rest.length)}${withoutEscapesOutsideCode(rest)}`;
-  return splitCommentAtMarkdownLimit(plain).markdown === head
-    ? plain
-    : markdown;
+  const start = markdown.slice(0, markdown.length - rest.length);
+  const shown = withoutEscapesOutsideCode(rest);
+  for (const tail of [typedLines(shown, blocks), shown]) {
+    if (tail === undefined) continue;
+    const plain = `${start}${tail}`;
+    if (splitCommentAtMarkdownLimit(plain).markdown === head) return plain;
+  }
+  return markdown;
+}
+
+/**
+ * The box's last lines as typed, where they're the lines of text `shown`
+ * holds, written without their spaces at either end and empty lines but one.
+ */
+function typedLines(
+  shown: string,
+  blocks: readonly CommentDocNode[],
+): string | undefined {
+  const trim = (line: string) => line.replace(/^[ \t]+|[ \t]+$/g, "");
+  const wanted = shown.split("\n").map(trim).filter(Boolean);
+  const lines: string[] = [];
+  let found = 0;
+  for (let index = blocks.length - 1; found < wanted.length; index -= 1) {
+    const block = itemAt(blocks, index);
+    const content = block?.content ?? [];
+    if (
+      block?.type !== "paragraph" ||
+      content.some((node) => node.type !== "text" || node.marks?.length)
+    ) {
+      return undefined;
+    }
+    const line = content.map((node) => node.text ?? "").join("");
+    lines.unshift(line);
+    if (trim(line)) found += 1;
+  }
+  const typed = lines.join("\n");
+  return lines.map(trim).filter(Boolean).join("\n") === wanted.join("\n")
+    ? typed.replace(/\n+$/, "")
+    : undefined;
 }
 
 /** A backslash escape, or a character reference, as the writer spells them. */
@@ -261,11 +304,11 @@ class DocReader {
     dropped: ReadonlySet<number>,
   ) {
     // Found and swapped for links as the renderer does, so Markdown in a
-    // label stays part of the chip. One written `@[Name](mailto:…)` stays the
-    // link it's written as, which saves it as it was. Too many, or a swap that
-    // tangles the text, and the renderer shows them as written, as here.
+    // label stays part of the chip. One written `@[Name](mailto:…)` keeps its
+    // address, to save as it was. Too many, or a swap that tangles the text,
+    // and the renderer shows them as written, as here.
     const found = findCommentMentions(markdown, mentions).filter(
-      (mention) => !mention.inline && !dropped.has(mention.at),
+      (mention) => !dropped.has(mention.at),
     );
     // A run of x's the comment doesn't hold, so code the comment holds can't
     // pass for a mention's link.
@@ -322,14 +365,16 @@ class DocReader {
    * The mention a link stands for: one of the links swapped in, found by
    * where it starts, so a link written to the same address stays a link.
    */
-  private mentionAt(link: Link): ReviewMention | undefined {
+  private mentionAt(
+    link: Link,
+  ): FoundCommentMention<ReviewMention> | undefined {
     const at = link.position?.start.offset;
     const index = at === undefined ? undefined : this.mentionLinks.get(at);
     if (index === undefined || link.url !== `${this.mentionLink}${index}`) {
       return undefined;
     }
     this.placed.add(index);
-    return this.found[index]?.mention;
+    return itemAt(this.found, index);
   }
 
   /**
@@ -539,8 +584,12 @@ function addText(
   });
 }
 
+/**
+ * A mention's chip. One written `@[Name](mailto:…)` keeps the address as
+ * written in `mailto`, as the comment names its person by it.
+ */
 function mentionNode(
-  mention: ReviewMention,
+  { mention, source, inline }: FoundCommentMention<ReviewMention>,
   marks: readonly CommentDocMark[],
 ): CommentDocNode {
   return {
@@ -549,6 +598,9 @@ function mentionNode(
       label: mention.label,
       email: mention.email ?? null,
       id: mention.id ?? null,
+      ...(inline
+        ? { mailto: source.slice(source.lastIndexOf("(mailto:") + 8, -1) }
+        : {}),
     },
     ...(marks.length ? { marks: [...marks] } : {}),
   };
@@ -731,7 +783,7 @@ function phrasingToMarkdown(
 ): PhrasingContent[] {
   const root: { children: PhrasingContent[] } = { children: [] };
   const stack: MarkFrame[] = [];
-  const line = spacesOutsideMarks(bareAddresses(nodes));
+  const line = spacesOutsideMarks(bareAddresses(linkTypedAddresses(nodes)));
   line.forEach((node, index) => {
     const marks = orderedMarks(node);
     // Marks still open stay open, from the outside in, so `***a**b*` isn't
@@ -816,8 +868,9 @@ function markNode(mark: CommentDocMark): MarkedPhrasing {
 function leafToMarkdown(node: CommentDocNode): PhrasingContent | null {
   if (node.type === COMMENT_DOC_MENTION) {
     const label = stringAttr(node.attrs, "label");
+    const mailto = stringAttr(node.attrs, "mailto");
     return label
-      ? ({ type: "reviewMention", label } as unknown as PhrasingContent)
+      ? ({ type: "reviewMention", label, mailto } as unknown as PhrasingContent)
       : null;
   }
   if (node.type === BARE_ADDRESS_NODE && node.text) {
@@ -873,8 +926,10 @@ function bareAddresses(nodes: readonly CommentDocNode[]): CommentDocNode[] {
     if (
       !BEFORE_BARE_ADDRESS.test(charBefore) ||
       !closing ||
-      // Marks written between them would join the punctuation to it.
+      // Marks written between them would join the punctuation to it, and
+      // the rest of the line, run right up to the punctuation, would too.
       (closing[1] && after?.marks?.length) ||
+      (after && !/\s/.test(closing[0]) && itemAt(nodes, index + 2)) ||
       !readsAsLink(text, href, itemAt(closing, 1) ?? "")
     ) {
       return node;
@@ -884,6 +939,100 @@ function bareAddresses(nodes: readonly CommentDocNode[]): CommentDocNode[] {
       ? { type: BARE_ADDRESS_NODE, text, marks }
       : { type: BARE_ADDRESS_NODE, text };
   });
+}
+
+/** The last word of a text, where an address would run to its end. */
+const LAST_WORD = /[^\s<]*$/;
+/** Where a web address the renderer links can start. */
+const ADDRESS_START = /https?:\/\/|www\./i;
+
+/**
+ * Links a typed address that formatting, a chip or code runs right up to, as
+ * the renderer would link it. Written bare, the address would run on through
+ * the `*`s or `~`s between them and take what follows into the link.
+ */
+function linkTypedAddresses(
+  nodes: readonly CommentDocNode[],
+): CommentDocNode[] {
+  return nodes.flatMap((node, index) => {
+    const text = node.text ?? "";
+    const word = LAST_WORD.exec(text)?.[0] ?? "";
+    const at = word.search(ADDRESS_START);
+    const next = itemAt(nodes, index + 1);
+    if (
+      node.type !== "text" ||
+      at === -1 ||
+      !next ||
+      /^\s/.test(next.text ?? "x") ||
+      linkedOrCode(node)
+    ) {
+      return [node];
+    }
+    const start = text.length - word.length + at;
+    const typed = text.slice(start);
+    const link = autolinkAt(
+      typed,
+      start ? text.charAt(start - 1) : writtenLast(itemAt(nodes, index - 1)),
+    );
+    if (!link) return [node];
+    const marks = node.marks ?? [];
+    const linked: CommentDocNode = {
+      ...node,
+      text: typed.slice(0, link.length),
+      marks: [...marks, { type: "link", attrs: { href: link.url } }],
+    };
+    return [
+      ...(start ? [{ ...node, text: text.slice(0, start) }] : []),
+      linked,
+      ...(link.length < typed.length
+        ? [{ ...node, text: typed.slice(link.length) }]
+        : []),
+    ];
+  });
+}
+
+function linkedOrCode(node: CommentDocNode): boolean {
+  return Boolean(
+    node.marks?.some((mark) => mark.type === "link" || mark.type === "code"),
+  );
+}
+
+/**
+ * The character written last for `node`, which comes before what follows it.
+ * Text beside text with other marks ends in a mark's `*` or `~`.
+ */
+function writtenLast(node: CommentDocNode | undefined): string {
+  if (!node) return "";
+  if (node.type === COMMENT_DOC_MENTION) {
+    return stringAttr(node.attrs, "mailto")
+      ? ")"
+      : stringAttr(node.attrs, "label").slice(-1);
+  }
+  if (node.marks?.some((mark) => mark.type === "code")) return "`";
+  if (node.marks?.some((mark) => mark.type === "link")) return ")";
+  return "*";
+}
+
+/**
+ * The link GFM reads from the start of `text`, written after `before`, and
+ * how much of `text` it takes.
+ */
+function autolinkAt(
+  text: string,
+  before: string,
+): { length: number; url: string } | undefined {
+  const block = itemAt(
+    fromMarkdown(`${before}${text}`, PARSE_OPTIONS).children,
+    0,
+  );
+  const link =
+    block?.type === "paragraph"
+      ? block.children.find((child): child is Link => child.type === "link")
+      : undefined;
+  const end = link?.position?.end.offset;
+  return link && link.position?.start.offset === before.length && end
+    ? { length: end - before.length, url: link.url }
+    : undefined;
 }
 
 /**
@@ -1095,8 +1244,21 @@ function lastCharacter(text: string): string {
   return /^[\uD800-\uDBFF][\uDC00-\uDFFF]$/.test(pair) ? pair : text.slice(-1);
 }
 
+/** The name and address a written `@[Name](mailto:…)` can hold. */
+const MAILTO_NAME = /^[^[\]\r\n]+$/;
+const MAILTO_ADDRESS = /^[^()\s]+$/;
+
+/** A mention as `@label`, or as the `@[Name](mailto:…)` it was written as. */
 const writeMention = Object.assign(
-  ((node) => `@${(node as unknown as { label: string }).label}`) as Handle,
+  ((node) => {
+    const { label, mailto } = node as unknown as {
+      label: string;
+      mailto: string;
+    };
+    return MAILTO_NAME.test(label) && MAILTO_ADDRESS.test(mailto)
+      ? `@[${label}](mailto:${mailto})`
+      : `@${label}`;
+  }) as Handle,
   { peek: () => "@" },
 );
 

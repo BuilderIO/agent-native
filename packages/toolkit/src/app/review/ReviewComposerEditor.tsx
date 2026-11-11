@@ -134,6 +134,11 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
   // The body the editor last said it holds, or was last given. A `value` equal
   // to it is the editor's own, so it never resets the editor and its caret.
   const lastValueRef = useRef(value);
+  // The people the editor last read the body's chips with.
+  const mentionsKey = JSON.stringify(
+    mentions.map(({ label, email, id }) => [label, email ?? null, id ?? null]),
+  );
+  const lastMentionsKeyRef = useRef(mentionsKey);
   // True while Shift+Enter runs Enter through the editor's own keymaps, so the
   // host's Enter (send) stays out of it.
   const replayingEnterRef = useRef(false);
@@ -263,7 +268,12 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    if (value === lastValueRef.current) return;
+    const mentionsChanged = mentionsKey !== lastMentionsKeyRef.current;
+    lastMentionsKeyRef.current = mentionsKey;
+    if (value === lastValueRef.current) {
+      if (mentionsChanged) showMentionChips(editor, value, mentions);
+      return;
+    }
     lastValueRef.current = value;
     if (serializeReviewComposerDoc(editor.state.doc) === value) return;
     editor
@@ -276,7 +286,7 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
         return true;
       })
       .run();
-  }, [editor, value, mentions]);
+  }, [editor, value, mentions, mentionsKey]);
 
   useEffect(() => {
     if (editor && !editor.isDestroyed) editor.setEditable(!disabled, false);
@@ -453,6 +463,33 @@ function takePageSelection(view: Editor["view"]) {
     view.state.tr.setSelection(
       TextSelection.between(doc.resolve(anchor), doc.resolve(head)),
     ),
+  );
+}
+
+/**
+ * Chips for the people a comment mentions, when the list of them changes
+ * after its text, as when it loads later. Only what differs is replaced, so
+ * the caret stays where it was, and it's not a step to undo.
+ */
+function showMentionChips(
+  editor: Editor,
+  value: string,
+  mentions: readonly ReviewMention[],
+) {
+  const { state } = editor;
+  const next = state.schema.nodeFromJSON(
+    parseReviewComposerText(value, mentions),
+  );
+  const start = state.doc.content.findDiffStart(next.content);
+  const end = state.doc.content.findDiffEnd(next.content);
+  if (start === null || end === null) return;
+  // Where the change repeats the text beside it, the two ends can cross.
+  const overlap = Math.max(0, start - Math.min(end.a, end.b));
+  editor.view.dispatch(
+    state.tr
+      .replace(start, end.a + overlap, next.slice(start, end.b + overlap))
+      .setMeta(SILENT_META, true)
+      .setMeta("addToHistory", false),
   );
 }
 
