@@ -31,11 +31,13 @@ function recordingDb(
     | Promise<never> = () => ({}),
 ) {
   const statements: Statement[] = [];
+  // raw-sql-ok: a fake database that records the statements it is sent; it runs none.
   return {
     statements,
     sql: () => statements.map((statement) => statement.sql.trim()),
     db: {
       async execute(input: DbExecInput) {
+        // raw-sql-ok: copies the statement it was sent into the record; nothing runs.
         const statement =
           typeof input === "string"
             ? { sql: input, args: [] }

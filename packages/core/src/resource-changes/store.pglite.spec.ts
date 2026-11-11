@@ -121,6 +121,7 @@ describe("claimResourceChanges with a settle time", () => {
 });
 
 describe("enqueueSelectedResourceChanges", () => {
+  // raw-sql-ok: only a ? placeholder per id is interpolated; the ids are bound.
   const select = (...ids: string[]) => ({
     sql: `SELECT id AS resource_id FROM notes WHERE id IN (${ids.map(() => "?").join(", ")})`,
     args: ids,
