@@ -1705,19 +1705,17 @@ describe("the UI capability on writes from the signed-in app", () => {
     ["ok", 200],
     ["error", 500],
   ])(
-    "releases the mint response body on an %s response",
+    "reads the mint response body to the end on an %s response",
     async (_name, status) => {
       signIn();
-      const cancel = vi.fn(async () => {});
       const mintResponse = new Response("{}", { status });
-      Object.defineProperty(mintResponse, "body", {
-        value: { cancel },
-      });
+      const cancel = vi.spyOn(ReadableStream.prototype, "cancel");
       routeFetch(() => mintResponse);
 
       await callAction("delete-file", { id: "file-1" }).catch(() => {});
 
-      expect(cancel).toHaveBeenCalledOnce();
+      expect(mintResponse.bodyUsed).toBe(true);
+      expect(cancel).not.toHaveBeenCalled();
     },
   );
 

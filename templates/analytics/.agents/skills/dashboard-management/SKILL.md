@@ -245,7 +245,7 @@ pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
 pnpm action navigate --view=adhoc --dashboardId=weekly-metrics
 ```
 
-The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. Never work around validation by writing directly to a table.
+The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. A `sql_validation_unavailable` error (status 503) means the validator could not run, not that the SQL is wrong: retry the same write, or report the outage, without rewriting the query. Never work around validation by writing directly to a table.
 
 ### Replicating Or Adapting Another Dashboard
 
@@ -433,7 +433,10 @@ another organization's); it is still saved. A set or note the dashboard hides
 is that dashboard's choice, so ask before showing it.
 
 To explain a spike or dip, read `keyDateSets` and `dataNotes` from
-`get-sql-dashboard` or `view-screen` first and cite what they say. If
+`get-sql-dashboard` or `view-screen` first and cite what they say. They are the
+organization's records, not part of the dashboard's saved config: a config
+write needn't carry them and can't change them, though its `annotations` field
+picks which ones this dashboard hides. If
 `annotationsError` is there instead, say the markers could not be read rather
 than that there are none. `omittedKeyDateSetCount` or `omittedDataNoteCount`
 means the list was cut to fit, so read `list-key-dates` or `list-data-notes`
@@ -735,6 +738,8 @@ and a predicate that consumes the declared filter, such as
 its options; date variables must have a matching date-range filter. The server
 rejects unbound first-party SQL during dashboard validation.
 
+**Traffic.** `traffic_environment` is a reserved filter id for first-party panels, with the values `all`, `production` and `beta` (beta includes PR previews and local runs). It never appears in panel SQL; reads apply it through the query scope, so don't add a hostname condition for it. A dashboard created by `compose-dashboard` or by `update-dashboard` with a new id starts with it set to `production`; a duplicate keeps its source's value, and one from folder sync, a Sigma migration or a template clone starts without it. One saved without it shows the menu on `all` until someone saves a default view with another value. A report saved without `f_traffic_environment` reads all traffic whatever the dashboard shows; set it in the report's `filters` to switch. Save verification reads all traffic unless `filters` names one, and refuses a first-party panel the dashboard's default traffic can't load, such as a rollup with no start date. Alerts always read all traffic. `get-traffic-counts` reports the events counted as production only because they have no host and no recognized environment.
+
 **Filter ids must be unique.** Two filters with the same `id` collide on the same URL param, so changing one visibly updates the other in the UI. The dashboard save endpoint rejects duplicates with a 400.
 
 **Use `type: "date-range"` for paired start/end dates.** Don't add two `type: "date"` filters labeled "Start" and "End" — even with distinct ids, that ships the wrong UX. A single date-range filter renders as the "from … to …" pair and exposes both halves to SQL via `{{<id>Start}}` / `{{<id>End}}`.
@@ -876,7 +881,13 @@ asks for a low-level JSON-pointer edit. Use `moveBefore`, `moveAfter`,
 For visible placement requests like "second row" or "next to return rates", use
 row-aware placement: `dashboard.insertPanel({...}).nextTo("retention-over-time")`,
 `.atRow(2)`, or `dashboard.panel("panel-a").moveNextTo("panel-b")`. These keep
-panels in the intended rendered row and rebalance that row when needed. In
+panels in the intended rendered row and rebalance the widths of the row the
+panel joins and the row it leaves. A row that needs another column widens its
+section and rebalances every row there; above the first section it widens the
+dashboard, and sections without their own column count are pinned to the one
+they had. Other panels keep their widths unless that would merge their row into
+the next one. The op's `commandLog` entry names every width or column count it
+changed. In
 `operations`, `movePanels`, `insertPanel`, and `duplicatePanel` take the same
 placement as fields: `position`, `index`, `beforePanelId`, `afterPanelId`,
 `nextToPanelId` (same visible row, after that panel), or `rowNumber` (1-based

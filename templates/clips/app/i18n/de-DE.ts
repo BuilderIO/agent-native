@@ -649,6 +649,8 @@ const messages = {
     them: "Ihnen",
     me: "Mich",
     regeneratingNotes: "Zusammenfassung wird neu generiert",
+    notesAlreadyGenerating:
+      "Eine Zusammenfassung wird bereits erstellt. Sie erscheint hier, sobald sie fertig ist.",
     meetingRemoved: "Besprechung entfernt",
     couldNotRemoveMeeting: "Das Meeting konnte nicht entfernt werden",
     couldNotLoadMeeting: "Dieses Meeting konnte nicht geladen werden.",
@@ -734,6 +736,8 @@ const messages = {
     noMatches: "Keine Übereinstimmungen.",
     noTranscript: "Noch kein Transkript.",
     noTranscriptCaptured: "Es wurde kein Transkript erfasst.",
+    unreadableDescription:
+      "Das gespeicherte Transkript ist beschädigt. Beim Neuerstellen entsteht aus dem Ton des Clips ein neues.",
     partialTranscript:
       "Teiltranskript: Die Aufnahme wurde abgeschnitten, daher fehlen möglicherweise Teile.",
     backupFailed:
@@ -2080,6 +2084,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "Noch {{count}} kostenloser Clip verfügbar",
     freeClipsLeft_other: "Noch {{count}} kostenlose Clips verfügbar",
+    activateBuilder: "Builder.io aktivieren",
     hostedClipsExhaustedTitle:
       "Verbinde Builder.io kostenlos, um weiter aufzunehmen",
     hostedClipsExhaustedDescription:
@@ -2294,6 +2299,14 @@ const messages = {
       "Textbereinigung übersprungen; Originaltext beibehalten",
     flowBacktrackSkipped:
       "Textbearbeitung übersprungen; erkannter Text beibehalten",
+    flowAppleSpeechParakeetMissing:
+      "Apple Speech · Parakeet nicht heruntergeladen",
+    flowAppleSpeechParakeetDownloading:
+      "Apple Speech · Parakeet wird heruntergeladen",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet wird geladen",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet ist beschäftigt",
+    flowAppleSpeechParakeetFailed:
+      "Apple Speech · Parakeet konnte nicht geladen werden",
     flowCancelDictation: "Diktat abbrechen",
     flowCopying: "Transkript wird kopiert…",
     aiProcessed: "KI-verarbeitet",

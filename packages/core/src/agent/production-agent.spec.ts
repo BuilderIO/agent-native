@@ -20331,13 +20331,26 @@ describe("runAgentLoop", () => {
       return done && "result" in done ? (done.result as string) : undefined;
     }
 
-    it("leaves a warning-free tool result byte-identical", async () => {
+    it("does not wrap a warning-free tool result", async () => {
       expect(await toolResultFor(async () => "moved 21 members")).toBe(
         "moved 21 members",
       );
+      const jsonText = '{\n  "moved": 21\n}';
+      expect(await toolResultFor(async () => jsonText)).toBe(jsonText);
       expect(await toolResultFor(async () => ({ moved: 21 }))).toBe(
-        '{\n  "moved": 21\n}',
+        '{"moved":21}',
       );
+      const examples = {
+        note: "The literal prefix data:, has no payload.",
+        urls: ["data:,", "data:;base64,", "data:image/png;base64,"],
+        brokenLink: "![chart](data:image/png;broken),following prose",
+        brokenReference: "[data:text/plain;broken],following prose",
+        url: "https://a.com/?q=data:,foo&x=1",
+        link: "[site](https://a.com/?q=data:,foo&x=1)",
+      };
+      const actual = await toolResultFor(async () => examples);
+      if (typeof actual !== "string") throw new Error("Missing tool result");
+      expect(JSON.parse(actual)).toEqual(examples);
     });
 
     it("appends warnings raised deep inside the action's call stack", async () => {
@@ -22719,6 +22732,296 @@ describe("runAgentLoop", () => {
     const textEvents = events.filter((e) => e.type === "text");
     expect(textEvents).toHaveLength(1);
     expect(textEvents[0].text).toBe("Recovered answer.");
+  });
+
+  it("accepts a clean empty final after an action explicitly settles its invocation", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      (
+        ctx as (ActionRunContext & { settle?: () => void }) | undefined
+      )?.settle?.();
+      return { saved: true };
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "tool-call", id: "save", name: "save", input: {} }],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const actions = { save: { ...actionEntry({ readOnly: false }), run } };
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: actionsToEngineTools(actions),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(streamCalls).toBe(2);
+    expect(events.at(-1)).toEqual({ type: "done", reason: "action_settled" });
+  });
+
+  it("does not settle when the invocation is aborted after signalling", async () => {
+    const controller = new AbortController();
+    const run = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      ctx?.settle?.();
+      controller.abort();
+      return { saved: true };
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream() {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "tool-call", id: "save", name: "save", input: {} }],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const actions = { save: { ...actionEntry({ readOnly: false }), run } };
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: actionsToEngineTools(actions),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events.push(event),
+      signal: controller.signal,
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done" }),
+    );
+  });
+
+  it.each([
+    "throws after settling",
+    "nested action settles then throws",
+    "critical warning",
+    "prior critical warning",
+    "truncated tool round",
+    "tool round missing stop",
+    "tool round ends without tool-use stop",
+    "failed receipt",
+    "unverified receipt",
+    "next action required",
+    "final response guard",
+    "max tokens",
+    "parallel failure",
+    "parallel unmarked action",
+    "parallel unmarked action with reused id",
+  ])("does not accept settlement for %s", async (scenario) => {
+    let streamCalls = 0;
+    const nested = defineAction({
+      description: "Nested write",
+      schema: z.object({}),
+      run: async (_input, ctx) => {
+        ctx?.settle?.();
+        throw new Error("nested failure");
+      },
+    });
+    const save = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      if (scenario === "nested action settles then throws") {
+        try {
+          await nested.run({}, ctx);
+        } catch {
+          return { saved: false };
+        }
+      }
+      ctx?.settle?.();
+      if (
+        scenario === "critical warning" ||
+        scenario === "prior critical warning"
+      )
+        warnAgent({
+          severity: "critical",
+          code: "risk",
+          message: "Check the saved state.",
+        });
+      if (scenario === "throws after settling") throw new Error("save failed");
+      if (scenario === "failed receipt") {
+        return {
+          _receipt: { changed: true, verified: false, summary: "not saved" },
+        };
+      }
+      if (scenario === "unverified receipt") {
+        return {
+          _receipt: {
+            changed: true,
+            verified: "unverified",
+            summary: "not checked",
+          },
+        };
+      }
+      if (scenario === "next action required")
+        return { nextRequiredAction: "verify" };
+      return { saved: true };
+    });
+    const other = vi.fn(async (_input: unknown, ctx?: ActionRunContext) => {
+      if (scenario === "prior critical warning") ctx?.settle?.();
+      if (scenario === "parallel failure") throw new Error("other failed");
+      return { ok: true };
+    });
+    const parallel = scenario.startsWith("parallel");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "tool-call", id: "save", name: "save", input: {} },
+              ...(parallel
+                ? [
+                    {
+                      type: "tool-call" as const,
+                      id: scenario.endsWith("reused id") ? "save" : "other",
+                      name: "other",
+                      input: {},
+                    },
+                  ]
+                : []),
+            ],
+          };
+          if (scenario !== "tool round missing stop") {
+            yield {
+              type: "stop",
+              reason:
+                scenario === "truncated tool round"
+                  ? "max_tokens"
+                  : scenario === "tool round ends without tool-use stop"
+                    ? "end_turn"
+                    : "tool_use",
+            };
+          }
+        } else if (streamCalls === 2 && scenario === "prior critical warning") {
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "tool-call", id: "other", name: "other", input: {} },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else if (
+          streamCalls === 2 ||
+          (streamCalls === 3 && scenario === "prior critical warning")
+        ) {
+          yield {
+            type: "stop",
+            reason: scenario === "max tokens" ? "max_tokens" : "end_turn",
+          };
+        } else {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Continued." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    const actions = {
+      save: {
+        ...actionEntry({ readOnly: false }),
+        parallelSafe: true,
+        run: save,
+      },
+      other: {
+        ...actionEntry({ readOnly: false }),
+        parallelSafe: true,
+        run: other,
+      },
+    };
+    const events: AgentChatEvent[] = [];
+    await runWithRequestContext(
+      { userEmail: "agent@example.test", run: {} },
+      () =>
+        runAgentLoop({
+          engine,
+          model: "test-model",
+          systemPrompt: "system",
+          tools: actionsToEngineTools(actions),
+          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          actions,
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+          ...(scenario === "final response guard"
+            ? {
+                finalResponseGuard: ({
+                  text,
+                }: AgentLoopFinalResponseGuardContext) =>
+                  text ? null : "Please finish the response.",
+              }
+            : {}),
+        }),
+    );
+    expect(save).toHaveBeenCalledTimes(1);
+    if (
+      scenario === "tool round missing stop" ||
+      scenario === "tool round ends without tool-use stop"
+    ) {
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "tool_done", actionSettled: true }),
+      );
+    }
+    if (parallel || scenario === "prior critical warning")
+      expect(other).toHaveBeenCalledTimes(1);
+    expect(streamCalls).toBeGreaterThanOrEqual(3);
+    expect(events).not.toContainEqual({
+      type: "done",
+      reason: "action_settled",
+    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("Continued."),
+      }),
+    );
   });
 
   it("recovers when the model stops without assistant content after a tool", async () => {
@@ -27658,6 +27961,175 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
 });
 
 describe("runAgentLoop tool-result images", () => {
+  it.each([
+    {
+      prefix: "data:image/png;base64,",
+      mediaType: "image/png",
+      mirrored: false,
+    },
+    {
+      prefix: "data:image/png;base64,",
+      mediaType: "image/png",
+      mirrored: true,
+    },
+    { prefix: "data:;base64,", mediaType: "text/plain", mirrored: false },
+    { prefix: "data:,", mediaType: "text/plain", mirrored: false },
+    {
+      prefix: "data:;charset=UTF-8,",
+      mediaType: "text/plain",
+      mirrored: false,
+    },
+    {
+      prefix: "data:text/plain,sample(one)",
+      mediaType: "text/plain",
+      mirrored: false,
+    },
+    {
+      prefix: "data:text/plain,sample]tail",
+      mediaType: "text/plain",
+      mirrored: false,
+    },
+  ])(
+    "omits inline bytes before applying the model budget without changing other JSON data ($prefix, mirrored Blocks: $mirrored)",
+    async ({ prefix, mediaType, mirrored }) => {
+      const imageData = "A".repeat(70_000);
+      const suffix = mirrored ? `\n${"Fictional record ".repeat(800)}` : "";
+      const content = `Opening paragraph.\n![chart](${prefix}${imageData})\nClosing paragraph.${suffix}`;
+      const original = {
+        content,
+        baseRevision: "body:7:sha256:original",
+        contentHash: "sha256:original",
+        updatedAt: new Date("2026-10-31T16:00:00.000Z"),
+        attachments: [
+          {
+            type: "file",
+            url: "https://cdn.example.com/report.pdf?token=abc#page=2",
+          },
+        ],
+        ...(mirrored
+          ? {
+              properties: [
+                {
+                  definition: {
+                    id: "primary-body",
+                    name: "Blocks",
+                    type: "blocks",
+                    options: { blocks: { primary: true } },
+                  },
+                  value: content,
+                  blocksField: {
+                    version: 1,
+                    fieldId: "primary-body",
+                    revision: 7,
+                    contentHash: "nfm_original",
+                    identityStatus: "known",
+                    blocks: Array.from({ length: 135 }, (_, index) => ({
+                      id: `block_${String(index).padStart(32, "0")}`,
+                      parentId: null,
+                      kind: "paragraph",
+                      position: index,
+                      addressable: true,
+                    })),
+                    tombstones: [],
+                    recoveryMode: "editor-undo-with-tombstones",
+                  },
+                },
+              ],
+              contextPath: [
+                {
+                  id: "folder-1",
+                  kind: "page",
+                  title: "Fictional examples",
+                  description: "Preserved trailing context.",
+                },
+              ],
+            }
+          : {}),
+      };
+      const saved = structuredClone(original);
+      let toolResult: EngineContentPart | undefined;
+      let calls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: true,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(opts): AsyncIterable<EngineEvent> {
+          calls += 1;
+          if (calls === 1) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call",
+                  id: "read-1",
+                  name: "read-document",
+                  input: {},
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          toolResult = opts.messages
+            .flatMap((message) => message.content)
+            .find((part) => part.type === "tool-result");
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Read." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Read the document." }],
+          },
+        ],
+        actions: {
+          "read-document": {
+            ...actionEntry({ description: "Read a document", readOnly: true }),
+            run: async () => original,
+          },
+        },
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+
+      expect(toolResult?.type).toBe("tool-result");
+      if (toolResult?.type !== "tool-result")
+        throw new Error("Missing tool result");
+      expect(toolResult.content).not.toContain("truncated");
+      const projectedContent = `Opening paragraph.\n![chart]([inline ${mediaType} data omitted])\nClosing paragraph.${suffix}`;
+      const expected = {
+        ...JSON.parse(JSON.stringify(saved)),
+        content: projectedContent,
+      };
+      if (mirrored) {
+        expected.properties[0].value = projectedContent;
+        expect(JSON.stringify(expected, null, 2).length).toBeGreaterThan(
+          50_000,
+        );
+      }
+      expect(JSON.parse(toolResult.content)).toEqual(expected);
+      expect(toolResult.content.length).toBeLessThan(50_000);
+      expect(original).toEqual(saved);
+    },
+  );
+
   it("attaches _agentImages to the tool-result part, strips the field from the text, and persists only notes", async () => {
     const oversize = "A".repeat(2_000_001);
     const imageData = "aW1hZ2U=";
@@ -27755,7 +28227,7 @@ describe("runAgentLoop tool-result images", () => {
       { data: imageData, mediaType: "image/jpeg", label: "data" },
     ]);
     expect(toolResult.content).not.toContain("_agentImages");
-    expect(toolResult.content).toContain('"page": "dashboard"');
+    expect(toolResult.content).toMatch(/"page":\s*"dashboard"/);
     expect(toolResult.content).toContain("https://cdn.example.com/shot.png");
     expect(toolResult.content).toContain("exceeds");
     expect(toolResult.content).not.toContain("A".repeat(100));

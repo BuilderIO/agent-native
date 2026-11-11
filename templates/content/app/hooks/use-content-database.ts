@@ -73,13 +73,17 @@ import {
 } from "../lib/page-open-collection";
 import {
   contentNavigationBranchFilter,
+  contentNavigationContextInDatabaseFilter,
   contentNavigationContextFilter,
   contentPlacementTargets,
   contentSpaceFilesDatabaseId,
   invalidateContentQueries,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
   type ContentQueryTarget,
 } from "./use-content-action-mutation";
+import { removeTrashedFromCachedRecent } from "./use-content-recent";
+import { DELETE_CONTENT_DATABASE_MUTATION_KEY } from "./use-pending-trash";
 
 export function contentDatabaseQueryKey(documentId: string) {
   return ["action", "get-content-database", { documentId }] as const;
@@ -128,10 +132,9 @@ export function applyOptimisticItemToContentDatabase(
   };
 }
 
-export function removeOptimisticItemFromContentDatabase(
-  current: ContentDatabaseResponse | undefined,
-  documentId: string,
-): ContentDatabaseResponse | undefined {
+export function removeOptimisticItemFromContentDatabase<
+  T extends ContentDatabaseResponse | ContentDatabaseItemsPageResponse,
+>(current: T | undefined, documentId: string): T | undefined {
   if (!current) return current;
   const items = current.items.filter(
     (candidate) => candidate.document.id !== documentId,
@@ -294,6 +297,12 @@ export function invalidateContentDatabaseNavigationQueries(
   void queryClient.invalidateQueries(
     contentDatabaseNavigationQueryFilter(scope),
   );
+  // A path entry's `hasChildren` follows the same view and rows.
+  if (scope.databaseId) {
+    void queryClient.invalidateQueries(
+      contentNavigationContextInDatabaseFilter(scope.databaseId),
+    );
+  }
 }
 
 export function contentDatabaseNavigationQueryFilter(
@@ -317,6 +326,59 @@ export function contentDatabaseNavigationQueryFilter(
       );
     },
   };
+}
+
+/**
+ * Takes pages the server just moved to Trash out of every cached collection
+ * read, collection table page and Files tree page, so Favorites, an open table
+ * and the Files tree don't show them again between the end of the pending move
+ * and their next read. A delete's refresh finds the branches to reread by the
+ * page's cached rows, so this runs after that refresh starts, and a read it
+ * marked stale stays marked.
+ */
+export function removeTrashedPagesFromCachedCollections(
+  queryClient: Pick<QueryClient, "getQueryCache" | "setQueryData">,
+  documentIds: readonly string[],
+) {
+  const trashed = new Set(documentIds);
+  const queryCache = queryClient.getQueryCache();
+  const isNavigationPage = contentDatabaseNavigationQueryFilter().predicate;
+  for (const query of [
+    ...queryCache.findAll({ queryKey: ["action", "get-content-database"] }),
+    ...queryCache.findAll({ queryKey: contentDatabaseItemsPageQueryKey }),
+  ]) {
+    const current = query.state.data;
+    if (!current || isContentDatabaseUnavailable(current)) continue;
+    const next = isNavigationPage(query)
+      ? withoutTrashedNavigationRows(
+          current as ContentDatabaseNavigationPageResponse,
+          trashed,
+        )
+      : documentIds.reduce<
+          ContentDatabaseResponse | ContentDatabaseItemsPageResponse | undefined
+        >(
+          removeOptimisticItemFromContentDatabase,
+          current as ContentDatabaseResponse | ContentDatabaseItemsPageResponse,
+        );
+    if (next === current) continue;
+    const stale = query.state.isInvalidated;
+    queryClient.setQueryData(query.queryKey, next, {
+      updatedAt: query.state.dataUpdatedAt,
+    });
+    if (stale) query.invalidate();
+  }
+}
+
+function withoutTrashedNavigationRows(
+  page: ContentDatabaseNavigationPageResponse,
+  trashed: ReadonlySet<string>,
+) {
+  return page.items.some((item) => trashed.has(item.documentId))
+    ? {
+        ...page,
+        items: page.items.filter((item) => !trashed.has(item.documentId)),
+      }
+    : page;
 }
 
 export function writeContentDatabaseResponseToCache(
@@ -1055,8 +1117,19 @@ export function useDeleteContentDatabase() {
     },
     { databaseId: string; activeDocumentId?: string }
   >("delete-content-database", {
-    onSuccess: (data) =>
-      clearDeletedContentDatabaseFromCache(queryClient, data.documentId),
+    mutationKey: DELETE_CONTENT_DATABASE_MUTATION_KEY,
+    onSuccess: (data) => {
+      removeTrashedFromCachedRecent(queryClient, {
+        documentIds: [data.documentId],
+        databaseIds: [data.databaseId],
+      });
+      return clearDeletedContentDatabaseFromCache(queryClient, data.documentId);
+    },
+    onSettled: (data) => {
+      if (data) {
+        removeTrashedPagesFromCachedCollections(queryClient, [data.documentId]);
+      }
+    },
     invalidates: (data) => [
       ...contentPlacementTargets(queryClient, {
         documentIds: [data.documentId],
@@ -1065,6 +1138,7 @@ export function useDeleteContentDatabase() {
       ["action", "list-trashed-documents"],
       ["action", "list-content-trash"],
       ["action", "get-content-recent"],
+      ...SEARCH_QUERY_KEYS,
     ],
   });
 }
@@ -1090,6 +1164,7 @@ export function useRestoreContentDatabase() {
       ["action", "get-content-recent"],
       contentDatabaseNavigationQueryFilter(),
       contentNavigationContextFilter([data.documentId]),
+      ...SEARCH_QUERY_KEYS,
     ],
   });
 }
@@ -1146,6 +1221,7 @@ export function useAddDatabaseItem(documentId: string) {
       invalidateContentDatabaseNavigationQueries(queryClient, {
         databaseId: data.receipt.target.databaseId,
       });
+      invalidateContentQueries(queryClient, SEARCH_QUERY_KEYS);
     },
   });
 }
@@ -1157,7 +1233,7 @@ export function useUpdateDatabaseItem(documentId: string) {
     UpdateDatabaseItemRequest
   >("update-database-item", {
     skipActionQueryInvalidation: true,
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       void queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
@@ -1170,6 +1246,8 @@ export function useUpdateDatabaseItem(documentId: string) {
       invalidateContentDatabaseNavigationQueries(queryClient, {
         databaseId: data.receipt.target.databaseId,
       });
+      if (variables.title !== undefined)
+        invalidateContentQueries(queryClient, SEARCH_QUERY_KEYS);
     },
   });
 }
@@ -1194,7 +1272,10 @@ export function useSubmitContentDatabaseForm(documentId: string) {
     SubmitContentDatabaseFormResponse,
     SubmitContentDatabaseFormRequest
   >("submit-content-database-form", {
-    invalidates: contentDatabaseRowTargets(documentId),
+    invalidates: [
+      ...contentDatabaseRowTargets(documentId),
+      ...SEARCH_QUERY_KEYS,
+    ],
   });
 }
 
@@ -1203,8 +1284,10 @@ export function useDuplicateDatabaseItem(documentId: string) {
     ContentDatabaseResponsePayload,
     DuplicateDatabaseItemRequest
   >("duplicate-database-item", {
-    invalidates: (data) =>
-      contentDatabaseRowTargets(documentId, data.database.id),
+    invalidates: (data) => [
+      ...contentDatabaseRowTargets(documentId, data.database.id),
+      ...SEARCH_QUERY_KEYS,
+    ],
   });
 }
 
@@ -1213,8 +1296,10 @@ export function useDuplicateDatabaseItems(documentId: string) {
     ContentDatabaseResponsePayload,
     DatabaseItemsBatchRequest
   >("duplicate-database-items", {
-    invalidates: (data) =>
-      contentDatabaseRowTargets(documentId, data.database.id),
+    invalidates: (data) => [
+      ...contentDatabaseRowTargets(documentId, data.database.id),
+      ...SEARCH_QUERY_KEYS,
+    ],
   });
 }
 
@@ -1234,9 +1319,10 @@ export function useRemoveDatabaseItems(documentId: string) {
           ["action", "list-document-properties", { documentId: id }],
         ]),
         contentNavigationContextFilter(removed),
+        // Search lists a page in its collection, but not in Favorites.
         ...(data.database.systemRole === "favorites"
           ? [contentNavigationBranchFilter({ documentIds: removed })]
-          : []),
+          : SEARCH_QUERY_KEYS),
       ];
     },
   });
@@ -1414,6 +1500,8 @@ export function useUpdateContentDatabaseView(documentId: string) {
       void queryClient.invalidateQueries({
         queryKey: contentDatabaseByIdQueryKey(databaseId),
       });
+      // The Files tree, and the paths through it, read the view's filter.
+      invalidateContentDatabaseNavigationQueries(queryClient, { databaseId });
     },
   });
 }
@@ -1972,6 +2060,7 @@ export function useProcessBuilderBodyHydration(documentId: string) {
     ProcessBuilderBodyHydrationRequest
   >("process-builder-body-hydration", {
     skipActionQueryInvalidation: true,
+    errorNotification: "caller",
     onSuccess: (data, variables) => {
       if (data.remaining === 0 || variables.documentId) {
         invalidateBuilderBodyHydrationQueries(

@@ -13,6 +13,12 @@ import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
+import {
+  noteCreateCancelled,
+  noteCreateProject,
+  noteCreateStep,
+  type CreateProjectKind,
+} from "./activation-telemetry.js";
 import type { CreateStartKind } from "./create-tui.js";
 import { releasedFrameworkPackageVersion } from "./framework-package-versions.js";
 import {
@@ -65,49 +71,6 @@ const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/dev": "8.1.0",
   "@react-router/fs-routes": "8.1.0",
   "react-router": "8.1.0",
-};
-const TIPTAP_WORKSPACE_OVERRIDES: Record<string, string> = {
-  '"@tiptap/core"': '"3.28.0"',
-  '"@tiptap/extension-blockquote"': '"3.28.0"',
-  '"@tiptap/extension-bold"': '"3.28.0"',
-  '"@tiptap/extension-bubble-menu"': '"3.28.0"',
-  '"@tiptap/extension-bullet-list"': '"3.28.0"',
-  '"@tiptap/extension-code"': '"3.28.0"',
-  '"@tiptap/extension-code-block"': '"3.28.0"',
-  '"@tiptap/extension-code-block-lowlight"': '"3.28.0"',
-  '"@tiptap/extension-collaboration"': '"3.28.0"',
-  '"@tiptap/extension-collaboration-caret"': '"3.28.0"',
-  '"@tiptap/extension-color"': '"3.28.0"',
-  '"@tiptap/extension-document"': '"3.28.0"',
-  '"@tiptap/extension-dropcursor"': '"3.28.0"',
-  '"@tiptap/extension-floating-menu"': '"3.28.0"',
-  '"@tiptap/extension-gapcursor"': '"3.28.0"',
-  '"@tiptap/extension-hard-break"': '"3.28.0"',
-  '"@tiptap/extension-heading"': '"3.28.0"',
-  '"@tiptap/extension-horizontal-rule"': '"3.28.0"',
-  '"@tiptap/extension-image"': '"3.28.0"',
-  '"@tiptap/extension-italic"': '"3.28.0"',
-  '"@tiptap/extension-link"': '"3.28.0"',
-  '"@tiptap/extension-list"': '"3.28.0"',
-  '"@tiptap/extension-list-item"': '"3.28.0"',
-  '"@tiptap/extension-list-keymap"': '"3.28.0"',
-  '"@tiptap/extension-ordered-list"': '"3.28.0"',
-  '"@tiptap/extension-paragraph"': '"3.28.0"',
-  '"@tiptap/extension-placeholder"': '"3.28.0"',
-  '"@tiptap/extension-strike"': '"3.28.0"',
-  '"@tiptap/extension-table"': '"3.28.0"',
-  '"@tiptap/extension-table-cell"': '"3.28.0"',
-  '"@tiptap/extension-table-header"': '"3.28.0"',
-  '"@tiptap/extension-table-row"': '"3.28.0"',
-  '"@tiptap/extension-task-item"': '"3.28.0"',
-  '"@tiptap/extension-task-list"': '"3.28.0"',
-  '"@tiptap/extension-text"': '"3.28.0"',
-  '"@tiptap/extension-text-style"': '"3.28.0"',
-  '"@tiptap/extension-underline"': '"3.28.0"',
-  '"@tiptap/extensions"': '"3.28.0"',
-  '"@tiptap/pm"': '"3.28.0"',
-  '"@tiptap/react"': '"3.28.0"',
-  '"@tiptap/starter-kit"': '"3.28.0"',
 };
 const REACT_ROUTER_BUILD_DEPENDENCIES = [
   "@react-router/dev",
@@ -224,6 +187,21 @@ export interface CreateAppOptions {
   ) => Promise<string>;
 }
 
+// A community template is reported by that word alone, never its URL.
+function noteCreateTemplates(
+  templates: string[],
+  kind?: CreateProjectKind,
+): void {
+  noteCreateProject(
+    templates.map((template) =>
+      isCommunityTemplateSelection(template)
+        ? COMMUNITY_OPTION.name
+        : normalizeTemplateName(template),
+    ),
+    kind,
+  );
+}
+
 export async function runCreateCommand(
   name?: string,
   opts?: CreateAppOptions,
@@ -235,6 +213,7 @@ export async function runCreateCommand(
 
   const workspace = detectWorkspace(process.cwd());
   const parsed = parseTemplateList(opts?.template);
+  noteCreateTemplates(parsed);
   const requestedCommunityTemplate =
     parsed.find((template) => isCommunityTemplateSelection(template)) ??
     (parsed.includes(COMMUNITY_OPTION.name)
@@ -333,6 +312,7 @@ export async function runCreateCommand(
     coreTemplates().every((template) => installedApps.includes(template.name))
   ) {
     console.log("All available apps are already installed.");
+    noteCreateCancelled();
     return;
   }
 
@@ -376,6 +356,7 @@ export async function runCreateCommand(
   });
   if (!answers) {
     console.log("Cancelled. No files were created.");
+    noteCreateCancelled();
     return;
   }
 
@@ -667,6 +648,7 @@ async function createWorkspaceInteractive(
           excludeNames: ["dispatch"],
         });
   const templates = ["dispatch", ...optionalPicks];
+  noteCreateTemplates(templates, "workspace");
 
   const targetDir = resolveScaffoldTarget(name, opts?.inPlace, clack);
 
@@ -674,6 +656,7 @@ async function createWorkspaceInteractive(
   for (const template of templates) {
     showCommunityTemplateTrustNote(template, clack);
   }
+  noteCreateStep("scaffold");
   s.start(`Scaffolding workspace "${name}"...`);
   const appNames = new Set<string>();
   const scaffoldedApps: string[] = [];
@@ -771,6 +754,7 @@ async function createWorkspaceInteractive(
       s.stop("Cancelled.");
       cleanupOnFailure(targetDir);
       clack.outro("Cancelled. No files were created.");
+      noteCreateCancelled();
       return;
     }
     s.stop("Failed to scaffold workspace.");
@@ -779,6 +763,7 @@ async function createWorkspaceInteractive(
     process.exit(1);
   }
 
+  noteCreateStep("finish");
   finalizeScaffold(targetDir, opts?.inPlace);
 
   const installSteps = hasPnpm()
@@ -933,6 +918,7 @@ export async function addAppToWorkspace(
   }
   if (name && preselected.length === 1) {
     const tpl = preselected[0];
+    noteCreateTemplates(preselected, "workspace-add");
     await scaffoldOneAppIntoWorkspace(
       workspace,
       name,
@@ -967,6 +953,7 @@ export async function addAppToWorkspace(
     process.exit(0);
   }
 
+  noteCreateTemplates(templates, "workspace-add");
   for (const t of templates) {
     const added = await scaffoldOneAppIntoWorkspace(
       workspace,
@@ -995,6 +982,7 @@ async function addSelectedAppsToWorkspace(
     process.exit(0);
   }
 
+  noteCreateTemplates(templates, "workspace-add");
   for (const template of templates) {
     const added = await scaffoldOneAppIntoWorkspace(
       workspace,
@@ -1043,6 +1031,7 @@ async function scaffoldOneAppIntoWorkspace(
 
   const s = clack.spinner();
   showCommunityTemplateTrustNote(templateName, clack);
+  noteCreateStep("scaffold");
   s.start(
     `Working... no action needed. Scaffolding apps/${appName} from ${templateName}.`,
   );
@@ -1115,6 +1104,7 @@ async function scaffoldOneAppIntoWorkspace(
       s.stop("Cancelled.");
       cleanupOnFailure(appDir);
       clack.outro("Cancelled. No app was added.");
+      noteCreateCancelled();
       return false;
     }
     s.stop(`Failed to scaffold apps/${appName}.`);
@@ -1166,9 +1156,14 @@ async function createStandaloneApp(
   if (template === COMMUNITY_OPTION.name) {
     template = await promptCommunityTemplate(clack);
   }
+  noteCreateTemplates(
+    [template],
+    template === "headless" ? "headless" : "standalone",
+  );
 
   const s = clack.spinner();
   showCommunityTemplateTrustNote(template, clack);
+  noteCreateStep("scaffold");
   const includedAppName =
     template === "headless"
       ? "Headless"
@@ -1209,6 +1204,7 @@ async function createStandaloneApp(
       s.stop("Cancelled.");
       cleanupOnFailure(targetDir);
       clack.outro("Cancelled. No files were created.");
+      noteCreateCancelled();
       return;
     }
     s.stop("Failed to create app.");
@@ -1217,6 +1213,7 @@ async function createStandaloneApp(
     process.exit(1);
   }
 
+  noteCreateStep("finish");
   finalizeScaffold(targetDir, opts?.inPlace);
   const projectPath = opts?.inPlace ? process.cwd() : path.resolve(targetDir);
   const changeDirectory = opts?.inPlace ? "." : name;
@@ -2294,12 +2291,6 @@ function postProcessStandalone(
       '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
       '"@assistant-ui/tap"': '"^0.5.14"',
       nf3: '"0.3.17"',
-    };
-  }
-  if (templateName && getTemplate(firstPartyBaseTemplate(templateName))) {
-    sections.overrides = {
-      ...sections.overrides,
-      ...TIPTAP_WORKSPACE_OVERRIDES,
     };
   }
   const localFrameworkOverrides = getLocalFrameworkPackageOverrides();

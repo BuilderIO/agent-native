@@ -1,6 +1,22 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "Orígenes aprobados",
+  "settingsApiKeys.originsHint":
+    "Un origen HTTPS exacto por línea. Vacío bloquea el envío. Se permite HTTP local.",
+  "settingsApiKeys.invalidOrigins":
+    "Introduce orígenes HTTPS exactos, uno por línea.",
+  "settingsApiKeys.editOrigins": "Editar orígenes",
+  "settingsApiKeys.originsSaved": "Orígenes guardados",
+  "settingsApiKeys.originsCount_one": "{{count}} origen aprobado",
+  "settingsApiKeys.originsCount_many": "{{count}} orígenes aprobados",
+  "settingsApiKeys.originsCount_other": "{{count}} orígenes aprobados",
+  "settingsApiKeys.noApprovedOrigins": "Sin orígenes aprobados",
+  "extensions.cancel": "Cancelar",
+  "extensions.context": "Contexto",
+  "extensions.confirmAgentMessage":
+    "¿Enviar el mensaje de la extensión al agente?",
+  "extensions.sendToAgent": "Enviar al agente",
   "auth.logOutFailed": "No se pudo cerrar la sesión",
   "block.renderUnavailable": "Este bloque no está disponible temporalmente.",
   "block.loading": "Cargando bloque.",
@@ -1008,6 +1024,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io incluye créditos gratuitos, o puedes usar tu propia clave de API.",
   "setup.builderOrOwnKeys":
     "Usa Builder.io (créditos gratuitos) o añade las claves de tu propio proveedor.",
+  "setup.reconnectBuilder": "Reconectar Builder.io",
   "setup.connectAi": "Conectar IA",
   "setup.connectBuilder": "Usar Builder.io",
   "setup.connectionsDescription":
@@ -2609,6 +2626,9 @@ const messages: ToolkitAgentChatTranslation = {
     "El agente usa el token de acceso que añadas, así que ve lo que ese token puede ver.",
   "settingsShell.integrationDetail.accessToken": "Token de acceso",
   "settingsShell.integrationDetail.addAccessToken": "Añadir token de acceso",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "No se pudo comprobar si hay un token de acceso guardado.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Reintentar",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Un administrador tiene que configurarlo",
   "settingsShell.integrationDetail.callout.adminNeededBody":

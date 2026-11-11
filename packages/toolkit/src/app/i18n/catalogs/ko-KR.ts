@@ -1,6 +1,20 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "승인된 출처",
+  "settingsApiKeys.originsHint":
+    "한 줄에 정확한 HTTPS 출처 하나씩 입력하세요. 비워 두면 전달이 차단됩니다. 로컬 HTTP는 허용됩니다.",
+  "settingsApiKeys.invalidOrigins":
+    "정확한 HTTPS 출처를 한 줄에 하나씩 입력하세요.",
+  "settingsApiKeys.editOrigins": "출처 편집",
+  "settingsApiKeys.originsSaved": "출처 저장됨",
+  "settingsApiKeys.originsCount_one": "승인된 출처 {{count}}개",
+  "settingsApiKeys.originsCount_other": "승인된 출처 {{count}}개",
+  "settingsApiKeys.noApprovedOrigins": "승인된 출처 없음",
+  "extensions.cancel": "취소",
+  "extensions.context": "컨텍스트",
+  "extensions.confirmAgentMessage": "확장 기능 메시지를 에이전트에게 보낼까요?",
+  "extensions.sendToAgent": "에이전트에게 보내기",
   "auth.logOutFailed": "로그아웃하지 못했습니다",
   "block.renderUnavailable": "이 블록은 일시적으로 사용할 수 없습니다.",
   "block.loading": "블록을 불러오는 중입니다.",
@@ -1332,6 +1346,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io는 무료 크레딧을 제공하며, 직접 API 키를 사용할 수도 있습니다.",
   "setup.builderOrOwnKeys":
     "Builder.io(무료 크레딧)를 사용하거나 직접 제공업체 키를 추가하세요.",
+  "setup.reconnectBuilder": "Builder.io 다시 연결",
   "setup.connectAi": "AI 연결",
   "setup.connectBuilder": "Builder.io 사용",
   "setup.connectionsDescription":
@@ -2418,6 +2433,9 @@ const messages: ToolkitAgentChatTranslation = {
     "에이전트가 추가한 액세스 토큰을 사용하므로 그 토큰이 볼 수 있는 것을 봅니다.",
   "settingsShell.integrationDetail.accessToken": "액세스 토큰",
   "settingsShell.integrationDetail.addAccessToken": "액세스 토큰 추가",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "저장된 액세스 토큰을 확인하지 못했습니다.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "다시 시도",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "관리자가 설정해야 합니다",
   "settingsShell.integrationDetail.callout.adminNeededBody":

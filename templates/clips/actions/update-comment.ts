@@ -37,7 +37,7 @@ export default defineAction({
       .optional()
       .describe("Organization members mentioned in the updated comment"),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) {
       throw new Error("Sign in required to edit comments.");
@@ -51,7 +51,11 @@ export default defineAction({
       .limit(1);
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
-    await assertCommentAccess(existing.recordingId);
+    await assertCommentAccess(
+      existing.recordingId,
+      "write",
+      ctx?.requestHeaders,
+    );
 
     if (!sameOwnerEmail(existing.authorEmail, userEmail)) {
       throw new ForbiddenError(

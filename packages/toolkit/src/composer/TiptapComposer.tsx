@@ -1278,9 +1278,11 @@ export interface TiptapComposerProps {
   /** Extra button to render alongside the primary action. */
   extraActionButton?: React.ReactNode;
   /**
-   * Stop control rendered beside send while a run is active, whatever the
-   * draft holds. Pass it only while there is something to stop; Escape in the
-   * editor clicks it when it is enabled.
+   * Stop control for an active run. It takes the primary slot while the
+   * composer is empty and gives it to Send once a draft exists; it stays
+   * mounted, so Escape in the editor still clicks it when it is enabled.
+   * During voice chat it sits beside End voice chat, which does not stop the
+   * run. Pass it only while there is something to stop.
    */
   stopButton?: React.ReactNode;
   /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
@@ -1393,6 +1395,11 @@ export interface TiptapComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
+  /**
+   * Claims a paste as app context before the composer handles it. Return true
+   * when the paste was taken, so nothing is inserted or attached.
+   */
+  onPasteContext?: (clipboard: DataTransfer) => boolean;
   /** Shared + menu entries; matching IDs replace built-in full-mode actions. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /**
@@ -3033,6 +3040,7 @@ function TiptapComposerSurface({
   contextItems: providedContextItems,
   onRemoveContextItem,
   onRetryContextItem,
+  onPasteContext,
   contextMenuItems,
   plusMenuMode = "full",
   terminalModeControl,
@@ -3210,6 +3218,8 @@ function TiptapComposerSurface({
   const composingRef = useRef(false);
   const voiceCapturingRef = useRef(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const onPasteContextRef = useRef(onPasteContext);
+  onPasteContextRef.current = onPasteContext;
   const onAttachmentErrorRef = useRef(onAttachmentError);
   // Many standalone prompts pass no handler; a rejected file must still say so.
   onAttachmentErrorRef.current = onAttachmentError ?? setAttachmentError;
@@ -3782,6 +3792,8 @@ function TiptapComposerSurface({
         role: "textbox",
         "data-agent-composer-variant": layoutVariant,
         "data-agent-composer-slot": "editor-input",
+        // Page-level paste listeners defer to a composer that claims pastes.
+        ...(onPasteContext ? { "data-claims-paste": "true" } : {}),
         class:
           "agent-composer-prosemirror flex-1 resize-none bg-transparent text-[length:var(--agentkit-composer-font-size,0.875rem)] text-foreground outline-none leading-[var(--agentkit-composer-line-height,1.625rem)] min-h-[var(--agentkit-composer-editor-min-height,3.25rem)] max-h-[var(--agentkit-composer-editor-max-height,10rem)] overflow-y-auto [&>p.is-editor-empty:first-child]:before:pointer-events-none [&>p.is-editor-empty:first-child]:before:float-start [&>p.is-editor-empty:first-child]:before:h-0 [&>p.is-editor-empty:first-child]:before:text-muted-foreground [&>p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]",
       },
@@ -3820,6 +3832,13 @@ function TiptapComposerSurface({
             return true;
           }
           return false;
+        }
+        if (
+          event.clipboardData &&
+          onPasteContextRef.current?.(event.clipboardData)
+        ) {
+          event.preventDefault();
+          return true;
         }
         if (!attachmentsEnabled) {
           if (event.clipboardData?.files.length) {
@@ -4805,6 +4824,8 @@ function TiptapComposerSurface({
         (e.metaKey || e.ctrlKey) &&
         !e.altKey;
       if (isToggleCombo) {
+        // A page that has already used the key keeps it.
+        if (e.defaultPrevented) return;
         e.preventDefault();
         if (voiceChatActiveRef.current) return;
         if (voice.state === "recording" || voice.state === "starting") {
@@ -6964,20 +6985,17 @@ function TiptapComposerSurface({
               />
             )}
             {stopButton ? (
-              // Stop takes Send's place while the composer is empty, and Send
-              // joins it once a draft exists so a draft never hides Stop. The
-              // slot grows from zero width, gap included, so the controls to
-              // its left slide rather than jump.
+              // Stop and Send are one control: Stop while the composer is
+              // empty, Send once a draft exists. The hidden Stop stays mounted
+              // so Escape can still stop the run mid-draft. Voice chat keeps it
+              // visible: End voice chat does not stop the run.
               <div
                 ref={stopSlotRef}
                 data-agent-composer-slot="stop-slot"
-                className={`grid shrink-0 grid-cols-[1fr] justify-items-end transition-[grid-template-columns,margin-inline-start,margin-inline-end] duration-150 ease-out starting:-ms-[var(--agentkit-composer-toolbar-control-gap,0.25rem)] starting:me-0 starting:grid-cols-[0fr] motion-reduce:transition-none ${
-                  hasDraft ? "me-1" : ""
-                }`}
+                hidden={hasDraft && voiceChat === null}
+                className="flex shrink-0"
               >
-                <div className="flex min-w-0 transition-[opacity,scale] duration-150 ease-out starting:scale-75 starting:opacity-0 motion-reduce:transition-none">
-                  {stopButton}
-                </div>
+                {stopButton}
               </div>
             ) : null}
             {stopButton && !hasDraft && !voiceChat ? null : sendButton}

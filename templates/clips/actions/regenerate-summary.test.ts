@@ -40,6 +40,10 @@ vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
 }));
 
+vi.mock("@agent-native/core/server", () => ({
+  resolveChatModelAvailability: async () => "available",
+}));
+
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));

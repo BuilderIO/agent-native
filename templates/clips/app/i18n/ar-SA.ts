@@ -605,6 +605,8 @@ const messages = {
     them: "هم",
     me: "أنا",
     regeneratingNotes: "جارٍ إعادة إنشاء الملخص",
+    notesAlreadyGenerating:
+      "يجري إنشاء ملخص بالفعل. سيظهر هنا عندما يصبح جاهزًا.",
     meetingRemoved: "تمت إزالة الاجتماع",
     couldNotRemoveMeeting: "تعذرت إزالة الاجتماع",
     couldNotLoadMeeting: "تعذر تحميل هذا الاجتماع.",
@@ -700,6 +702,8 @@ const messages = {
     noMatches: "لا توجد مباريات.",
     noTranscript: "لا يوجد نسخة بعد.",
     noTranscriptCaptured: "لم يتم التقاط أي نص.",
+    unreadableDescription:
+      "النص المحفوظ تالف. تؤدي إعادة إنشائه إلى إنشاء نص جديد من صوت المقطع.",
     partialTranscript: "نص جزئي: تم قطع التسجيل، لذا قد يكون جزء منه مفقودًا.",
     backupFailed:
       "لم يتم التقاط أي خطاب محليًا، ولم ينته النسخ الاحتياطي. أعد المحاولة أو تحقق من أذونات الميكروفون والكلام.",
@@ -2019,6 +2023,7 @@ const messages = {
     freeClipsLeft_few: "متبقية {{count}} مقاطع مجانية",
     freeClipsLeft_many: "متبقٍ {{count}} مقطعًا مجانيًا",
     freeClipsLeft_other: "متبقٍ {{count}} من المقاطع المجانية",
+    activateBuilder: "تفعيل Builder.io",
     hostedClipsExhaustedTitle: "اربط Builder.io مجانًا لمواصلة التسجيل",
     hostedClipsExhaustedDescription:
       "استخدمت كل المقاطع المجانية المستضافة. اربط مساحة تخزين Builder.io لمواصلة حفظ المقاطع في مكتبتك.",
@@ -2221,6 +2226,11 @@ const messages = {
     flowOriginalTranscript: "عرض النص الأصلي",
     flowCleanupSkipped: "تم تخطي تنقيح النص مع الاحتفاظ بالنص الأصلي",
     flowBacktrackSkipped: "تم تخطي تعديل النص مع الاحتفاظ بالنص المتعرّف عليه",
+    flowAppleSpeechParakeetMissing: "Apple Speech · لم يتم تنزيل Parakeet",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · جارٍ تنزيل Parakeet",
+    flowAppleSpeechParakeetLoading: "Apple Speech · جارٍ تحميل Parakeet",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet مشغول",
+    flowAppleSpeechParakeetFailed: "Apple Speech · تعذّر تحميل Parakeet",
     flowCancelDictation: "إلغاء الإملاء",
     flowCopying: "جارٍ نسخ النص…",
     aiProcessed: "تمت المعالجة بالذكاء الاصطناعي",

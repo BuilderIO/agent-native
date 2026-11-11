@@ -6218,6 +6218,7 @@ function AgentKitComposerSurface({
             else onRemoveContextItem(key);
           }}
           onRetryContextItem={composerContext?.onRetryContextItem}
+          onPasteContext={composerContext?.onPasteContext}
           interceptBuildRequestsForBuilder={isInBuilderFrame()}
           selectedModel={props.selectedModel ?? props.defaultModel}
           contextUsageSlot={
@@ -6870,7 +6871,7 @@ function AgentKitRunFailure({
             )
           }
         />
-        {continueFailed ? (
+        {continueFailed && !superseded ? (
           <ComposerNotice
             role="alert"
             noticeId="continue-failed"
@@ -6931,8 +6932,12 @@ function AgentKitRunFailure({
             : undefined
         }
         onContinue={continueStoppedRun}
+        // A newer run carries the turn now, so a refused Continue is stale and
+        // would contradict the Stop button that run shows.
         continueError={
-          continueFailed ? t("agentChat.recovery.continueUnavailable") : null
+          continueFailed && !superseded
+            ? t("agentChat.recovery.continueUnavailable")
+            : null
         }
         onRetry={() => void retryFailedTurn()}
         onRetryWithoutAttachments={retryWithoutAttachments}

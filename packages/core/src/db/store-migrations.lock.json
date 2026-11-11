@@ -75,6 +75,10 @@
     {
       "name": "agent-harness-sessions-run-policy",
       "checksum": "005df5375106ffa4"
+    },
+    {
+      "name": "agent-harness-sessions-approval-and-expiry-columns",
+      "checksum": null
     }
   ],
   "agent_runs": [
@@ -149,6 +153,10 @@
     {
       "name": "retained-private-thread-runs",
       "checksum": "985f2cb44c16174a"
+    },
+    {
+      "name": "thread-projection-retry-order-backfill-repair",
+      "checksum": null
     }
   ],
   "agent_team_run_queue": [
@@ -433,6 +441,10 @@
     {
       "name": "viewer-state",
       "checksum": "12d60e0fc4587fc5"
+    },
+    {
+      "name": "chat-thread-inbox-runtime-schema",
+      "checksum": null
     }
   ],
   "checkpoints": [
@@ -639,12 +651,20 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "client-connection-metadata",
+      "checksum": "e3be9d6fc56a1427"
     }
   ],
   "mcp_oauth": [
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "client-activity-lookup-index",
+      "checksum": "4b5d5edf48a0f71b"
     }
   ],
   "notifications": [
@@ -883,6 +903,12 @@
       "checksum": null
     }
   ],
+  "private_media": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
   "progress": [
     {
       "name": "baseline",
@@ -977,11 +1003,19 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "storage-contract",
+      "checksum": "ed0e701a19ad1c15"
     }
   ],
   "review_suggestions": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "author-source-and-client",
       "checksum": null
     }
   ],

@@ -987,6 +987,23 @@ describe("overview level of detail", () => {
     ).toBe(0);
   });
 
+  it("gives on-screen previews their slots before nearby off-screen ones", () => {
+    // The tall screen's top is in view; its center is far below the short one's.
+    const candidates = [
+      { id: "short-above", geometry: geom(0, -1400, 1440, 1000) },
+      { id: "tall-in-view", geometry: geom(1600, 800, 1440, 40000) },
+    ];
+    expect([
+      ...selectStaticPreviewScreenIds({
+        candidates,
+        viewport: { left: -1600, top: -1500, right: 4800, bottom: 2500 },
+        visibleViewport: { left: 0, top: 0, right: 3200, bottom: 1000 },
+        retainedIds: new Set(),
+        budget: 1,
+      }),
+    ]).toEqual(["tall-in-view"]);
+  });
+
   it("keeps previews of screens already seen after the camera zooms into another", () => {
     const zoomedIn = { left: 0, top: 0, right: 200, bottom: 200 };
     const candidates = [

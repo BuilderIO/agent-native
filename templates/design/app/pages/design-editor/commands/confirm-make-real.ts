@@ -1,10 +1,10 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import type { DesignMigrationResult } from "@/components/design/editor/MakeRealDialog";
-import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
 import { applyDesignDataOperations } from "@/pages/design-editor/data-operations";
 
@@ -87,7 +87,7 @@ export async function runConfirmMakeReal({
           });
         },
         onError: (error) => {
-          reportDesignWriteFailure(error);
+          reportWriteFailure(error);
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],
           });

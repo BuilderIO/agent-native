@@ -1,6 +1,23 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "المصادر المعتمدة",
+  "settingsApiKeys.originsHint":
+    "مصدر HTTPS محدد واحد في كل سطر. يمنع الحقل الفارغ الإرسال. يُسمح بـ HTTP المحلي.",
+  "settingsApiKeys.invalidOrigins": "أدخل مصادر HTTPS محددة، مصدرًا في كل سطر.",
+  "settingsApiKeys.editOrigins": "تعديل المصادر",
+  "settingsApiKeys.originsSaved": "تم حفظ المصادر",
+  "settingsApiKeys.originsCount_zero": "{{count}} مصادر معتمدة",
+  "settingsApiKeys.originsCount_one": "{{count}} مصدر معتمد",
+  "settingsApiKeys.originsCount_two": "{{count}} مصدران معتمدان",
+  "settingsApiKeys.originsCount_few": "{{count}} مصادر معتمدة",
+  "settingsApiKeys.originsCount_many": "{{count}} مصدرًا معتمدًا",
+  "settingsApiKeys.originsCount_other": "{{count}} مصادر معتمدة",
+  "settingsApiKeys.noApprovedOrigins": "لا توجد مصادر معتمدة",
+  "extensions.cancel": "إلغاء",
+  "extensions.context": "السياق",
+  "extensions.confirmAgentMessage": "هل تريد إرسال رسالة الإضافة إلى الوكيل؟",
+  "extensions.sendToAgent": "إرسال إلى الوكيل",
   "auth.logOutFailed": "تعذّر تسجيل الخروج",
   "block.renderUnavailable": "هذه الكتلة غير متاحة مؤقتًا.",
   "block.loading": "جارٍ تحميل هذه الكتلة.",
@@ -1344,6 +1361,7 @@ const messages: ToolkitAgentChatTranslation = {
     "يتضمن Builder.io أرصدة مجانية، أو يمكنك استخدام مفتاح API الخاص بك.",
   "setup.builderOrOwnKeys":
     "استخدم Builder.io (بأرصدة مجانية)، أو أضف مفاتيح مزوّديك الخاصة.",
+  "setup.reconnectBuilder": "إعادة الاتصال بـ Builder.io",
   "setup.connectAi": "اتصال بالذكاء الاصطناعي",
   "setup.connectBuilder": "استخدم Builder.io",
   "setup.connectionsDescription":
@@ -2600,6 +2618,9 @@ const messages: ToolkitAgentChatTranslation = {
     "يستخدم الوكيل رمز الوصول الذي تضيفه، لذلك يرى ما يمكن لهذا الرمز رؤيته.",
   "settingsShell.integrationDetail.accessToken": "رمز الوصول",
   "settingsShell.integrationDetail.addAccessToken": "إضافة رمز وصول",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "تعذّر التحقق من رمز الوصول المحفوظ.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "إعادة المحاولة",
   "settingsShell.integrationDetail.callout.adminNeeded": "يجب أن يُعدّ مسؤول هذا",
   "settingsShell.integrationDetail.callout.adminNeededBody":
     "اطلب من مالك أو مسؤول في {{org}} إضافة معرّف العميل والسر الخاصين بـ {{name}}. بعد ذلك يمكنك ربط حسابك.",
