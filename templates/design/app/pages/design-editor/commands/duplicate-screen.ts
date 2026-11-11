@@ -32,6 +32,7 @@ import {
   createdFileIdFromResult,
   isPersistedFilePresent,
   reconcileCreatedFile,
+  savedFilenameFromResult,
 } from "@/pages/design-editor/commands/file-creation-recovery";
 import type { DesignDataOperation } from "@/pages/design-editor/data-operations";
 import { applyDesignDataOperations } from "@/pages/design-editor/data-operations";
@@ -736,6 +737,7 @@ export function runDuplicateScreen(
       fileType,
       ...(frameType ? { frameType } : {}),
       ...(!widgetEmbed ? { duplicateSourceFileId: screenId } : {}),
+      ifNameTaken: "next-free",
     } as any);
   const callCreateFile = () => {
     try {
@@ -990,9 +992,13 @@ export function runDuplicateScreen(
         id,
         dataOperations,
       } as any);
+      // Another tab or the agent may have taken the name first, so the copy
+      // can be saved under a free one near it. Pending bookkeeping stays keyed
+      // by the name this duplicate asked for.
+      const savedFilename = savedFilenameFromResult(result, filename);
       optimisticallyInsertCreatedFile({
         fileId: nextId,
-        filename,
+        filename: savedFilename,
         fileType,
         content,
         result,
@@ -1002,7 +1008,7 @@ export function runDuplicateScreen(
         suppressLineupRecenter: request?.preserveCamera,
       });
       recordFileCreationHistoryEntry({
-        filename,
+        filename: savedFilename,
         content,
         fileType,
         createdFileId: nextId,

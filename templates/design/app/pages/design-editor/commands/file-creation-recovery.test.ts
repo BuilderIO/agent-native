@@ -6,6 +6,7 @@ import {
   captureDesignFileIds,
   isPersistedFilePresent,
   reconcileCreatedFile,
+  savedFilenameFromResult,
 } from "./file-creation-recovery";
 
 const mocks = vi.hoisted(() => ({ read: vi.fn() }));
@@ -117,5 +118,65 @@ describe("file creation recovery with metadata-only cache", () => {
       { id: "d", fileId: "new" },
       { method: "GET" },
     );
+  });
+});
+
+describe("file creation under a free name", () => {
+  it("reads the saved name from the create result, falling back to the one asked for", () => {
+    expect(
+      savedFilenameFromResult(
+        { filename: "home-copy-2.html" },
+        "home-copy.html",
+      ),
+    ).toBe("home-copy-2.html");
+    expect(savedFilenameFromResult({ id: "new" }, "home-copy.html")).toBe(
+      "home-copy.html",
+    );
+    expect(savedFilenameFromResult(undefined, "home-copy.html")).toBe(
+      "home-copy.html",
+    );
+  });
+
+  it("recovers a lost create saved under a free name by its content, not another tab's copy", async () => {
+    const queryClient = new QueryClient();
+    const mine = {
+      id: "mine",
+      filename: "home-copy-2.html",
+      fileType: "html" as const,
+      content: "<p>mine</p>",
+      createdAt: "1",
+      updatedAt: "1",
+    };
+    const theirs = {
+      ...mine,
+      id: "theirs",
+      filename: "home-copy.html",
+      content: "<p>theirs</p>",
+    };
+    const unrelated = {
+      ...mine,
+      id: "unrelated",
+      filename: "home-copy-final.html",
+    };
+    queryClient.setQueryData(designMetadataQueryKey("d"), {
+      files: [unrelated, theirs, mine].map(({ id, filename, fileType }) => ({
+        id,
+        filename,
+        fileType,
+      })),
+    });
+    mocks.read.mockClear();
+
+    expect(
+      await reconcileCreatedFile({
+        queryClient,
+        designId: "d",
+        filename: "home-copy.html",
+        fileType: "html",
+        content: mine.content,
+        files: [unrelated, theirs, mine],
+        knownFileIds: new Set(),
+      }),
+    ).toEqual(mine);
   });
 });

@@ -1,5 +1,7 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { seedFromText } from "@agent-native/core/collab";
+import { isUniqueViolation } from "@agent-native/core/db";
+import { nameTaken, nextFreeName } from "@agent-native/core/free-name/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -48,6 +50,8 @@ import { assertDesignWidgetWriteScope } from "./widget-write-scope.js";
 const CREATED_SCREEN_WIDTH = 1440;
 const CREATED_SCREEN_HEIGHT = 1024;
 const CREATED_SCREEN_GAP = 96;
+const EDIT_INSTEAD_HINT =
+  "To change the existing file, use edit-design instead.";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -126,6 +130,13 @@ export default defineAction({
       .describe(
         "Screen in this design to copy metadata from while duplicating.",
       ),
+    ifNameTaken: z
+      .enum(["fail", "next-free"])
+      .optional()
+      .default("fail")
+      .describe(
+        'What to do when another file in the design already has this filename. "fail" (the default) refuses with errorCode name_taken and details.suggestion, a free name. "next-free" saves under that free name instead, such as "home-2.html", and the result\'s filename says which. A restore always fails.',
+      ),
     fileType: z
       .enum(["html", "css", "jsx", "asset"])
       .optional()
@@ -147,6 +158,7 @@ export default defineAction({
       frameType,
       restoreClaimId,
       duplicateSourceFileId,
+      ifNameTaken,
     },
     context,
   ) => {
@@ -327,6 +339,7 @@ export default defineAction({
         if (existingRestoredFile) {
           return {
             id,
+            filename: existingRestoredFile.filename,
             content: existingRestoredFile.content,
             fileType: existingRestoredFile.fileType,
             createdAt: existingRestoredFile.createdAt,
@@ -349,14 +362,25 @@ export default defineAction({
             ),
           )
           .limit(1);
+        // The design's lock is held, so a free name picked here is still free
+        // at the insert: two copies made at once both save, under two names.
+        let savedFilename = filename;
         if (existing) {
-          fail(
-            `File "${filename}" already exists in design ${designId} — use edit-design to modify it`,
-            {
-              errorCode: "design_file_already_exists",
-              statusCode: 409,
-            },
+          const takenFilenames = new Set(
+            (
+              await tx
+                .select({ filename: schema.designFiles.filename })
+                .from(schema.designFiles)
+                .where(eq(schema.designFiles.designId, designId))
+            ).map((file) => file.filename),
           );
+          const freeFilename = nextFreeName(filename, takenFilenames);
+          if (ifNameTaken !== "next-free" || restoreClaimId) {
+            throw nameTaken("file", filename, freeFilename, {
+              hint: EDIT_INSTEAD_HINT,
+            });
+          }
+          savedFilename = freeFilename;
         }
 
         let duplicateDesignData: string | undefined;
@@ -477,7 +501,7 @@ export default defineAction({
         await tx.insert(schema.designFiles).values({
           id,
           designId,
-          filename,
+          filename: savedFilename,
           fileType: fileType ?? "html",
           content: annotatedContent,
           createdAt,
@@ -516,6 +540,7 @@ export default defineAction({
           .where(eq(schema.designs.id, designId));
         return {
           id,
+          filename: savedFilename,
           content: annotatedContent,
           fileType: fileType ?? "html",
           createdAt,
@@ -530,7 +555,23 @@ export default defineAction({
               : frameTypeFromStored(insertedFrameType),
         };
       },
-    );
+    ).catch(async (error: unknown) => {
+      if (!isUniqueViolation(error)) throw error;
+      // A writer that doesn't take the design's lock, such as an import,
+      // claimed the name between the check and the insert. The unique index
+      // refused this file, so nothing was overwritten.
+      const taken = new Set(
+        (
+          await getDb()
+            .select({ filename: schema.designFiles.filename })
+            .from(schema.designFiles)
+            .where(eq(schema.designFiles.designId, designId))
+        ).map((file) => file.filename),
+      );
+      throw nameTaken("file", filename, nextFreeName(filename, taken), {
+        hint: EDIT_INSTEAD_HINT,
+      });
+    });
 
     const { id } = createdFile;
     await seedFromText(id, createdFile.content);
@@ -585,7 +626,7 @@ export default defineAction({
             placements: [
               {
                 fileId: id,
-                filename,
+                filename: createdFile.filename,
                 x: 0,
                 y: nextFreeCanvasRowY(
                   current.canvasFrames,
@@ -653,7 +694,7 @@ export default defineAction({
     return {
       id,
       designId,
-      filename,
+      filename: createdFile.filename,
       fileType: resolvedFileType,
       frameType: createdFrameType,
       createdAt: createdFile.createdAt,

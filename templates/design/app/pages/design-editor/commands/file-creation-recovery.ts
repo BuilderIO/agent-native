@@ -1,4 +1,5 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { isFreeNameFor } from "@agent-native/core/free-name";
 import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
 import type { QueryClient } from "@tanstack/react-query";
 
@@ -59,7 +60,7 @@ function matchesCreatedFile(
     expected.fileType,
   );
   return (
-    file.filename === expected.filename &&
+    isFreeNameFor(file.filename, expected.filename) &&
     file.fileType === expected.fileType &&
     (file.content === expected.content || file.content === persistedContent)
   );
@@ -74,6 +75,22 @@ async function readDesignMetadata(designId: string): Promise<FileMetadata[]> {
   if (!Array.isArray(result.files))
     throw new Error("Design metadata was not returned");
   return result.files;
+}
+
+/**
+ * The name create-file saved the file under. A create sent with
+ * `ifNameTaken: "next-free"` can land under a free name near the one asked
+ * for, when another tab or the agent took that name first.
+ */
+export function savedFilenameFromResult(
+  result: unknown,
+  requested: string,
+): string {
+  const filename =
+    isRecord(result) && typeof result.filename === "string"
+      ? result.filename
+      : "";
+  return filename.trim().length > 0 ? filename : requested;
 }
 
 export function createdFileIdFromResult(result: unknown): string | undefined {
@@ -130,7 +147,7 @@ export async function reconcileCreatedFile({
   const candidates = metadata.filter(
     (file) =>
       !beforeIds.has(file.id) &&
-      file.filename === filename &&
+      isFreeNameFor(file.filename, filename) &&
       file.fileType === fileType,
   );
   for (const candidate of candidates) {
