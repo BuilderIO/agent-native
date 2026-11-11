@@ -43,7 +43,7 @@ export function BuilderActivationAction({
         variant="outline"
         className="flex-1"
         onClick={
-          state === "check-failed" ? activation.recheck : activation.activate
+          state === "check-failed" ? activation.recheck : activation.retry
         }
       >
         {t("freeClips.tryAgain")}

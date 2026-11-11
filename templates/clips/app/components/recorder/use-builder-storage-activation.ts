@@ -225,6 +225,12 @@ export function useBuilderStorageActivation({
     if (storageCheckFailed) waitForStorage();
     else builder.retry();
   }, [builder.retry, storageCheckFailed, waitForStorage]);
+  // A setup that timed out waiting for storage already has its account, so
+  // trying again waits for storage rather than starting over.
+  const retry = useCallback(() => {
+    if (storageTimedOut) waitForStorage();
+    else activate();
+  }, [activate, storageTimedOut, waitForStorage]);
 
   const state: BuilderStorageActivationState = connected
     ? "connected"
@@ -259,6 +265,8 @@ export function useBuilderStorageActivation({
     signIn,
     /** After "check-failed": read status again without starting setup over. */
     recheck,
+    /** After "failed": wait for storage again, or start setup over. */
+    retry,
     cancel: builder.cancel,
   };
 }
