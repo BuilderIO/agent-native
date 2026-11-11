@@ -42,17 +42,25 @@ export function LastClipStartGate({
 }) {
   const storage = useVideoStorageStatus();
   const [open, setOpenState] = useState(false);
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
   const setOpen = (next: boolean) => {
     setOpenState(next);
     onOpenChange?.(next);
   };
   const status = storage.data;
-  const lastClip =
-    status?.mode === "hosted" &&
-    status.hostedRemaining === 1 &&
-    !lastClipPromptSeen();
+  const oneClipLeft = status?.mode === "hosted" && status.hostedRemaining === 1;
+  const lastClip = oneClipLeft && !lastClipPromptSeen();
 
-  if (open && status) {
+  // Builder.io connecting, or the count moving, ends what the prompt is
+  // about; Start comes back in its place.
+  useEffect(() => {
+    if (!open || oneClipLeft) return;
+    setOpenState(false);
+    onOpenChangeRef.current?.(false);
+  }, [oneClipLeft, open]);
+
+  if (open && status && oneClipLeft) {
     return (
       <LastClipPrompt
         limit={status.hostedLimit}

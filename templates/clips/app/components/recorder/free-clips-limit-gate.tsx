@@ -112,6 +112,8 @@ export function useFreeClipsGate(action: "record" | "upload") {
   // click is told what changed, so nothing is dropped without a word.
   const storageUsable = status?.configured === true;
   const ownStorage = storageUsable && status.mode === "own";
+  const hostedLeft =
+    storageUsable && status.mode === "hosted" ? status.hostedRemaining : null;
   useEffect(() => {
     if (!open || promptApplies) return;
     const held = pendingRef.current;
@@ -124,12 +126,14 @@ export function useFreeClipsGate(action: "record" | "upload") {
       // or reach the right setup whatever changed.
       for (const proceed of held) proceed();
     } else if (ownStorage) {
-      // A held click needs a fresh one; say storage is ready for it.
+      // A held click needs a fresh one; say what it can now go ahead with.
       toast.success(t("storageSetup.builderConnected"));
-    } else if (!storageUsable) {
+    } else if (hostedLeft !== null) {
+      toast(t("recordRoute.freeClipsLeft", { count: hostedLeft }));
+    } else {
       toast.error(t("recordingPage.storageStillDisconnected"));
     }
-  }, [open, ownStorage, promptApplies, storageUsable, t]);
+  }, [hostedLeft, open, ownStorage, promptApplies, t]);
 
   const anchor = (control: ReactElement) => (
     <PopoverAnchor asChild>{control}</PopoverAnchor>
