@@ -673,6 +673,33 @@ export async function getLatestFinishedRun(
   return row ? runRowFromDb(row) : null;
 }
 
+export type DataProgramRunOutcome = Pick<
+  DataProgramRunRow,
+  "status" | "errorCode" | "errorMessage" | "startedAt" | "finishedAt"
+>;
+
+/** `getLatestFinishedRun` without the cached rows, for checks made on every read. */
+export async function getLatestFinishedRunOutcome(
+  programId: string,
+  paramsHash: string,
+): Promise<DataProgramRunOutcome | null> {
+  await ensureDataProgramTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT status, error_code, error_message, started_at, finished_at
+      FROM data_program_runs
+      WHERE program_id = ? AND params_hash = ? AND status NOT IN ('queued', 'running')
+      ORDER BY COALESCE(finished_at, started_at) DESC
+      LIMIT 1`,
+    args: [programId, paramsHash],
+  });
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const { status, errorCode, errorMessage, startedAt, finishedAt } =
+    runRowFromDb(row);
+  return { status, errorCode, errorMessage, startedAt, finishedAt };
+}
+
 export async function getActiveRun(
   programId: string,
   paramsHash: string,

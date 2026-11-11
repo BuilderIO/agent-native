@@ -521,6 +521,60 @@ describe("data-programs/store", () => {
       expect(latest?.truncated).toBe(true);
     });
 
+    it("getLatestFinishedRunOutcome reads the newest finished run without its rows", async () => {
+      const {
+        ensureDataProgramTables,
+        recordDataProgramRun,
+        getLatestFinishedRunOutcome,
+      } = await loadStore();
+      await ensureDataProgramTables();
+      const now = Date.now();
+
+      await recordDataProgramRun({
+        programId,
+        paramsHash: "outcome-hash",
+        paramsJson: "{}",
+        status: "succeeded",
+        rowsJson: JSON.stringify([{ a: 1 }]),
+        rowCount: 1,
+        triggeredBy: "agent",
+        startedAt: now - 3_000,
+        finishedAt: now - 2_900,
+      });
+      await recordDataProgramRun({
+        programId,
+        paramsHash: "outcome-hash",
+        paramsJson: "{}",
+        status: "failed",
+        errorCode: "program_error",
+        errorMessage: "boom",
+        triggeredBy: "agent",
+        startedAt: now - 2_000,
+        finishedAt: now - 1_900,
+      });
+      await recordDataProgramRun({
+        programId,
+        paramsHash: "outcome-hash",
+        paramsJson: "{}",
+        status: "queued",
+        triggeredBy: "agent",
+        startedAt: now - 1_000,
+      });
+
+      expect(
+        await getLatestFinishedRunOutcome(programId, "outcome-hash"),
+      ).toEqual({
+        status: "failed",
+        errorCode: "program_error",
+        errorMessage: "boom",
+        startedAt: now - 2_000,
+        finishedAt: now - 1_900,
+      });
+      expect(
+        await getLatestFinishedRunOutcome(programId, "no-runs-hash"),
+      ).toBeNull();
+    });
+
     it("getActiveRun finds queued/running rows but not succeeded/failed ones", async () => {
       const { ensureDataProgramTables, recordDataProgramRun, getActiveRun } =
         await loadStore();

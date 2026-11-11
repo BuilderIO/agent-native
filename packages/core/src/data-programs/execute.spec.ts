@@ -59,7 +59,7 @@ function makeRun(
 const storeMocks = vi.hoisted(() => ({
   getDataProgram: vi.fn(),
   getLatestSuccessfulRun: vi.fn(),
-  getLatestFinishedRun: vi.fn(),
+  getLatestFinishedRunOutcome: vi.fn(),
   getActiveRun: vi.fn(),
   recordDataProgramRun: vi.fn(),
   updateDataProgramRun: vi.fn(),
@@ -83,14 +83,14 @@ beforeEach(() => {
   vi.restoreAllMocks();
   storeMocks.getDataProgram.mockReset();
   storeMocks.getLatestSuccessfulRun.mockReset();
-  storeMocks.getLatestFinishedRun.mockReset();
+  storeMocks.getLatestFinishedRunOutcome.mockReset();
   storeMocks.getActiveRun.mockReset();
   storeMocks.recordDataProgramRun.mockReset();
   storeMocks.updateDataProgramRun.mockReset();
   accessMocks.resolveAccess.mockReset();
 
   storeMocks.getActiveRun.mockResolvedValue(null);
-  storeMocks.getLatestFinishedRun.mockResolvedValue(null);
+  storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(null);
   storeMocks.recordDataProgramRun.mockResolvedValue(
     makeRun({ id: "dpr_running", status: "running" }),
   );
@@ -979,7 +979,7 @@ describe("data-programs/execute", () => {
         );
         accessMocks.resolveAccess.mockResolvedValue({ role: "owner" });
         storeMocks.getLatestSuccessfulRun.mockResolvedValue(null);
-        storeMocks.getLatestFinishedRun.mockResolvedValue(
+        storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(
           makeRun({
             status: "failed",
             rowsJson: null,
@@ -1025,7 +1025,7 @@ describe("data-programs/execute", () => {
       storeMocks.getLatestSuccessfulRun.mockResolvedValue(
         makeRun({ finishedAt: Date.now() - 60_000 }),
       );
-      storeMocks.getLatestFinishedRun.mockResolvedValue(
+      storeMocks.getLatestFinishedRunOutcome.mockResolvedValue(
         makeRun({
           id: "dpr_refresh",
           status: "failed",

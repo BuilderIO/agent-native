@@ -27,7 +27,7 @@ import {
 import {
   getActiveRun,
   getDataProgram,
-  getLatestFinishedRun,
+  getLatestFinishedRunOutcome,
   getLatestSuccessfulRun,
   recordDataProgramRun,
   updateDataProgramRun,
@@ -752,7 +752,7 @@ async function recentBackgroundFailure(
   program: DataProgramRow,
   paramsHash: string,
 ): Promise<BackgroundRunFailure | null> {
-  const latest = await getLatestFinishedRun(program.id, paramsHash);
+  const latest = await getLatestFinishedRunOutcome(program.id, paramsHash);
   if (latest?.status !== "failed" && latest?.status !== "timed_out") {
     return null;
   }
