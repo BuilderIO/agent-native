@@ -78,8 +78,9 @@ const COLLAB_ACTIVITY_WINDOW_MS = 60_000;
  * A poll reads at most 1,000 change rows, other accounts' included, and says
  * `cursorLimited` when it stopped short of the newest. A visible tab reads the
  * next page at once instead of waiting its interval, so a burst can't leave
- * it minutes behind; after this many pages in a row it waits one interval, so
- * a feed that never empties doesn't keep it polling back to back.
+ * it minutes behind. After this many pages read straight on, past the one
+ * that found the backlog, it waits one interval, so a feed that never empties
+ * doesn't keep it polling back to back.
  * @internal
  */
 export const MAX_BACKLOG_PAGES = 20;
@@ -1336,6 +1337,9 @@ class SyncTransport {
       }
       this.fan(events, data.version, this.cursorRef, polledFrom);
     } catch (err) {
+      // A failed page, or a subscriber that threw on it, ends the run: the
+      // retry waits the backed-off interval.
+      readNextPage = false;
       if (this.stopped) return;
       this.consecutiveFailures++;
       if (this.mode === "hosted" && this.gateway) {

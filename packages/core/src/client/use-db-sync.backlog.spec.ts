@@ -171,6 +171,17 @@ describe("reading a change-feed backlog", () => {
     unsub();
   });
 
+  it("waits its failure backoff when a subscriber throws on a page", async () => {
+    const server = backlogServer(6);
+    const unsub = subscribe(() => {
+      throw new Error("subscriber failed");
+    });
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(server.polls).toBe(1);
+    unsub();
+  });
+
   it("reads one page per interval while hidden and the rest once visible", async () => {
     setVisibility("hidden");
     const server = backlogServer(6);
