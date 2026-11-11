@@ -562,3 +562,22 @@ describe("assertNoInlineImageBytes", () => {
     ).toThrow("attachments[0].url");
   });
 });
+
+describe("assertNoInlineImageBytes on source code", () => {
+  it("accepts a data: URL prefix with no payload inside generated code", () => {
+    const source =
+      "else src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent('<svg/>');";
+    const thread = {
+      messages: [{ content: [{ type: "tool-call", args: { source } }] }],
+    };
+    const stored = stripInlineBytes(thread, "placeholder");
+    expect(JSON.stringify(stored)).toContain(source.slice(10, 40));
+    expect(() => assertNoInlineImageBytes(stored)).not.toThrow();
+  });
+
+  it("still rejects a data: URL that carries a payload", () => {
+    expect(() =>
+      assertNoInlineImageBytes({ note: `see ${PIXELS} here` }),
+    ).toThrow();
+  });
+});

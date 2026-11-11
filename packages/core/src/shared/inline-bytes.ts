@@ -54,8 +54,10 @@ const INLINE_BYTE_FIELD_KEYS = new Set([
 ]);
 const BYTE_SIZE_PATTERN =
   /^\d+(?:\.\d+)?\s*(?:bytes?|b|kb|kib|mb|mib|gb|gib|tb|tib)$/i;
+// A payload is required: scrubString leaves payload-less prefixes (generated
+// code such as `'data:image/svg+xml;utf8,'+x`), so the assertion must too.
 const INLINE_DATA_URL =
-  /\bdata:[\w.+-]+\/[\w.+-]+(?:;[^,;\s"'<>]*)?,[^\s"'<>)]*/i;
+  /\bdata:[\w.+-]+\/[\w.+-]+(?:;[^,;\s"'<>]*)?,[^\s"'<>)]+/i;
 const IMAGE_BYTE_FIELD_KEYS = new Set([
   "imagebase64",
   "imagedata",
