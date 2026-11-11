@@ -605,6 +605,8 @@ const messages = {
     them: "هم",
     me: "أنا",
     regeneratingNotes: "جارٍ إعادة إنشاء الملخص",
+    notesAlreadyGenerating:
+      "يجري إنشاء ملخص بالفعل. سيظهر هنا عندما يصبح جاهزًا.",
     meetingRemoved: "تمت إزالة الاجتماع",
     couldNotRemoveMeeting: "تعذرت إزالة الاجتماع",
     couldNotLoadMeeting: "تعذر تحميل هذا الاجتماع.",
@@ -700,6 +702,8 @@ const messages = {
     noMatches: "لا توجد مباريات.",
     noTranscript: "لا يوجد نسخة بعد.",
     noTranscriptCaptured: "لم يتم التقاط أي نص.",
+    unreadableDescription:
+      "النص المحفوظ تالف. تؤدي إعادة إنشائه إلى إنشاء نص جديد من صوت المقطع.",
     partialTranscript: "نص جزئي: تم قطع التسجيل، لذا قد يكون جزء منه مفقودًا.",
     backupFailed:
       "لم يتم التقاط أي خطاب محليًا، ولم ينته النسخ الاحتياطي. أعد المحاولة أو تحقق من أذونات الميكروفون والكلام.",

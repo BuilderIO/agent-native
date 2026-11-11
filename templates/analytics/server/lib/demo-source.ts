@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { fetchConfiguredEndpoint } from "./configured-endpoint-fetch";
 import {
   buildAuthHeader,
   flattenMatrix,
@@ -148,9 +149,12 @@ async function demoPrometheusGet<T>(
     if (value !== undefined && value !== "") qs.set(key, value);
   }
 
-  const res = await fetch(`${config.url}${path}?${qs.toString()}`, {
-    headers,
-  });
+  const res = await fetchConfiguredEndpoint(
+    "prometheus",
+    config.url,
+    `${path}?${qs.toString()}`,
+    { headers },
+  );
   if (!res.ok) {
     const text = await res.text();
     throw new Error(

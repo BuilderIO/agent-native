@@ -189,6 +189,8 @@ export function resolveToolMaxResultChars(
 
 export interface ActionRunContext {
   send?: (event: AgentChatEvent) => void;
+  /** Request a clean empty final after this invocation succeeds. Available only to agent tool calls; does not stop the model or override errors, receipts, or later instructions. */
+  settle?: () => void;
   /**
    * Result cap the agent loop enforces on this call, from
    * `resolveToolMaxResultChars`. Absent outside the agent loop.
@@ -243,10 +245,16 @@ export interface ActionRunContext {
   approvedToolCallKey?: string;
   /**
    * The client behind a `caller: "mcp"` call. `name` and `version` are its
-   * self-reported `clientInfo`. `oauthClientId` is the OAuth client its
-   * credential was issued to.
+   * self-reported `clientInfo`, and `userAgent` its self-reported HTTP
+   * User-Agent. `oauthClientId` is the OAuth client its credential was issued
+   * to.
    */
-  mcpClient?: { name?: string; version?: string; oauthClientId?: string };
+  mcpClient?: {
+    name?: string;
+    version?: string;
+    userAgent?: string;
+    oauthClientId?: string;
+  };
 }
 
 export type ActionAuthorize<TArgs> = (

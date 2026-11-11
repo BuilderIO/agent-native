@@ -1243,6 +1243,34 @@ async function withMutationLocks<T>(
   );
 }
 
+/**
+ * Access can be revoked, and another instance can commit this key, while a
+ * single-row write waits for the collection lock, so it checks both once the
+ * lock is held, as the batch patch does. A committed receipt replays with the
+ * access it needs before the lock; only a new write needs editor on the row.
+ * The transaction scopes the access reads to its own connection.
+ */
+async function replayAfterCollectionLock(
+  tx: Db,
+  context: MutationContext,
+  idempotencyKey: string,
+  replayDigests: readonly string[],
+  rowDocumentIds: readonly string[] = [],
+): Promise<ContentDatabaseRowMutationResult | null> {
+  await assertAccess("document", context.database.documentId, "editor");
+  const replay = await replayReceipt(
+    context,
+    idempotencyKey,
+    replayDigests,
+    tx,
+  );
+  if (replay) return replay;
+  for (const documentId of rowDocumentIds) {
+    await assertAccess("document", documentId, "editor");
+  }
+  return null;
+}
+
 async function createInsideTransaction(
   tx: Db,
   context: MutationContext,
@@ -1566,18 +1594,18 @@ export async function createDatabaseRow(
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
   const result = await withMutationLocks(initial.database, async () => {
-    await assertAccess("document", initial.database.documentId, "editor");
-    const lockedReplay = await replayReceipt(
-      initial,
-      input.idempotencyKey,
-      replayDigests,
-    );
-    if (lockedReplay) return lockedReplay;
     return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
       );
+      const lockedReplay = await replayAfterCollectionLock(
+        tx as unknown as Db,
+        initial,
+        input.idempotencyKey,
+        replayDigests,
+      );
+      if (lockedReplay) return lockedReplay;
       const locked = await loadContext(
         input.target,
         "editor",
@@ -1627,7 +1655,6 @@ export async function updateDatabaseRow(
   ctx?: ActionRunContext,
 ): Promise<ContentDatabaseRowMutationResult> {
   const initial = await loadContext(input.target, "editor");
-  await assertAccess("document", input.documentId, "editor");
   const inputDigest = databaseMutationPayloadDigest("update", input);
   const replayDigests = [
     inputDigest,
@@ -1643,23 +1670,24 @@ export async function updateDatabaseRow(
     replayDigests,
   );
   if (replay) return replay;
+  await assertAccess("document", input.documentId, "editor");
   assertPropertyTypeAssertions(initial, input.propertyTypeAssertions);
   assertSchema(initial, input.expectedSchemaRevision);
   const values = await normalizePatch(initial, input.propertyValues);
   const result = await withMutationLocks(initial.database, async () => {
-    await assertAccess("document", initial.database.documentId, "editor");
-    await assertAccess("document", input.documentId, "editor");
-    const lockedReplay = await replayReceipt(
-      initial,
-      input.idempotencyKey,
-      replayDigests,
-    );
-    if (lockedReplay) return lockedReplay;
     return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
       );
+      const lockedReplay = await replayAfterCollectionLock(
+        tx as unknown as Db,
+        initial,
+        input.idempotencyKey,
+        replayDigests,
+        [input.documentId],
+      );
+      if (lockedReplay) return lockedReplay;
       const locked = await loadContext(
         input.target,
         "editor",
@@ -1784,7 +1812,7 @@ export async function upsertDatabaseRow(
     [keyPropertyId]: input.keyValue,
   });
   const keyValueJson = values.get(keyPropertyId)!;
-  const [initialClaim] = await getDb()
+  const initialClaims = await getDb()
     .select({
       itemId: schema.contentDatabaseItemKeyClaims.itemId,
       documentId: schema.contentDatabaseItemKeyClaims.documentId,
@@ -1797,25 +1825,24 @@ export async function upsertDatabaseRow(
         eq(schema.contentDatabaseItemKeyClaims.keyValueJson, keyValueJson),
       ),
     );
+  const [initialClaim] = initialClaims;
   if (initialClaim) {
     await assertAccess("document", initialClaim.documentId, "editor");
   }
   const result = await withMutationLocks(initial.database, async () => {
-    await assertAccess("document", initial.database.documentId, "editor");
-    if (initialClaim) {
-      await assertAccess("document", initialClaim.documentId, "editor");
-    }
-    const lockedReplay = await replayReceipt(
-      initial,
-      input.idempotencyKey,
-      replayDigests,
-    );
-    if (lockedReplay) return lockedReplay;
     return getDb().transaction(async (tx) => {
       await lockContentDatabaseMutation(
         tx as unknown as Db,
         initial.database.id,
       );
+      const lockedReplay = await replayAfterCollectionLock(
+        tx as unknown as Db,
+        initial,
+        input.idempotencyKey,
+        replayDigests,
+        initialClaims.map((row) => row.documentId),
+      );
+      if (lockedReplay) return lockedReplay;
       const locked = await loadContext(
         input.target,
         "editor",

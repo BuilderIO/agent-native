@@ -49,7 +49,8 @@ import {
   writeAgentLoopSettings,
 } from "../agent/loop-settings.js";
 import {
-  createBuilderSignupExperimentHandler,
+  createBuilderSignupExperiment,
+  setBuilderSignupVerifiedStarter,
   getBuilderSignupConnectError,
   getBuilderSignupTrackingIdentity,
 } from "./builder-signup-experiment.js";
@@ -372,6 +373,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
+import { loadRequiredEnv } from "./required-env-config.js";
 import { startSandboxExecutionSweep } from "./sandbox-execution-sweep.js";
 import {
   findUnsupportedScopedKeyNames,
@@ -3513,7 +3515,7 @@ export function createCoreRoutesPlugin(
       if (!options.disablePing) {
         getH3App(nitroApp).use(
           `${P}/ping`,
-          defineEventHandler((event) => {
+          defineEventHandler(async (event) => {
             const message = getAppConfig().app.pingMessage;
             const configuration =
               event.url?.searchParams.get("configuration") === "1" ||
@@ -3527,6 +3529,7 @@ export function createCoreRoutesPlugin(
               ...(event.url?.searchParams.get("database") === "0"
                 ? { databaseRequired: false }
                 : {}),
+              requiredEnv: await loadRequiredEnv(),
             };
             return {
               message,
@@ -5124,37 +5127,41 @@ export function createCoreRoutesPlugin(
         }),
       );
 
+      const builderSignupExperiment = createBuilderSignupExperiment({
+        getSession,
+        sameOrigin: isSameOriginConnect,
+        activate: async (event, session, owner) => {
+          const authorization = await authorizeBuilderConnectScope(
+            event,
+            session.email,
+            null,
+          );
+          if ("deny" in authorization)
+            return { ok: false, code: authorization.deny.reason };
+          return activateBuilderAccount(event, {
+            ownerEmail: session.email,
+            session,
+            provisioningToken: signBuilderProvisioningToken(
+              session.email,
+              session.token ?? "",
+            ),
+            requestedScope: null,
+            member: authorization.member,
+            connectAttemptId: null,
+            tracking: getBuilderSignupTrackingIdentity(),
+            newAccountOnly: true,
+            signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
+          });
+        },
+
+        reconcile: reconcileBuilderSignupActivation,
+      });
+      setBuilderSignupVerifiedStarter(
+        builderSignupExperiment.startVerifiedSignup,
+      );
       getH3App(nitroApp).use(
         `${P}/auth/builder-signup-experiment`,
-        createBuilderSignupExperimentHandler({
-          getSession,
-          sameOrigin: isSameOriginConnect,
-          activate: async (event, session, owner) => {
-            const authorization = await authorizeBuilderConnectScope(
-              event,
-              session.email,
-              null,
-            );
-            if ("deny" in authorization)
-              return { ok: false, code: authorization.deny.reason };
-            return activateBuilderAccount(event, {
-              ownerEmail: session.email,
-              session,
-              provisioningToken: signBuilderProvisioningToken(
-                session.email,
-                session.token ?? "",
-              ),
-              requestedScope: null,
-              member: authorization.member,
-              connectAttemptId: null,
-              tracking: getBuilderSignupTrackingIdentity(),
-              newAccountOnly: true,
-              signupActivationReceipt: `${owner.experimentId}:${owner.attempt}`,
-            });
-          },
-
-          reconcile: reconcileBuilderSignupActivation,
-        }),
+        builderSignupExperiment.handler,
       );
 
       getH3App(nitroApp).use(

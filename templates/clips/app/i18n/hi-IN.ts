@@ -606,6 +606,8 @@ const messages = {
     them: "उन्हें",
     me: "मुझे",
     regeneratingNotes: "सारांश पुन: उत्पन्न कर रहे हैं",
+    notesAlreadyGenerating:
+      "सारांश पहले से बनाया जा रहा है। तैयार होने पर यह यहाँ दिखेगा।",
     meetingRemoved: "मीटिंग हटा दी गई",
     couldNotRemoveMeeting: "मीटिंग को हटाया नहीं जा सका",
     couldNotLoadMeeting: "इस मीटिंग को लोड नहीं किया जा सका.",
@@ -688,6 +690,8 @@ const messages = {
     noMatches: "कोई मेल नहीं।",
     noTranscript: "अभी तक कोई प्रतिलेख नहीं.",
     noTranscriptCaptured: "कोई प्रतिलेख कैप्चर नहीं किया गया.",
+    unreadableDescription:
+      "सहेजा गया प्रतिलेख खराब हो गया है। इसे फिर से बनाने पर क्लिप के ऑडियो से नया प्रतिलेख बनता है।",
     partialTranscript:
       "आंशिक प्रतिलेख: रिकॉर्डिंग कट गई थी, इसलिए कुछ हिस्सा गायब हो सकता है।",
     backupFailed:

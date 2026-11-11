@@ -1,4 +1,3 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
@@ -24,6 +23,7 @@ import {
   useOpenUrlLatch,
 } from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
+import { useExtensionChatSubmission } from "./use-extension-chat-submission.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -341,6 +341,7 @@ export function InlineExtensionFrame({
 }: InlineExtensionFrameProps) {
   const providedId = providedExtension?.id ?? extensionId ?? "";
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const extensionChat = useExtensionChatSubmission();
   const [height, setHeight] = useState<number>(initialHeight);
   const [isDark, setIsDark] = useState(() =>
     typeof document === "undefined"
@@ -539,20 +540,25 @@ export function InlineExtensionFrame({
       }
 
       if (message.type === "agent-native-send-to-chat") {
-        const text = serializeChatValue((message as any).message);
+        const chatMessage = message as Record<string, unknown>;
+        const text = serializeChatValue(chatMessage.message);
         if (!text?.trim()) return;
-        const submit = (message as any).submit === true;
-        if (isTransient && submit) {
-          if (hasSubmittedRef.current) return;
-          hasSubmittedRef.current = true;
-          setHasSubmitted(true);
-        }
-        sendToAgentChat({
-          message: text,
-          context: serializeChatValue((message as any).context),
-          submit: (message as any).submit === true,
-          openSidebar: (message as any).openSidebar !== false,
-        });
+        const submit = chatMessage.submit === true;
+        if (isTransient && submit && hasSubmittedRef.current) return;
+        extensionChat.send(
+          {
+            message: text,
+            context: serializeChatValue(chatMessage.context),
+            submit,
+            openSidebar: chatMessage.openSidebar !== false,
+          },
+          () => {
+            if (isTransient) {
+              hasSubmittedRef.current = true;
+              setHasSubmitted(true);
+            }
+          },
+        );
         return;
       }
 
@@ -577,7 +583,7 @@ export function InlineExtensionFrame({
         const errors: string[] = Array.isArray((message as any).errors)
           ? (message as any).errors
           : [];
-        sendToAgentChat({
+        extensionChat.send({
           message: `Fix runtime errors in the inline extension "${extension?.name ?? resolvedId}".\n\nErrors:\n${errors.join("\n")}`,
           context: [
             `The user is viewing an inline generated extension named "${extension?.name ?? resolvedId}".`,
@@ -725,10 +731,12 @@ export function InlineExtensionFrame({
           pointerEvents: isTransient && hasSubmitted ? "none" : undefined,
         }}
         onLoad={() => {
+          extensionChat.cancel();
           sendThemeToIframe();
           sendContextToIframe();
         }}
       />
+      {extensionChat.confirmation}
     </div>
   );
 }

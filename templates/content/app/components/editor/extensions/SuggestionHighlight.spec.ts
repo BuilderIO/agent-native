@@ -717,7 +717,7 @@ describe("SuggestionHighlight", () => {
     }
   });
 
-  it("keeps deletions quiet at rest and readable on hover, focus, or selection", () => {
+  it("keeps deletions quiet at rest and readable but struck on hover, focus, or selection", () => {
     const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
       encoding: "utf8",
     });
@@ -726,10 +726,12 @@ describe("SuggestionHighlight", () => {
       /\.content-editor \.suggestion-delete\s*\{[^}]*color: hsl\(var\(--muted-foreground\)\);[^}]*text-decoration: line-through;/,
     );
     expect(css).toMatch(
-      /\.content-editor \.suggestion-delete:hover,[\s\S]*?\.content-editor \.suggestion-delete-widget:focus-visible\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
+      /\.content-editor \.suggestion-delete:hover,[\s\S]*?\.content-editor \.suggestion-delete-widget:focus-visible\s*\{[^}]*color: hsl\(var\(--foreground\)\);/,
     );
+    // Selected removed text drops the selection's underline, which marks the
+    // new text, and stays struck so it can't be read as the replacement.
     expect(css).toMatch(
-      /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
+      /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{[^}]*box-shadow: none;[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: line-through;/,
     );
 
     const pointerAndFocusState = css.match(
@@ -738,8 +740,49 @@ describe("SuggestionHighlight", () => {
     const selectedState = css.match(
       /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{([^}]*)\}/,
     )?.[1];
+    expect(pointerAndFocusState).not.toMatch(/text-decoration: none;/);
     expect(`${pointerAndFocusState}\n${selectedState}`).not.toMatch(
       /(?:font-size|line-height|margin|padding|border-width):/,
+    );
+  });
+
+  it("sets new words apart from the whole words they replace", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
+      encoding: "utf8",
+    });
+    expect(css).toMatch(
+      /\.content-editor\s+\.suggestion-inline-widget\.suggestion-insert--spaced\[data-suggestion-widget\]\s*\{[^}]*margin-inline-start: 0\.3em;/,
+    );
+
+    const text = "Clips keeps the recording you already made. Colour";
+    const insertion = (from: number, to: number, insertedText: string) => {
+      const widget = suggestionHighlightKey
+        .getState(
+          setSpecs(state(text), [
+            {
+              suggestionId: "replace",
+              kind: "replace",
+              from,
+              to,
+              insertedText,
+            },
+          ]),
+        )!
+        .decorations.find()
+        .find((deco) => deco.spec.key?.startsWith("replace:inserted:")) as any;
+      return widget.type.toDOM() as HTMLElement;
+    };
+    // "Clips keeps … made" runs to just before the full stop.
+    expect(
+      insertion(1, 43, "No special recording mode needed").className,
+    ).toContain("suggestion-insert--spaced");
+    // "ou" in "Colour" is part of a word.
+    expect(insertion(48, 50, "o").className).not.toContain(
+      "suggestion-insert--spaced",
+    );
+    // New text that starts with its own space needs no more room.
+    expect(insertion(1, 6, " Clip").className).not.toContain(
+      "suggestion-insert--spaced",
     );
   });
 
