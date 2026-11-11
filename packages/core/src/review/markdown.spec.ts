@@ -258,6 +258,15 @@ describe("comment Markdown and the box's document", () => {
     expect(commentDocToMarkdown(lines("www.x.com/&lt;"))).toBe(
       "www.x.com/\\&lt;",
     );
+    // One ending in a backslash, which `<…>` would double, opens as a link
+    // that saves the same each time.
+    const ending = roundTrip(
+      commentDocToMarkdown(lines("see https://example.com\\ ok")),
+    );
+    expect(ending).toBe(
+      "see [https://example.com\\\\](https://example.com\\\\) ok",
+    );
+    expect(roundTrip(ending)).toBe(ending);
   });
 
   it("keeps a typed web address apart from formatting right after it", () => {
@@ -292,6 +301,10 @@ describe("comment Markdown and the box's document", () => {
       {
         content: [linked, text("."), text("now", "bold")],
         saved: "<https://example.com>.**now**",
+      },
+      {
+        content: [text("https://example.com\\"), text("now", "bold")],
+        saved: "[https://example.com\\\\](https://example.com\\\\)**now**",
       },
     ]) {
       expect(commentDocToMarkdown(inline(...content))).toBe(saved);
@@ -452,7 +465,7 @@ describe("comment Markdown and the box's document", () => {
     expect(roundTrip("a <!-- hidden --> <span>b</span>")).toBe(
       "a  \\<span>b\\</span>",
     );
-    expect(roundTrip("| a | b |\n| - | - |\n| 1 | 2 |")).toBe("a | b\n1 | 2");
+    expect(roundTrip("| a | b |\n| - | - |\n| 1 | 2 |")).toBe("a\nb\n\n1\n2");
     expect(roundTrip("above\n\n---\n\n![alt](https://example.com/i.png)")).toBe(
       "above",
     );

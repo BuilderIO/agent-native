@@ -467,16 +467,15 @@ class DocReader {
           content[0]?.type === "paragraph" ? content.shift() : undefined;
         return [paragraph([label, ...(first?.content ?? [])]), ...content];
       }
-      // A table shows as its cells' text, a row to a line.
+      // A table shows as its cells' text, a cell to a line, with space
+      // between rows.
       case "table":
-        return node.children.map((row) =>
-          paragraph(
-            row.children.flatMap((cell, index) => [
-              ...(index ? [{ type: "text", text: " | " }] : []),
-              ...this.lines(cell.children, []).flat(),
-            ]),
+        return node.children.flatMap((row, index) => [
+          ...(index ? [paragraph([])] : []),
+          ...row.children.map((cell) =>
+            paragraph(this.lines(cell.children, []).flat()),
           ),
-        );
+        ]);
       // Drawn as nothing, so they open as nothing.
       case "thematicBreak":
       case "definition":
@@ -983,8 +982,15 @@ function bareAddresses(nodes: readonly CommentDocNode[]): CommentDocNode[] {
   });
 }
 
-/** The last word of a text, where an address would run to its end. */
-const LAST_WORD = /[^\s<]*$/;
+/**
+ * The last word of a text, where an address would run to its end. Read back
+ * from the end, as a pattern anchored only at the end would try every start.
+ */
+function lastWord(text: string): string {
+  let start = text.length;
+  while (start > 0 && !/[\s<]/.test(text.charAt(start - 1))) start -= 1;
+  return text.slice(start);
+}
 /** Where a web address the renderer links can start. */
 const ADDRESS_START = /https?:\/\/|www\./i;
 
@@ -997,19 +1003,19 @@ function linkTypedAddresses(
   nodes: readonly CommentDocNode[],
 ): CommentDocNode[] {
   return nodes.flatMap((node, index) => {
-    const text = node.text ?? "";
-    const word = LAST_WORD.exec(text)?.[0] ?? "";
-    const at = word.search(ADDRESS_START);
     const next = itemAt(nodes, index + 1);
     if (
       node.type !== "text" ||
-      at === -1 ||
       !next ||
       /^\s/.test(next.text ?? "x") ||
       linkedOrCode(node)
     ) {
       return [node];
     }
+    const text = node.text ?? "";
+    const word = lastWord(text);
+    const at = word.search(ADDRESS_START);
+    if (at === -1) return [node];
     const start = text.length - word.length + at;
     const typed = text.slice(start);
     const link = autolinkAt(
@@ -1063,6 +1069,15 @@ function autolinkAt(
   text: string,
   before: string,
 ): { length: number; url: string } | undefined {
+  return remembered(AUTOLINKS, JSON.stringify([text, before]), () =>
+    readAutolinkAt(text, before),
+  );
+}
+
+function readAutolinkAt(
+  text: string,
+  before: string,
+): { length: number; url: string } | undefined {
   const block = itemAt(
     fromMarkdown(`${before}${text}`, PARSE_OPTIONS).children,
     0,
@@ -1082,6 +1097,12 @@ function autolinkAt(
  * the punctuation after it stays outside.
  */
 function readsAsLink(text: string, href: string, after: string): boolean {
+  return remembered(LINK_READS, JSON.stringify([text, href, after]), () =>
+    readAsLink(text, href, after),
+  );
+}
+
+function readAsLink(text: string, href: string, after: string): boolean {
   const blocks = fromMarkdown(`${text}${after}`, PARSE_OPTIONS).children;
   const block = itemAt(blocks, 0);
   if (blocks.length > 1 || block?.type !== "paragraph") return false;
@@ -1095,6 +1116,26 @@ function readsAsLink(text: string, href: string, after: string): boolean {
   return (
     link.children.length === 1 && label?.type === "text" && label.value === text
   );
+}
+
+/**
+ * What the parser lately made of each address. The box saves the whole
+ * comment as each key is typed, so most addresses are read again unchanged.
+ */
+const AUTOLINKS = new Map<
+  string,
+  { length: number; url: string } | undefined
+>();
+const LINK_READS = new Map<string, boolean>();
+/** How many reads each keeps, past which it starts again. */
+const REMEMBERED_READS = 2_000;
+
+function remembered<T>(reads: Map<string, T>, key: string, read: () => T): T {
+  if (reads.has(key)) return reads.get(key) as T;
+  const value = read();
+  if (reads.size >= REMEMBERED_READS) reads.clear();
+  reads.set(key, value);
+  return value;
 }
 
 /** The item at `index`, or nothing past either end. */
@@ -1517,6 +1558,27 @@ const writeListItem: Handle = (node, parent, state, info) => {
   }
 };
 
+/**
+ * Writes a link to an address holding a backslash as `[text](address)`. In
+ * `<address>`, where a backslash is just a backslash, the writer would still
+ * escape one before the `>`, adding a backslash each time it's saved.
+ */
+const writeLink = Object.assign(
+  ((node: Link, parent, state, info) => {
+    if (!node.url.includes("\\")) {
+      return defaultHandlers.link(node, parent, state, info);
+    }
+    const resourceLink = state.options.resourceLink;
+    state.options.resourceLink = true;
+    try {
+      return defaultHandlers.link(node, parent, state, info);
+    } finally {
+      state.options.resourceLink = resourceLink;
+    }
+  }) as Handle,
+  { peek: defaultHandlers.link.peek },
+);
+
 const WRITE_OPTIONS: ToMarkdownOptions = {
   extensions: [gfmStrikethroughToMarkdown()],
   bullet: "-",
@@ -1537,6 +1599,7 @@ const WRITE_OPTIONS: ToMarkdownOptions = {
     strong: writeAttention("strong"),
     emphasis: writeAttention("emphasis"),
     delete: writeStrike,
+    link: writeLink,
     listItem: writeListItem,
     reviewMention: writeMention,
     [BARE_ADDRESS_NODE]: writeBareAddress,
