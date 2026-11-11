@@ -599,7 +599,8 @@ export function DiscussionThreadSubject({
 
 /**
  * The thread Discussion has stepped aside for, while it may stay aside: the
- * panel covers the page, and the thread is still open, its text still marked.
+ * panel covers the page and the thread is still open. Editing away its text
+ * keeps the bar, which is still the way back to the thread.
  */
 export function discussionPeekThread(
   threads: readonly CommentThread[] | undefined,

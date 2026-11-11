@@ -9348,7 +9348,7 @@ function PageEditorSessionBody({
       !!selectedThreadId);
   // Discussion steps aside only where it covers the page, and comes back once
   // the window has room for it beside the page, or once its thread resolves
-  // and the text it showed is no longer marked.
+  // or goes away.
   const peekThread = discussionPeekThread(
     threads,
     discussionPeekThreadId,
