@@ -889,17 +889,17 @@ async function loadResourceSkillPromptEntries(
         : new Set<string>();
       for (const { resource, full, meta } of parsed) {
         if (!full?.content || !meta) continue;
-        if (!isRuntimeVisibleScope(meta.scope)) continue;
         const name = meta.name || getSkillNameFromPath(resource.path);
         if (!name || seen.has(name)) continue;
+        // A Required skill holds its name even when it isn't listed, so a
+        // same-named one of the person's own stays unused, as references and
+        // Settings have it.
+        if (requiredIds.has(resource.id)) seen.add(name);
         if (
+          !isRuntimeVisibleScope(meta.scope) ||
           (meta.requiresLab && !enabledLabs.has(meta.requiresLab)) ||
           meta.userInvocable === false
         ) {
-          // A Required skill whose lab is off, or that is hidden from the "/"
-          // picker, isn't listed, but a same-named one of the person's own
-          // stays unused, as references and Settings have it.
-          if (requiredIds.has(resource.id)) seen.add(name);
           continue;
         }
         if (entries.length >= PROMPT_SKILL_SUMMARY_LIMIT) {

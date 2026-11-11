@@ -275,7 +275,7 @@ export function SkillRowControls({
             ref={triggerRef}
             size="sm"
             className={`${SKILL_MARK_COLUMN} shrink-0`}
-            aria-label={`${skill.name}: ${t("agentChat.settingsResources.skills.forEveryone")}`}
+            aria-label={`${skill.name}: ${t("agentChat.settingsResources.skills.forEveryone")}, ${t(MARK_LABEL_KEYS[mark])}`}
           >
             <SelectValue>{t(MARK_LABEL_KEYS[mark])}</SelectValue>
           </SelectTrigger>

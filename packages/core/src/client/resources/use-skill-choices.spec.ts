@@ -241,7 +241,9 @@ describe("useSkillChoices", () => {
       });
     });
     expect(failure).toEqual(new Error("Forbidden"));
-    expect(mocks.refetch).not.toHaveBeenCalled();
+    // The refusal can come from a choice that changed under it, so the row
+    // reads them again.
+    expect(mocks.refetch).toHaveBeenCalledTimes(1);
     expect(state.choices.switches[ORG]).toEqual({ on: true, at: 5 });
   });
 

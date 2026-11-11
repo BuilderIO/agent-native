@@ -145,6 +145,12 @@ export function useSkillChoices(
           canMark ? refetchCounts() : null,
         ]);
         read = !answer.isError;
+      } catch (error) {
+        // A refused save can mean the choices changed under it, such as an
+        // admin just making the skill Required, so read them again before
+        // the change goes back.
+        await refetch();
+        throw error;
       } finally {
         if (saving.current.get(track) === saved) saving.current.delete(track);
         if (read) clear();

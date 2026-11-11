@@ -561,9 +561,12 @@ describe("Skills page", () => {
     expect(dispatch.textContent).toContain("For everyone");
     expect(dispatch.textContent).toContain("For you");
     expect(dispatch.textContent).toContain("Off for 2 of 5 people");
+    // Its name says the current mark too, since the label replaces the
+    // value a screen reader would otherwise hear.
     expect(
-      dispatch.querySelector('[aria-label="release-notes: For everyone"]')
-        ?.textContent,
+      dispatch.querySelector(
+        '[aria-label="release-notes: For everyone, Recommended"]',
+      )?.textContent,
     ).toContain("Recommended");
     expect(groupHint("organization")).toContain(
       "You're an admin, so you choose how each one starts for people.",
