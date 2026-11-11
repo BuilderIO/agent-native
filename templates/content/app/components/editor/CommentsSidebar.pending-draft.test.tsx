@@ -684,8 +684,25 @@ describe("new comment responsive draft", () => {
     expect(source).toMatch(
       /pendingComment=\{\s*infoProperty\s*\? pendingComment\?\.property\?\.propertyId === infoProperty\s*\? pendingComment\s*: null\s*: presentation === "history" \|\| blockFieldComments\.pendingVisible\s*\? pagePendingComment\s*: null\s*\}/,
     );
+    expect(source).toMatch(/const propertiesOnPage =\s*host === "preview" &&/);
     expect(source).toMatch(
-      /const pagePendingComment =\s*pendingComment\?\.property &&\s*!\(\s*host === "preview" &&/,
+      /const pagePendingComment =\s*pendingComment\?\.property && !propertiesOnPage/,
+    );
+    // Comment on another Property goes back to words written under one, and
+    // only the open Property's box holds the selected thread and its reply.
+    expect(source).toMatch(
+      /pendingPropertyId !== propertyId &&\s*pendingWritten\s*\)\s*\{\s*returnToInfoPendingComment\(pendingPropertyId\);/,
+    );
+    expect(source).toMatch(
+      /selectedThreadId=\{\s*infoProperty && infoPropertyId !== infoProperty\s*\? null\s*: selectedThreadId\s*\}/,
+    );
+    // Leaving Info closes an empty Property draft under any row, and a link
+    // to comment on a Property starts it in Info off the peek.
+    expect(source).toContain(
+      "if (infoPendingComment) setPendingComment(null, { keepWritten: true });",
+    );
+    expect(source).toContain(
+      "if (property && canComment) startLinkedPropertyComment(property);",
     );
     expect(source).toContain("onPendingChange={changePendingComment}");
     expect(source).toContain("if (!completePendingComment(id)) return;");
