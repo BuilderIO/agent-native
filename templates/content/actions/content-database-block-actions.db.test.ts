@@ -764,14 +764,15 @@ describe("exact Content database block actions", () => {
     expect(bound).toHaveLength(1);
   });
 
-  it("binds private images that a Blocks field or a Files & media value adds", async () => {
+  it("binds private images that Blocks fields and Files & media values add", async () => {
     const state = await fixture("Primary");
-    const [inSetField, inMutation, inFiles] = [
+    const [inSetField, inMutation, inFiles, inBody] = [
       "7b0e8c52-4f8a-4d1e-9c3a-2f6d5e4b3a31",
       "7b0e8c52-4f8a-4d1e-9c3a-2f6d5e4b3a32",
       "7b0e8c52-4f8a-4d1e-9c3a-2f6d5e4b3a33",
+      "7b0e8c52-4f8a-4d1e-9c3a-2f6d5e4b3a34",
     ];
-    for (const id of [inSetField, inMutation, inFiles]) {
+    for (const id of [inSetField, inMutation, inFiles, inBody]) {
       await getDb().insert(privateMedia).values({
         id,
         ownerEmail,
@@ -820,6 +821,15 @@ describe("exact Content database block actions", () => {
         value: [`/api/private-media/${inFiles}`],
       }),
     );
+    await asOwner(() =>
+      setProperty.run({
+        databaseId: state.databaseId,
+        documentId: state.target.rowDocumentId,
+        propertyId: state.target.propertyId,
+        value: `![](/api/private-media/${inBody})`,
+        expectedBlocksFieldRevision: state.listed.fieldRevision,
+      }),
+    );
     const discovered = await asOwner(() =>
       getDatabase.run({ databaseId: state.databaseId }),
     );
@@ -861,7 +871,7 @@ describe("exact Content database block actions", () => {
         ),
       );
     expect(bound.map((row) => row.mediaId).sort()).toEqual(
-      [inSetField, inMutation, inFiles].sort(),
+      [inSetField, inMutation, inFiles, inBody].sort(),
     );
   });
 

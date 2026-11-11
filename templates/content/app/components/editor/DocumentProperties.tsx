@@ -179,11 +179,7 @@ import {
 import { databaseSortDirectionLabel } from "./database/sort-direction";
 import type { DatabaseFilter, DatabaseSort } from "./database/types";
 import { EmojiPicker } from "./EmojiPicker";
-import {
-  ImageStorageUnavailableError,
-  imageUploadErrorMessage,
-  uploadImageFile,
-} from "./image-upload";
+import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 import {
   PropertyCommentControl,
   usePropertyCommentRowState,
@@ -3479,16 +3475,11 @@ function FilesMediaValueEditor({
           ),
         );
       } catch (error) {
-        if (error instanceof ImageStorageUnavailableError) {
-          // Images uploaded before storage ran out stay in the list.
+        // Images uploaded before the failure stay in the list.
+        if (uploadedUrls.length > 0) {
           setItems((current) => [...current, ...uploadedUrls]);
-          pendingUploadFilesRef.current = selectedFiles.slice(
-            uploadedUrls.length,
-          );
-          setStorageSetupOpen(true);
-        } else {
-          toast.error(imageUploadErrorMessage(error));
         }
+        toast.error(imageUploadErrorMessage(error));
       } finally {
         setUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = "";

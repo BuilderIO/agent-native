@@ -453,6 +453,14 @@ export default defineAction({
             updatedAt: now,
           })
           .where(eq(schema.documents.id, documentId));
+        await syncPrivateMediaReferences(
+          tx as unknown as ReturnType<typeof getDb>,
+          {
+            documentId,
+            after: content,
+            userEmail: documentAttributionActor(ctx),
+          },
+        );
         if (
           !primaryBlocksFields.some((field) => field.propertyId === propertyId)
         ) {
