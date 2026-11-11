@@ -299,7 +299,7 @@ Lead with the app, plainly:
 
 1. Local: "Your app is open at <URL>" after an \`--open\` hand-off; else where
    it is and how to open it. Hosted: what Dispatch returned (per mode).
-2. How to change it: ask this agent, in this folder (hosted: in Builder).
+2. How to change it: ask this agent, in this folder (hosted: per mode).
 3. What each control does, what changed from the brief (assumptions, gaps,
    silent choices), and one precise pending step, if any.
 4. One line on what is built in: integrations (Slack, Notion, GitHub, and
@@ -2634,8 +2634,8 @@ body {
 
 export const TURN_INTO_APP_WHERE_IT_RUNS_REFERENCE_MD = `# Where the app runs
 
-On an interactive local host, ask this once, after the brief and App design
-are shown (step 2) and before any install, scaffold, or setup command. The rest
+On an interactive local host, ask this once, after the plain-words plan is
+shown (step 2) and before any install, scaffold, or setup command. The rest
 of the run decides and proceeds; this is its one planned question, because the
 person should choose between setting things up and making an account.
 

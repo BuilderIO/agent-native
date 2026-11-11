@@ -1,7 +1,7 @@
 # Where the app runs
 
-On an interactive local host, ask this once, after the brief and App design
-are shown (step 2) and before any install, scaffold, or setup command. The rest
+On an interactive local host, ask this once, after the plain-words plan is
+shown (step 2) and before any install, scaffold, or setup command. The rest
 of the run decides and proceeds; this is its one planned question, because the
 person should choose between setting things up and making an account.
 
