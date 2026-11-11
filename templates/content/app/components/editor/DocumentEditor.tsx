@@ -9429,13 +9429,12 @@ function PageEditorSessionBody({
     setDiscussionPeekThreadId(null);
     if (!threadId) return;
     // Back where Show was pressed, on the thread's Show.
-    requestAnimationFrame(() =>
-      pagePanelRef.current // i18n-ignore selector, not copy
-        ?.querySelector<HTMLElement>(
-          `[data-thread-card="${CSS.escape(threadId)}"] [data-discussion-subject]`,
-        )
-        ?.focus({ preventScroll: true }),
-    );
+    requestAnimationFrame(() => {
+      const show = pagePanelRef.current?.querySelector(
+        `[data-thread-card="${CSS.escape(threadId)}"] [data-discussion-subject]`,
+      );
+      if (show instanceof HTMLElement) show.focus({ preventScroll: true });
+    });
   }, [discussionPeekThreadId]);
 
   const pagePanelTab = pagePanel.tab;

@@ -5422,11 +5422,10 @@ function ThreadView({
   useEffect(() => {
     if (!isPanel || !replyBoxShown) return;
     const frame = requestAnimationFrame(() => {
-      const reduceMotion =
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- the tests' jsdom has no matchMedia
-        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- nor this scroll
-      replyBoxRef.current?.scrollIntoView?.({
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      replyBoxRef.current?.scrollIntoView({
         block: "nearest",
         behavior: reduceMotion ? "auto" : "smooth",
       });
@@ -5447,11 +5446,12 @@ function ThreadView({
     )
       return;
     onCollapse();
-    requestAnimationFrame(() =>
-      cardRef.current // i18n-ignore selector, not copy
-        ?.querySelector<HTMLElement>("[data-comment-reply-action]")
-        ?.focus({ preventScroll: true }),
-    );
+    requestAnimationFrame(() => {
+      const reply = cardRef.current?.querySelector(
+        "[data-comment-reply-action]",
+      );
+      if (reply instanceof HTMLElement) reply.focus({ preventScroll: true });
+    });
   };
   // The panel keeps long threads scannable: the first comment and the latest
   // replies, with the rest one click away. Comments and suggestions alike.
