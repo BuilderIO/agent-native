@@ -741,6 +741,24 @@ describe("resolveNitroBuildReplacements", () => {
       ],
     ).toBe(JSON.stringify(""));
   });
+
+  it("embeds the app's required env names for the configuration probe", () => {
+    expect(
+      resolveNitroBuildReplacements(
+        {},
+        undefined,
+        undefined,
+        "",
+        "",
+        '["NOTION_API_KEY"]',
+      )["process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV"],
+    ).toBe(JSON.stringify('["NOTION_API_KEY"]'));
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV"
+      ],
+    ).toBe(JSON.stringify(""));
+  });
 });
 
 describe("isCloudflareModulePreset", () => {
