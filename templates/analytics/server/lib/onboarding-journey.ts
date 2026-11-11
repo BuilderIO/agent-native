@@ -966,11 +966,12 @@ export function freezeOnboardingJourneyObservationWindow(
     }
     requestedAtMs = pinnedMs;
   }
-  const observationWatermark = new Date(
-    Math.floor(requestedAtMs / 60_000) * 60_000,
-  ).toISOString();
+  // The cutoff uses the same whole minute, so passing the watermark back
+  // rebuilds the same SQL even when the window ends today.
+  const watermarkMs = Math.floor(requestedAtMs / 60_000) * 60_000;
+  const observationWatermark = new Date(watermarkMs).toISOString();
   const requestedEndExclusive = Date.parse(`${args.dateTo}T00:00:00Z`) + DAY_MS;
-  const cutoffMs = Math.min(requestedAtMs, requestedEndExclusive);
+  const cutoffMs = Math.min(watermarkMs, requestedEndExclusive);
   const observationCutoff = new Date(cutoffMs).toISOString();
   return {
     observationCutoff,
@@ -2574,7 +2575,7 @@ export async function getOnboardingJourney(
     personFollowUp?.incompleteReason === "person_followup_query_timeout"
   ) {
     notes.push(
-      `Queries stopped at this request's ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000}-second time budget. Call again with the same arguments and observationWatermark="${observation.observationWatermark}" within 24 hours: the queries that finished are cached, so the next call continues from them.`,
+      `Queries stopped at this request's ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000}-second time budget. Call again with the same arguments and observationWatermark="${observation.observationWatermark}" within 5 minutes: the queries that finished are cached, so the next call continues from them.`,
     );
   }
   const head = {

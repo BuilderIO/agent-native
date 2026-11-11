@@ -154,7 +154,7 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   `coverage.truncated` and `notes` identify why; read them before interpreting
   counts. When the time budget stopped it, a note gives an
   `observationWatermark`: call again with the same arguments plus that value
-  within 24 hours, and the pages and follow-ups that finished come from the
+  within 5 minutes, and the pages and follow-ups that finished come from the
   query cache, so each call gets further. Repeat until the note is gone. A truncated event sample skips replay reads and
   returns `sessionsWithReplay: null` because replay availability is unknown. If
   a read truncates, page boundaries may have shifted,

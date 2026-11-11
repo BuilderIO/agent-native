@@ -84,7 +84,7 @@ export default defineAction({
         .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00\.000Z$/)
         .optional()
         .describe(
-          "A past UTC minute, such as 2026-11-10T22:38:00.000Z, to read as of instead of now. Pass the observationWatermark from a response whose notes say it stopped at its time budget: the queries it finished are cached for 24 hours, so the same request with this value continues from them.",
+          "A past UTC minute, such as 2026-11-10T22:38:00.000Z, to read as of instead of now. Pass the observationWatermark from a response whose notes say it stopped at its time budget: the queries it finished stay cached for at least 5 minutes, so the same request with this value continues from them.",
         ),
       format: z
         .enum(["tree", "summary"])

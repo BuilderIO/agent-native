@@ -2174,6 +2174,48 @@ describe("getOnboardingJourney", () => {
     }
   });
 
+  it("gives a window ending today a watermark that rebuilds the same queries", async () => {
+    const now = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.parse("2026-10-09T12:07:30.000Z"));
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => ({
+      rows: sql.includes("journey_total_rows") ? journeyRows() : [],
+      schema: [],
+    }));
+    const today = {
+      ...ARGS,
+      dateTo: "2026-10-09",
+      followUpMode: "person" as const,
+      format: "summary" as const,
+    };
+
+    try {
+      const first = (await getOnboardingJourney(
+        scope,
+        today,
+      )) as JourneySummary;
+      const firstQueries = mocks.queryFirstPartyAnalytics.mock.calls.map(
+        ([sql]) => sql,
+      );
+      expect(first.personFollowUp?.observationWatermark).toBe(
+        "2026-10-09T12:07:00.000Z",
+      );
+      expect(first.followUp.observationCutoff).toBe("2026-10-09T12:07:00.000Z");
+
+      mocks.queryFirstPartyAnalytics.mockClear();
+      now.mockReturnValue(Date.parse("2026-10-09T12:09:10.000Z"));
+      await getOnboardingJourney(scope, {
+        ...today,
+        observationWatermark: "2026-10-09T12:07:00.000Z",
+      });
+      expect(
+        mocks.queryFirstPartyAnalytics.mock.calls.map(([sql]) => sql),
+      ).toEqual(firstQueries);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("keeps caller cancellation distinct from internal partial-read limits", async () => {
     const controller = new AbortController();
     mocks.queryFirstPartyAnalytics.mockImplementationOnce(async () => {
