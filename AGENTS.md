@@ -36,7 +36,7 @@ Use `/sidecar <task>` for read-only investigations.
   work alone. If a tool fails, diagnose it and retry when safe. Check whether a
   write landed before retrying it. Respect access and approval boundaries and
   finish independent work. Verify the result before calling it done. Follow
-  `reporting-progress` for updates and handoffs.
+  `reporting-progress` for updates and how to report a blocker.
 - Scale effort: for small changes, read briefly, edit, and run existing checks;
   skip surveys, unrequested tests, and browser automation. Explore deeply only
   for ambiguous or cross-cutting work.
