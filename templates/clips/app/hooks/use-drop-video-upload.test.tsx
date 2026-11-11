@@ -28,6 +28,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 vi.mock("@/hooks/use-video-storage-status", () => ({
+  VIDEO_STORAGE_STATUS_KEY: ["clips", "video-storage-status"],
   fetchVideoStorageStatus: (...args: unknown[]) =>
     mocks.fetchVideoStorageStatus(...args),
 }));
@@ -403,8 +404,14 @@ describe("useDropVideoUpload", () => {
     act(() => uploadFiles([new File(["video"], "video.mp4")]));
 
     await vi.waitFor(() =>
-      expect(mocks.invalidateQueries).toHaveBeenCalledOnce(),
+      expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+        predicate: expect.any(Function),
+      }),
     );
+    // Creating the recording used a free clip, so the count is read again.
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["clips", "video-storage-status"],
+    });
     expect(container.textContent).toBe("1");
     await act(async () => finishRefresh());
     await vi.waitFor(() => expect(container.textContent).toBe("0"));
