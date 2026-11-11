@@ -241,12 +241,13 @@ it("interleaves ordinary, saved, and draft discussions by creation time", async 
   }
   try {
     await act(async () => root.render(<Harness />));
-    // Page order puts comments on the whole page before suggested edits.
+    // Page order puts suggested edits, which are in the text, before
+    // comments on the whole page.
     let text = container.textContent!;
-    expect(text.indexOf("Ordinary 2")).toBeLessThan(
-      text.indexOf("Saved middle"),
+    expect(text.indexOf("Saved middle")).toBeLessThan(
+      text.indexOf("Ordinary 0"),
     );
-    expect(text.indexOf("Ordinary 2")).toBeLessThan(text.indexOf("Draft last"));
+    expect(text.indexOf("Draft last")).toBeLessThan(text.indexOf("Ordinary 0"));
     await act(async () => controller.setHistoryFilters({ sort: "oldest" }));
     text = container.textContent!;
     expect(text.indexOf("Ordinary 0")).toBeLessThan(
@@ -1996,10 +1997,10 @@ it("keeps decided suggestion history readable and replies only to pending thread
     await act(async () => {
       drafts.setText("thread-pending-suggestion", "Pending reply");
     });
-    const submit = [...container.querySelectorAll("button")].find(
-      (button) => button.getAttribute("aria-label") === "comments.submit",
+    const submit = container.querySelector<HTMLButtonElement>(
+      '[data-comment-reply-composer] button[aria-label="comments.submit"]',
     );
-    expect(submit).toBeDefined();
+    expect(submit).not.toBeNull();
     await act(async () => {
       submit?.click();
       submit?.click();
@@ -2083,15 +2084,17 @@ it("keeps a suggestion reply's key when its card remounts", async () => {
   }
   const button = (matches: (button: HTMLButtonElement) => boolean) =>
     [...container.querySelectorAll("button")].find(matches);
+  const submitButton = () =>
+    container.querySelector<HTMLButtonElement>(
+      '[data-comment-reply-composer] button[aria-label="comments.submit"]',
+    );
   const reply = () =>
     act(async () => {
       button((b) => b.textContent === "comments.reply")?.click();
     });
   const send = () =>
     act(async () => {
-      button(
-        (b) => b.getAttribute("aria-label") === "comments.submit",
-      )?.click();
+      submitButton()?.click();
     });
   try {
     await act(async () => root.render(<Harness mount={0} />));
@@ -2109,8 +2112,7 @@ it("keeps a suggestion reply's key when its card remounts", async () => {
     });
 
     await act(async () => root.render(<Harness mount={1} />));
-    if (!button((b) => b.getAttribute("aria-label") === "comments.submit"))
-      await reply();
+    if (!submitButton()) await reply();
     await send();
     expect(replyMutate).toHaveBeenCalledTimes(2);
     expect(lastReply().request.clientOperationId).toBe(key);
@@ -2175,8 +2177,8 @@ it("mentions only the people a suggestion reply names as a whole @name", async (
         { email: "samantha@example.test", name: "Samantha" },
       ]);
     });
-    const submit = [...container.querySelectorAll("button")].find(
-      (button) => button.getAttribute("aria-label") === "comments.submit",
+    const submit = container.querySelector<HTMLButtonElement>(
+      '[data-comment-reply-composer] button[aria-label="comments.submit"]',
     );
     await act(async () => submit?.click());
 

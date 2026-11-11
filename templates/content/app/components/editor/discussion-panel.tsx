@@ -6,12 +6,14 @@ import { useT } from "@agent-native/core/client/i18n";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import {
   IconAdjustmentsHorizontal,
+  IconArrowLeft,
   IconArrowsSort,
+  IconChevronRight,
   IconEye,
   IconEyeOff,
   IconSearch,
 } from "@tabler/icons-react";
-import { forwardRef, useState } from "react";
+import { forwardRef, useEffect, useRef, useState, type ReactNode } from "react";
 
 import {
   ContentTableConstraintBar,
@@ -27,11 +29,18 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import type { CommentThread } from "@/hooks/use-comments";
+import { cn } from "@/lib/utils";
 
+import { commentThreadMarkSelector } from "./comment-block-anchors";
 import type { MentionEntry } from "./comment-drafts";
 import { CommentAvatar } from "./CommentAvatar";
 import type { CommentAiDraft, CommentAiSubmitPayload } from "./CommentComposer";
 import { CommentComposer } from "./CommentComposer";
+import { renderCommentBody } from "./CommentRow";
+import {
+  type PropertyThreadTarget,
+  propertyThreadTargetText,
+} from "./property-comments";
 
 export type DiscussionSort = "page" | "activity" | "oldest";
 export const DISCUSSION_SORTS: readonly DiscussionSort[] = [
@@ -67,13 +76,41 @@ export function isPageCommentThread(
 }
 
 /**
- * Where an entry sits in page order. Comments on the whole page come first,
- * then Property comments in the Page's Property order, then text by where its
- * highlight is on screen; text with no highlight showing (resolved, deleted,
- * or in a closed tab) goes last, by where it was in the text.
+ * Where an entry sits in page order. Property comments come first, in the
+ * Page's Property order, then text by where its highlight is on screen, then
+ * text with no highlight showing (resolved, deleted, or in a closed tab) by
+ * where it was in the text. Comments on the whole page come last.
  */
+export const DISCUSSION_RANK = {
+  property: 0,
+  shownText: 1,
+  hiddenText: 2,
+  page: 3,
+} as const;
+
+export type DiscussionRank =
+  (typeof DISCUSSION_RANK)[keyof typeof DISCUSSION_RANK];
+
+/** The sections page order reads in, and each one's heading. */
+export const DISCUSSION_SECTIONS: readonly DiscussionTarget[] = [
+  "property",
+  "text",
+  "page",
+];
+export const DISCUSSION_SECTION_LABELS = {
+  property: "comments.sectionProperties",
+  text: "comments.sectionText",
+  page: "comments.sectionPage",
+} as const satisfies Record<DiscussionTarget, string>;
+
+/** The group a rank's entries sit under in page order. */
+export function discussionRankTarget(rank: DiscussionRank): DiscussionTarget {
+  if (rank === DISCUSSION_RANK.property) return "property";
+  return rank === DISCUSSION_RANK.page ? "page" : "text";
+}
+
 export type DiscussionOrderFacts = {
-  rank: 0 | 1 | 2 | 3;
+  rank: DiscussionRank;
   position: number;
   createdAt: string;
   lastActivityAt: string;
@@ -137,14 +174,32 @@ export function commentThreadOrderFacts(
   );
   const facts = { createdAt, lastActivityAt, id: thread.threadId };
   const target = discussionThreadTarget(thread);
-  if (target === "page") return { ...facts, rank: 0, position: 0 };
+  if (target === "page")
+    return { ...facts, rank: DISCUSSION_RANK.page, position: 0 };
   if (target === "property") {
     const index = propertyIndex(thread.property!.propertyId);
-    return { ...facts, rank: 1, position: index < 0 ? Infinity : index };
+    return {
+      ...facts,
+      rank: DISCUSSION_RANK.property,
+      position: index < 0 ? Infinity : index,
+    };
   }
-  if (documentTop !== undefined)
-    return { ...facts, rank: 2, position: documentTop };
-  return { ...facts, rank: 3, position: thread.startOffset ?? Infinity };
+  return discussionTextOrderFacts(facts, documentTop, thread.startOffset);
+}
+
+/** Text, or a suggested edit, by where its highlight shows or last was. */
+export function discussionTextOrderFacts(
+  facts: Pick<DiscussionOrderFacts, "createdAt" | "lastActivityAt" | "id">,
+  documentTop: number | undefined,
+  offset: number | null | undefined,
+): DiscussionOrderFacts {
+  return documentTop === undefined
+    ? {
+        ...facts,
+        rank: DISCUSSION_RANK.hiddenText,
+        position: offset ?? Infinity,
+      }
+    : { ...facts, rank: DISCUSSION_RANK.shownText, position: documentTop };
 }
 
 /** Whether someone is @mentioned anywhere in the thread. */
@@ -439,6 +494,208 @@ export function DiscussionToolbar({
       ) : null}
     </div>
   );
+}
+
+/**
+ * What a thread is about, named in full at its top: the Property and its
+ * value, or the quoted text. Show takes you there. Without `onShow`, as when
+ * the Property is gone or the highlight isn't on the page, it only names it.
+ */
+export function DiscussionSubjectChip({
+  kind,
+  label,
+  onShow,
+  children,
+}: {
+  kind: "property" | "text";
+  /** What Show does, read out in place of the chip's words. */
+  label: string;
+  onShow?: (() => void) | undefined;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const className = cn(
+    "-mb-1 flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-1.5 text-start text-sm",
+    kind === "text"
+      ? "discussion-subject-quote text-foreground"
+      : "bg-muted text-muted-foreground",
+  );
+  const words = (
+    <span className="line-clamp-2 min-w-0 flex-1 break-words">{children}</span>
+  );
+  if (!onShow)
+    return (
+      <div className={className} data-discussion-subject={kind}>
+        {words}
+      </div>
+    );
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      className={cn(
+        className,
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        kind === "property" && "hover:bg-accent hover:text-foreground",
+      )}
+      data-discussion-subject={kind}
+      onClick={(event) => {
+        event.stopPropagation();
+        onShow();
+      }}
+    >
+      {words}
+      <span
+        className="flex shrink-0 items-center gap-0.5 text-xs font-medium text-muted-foreground"
+        aria-hidden="true"
+      >
+        {t("comments.showSubject")}
+        <IconChevronRight className="size-3.5" />
+      </span>
+    </button>
+  );
+}
+
+/**
+ * What a thread in Discussion is about: its Property and value, or the text,
+ * block or moment it points at. With `onShow` it is the thread's Show.
+ */
+export function DiscussionThreadSubject({
+  quote,
+  propertyTarget,
+  onShow,
+}: {
+  quote: string | null | undefined;
+  propertyTarget: PropertyThreadTarget | null;
+  onShow?: (() => void) | undefined;
+}) {
+  const t = useT();
+  if (propertyTarget) {
+    const { name, value } = propertyThreadTargetText(propertyTarget, t);
+    return (
+      <DiscussionSubjectChip
+        kind="property"
+        label={t("comments.showPropertyInInfo", { property: name })}
+        onShow={onShow}
+      >
+        <span data-comment-property-target={propertyTarget.state}>
+          <span className="font-medium text-foreground">{name}</span>
+          {value === null ? null : ` · ${value}`}
+        </span>
+      </DiscussionSubjectChip>
+    );
+  }
+  if (!quote) return null;
+  return (
+    <DiscussionSubjectChip
+      kind="text"
+      label={t("comments.showQuoteOnPage", { quote })}
+      onShow={onShow}
+    >
+      <span data-comment-quote>{quote}</span>
+    </DiscussionSubjectChip>
+  );
+}
+
+/**
+ * Discussion stepped aside so Show could show the page: the text and comment
+ * it showed, and the way back. On a phone it spans the foot of the screen.
+ */
+export function DiscussionPeekBar({
+  thread,
+  quote,
+  sheet,
+  onBack,
+}: {
+  thread: Pick<CommentThread, "comments">;
+  quote: string | null | undefined;
+  sheet: boolean;
+  onBack: () => void;
+}) {
+  const t = useT();
+  const backRef = useRef<HTMLButtonElement>(null);
+  // Show's button went with the panel, so the way back takes focus.
+  useEffect(() => backRef.current?.focus({ preventScroll: true }), []);
+  const first = thread.comments[0];
+  return (
+    <div
+      className={cn(
+        "z-40 col-span-2 col-start-1 row-start-2 flex items-center gap-2.5 self-end rounded-xl border border-border bg-background py-2.5 pe-2.5 ps-3 text-sm shadow-[0_10px_28px_rgba(0,0,0,0.15)] duration-200 animate-in fade-in slide-in-from-bottom-4 motion-reduce:animate-none print:hidden",
+        sheet
+          ? "m-2 justify-self-stretch"
+          : "m-3 w-[22rem] max-w-[calc(100%-1.5rem)] justify-self-end",
+      )}
+      data-discussion-peek
+    >
+      <div className="min-w-0 flex-1">
+        {quote ? (
+          <p className="truncate font-medium">
+            <span className="discussion-subject-quote rounded-sm px-0.5">
+              {quote}
+            </span>
+          </p>
+        ) : null}
+        {first ? (
+          <p className="line-clamp-2 break-words text-muted-foreground">
+            {first.author_name ?? first.author_email.split("@")[0]}:{" "}
+            {renderCommentBody(first.content, first.mentions, {
+              compact: true,
+            })}
+          </p>
+        ) : null}
+      </div>
+      <Button
+        ref={backRef}
+        variant="secondary"
+        className="shrink-0 gap-1.5"
+        aria-label={t("comments.backToDiscussion")}
+        onClick={onBack}
+      >
+        <IconArrowLeft className="size-4" aria-hidden="true" />
+        {t("comments.discussion")}
+      </Button>
+    </div>
+  );
+}
+
+const SHOW_PULSE_COLOR = "hsl(45 93% 47%";
+const showPulses = new WeakMap<Element, Animation>();
+
+/**
+ * Rings what Show has just shown, once: a thread's marks in the page's text,
+ * or a Property's row. An animation, not a class: the editor redraws a mark
+ * whose class it didn't set, and React rewrites a row's when it changes.
+ */
+export function pulseShownSubject(elements: Iterable<Element>) {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  for (const element of elements) {
+    if (!("animate" in element)) continue;
+    const row = element.matches("[data-property-row]");
+    const ring = (size: number, alpha: number) =>
+      row
+        ? { boxShadow: `0 0 0 ${size}px ${SHOW_PULSE_COLOR} / ${alpha})` }
+        : { outline: `${size}px solid ${SHOW_PULSE_COLOR} / ${alpha})` };
+    // Pressing Show again before it ends starts the ring over.
+    showPulses.get(element)?.cancel();
+    showPulses.set(
+      element,
+      element.animate(
+        [
+          { ...ring(0, 0), offset: 0 },
+          { ...ring(row ? 5 : 6, row ? 0.4 : 0.38), offset: row ? 0.3 : 0.25 },
+          { ...ring(row ? 9 : 10, 0), offset: 1 },
+        ],
+        { duration: 1000, easing: "ease" },
+      ),
+    );
+  }
+}
+
+/** A thread's marks in the page's text, under `root`. */
+export function pageCommentMarks(root: ParentNode | null, threadId: string) {
+  return [
+    ...(root?.querySelectorAll(commentThreadMarkSelector(threadId)) ?? []),
+  ].filter((element) => element.closest(".content-editor"));
 }
 
 /** Writes a comment on the whole page: nothing selected, nothing quoted. */

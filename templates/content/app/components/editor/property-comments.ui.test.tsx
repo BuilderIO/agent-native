@@ -240,6 +240,47 @@ describe("Property comments in the comments sidebar", () => {
       'comments.propertyRemoved:{"name":"Score"}',
     );
   });
+
+  it("shows a thread's Property in Info from Discussion, while the Property is there", async () => {
+    const showSubject = vi.fn();
+    const scoreThread = thread("t1", {
+      propertyId: "score",
+      propertyName: "Score",
+      propertyValue: "5",
+    });
+    function Discussion({ properties }: { properties: DocumentProperty[] }) {
+      const replyDrafts = useCommentReplyDrafts("row-1");
+      return (
+        <CommentsSidebar
+          documentId="row-1"
+          replyDrafts={replyDrafts}
+          threads={[scoreThread]}
+          documentProperties={properties}
+          presentation="history"
+          onShowThreadSubject={showSubject}
+          forceVisible
+        />
+      );
+    }
+    await render(<Discussion properties={[score(5)]} />);
+    await settle();
+    const subject = () =>
+      container.querySelector<HTMLElement>(
+        '[data-discussion-subject="property"]',
+      );
+    expect(subject()?.tagName).toBe("BUTTON");
+    expect(subject()?.getAttribute("aria-label")).toBe(
+      'comments.showPropertyInInfo:{"property":"Score"}',
+    );
+    expect(subject()?.textContent).toContain("Score · 5");
+    await act(async () => subject()!.click());
+    expect(showSubject).toHaveBeenCalledWith(scoreThread);
+
+    // A removed Property has nowhere to show.
+    await render(<Discussion properties={[]} />);
+    await settle();
+    expect(subject()?.tagName).toBe("DIV");
+  });
 });
 
 describe("propertyThreadTarget", () => {
