@@ -34,11 +34,6 @@ function countActionItems(raw: string | null | undefined): number | null {
 }
 
 /**
- * A meeting row for an agent picking a meeting. Whole summaries, notes,
- * bullets and action items can run long, and an MCP read isn't cut down, so
- * the row keeps a preview and counts, and get-meeting has the rest.
- */
-/**
  * The columns an agent row is made from. Each is required, since a column a
  * query leaves out would read as an empty summary or no action items.
  */
@@ -47,18 +42,35 @@ interface MeetingAgentRowFields {
   userNotesMd: string | null;
   bulletsJson?: string | null;
   actionItemsJson: string | null;
+  participants?: readonly unknown[];
 }
 
+/** How many participants an agent row names; get-meeting has them all. */
+export const AGENT_ROW_PARTICIPANT_LIMIT = 10;
+
+/**
+ * A meeting row for an agent picking a meeting. Whole summaries, notes,
+ * bullets, action items and attendee lists can run long, and an MCP read
+ * isn't cut down, so the row keeps a preview and counts, and get-meeting has
+ * the rest.
+ */
 export function meetingRowForAgent<T extends MeetingAgentRowFields>({
   summaryMd,
   userNotesMd,
   bulletsJson: _bulletsJson,
   actionItemsJson,
+  participants,
   ...row
 }: T) {
   const summary = (summaryMd ?? "").trim();
   return {
     ...row,
+    ...(participants
+      ? {
+          participants: participants.slice(0, AGENT_ROW_PARTICIPANT_LIMIT),
+          participantCount: participants.length,
+        }
+      : {}),
     summaryPreview: summary ? summary.replace(/\s+/g, " ").slice(0, 100) : null,
     hasNotes: Boolean((userNotesMd ?? "").trim()),
     actionItemCount: countActionItems(actionItemsJson),

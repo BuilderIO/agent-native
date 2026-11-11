@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  AGENT_ROW_PARTICIPANT_LIMIT,
   isAgentMeetingCaller,
   meetingRowForAgent,
   meetingRowHasContent,
@@ -41,6 +42,28 @@ describe("meetingRowForAgent", () => {
         actionItemsJson: null,
       }),
     ).toMatchObject({ summaryPreview: null, hasNotes: false });
+  });
+});
+
+describe("meetingRowForAgent participants", () => {
+  it("names the first few participants and counts them all", () => {
+    const participants = Array.from({ length: 40 }, (_, index) => ({
+      email: `person-${index}@example.com`,
+      name: `Person ${index}`,
+    }));
+    const row = meetingRowForAgent({ ...emptyCalendarHusk, participants });
+
+    expect(row.participants).toEqual(
+      participants.slice(0, AGENT_ROW_PARTICIPANT_LIMIT),
+    );
+    expect(row.participantCount).toBe(40);
+  });
+
+  it("keeps a short attendee list whole", () => {
+    const participants = [{ email: "ana@example.com", name: "Ana" }];
+    expect(
+      meetingRowForAgent({ ...emptyCalendarHusk, participants }),
+    ).toMatchObject({ participants, participantCount: 1 });
   });
 });
 
