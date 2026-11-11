@@ -49,4 +49,14 @@ describe("design briefs", () => {
       false,
     );
   });
+
+  it("reads no more briefs from stored data than a design can record", () => {
+    const stored = Array.from({ length: 7 }, (_, index) => ({
+      ...brief,
+      id: `page-${index}`,
+    }));
+    expect(
+      designBriefsFromData({ briefs: stored }).map((each) => each.id),
+    ).toEqual(["page-0", "page-1", "page-2", "page-3", "page-4"]);
+  });
 });

@@ -11,6 +11,7 @@ import {
 import { and, asc, desc, eq, isNull, or } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import { resolveDocumentAccess } from "./_document-access.js";
@@ -141,7 +142,11 @@ export default defineAction({
       fail("Choose a page to attach.", {
         errorCode: "composer_reference_required",
       });
-    const access = await resolveDocumentAccess(args.id);
+    // The list offers pages from every organization the person belongs to,
+    // not only the active one, so the read accepts the same.
+    const access =
+      (await resolveDocumentAccess(args.id)) ??
+      (await resolveContentDocumentAccess(args.id));
     if (
       !access ||
       access.resource.trashedAt ||

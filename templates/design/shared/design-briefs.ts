@@ -18,7 +18,11 @@ export const designBriefsSchema = z
 
 export type DesignBrief = z.infer<typeof designBriefSchema>;
 
-/** The valid briefs in serialized or parsed design data; drops anything else. */
+/**
+ * The first valid briefs in serialized or parsed design data, up to the limit;
+ * drops anything else. The editor reads each one from Content, so stored data
+ * never asks for more pages than a create could record.
+ */
 export function designBriefsFromData(data: unknown): DesignBrief[] {
   let parsed = data;
   if (typeof data === "string") {
@@ -31,8 +35,10 @@ export function designBriefsFromData(data: unknown): DesignBrief[] {
   }
   const briefs = (parsed as { briefs?: unknown } | null | undefined)?.briefs;
   if (!Array.isArray(briefs)) return [];
-  return briefs.flatMap((brief) => {
-    const result = designBriefSchema.safeParse(brief);
-    return result.success ? [result.data] : [];
-  });
+  return briefs
+    .flatMap((brief) => {
+      const result = designBriefSchema.safeParse(brief);
+      return result.success ? [result.data] : [];
+    })
+    .slice(0, DESIGN_BRIEF_LIMIT);
 }

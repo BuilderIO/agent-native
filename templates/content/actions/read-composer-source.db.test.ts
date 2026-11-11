@@ -65,6 +65,7 @@ async function addDocument(args: {
   description?: string;
   content?: string;
   ownerEmail?: string;
+  orgId?: string;
   trashed?: boolean;
   hideFromSearch?: boolean;
 }) {
@@ -75,11 +76,11 @@ async function addDocument(args: {
       id: args.id,
       parentId: null,
       ownerEmail: args.ownerEmail ?? OWNER,
-      orgId: null,
+      orgId: args.orgId ?? null,
       title: args.title ?? args.id,
       description: args.description ?? "",
       content: args.content ?? `body of ${args.id}`,
-      visibility: "private",
+      visibility: args.orgId ? "org" : "private",
       createdAt: timestamp,
       updatedAt: timestamp,
       ...(args.trashed ? { trashedAt: timestamp } : {}),
@@ -244,6 +245,39 @@ describe("Content read-composer-source", () => {
     expect(ids).not.toContain("private-page");
     expect(ids).not.toContain("trashed-page");
     expect(ids).not.toContain("hidden-page");
+  });
+
+  it("reads a page it lists from an organization that isn't the active one", async () => {
+    await getDbExec().execute({
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+      args: ["side-org", "Side org", OTHER, 0],
+    });
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+      args: ["side-member", "side-org", OWNER, "member", 0],
+    });
+    await addDocument({
+      id: "side-org-page",
+      ownerEmail: OTHER,
+      orgId: "side-org",
+    });
+
+    const listed = await readAs(owner, () =>
+      action.run({ source: "content", operation: "list", page: 1 }),
+    );
+    expect("items" in listed ? listed.items : []).toContainEqual(
+      expect.objectContaining({ id: "side-org-page" }),
+    );
+    await expect(
+      readAs(owner, () =>
+        action.run({
+          source: "content",
+          operation: "read",
+          id: "side-org-page",
+          page: 1,
+        }),
+      ),
+    ).resolves.toMatchObject({ id: "side-org-page" });
   });
 
   it("reads only Content pages", async () => {
