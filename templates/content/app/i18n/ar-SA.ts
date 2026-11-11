@@ -1229,6 +1229,7 @@ const rawLiterals = {
     rename: "إعادة التسمية",
     duplicate: "تكرار",
     moveTo: "نقل إلى",
+    addSubPage: "إضافة صفحة فرعية",
     moveToTrash: "نقل إلى سلة المهملات",
     lastEditedBy: "آخر تعديل بواسطة {{name}}",
     lastEdited: "آخر تعديل",

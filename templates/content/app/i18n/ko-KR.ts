@@ -1254,6 +1254,7 @@ const rawLiterals = {
     rename: "이름 바꾸기",
     duplicate: "복제",
     moveTo: "이동",
+    addSubPage: "하위 페이지 추가",
     moveToTrash: "휴지통으로 이동",
     lastEditedBy: "최종 편집자: {{name}}",
     lastEdited: "최종 편집",

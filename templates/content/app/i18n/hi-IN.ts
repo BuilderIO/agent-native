@@ -1224,6 +1224,7 @@ const rawLiterals = {
     rename: "नाम बदलें",
     duplicate: "डुप्लिकेट करें",
     moveTo: "यहाँ ले जाएँ",
+    addSubPage: "उप-पृष्ठ जोड़ें",
     moveToTrash: "ट्रैश में ले जाएँ",
     lastEditedBy: "अंतिम बार {{name}} ने संपादित किया",
     lastEdited: "अंतिम संपादन",

@@ -1263,6 +1263,7 @@ const rawLiterals = {
     rename: "名前を変更",
     duplicate: "複製",
     moveTo: "移動先",
+    addSubPage: "サブページを追加",
     moveToTrash: "ゴミ箱に移動",
     lastEditedBy: "最終編集者: {{name}}",
     lastEdited: "最終編集",

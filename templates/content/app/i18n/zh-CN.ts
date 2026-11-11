@@ -1281,6 +1281,7 @@ const rawLiterals = {
     rename: "重命名",
     duplicate: "创建副本",
     moveTo: "移动到",
+    addSubPage: "添加子页面",
     moveToTrash: "移到回收站",
     lastEditedBy: "最后编辑者：{{name}}",
     lastEdited: "最后编辑",

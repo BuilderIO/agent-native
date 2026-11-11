@@ -1290,6 +1290,7 @@ const rawLiterals = {
     rename: "Umbenennen",
     duplicate: "Duplizieren",
     moveTo: "Verschieben nach",
+    addSubPage: "Unterseite hinzufügen",
     moveToTrash: "In den Papierkorb verschieben",
     lastEditedBy: "Zuletzt bearbeitet von {{name}}",
     lastEdited: "Zuletzt bearbeitet",

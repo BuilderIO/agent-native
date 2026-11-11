@@ -225,13 +225,17 @@ describe("contentCommandGroups", () => {
   });
 
   it("does not offer moving a local file or adding a sub-page to it", () => {
-    for (const id of ["local-file:notes/today.md", "local-folder:notes"]) {
+    for (const local of [
+      { id: "local-file:notes/today.md" },
+      { id: "local-folder:notes" },
+      { id: "page-9", localSource: true },
+    ]) {
       expect(
         commandIds(
           "page",
           groupsFor({
             page: {
-              id,
+              ...local,
               title: "today",
               isFavorite: false,
               canEdit: true,
@@ -466,6 +470,18 @@ describe("ContentCommandMenu", () => {
       databaseId: "db-1",
       databaseDocumentId: "doc-db",
     });
+  });
+
+  it("leaves out Move and Add sub-page for a page imported from a local folder", async () => {
+    pageDocument.current = {
+      ...pageDocument.current,
+      source: { mode: "local-files" },
+    };
+    await renderMenu();
+    const text = document.body.textContent;
+    expect(text).toContain("sidebar.pinToSidebar");
+    expect(text).not.toContain("sidebar.moveTo");
+    expect(text).not.toContain("sidebar.addSubPage");
   });
 
   it("keeps the preview beside the list when no page matches", async () => {

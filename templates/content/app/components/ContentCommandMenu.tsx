@@ -148,6 +148,8 @@ export interface ContentCommandGroupsInput {
     /** Undefined until the page's own record is loaded. */
     isFavorite: boolean | undefined;
     canEdit: boolean;
+    /** The page's record says it comes from a local folder. */
+    localSource?: boolean;
     scoped: boolean;
   } | null;
   recent: ContentRecentResult[];
@@ -223,8 +225,10 @@ export function contentCommandGroups({
       });
     }
     // Pages from a local folder can't be moved or hold sub-pages, as in the
-    // sidebar.
-    if (editable && !isLocalFileDocumentId(page.id)) {
+    // sidebar. Imported ones keep ordinary IDs, so their record says so.
+    const localFile =
+      page.localSource === true || isLocalFileDocumentId(page.id);
+    if (editable && !localFile) {
       commands.push({
         id: "move",
         order: 4,
@@ -501,6 +505,9 @@ export function ContentCommandMenu({
               ? currentDocument.isFavorite
               : undefined,
           canEdit: currentDocument?.canEdit !== false,
+          localSource:
+            currentDocument?.id === currentPageId &&
+            currentDocument.source?.mode === "local-files",
           scoped: scopedToPage,
         }
       : null,
@@ -596,10 +603,11 @@ export function ContentCommandMenu({
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <KeyHint keys="↑↓" label={t("root.commandHintNavigate")} />
       <KeyHint keys="↵" label={t("root.commandHintOpen")} />
-      {currentPageId ? (
+      {/* Both keys act on the scope only while the field is empty. */}
+      {currentPageId && !wide ? (
         scopedToPage ? (
           <KeyHint keys="⌫" label={t("root.commandClearScope")} />
-        ) : wide ? null : (
+        ) : (
           <KeyHint keys="Tab" label={t("root.commandSearchInPage")} />
         )
       ) : null}

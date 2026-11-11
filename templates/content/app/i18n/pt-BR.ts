@@ -1278,6 +1278,7 @@ const rawLiterals = {
     rename: "Renomear",
     duplicate: "Duplicar",
     moveTo: "Mover para",
+    addSubPage: "Adicionar subpágina",
     moveToTrash: "Mover para a lixeira",
     lastEditedBy: "Última edição por {{name}}",
     lastEdited: "Última edição",
