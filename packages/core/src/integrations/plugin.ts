@@ -1022,7 +1022,8 @@ export function createIntegrationsPlugin(
               `[telegram] setWebhook failed (${res.status}): ${data?.description ?? body}`,
             );
             const isRateLimit = res.status === 429;
-            const isDependencyFailure = res.status >= 500 || res.status === 408;
+            const isDependencyFailure =
+              res.status >= 500 || res.status === 408 || data === null;
             const statusCode = isRateLimit
               ? 429
               : isDependencyFailure
@@ -1036,10 +1037,15 @@ export function createIntegrationsPlugin(
               data.parameters.retry_after > 0
                 ? data.parameters.retry_after
                 : undefined;
+            const description =
+              data?.description ??
+              (data === null && res.ok
+                ? "invalid response"
+                : `HTTP ${res.status}`);
             return {
               ok: false,
               statusCode,
-              error: `Telegram setWebhook failed: ${data?.description ?? `HTTP ${res.status}`}`,
+              error: `Telegram setWebhook failed: ${description}`,
               ...(upstreamStatus !== undefined ? { upstreamStatus } : {}),
               ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
             };
@@ -1047,7 +1053,11 @@ export function createIntegrationsPlugin(
           return { ok: true, webhookUrl, result: data };
         } catch (err: any) {
           console.error(`[telegram] setWebhook request error: ${err.message}`);
-          return { ok: false, statusCode: 424, error: err.message };
+          return {
+            ok: false,
+            statusCode: 424,
+            error: "Telegram setWebhook request failed",
+          };
         }
       },
     };
