@@ -1,5 +1,6 @@
 import {
   cloneElement,
+  useEffect,
   useRef,
   useState,
   type MouseEvent,
@@ -64,6 +65,10 @@ export function useFreeClipsGate(action: "record" | "upload") {
   const openRef = useRef(false);
   const status = storage.data;
   const usedUp = status?.denyReason === "exhausted";
+  // What the open prompt is about can stop applying under it, such as
+  // Builder.io storage connecting; it closes rather than show a stale limit.
+  const promptApplies =
+    usedUp || (status?.mode === "hosted" && status.hostedRemaining === 1);
 
   const guard = (
     proceed: () => void,
@@ -96,6 +101,13 @@ export function useFreeClipsGate(action: "record" | "upload") {
     setPromptSeen(lastClipPromptSeen());
   };
 
+  useEffect(() => {
+    if (!open || promptApplies) return;
+    pendingRef.current = [];
+    openRef.current = false;
+    setOpen(false);
+  }, [open, promptApplies]);
+
   const anchor = (control: ReactElement) => (
     <PopoverAnchor asChild>{control}</PopoverAnchor>
   );
@@ -125,7 +137,7 @@ export function useFreeClipsGate(action: "record" | "upload") {
       }}
     >
       {children}
-      {open && status ? (
+      {open && status && promptApplies ? (
         <PopoverContent
           align={align}
           sideOffset={8}
