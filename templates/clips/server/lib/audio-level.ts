@@ -548,7 +548,12 @@ export async function ensureRecordingAudioLevel(params: {
   force?: boolean;
 }): Promise<AudioLevelResult> {
   const result = await levelRecordingAudioOnce(params);
-  if (!isRetryableAudioLevelStatus(result.status)) {
+  // "not-found" is not a final result for this clip: the lookup is scoped to
+  // the caller, so it must never clear a marker it could not verify.
+  if (
+    result.status !== "not-found" &&
+    !isRetryableAudioLevelStatus(result.status)
+  ) {
     await clearAudioLevelRepairPending(params.recordingId).catch(
       (err: unknown) => {
         console.warn("[audio-level] failed to clear repair marker", {

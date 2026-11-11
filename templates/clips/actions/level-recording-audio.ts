@@ -222,7 +222,9 @@ export default defineAction({
     if (args.all) {
       // Clips whose leveling job could not be queued come first, so a failed
       // dispatch is retried by the next sweep.
-      const repairIds = await listAudioLevelRepairIds().catch(
+      const repairIds = await listAudioLevelRepairIds(
+        MAX_TARGETS_PER_CALL - targetIds.length,
+      ).catch(
         (err: unknown) => {
           console.warn("[level-recording-audio] could not list repairs", err);
           return [] as string[];

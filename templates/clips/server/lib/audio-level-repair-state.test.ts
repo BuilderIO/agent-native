@@ -27,9 +27,10 @@ describe("audio level repair markers", () => {
   it("keeps a rejected dispatch findable until it is cleared", async () => {
     await markAudioLevelRepairPending({ recordingId: "a", reason: "503" });
     await markAudioLevelRepairPending({ recordingId: "b", reason: "503" });
-    expect(await listAudioLevelRepairIds()).toEqual(["a", "b"]);
+    expect(await listAudioLevelRepairIds(10)).toEqual(["a", "b"]);
+    expect(await listAudioLevelRepairIds(1)).toEqual(["a"]);
     await clearAudioLevelRepairPending("a");
-    expect(await listAudioLevelRepairIds()).toEqual(["b"]);
+    expect(await listAudioLevelRepairIds(10)).toEqual(["b"]);
   });
 
   it("ignores malformed markers", () => {
