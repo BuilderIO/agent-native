@@ -286,14 +286,22 @@ async function sendFederatedMemberOperation(
   const existingId = String(row.identity_id ?? "").trim();
   if (!existingAuthority && !existingId) return false;
 
+  // The hub's own member rows are the roster; there is no one else to tell.
+  if (
+    event &&
+    normalizeAuthority(
+      (await import("../server/google-oauth.js")).getOrigin(event),
+    ) === existingAuthority
+  ) {
+    return false;
+  }
   const rollout = await federationRolloutState(input.actorEmail, input.orgId);
-  if (rollout !== "enabled") {
+  if (rollout === "unavailable") {
     throw new Error(
-      rollout === "unavailable"
-        ? "Cross-app organization federation rollout is unavailable."
-        : "Cross-app organization federation is disabled for this organization.",
+      "Cross-app organization federation rollout is unavailable.",
     );
   }
+  if (rollout === "disabled") return false;
   if (!event) {
     throw new Error("Federated member changes require a request origin.");
   }

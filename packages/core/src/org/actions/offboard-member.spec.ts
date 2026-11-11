@@ -114,6 +114,45 @@ describe("offboard-member invalidates cached memberships", () => {
     });
   });
 
+  it("leaves no marker behind when the hub was not told and the local removal fails", async () => {
+    mockRevoke.mockResolvedValueOnce(false);
+    const calls: string[] = [];
+    mockExecute.mockImplementation(async ({ sql }: { sql: string }) => {
+      // raw-sql-ok: inspects the arguments of a mocked execute call; no SQL is composed or run
+      if (sql.includes("SET federation_removal_pending_at = NULL")) {
+        calls.push("clear");
+      }
+      return sql.includes("federation_removal_pending_at FROM org_members")
+        ? { rows: [{ role: "member", federation_removal_pending_at: null }] }
+        : { rows: [{ one: 1 }] };
+    });
+    mockOffboardMember.mockImplementationOnce(async () => {
+      calls.push("offboard");
+      throw new Error("cleanup failed");
+    });
+
+    await expect(offboardMemberAction.run(args, ctx)).rejects.toThrow(
+      "cleanup failed",
+    );
+
+    expect(calls).toEqual(["clear", "offboard"]);
+  });
+
+  it("keeps its marker when the hub was told and the local removal then fails", async () => {
+    mockOffboardMember.mockRejectedValueOnce(new Error("cleanup failed"));
+
+    await expect(offboardMemberAction.run(args, ctx)).rejects.toThrow(
+      "cleanup failed",
+    );
+
+    expect(
+      mockExecute.mock.calls.some(([input]) =>
+        // raw-sql-ok: inspects the arguments of a mocked execute call; no SQL is composed or run
+        input.sql.includes("SET federation_removal_pending_at = NULL"),
+      ),
+    ).toBe(false);
+  });
+
   it("offboards nothing and clears only its own marker when the revoke fails", async () => {
     mockRevoke.mockRejectedValueOnce(new Error("hub down"));
     vi.spyOn(console, "error").mockImplementation(() => {});

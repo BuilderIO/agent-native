@@ -375,6 +375,65 @@ describe("cross-app organization federation", () => {
     );
   });
 
+  describe("member operations on a linked workspace", () => {
+    const removal = {
+      orgId: "dispatch-org-1",
+      actorEmail: "owner@example.test",
+      actorRole: "owner" as const,
+      memberEmail: "removed@example.test",
+    };
+
+    beforeEach(() => {
+      executeMock.mockImplementation(async (input) => {
+        const sql = (typeof input === "string" ? input : input.sql).trim();
+        if (/FROM organizations/i.test(sql)) {
+          return {
+            rows: [
+              {
+                id: "dispatch-org-1",
+                name: "Example Org",
+                identity_authority: "https://dispatch.agent-native.com",
+                identity_id: "dispatch-org-1",
+              },
+            ],
+          };
+        }
+        throw new Error(`unexpected SQL in test: ${sql}`);
+      });
+    });
+
+    it("tells the hub nothing while the federation flag is off for the workspace", async () => {
+      evaluateFeatureFlagStrictMock.mockResolvedValue(false);
+
+      await expect(
+        revokeFederatedOrganizationMember({} as any, removal),
+      ).resolves.toBe(false);
+      expect(signA2ATokenMock).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("still refuses when the rollout state cannot be read", async () => {
+      evaluateFeatureFlagStrictMock.mockRejectedValue(new Error("db down"));
+
+      await expect(
+        revokeFederatedOrganizationMember({} as any, removal),
+      ).rejects.toThrow(
+        "Cross-app organization federation rollout is unavailable.",
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("tells no one when this app is the hub that holds the roster", async () => {
+      getOriginMock.mockReturnValue("https://dispatch.agent-native.com");
+
+      await expect(
+        revokeFederatedOrganizationMember({} as any, removal),
+      ).resolves.toBe(false);
+      expect(signA2ATokenMock).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    });
+  });
+
   describe("revokeFederatedOrganizationMemberForCurrentRequest", () => {
     const removal = {
       orgId: "dispatch-org-1",

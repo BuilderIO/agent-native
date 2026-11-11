@@ -60,8 +60,21 @@ export default defineAction({
       args: [markedAt, caller.orgId, targetEmail],
     });
     invalidateMemberOrgCaches();
+    // Pending members are hidden from the member list and refused above, so a
+    // marker is only left behind once the hub has been told; otherwise it is
+    // cleared and the admin can retry. Only the marker this call wrote is cleared.
+    const clearMarker = async () => {
+      await getDbExec().execute({
+        sql: `UPDATE org_members SET federation_removal_pending_at = NULL
+              WHERE org_id = ? AND LOWER(email) = ?
+                AND federation_removal_pending_at = ?`,
+        args: [caller.orgId, targetEmail, markedAt],
+      });
+      invalidateMemberOrgCaches();
+    };
+    let hubRevoked: boolean;
     try {
-      await revokeFederatedOrganizationMemberForCurrentRequest({
+      hubRevoked = await revokeFederatedOrganizationMemberForCurrentRequest({
         orgId: caller.orgId,
         actorEmail: caller.email,
         actorRole: caller.role,
@@ -72,21 +85,13 @@ export default defineAction({
         "[org] offboard-member: identity authority revoke failed",
         error,
       );
-      // Pending members are hidden from the member list and refused above, so a
-      // marker left behind here would leave the admin no way to retry. Only the
-      // marker this call wrote is cleared.
-      await getDbExec().execute({
-        sql: `UPDATE org_members SET federation_removal_pending_at = NULL
-              WHERE org_id = ? AND LOWER(email) = ?
-                AND federation_removal_pending_at = ?`,
-        args: [caller.orgId, targetEmail, markedAt],
-      });
-      invalidateMemberOrgCaches();
+      await clearMarker();
       fail(
         "Could not synchronize this member removal with the identity authority.",
         { errorCode: "identity_authority_unavailable", statusCode: 503 },
       );
     }
+    if (!hubRevoked) await clearMarker();
     try {
       return await offboardMember(getDbExec(), targetEmail, {
         transferTo: successorEmail,
