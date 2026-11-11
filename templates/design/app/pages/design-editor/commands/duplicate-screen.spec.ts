@@ -2304,14 +2304,10 @@ describe("runDuplicateScreen", () => {
     });
 
     await runDuplicateScreen(args, "source");
-    expect(toast.error).toHaveBeenCalledWith("Failed to fetch");
-    expect(args.duplicateRecoveryRef.current.get("index-copy.html")).toEqual(
-      expect.objectContaining({ sourceScreenId: "source" }),
-    );
 
-    await runDuplicateScreen(args, "source");
-
+    expect(toast.error).not.toHaveBeenCalled();
     expect(createFileAsync).toHaveBeenCalledTimes(1);
+    expect(args.duplicateRecoveryRef.current.size).toBe(0);
     expect(args.focusCreatedScreen).toHaveBeenCalledWith(
       "mine",
       expect.any(Object),
@@ -2329,6 +2325,58 @@ describe("runDuplicateScreen", () => {
         filename: "index-copy-2.html",
       }),
     );
+  });
+
+  it("reports a lost create of a screen without node ids and copies current markup next time", async () => {
+    const sent: string[] = [];
+    const createFileAsync = vi
+      .fn()
+      .mockImplementationOnce(async ({ content }: { content: string }) => {
+        sent.push(content);
+        throw new TypeError("Failed to fetch");
+      })
+      .mockImplementationOnce(async ({ content }: { content: string }) => {
+        sent.push(content);
+        return { id: "copy", filename: "index-copy.html" };
+      });
+    let current = "<main>old</main>";
+    const args = duplicateArgs({
+      files: [
+        {
+          id: "source",
+          filename: "index.html",
+          fileType: "html",
+          content: current,
+          createdAt: "",
+          updatedAt: "",
+        },
+      ],
+      getCurrentScreenContentForDuplicate: () => current,
+      createFileAsync:
+        createFileAsync as DuplicateScreenArgs["createFileAsync"],
+    });
+    // Another tab's copy made at the same moment has the same markup, so
+    // the lost copy can't be told from it and isn't looked for.
+    sourceRead.get = () => ({
+      files: [
+        {
+          id: "theirs",
+          filename: "index-copy.html",
+          fileType: "html",
+          content: "<main>old</main>",
+        },
+      ],
+    });
+
+    await runDuplicateScreen(args, "source");
+    expect(toast.error).toHaveBeenCalledWith("Failed to fetch");
+    expect(args.duplicateRecoveryRef.current.size).toBe(0);
+    expect(args.pendingDuplicateFilenamesRef.current.size).toBe(0);
+
+    current = "<main>NEW</main>";
+    await runDuplicateScreen(args, "source");
+
+    expect(sent).toEqual(["<main>old</main>", "<main>NEW</main>"]);
   });
 
   it("records the saved name when a retry finds the copy it already made", async () => {

@@ -160,14 +160,51 @@ describe("file creation under a free name", () => {
       id: "unrelated",
       filename: "home-copy-final.html",
     };
+    const recover = (files: (typeof mine)[]) => {
+      queryClient.setQueryData(designMetadataQueryKey("d"), {
+        files: files.map(({ id, filename, fileType }) => ({
+          id,
+          filename,
+          fileType,
+        })),
+      });
+      mocks.read.mockReset();
+      mocks.read.mockImplementation(async (_name, args) => ({
+        files: args.fileId
+          ? files.filter((file) => file.id === args.fileId)
+          : files,
+      }));
+      return reconcileCreatedFile({
+        queryClient,
+        designId: "d",
+        filename: "home-copy.html",
+        fileType: "html",
+        content: mine.content,
+        files,
+        knownFileIds: new Set(),
+      });
+    };
+
+    expect(await recover([unrelated, theirs, mine])).toEqual(mine);
+    // A paste of this copy has the same node ids, so neither can be taken.
+    const paste = { ...mine, id: "paste", filename: "home-copy-3.html" };
+    expect(await recover([theirs, mine, paste])).toBeUndefined();
+  });
+
+  it("takes a cached copy under the name asked for without asking the server", async () => {
+    const queryClient = new QueryClient();
+    const mine = {
+      id: "mine",
+      filename: "home-copy.html",
+      fileType: "html" as const,
+      content: '<p data-agent-native-node-id="copy-mine">mine</p>',
+      updatedAt: "1",
+    };
+    const paste = { ...mine, id: "paste", filename: "home-copy-2.html" };
     queryClient.setQueryData(designMetadataQueryKey("d"), {
-      files: [unrelated, theirs, mine].map(({ id, filename, fileType }) => ({
-        id,
-        filename,
-        fileType,
-      })),
+      files: [paste, mine],
     });
-    mocks.read.mockClear();
+    mocks.read.mockReset();
 
     expect(
       await reconcileCreatedFile({
@@ -176,10 +213,11 @@ describe("file creation under a free name", () => {
         filename: "home-copy.html",
         fileType: "html",
         content: mine.content,
-        files: [unrelated, theirs, mine],
+        files: [],
         knownFileIds: new Set(),
       }),
     ).toEqual(mine);
+    expect(mocks.read).not.toHaveBeenCalled();
   });
 });
 

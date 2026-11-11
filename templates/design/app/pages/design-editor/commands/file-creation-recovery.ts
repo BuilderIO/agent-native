@@ -104,9 +104,9 @@ export function createMayHaveSaved(error: unknown): boolean {
 }
 
 /**
- * A duplicate's markup carries fresh random node ids, so a file with that
- * markup is this copy. Markup without node ids, such as a URL-backed screen's,
- * is the same in every copy of a screen, so it proves nothing on its own.
+ * A duplicate's markup carries fresh random node ids, so no other copy made
+ * at the same moment has it. Markup without node ids, such as a URL-backed
+ * screen's, is the same in every copy of a screen.
  */
 export function contentIdentifiesCopy(content: string): boolean {
   return content.includes("data-agent-native-node-id=");
@@ -155,10 +155,14 @@ export async function reconcileCreatedFile({
   const cached = cachedDesignFiles(queryClient, queryKey);
   const beforeIds =
     knownFileIds ?? captureDesignFileIds({ queryClient, designId, files });
-  const identifies = contentIdentifiesCopy(content);
-  if (identifies) {
+  // Only one file can hold the name asked for, so a new file there with this
+  // copy's own node ids is this copy.
+  if (contentIdentifiesCopy(content)) {
     const cachedFile = [...(cached ?? []), ...files].find(
-      (file) => !beforeIds.has(file.id) && matchesCreatedFile(file, expected),
+      (file) =>
+        !beforeIds.has(file.id) &&
+        file.filename === filename &&
+        matchesCreatedFile(file, expected),
     );
     if (cachedFile) return cachedFile;
   }
@@ -178,12 +182,11 @@ export async function reconcileCreatedFile({
       { method: "GET" },
     );
     const file = result.files.find((item) => item.id === candidate.id);
-    if (!file || !matchesCreatedFile(file, expected)) continue;
-    if (identifies) return file;
-    matches.push(file);
+    if (file && matchesCreatedFile(file, expected)) matches.push(file);
   }
-  // Two new files with the same markup can't be told apart. Taking another
-  // tab's copy as this one's would let this one's cleanup delete it.
+  // Two new files with the same markup can't be told apart: another tab's
+  // copy of a screen without node ids, or a paste of this copy. Taking the
+  // wrong one as this copy would let this copy's cleanup or undo delete it.
   return matches.length === 1 ? matches[0] : undefined;
 }
 

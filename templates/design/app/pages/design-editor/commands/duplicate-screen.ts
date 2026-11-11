@@ -755,22 +755,24 @@ export function runDuplicateScreen(
     requestPreviewParses([annotateScreenHtmlForPersist(content, fileType)]);
   }, 0);
   const createPromise = !recoveryEntry
-    ? callCreateFile().catch((error: unknown) => {
-        // The response was lost, not refused, so the copy may be saved. The
-        // next duplicate of this screen looks for it before creating another,
-        // when the copy's markup can tell it apart from other copies.
-        if (createMayHaveSaved(error) && contentIdentifiesCopy(content)) {
-          recoveries.set(filename, {
-            sourceScreenId: screenId,
-            content,
-            fileType,
-            geometry: createdGeometry,
-            ...(screenMetadata ? { screenMetadata } : {}),
-            ...(localhostScreen ? { localhostScreen } : {}),
-            knownFileIds: [...knownFileIds],
-          });
+    ? callCreateFile().catch(async (error: unknown) => {
+        // The response was lost, not refused, so the copy may be saved. Look
+        // for it once, when its node ids can tell it from another tab's copy
+        // made at the same moment.
+        if (!createMayHaveSaved(error) || !contentIdentifiesCopy(content)) {
+          throw error;
         }
-        throw error;
+        const saved = await reconcileCreatedFile({
+          queryClient,
+          designId: id,
+          filename,
+          content,
+          fileType,
+          files,
+          knownFileIds,
+        }).catch(() => undefined);
+        if (!saved) throw error;
+        return { id: saved.id, filename: saved.filename };
       })
     : Promise.resolve().then(() => {
         if (!recoveredFileId) {
