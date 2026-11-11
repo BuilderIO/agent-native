@@ -61,7 +61,6 @@ export function useFreeClipsGate(action: "record" | "upload") {
   const t = useT();
   const storage = useVideoStorageStatus();
   const [open, setOpen] = useState(false);
-  const [promptSeen, setPromptSeen] = useState(lastClipPromptSeen);
   // The actions held while the prompt is open. A repeat of the same control
   // replaces its action; `queue` keeps each one, for drops of separate files.
   const pendingRef = useRef<(() => void)[]>([]);
@@ -89,7 +88,10 @@ export function useFreeClipsGate(action: "record" | "upload") {
   ): boolean => {
     if (!fresh) return false;
     const lastClip =
-      !promptSeen && fresh.mode === "hosted" && fresh.hostedRemaining === 1;
+      // Read at the click, so a prompt seen through another gate counts.
+      !lastClipPromptSeen() &&
+      fresh.mode === "hosted" &&
+      fresh.hostedRemaining === 1;
     if (fresh.denyReason !== "exhausted" && !lastClip) return false;
     if (lastClip) markLastClipPromptSeen();
     pendingRef.current =
@@ -105,7 +107,6 @@ export function useFreeClipsGate(action: "record" | "upload") {
     pendingRef.current = [];
     openRef.current = false;
     setOpen(false);
-    setPromptSeen(lastClipPromptSeen());
   };
 
   // When the prompt stops applying under it, held drops go ahead and a held

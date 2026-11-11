@@ -23,6 +23,7 @@ import {
 
 type StartButton = ReactElement<{
   onClick?: (event: MouseEvent<HTMLElement>) => void;
+  autoFocus?: boolean;
 }>;
 
 /**
@@ -42,6 +43,9 @@ export function LastClipStartGate({
 }) {
   const storage = useVideoStorageStatus();
   const [open, setOpenState] = useState(false);
+  // Focus moves into the prompt as it replaces Start, and back to Start when
+  // it closes without recording, so a keyboard user isn't left on the page.
+  const [restoreFocus, setRestoreFocus] = useState(false);
   const onOpenChangeRef = useRef(onOpenChange);
   onOpenChangeRef.current = onOpenChange;
   const setOpen = (next: boolean) => {
@@ -57,8 +61,12 @@ export function LastClipStartGate({
   useEffect(() => {
     if (!open || oneClipLeft) return;
     setOpenState(false);
+    setRestoreFocus(true);
     onOpenChangeRef.current?.(false);
   }, [oneClipLeft, open]);
+  useEffect(() => {
+    if (restoreFocus) setRestoreFocus(false);
+  }, [restoreFocus]);
 
   if (open && status && oneClipLeft) {
     return (
@@ -71,7 +79,11 @@ export function LastClipStartGate({
       />
     );
   }
-  if (!lastClip) return children;
+  if (!lastClip) {
+    return restoreFocus
+      ? cloneElement(children, { autoFocus: true })
+      : children;
+  }
   return cloneElement(children, {
     onClick: (event: MouseEvent<HTMLElement>) => {
       event.preventDefault();
@@ -101,14 +113,18 @@ function LastClipPrompt({
   };
   const offerRef = useRef(offer);
   offerRef.current = offer;
+  const sectionRef = useRef<HTMLElement>(null);
   useEffect(() => {
     trackFreeClipsOffer("clips_free_clips_offer_viewed", offerRef.current);
+    sectionRef.current?.focus();
   }, []);
 
   return (
     <section
+      ref={sectionRef}
+      tabIndex={-1}
       aria-labelledby="last-clip-title"
-      className="flex w-full flex-col gap-2.5 rounded-lg bg-muted p-3 text-start"
+      className="flex w-full flex-col gap-2.5 rounded-lg bg-muted p-3 text-start outline-none"
     >
       <div className="flex flex-col gap-1">
         <h2
