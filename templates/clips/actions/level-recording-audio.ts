@@ -10,7 +10,10 @@ import {
   isRetryableAudioLevelStatus,
   type AudioLevelResult,
 } from "../server/lib/audio-level.js";
-import { listAudioLevelRepairIds } from "../server/lib/audio-level-repair-state.js";
+import {
+  clearAudioLevelRepairPending,
+  listAudioLevelRepairIds,
+} from "../server/lib/audio-level-repair-state.js";
 import {
   getCurrentOwnerEmail,
   ownerEmailMatches,
@@ -308,6 +311,7 @@ export default defineAction({
         results: [] as AudioLevelResult[],
         message:
           "No recordings to level. Pass id / ids, or all: true to sweep your clips.",
+        ...(repairListError ? { repairListError } : {}),
       };
     }
 
@@ -363,6 +367,20 @@ export default defineAction({
     // Repairs still pending after this call: the ones not listed, plus listed
     // ones that were not reached or failed in a retryable way.
     const repairStatus = new Map(results.map((r) => [r.recordingId, r.status]));
+    // A listed repair whose clip is gone is the caller's own stale marker
+    // (application state is per user): drop it so it cannot stay pending.
+    for (const id of repairIds) {
+      if (repairStatus.get(id) !== "not-found") continue;
+      try {
+        await clearAudioLevelRepairPending(id);
+      } catch (err) {
+        console.warn("[level-recording-audio] could not clear stale repair", {
+          id,
+          err,
+        });
+        repairStatus.delete(id);
+      }
+    }
     const repairsRemaining =
       repairsLeftUnlisted +
       repairIds.filter((id) => {
