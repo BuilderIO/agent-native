@@ -4541,6 +4541,10 @@ export function App({
     if (stoppedDuringStart) return null;
 
     console.error("[clips-popover] handleStartRecording failed:", startError);
+    // The server may have refused because the free clips ran out since the
+    // last probe, such as on another device; read them again so the limit
+    // card replaces a stale count.
+    void refreshVideoStorageStatus();
 
     if (startError instanceof ScreenRecordingPermissionError) {
       setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);

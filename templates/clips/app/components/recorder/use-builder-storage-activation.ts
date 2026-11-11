@@ -239,11 +239,15 @@ export function useBuilderStorageActivation({
             ? "loading"
             : !scope
               ? "not-allowed"
-              : accountExists
-                ? "account-exists"
-                : builder.error || storageTimedOut
-                  ? "failed"
-                  : "idle";
+              : // A new account counts as existing as soon as it's made, so a
+                // setup that then timed out has to show before the sign-in.
+                storageTimedOut
+                ? "failed"
+                : accountExists
+                  ? "account-exists"
+                  : builder.error
+                    ? "failed"
+                    : "idle";
 
   return {
     state,
