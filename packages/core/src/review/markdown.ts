@@ -737,10 +737,8 @@ function phrasingToMarkdown(
     // Marks still open stay open, from the outside in, so `***a**b*` isn't
     // closed and opened again as `***a****b*`, which reads otherwise.
     let kept = 0;
-    while (
-      kept < stack.length &&
-      marks.some((mark) => sameMark(mark, stack[kept].mark))
-    ) {
+    for (const frame of stack) {
+      if (!marks.some((mark) => sameMark(mark, frame.mark))) break;
       kept += 1;
     }
     stack.length = kept;
@@ -753,12 +751,12 @@ function phrasingToMarkdown(
     );
     opening.sort((a, b) => (runs.get(b) ?? 0) - (runs.get(a) ?? 0));
     for (const mark of opening) {
-      const parent = stack.length ? stack[stack.length - 1].node : root;
+      const parent = stack.at(-1)?.node ?? root;
       const created = markNode(mark);
       parent.children.push(created);
       stack.push({ mark, node: created });
     }
-    const parent = stack.length ? stack[stack.length - 1].node : root;
+    const parent = stack.at(-1)?.node ?? root;
     const leaf = leafToMarkdown(node);
     if (leaf) parent.children.push(leaf);
   });
@@ -772,10 +770,7 @@ function markRun(
   mark: CommentDocMark,
 ): number {
   let end = from;
-  while (
-    end < nodes.length &&
-    nodes[end].marks?.some((other) => sameMark(other, mark))
-  ) {
+  while (itemAt(nodes, end)?.marks?.some((other) => sameMark(other, mark))) {
     end += 1;
   }
   return end - from;
@@ -880,7 +875,7 @@ function bareAddresses(nodes: readonly CommentDocNode[]): CommentDocNode[] {
       !closing ||
       // Marks written between them would join the punctuation to it.
       (closing[1] && after?.marks?.length) ||
-      !readsAsLink(text, href, closing[1])
+      !readsAsLink(text, href, itemAt(closing, 1) ?? "")
     ) {
       return node;
     }
