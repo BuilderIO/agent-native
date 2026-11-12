@@ -7,6 +7,7 @@ import type {
   AgentWidget,
 } from "@agent-native/agentkit/protocol";
 import {
+  ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
@@ -93,6 +94,68 @@ describe("AgentKitActionWidget", () => {
       }
     },
   );
+
+  it("leaves team progress to the task group once the thread tracks those tasks", async () => {
+    const toolCall: AgentToolCall = {
+      id: "team-1",
+      name: "agent-teams",
+      input: { action: "status", taskId: "task-1" },
+      output: {
+        taskId: "task-1",
+        threadId: "child-1",
+        name: "Pricing research",
+        status: "completed",
+      },
+      status: "completed",
+    };
+    const widget: AgentWidget = {
+      id: "team-1:chat-ui",
+      kind: ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
+      data: { toolCallId: toolCall.id, toolName: toolCall.name },
+    };
+    const render = async (tracked: boolean) => {
+      const client = new AgentKitClient({
+        transport: {
+          async startRun() {
+            return { runId: "run-1" };
+          },
+          async *subscribeToRun() {},
+          async cancelRun() {},
+          async getThreadSnapshot() {
+            return {
+              id: "thread-1",
+              createdAt: "2026-09-26T00:00:00.000Z",
+              updatedAt: "2026-09-26T00:00:00.000Z",
+              messages: [],
+              toolCalls: [toolCall],
+              ...(tracked
+                ? {
+                    tasks: [
+                      {
+                        id: "task-1",
+                        title: "Pricing research",
+                        status: "completed" as const,
+                      },
+                    ],
+                  }
+                : {}),
+            };
+          },
+        },
+      });
+      await client.loadThread("thread-1");
+      return renderToStaticMarkup(
+        <AgentNativeI18nProvider catalog={catalog}>
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <AgentKitActionWidget value={widget} threadId="thread-1" />
+          </AgentKitProvider>
+        </AgentNativeI18nProvider>,
+      );
+    };
+
+    expect(await render(true)).toBe("");
+    expect(await render(false)).not.toBe("");
+  });
 
   it("resolves the renderer with stored action args and structured result", async () => {
     const toolCall: AgentToolCall = {

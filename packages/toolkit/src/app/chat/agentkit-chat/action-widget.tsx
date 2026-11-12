@@ -1,7 +1,9 @@
 import type { AgentWidget } from "@agent-native/agentkit/protocol";
 import {
+  ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
+  normalizeAgentTeamProgressResult,
 } from "@agent-native/core/action-ui";
 
 import { AgentWidgetView } from "../../agentkit/react/components.js";
@@ -40,6 +42,17 @@ export function AgentKitActionWidget({
   if (!tool) return <AgentWidgetView value={widget} threadId={threadId} />;
 
   const resultJson = tool.output;
+  // The thread's task group already shows these tasks and their status.
+  const teamTasks =
+    widget.kind === ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER
+      ? normalizeAgentTeamProgressResult(resultJson)?.tasks
+      : undefined;
+  if (
+    teamTasks?.length &&
+    teamTasks.every((task) => task.taskId in thread.tasks)
+  ) {
+    return null;
+  }
   const messageId = thread.widgetMessageIds[widget.id];
   const attachedChangeWidgets =
     widget.kind === ACTION_CHAT_UI_RECORD_CHANGE_RENDERER && messageId

@@ -2267,6 +2267,13 @@
     white-space: nowrap;
   }
 
+  /* Only the room the title leaves, so a long detail never cuts the title. */
+  .agentkit-task-detail {
+    flex: 1 1 0;
+    min-inline-size: 0;
+    text-align: end;
+  }
+
   .agentkit-activity-label {
     min-inline-size: 0;
     overflow: hidden;

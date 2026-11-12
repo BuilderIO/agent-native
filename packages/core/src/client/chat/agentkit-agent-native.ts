@@ -2149,6 +2149,14 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
     string,
     { index: number; firstSequence: number; lastSequence: number }
   >();
+  // A later interaction with the same id replaces the earlier one, as streamed
+  // text does, so only the last is kept.
+  const latestInteractions = new Map<string, AgentEvent>();
+  for (const event of events) {
+    if (event.type === "agent.interaction") {
+      latestInteractions.set(`${event.runId}:${event.interaction.id}`, event);
+    }
+  }
   for (const event of events) {
     if (!seenRuns.has(event.runId)) {
       seenRuns.add(event.runId);
@@ -2279,7 +2287,10 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
       lastOmissionByRun.delete(event.runId);
       continue;
     }
-    if (event.type === "agent.interaction") {
+    if (
+      event.type === "agent.interaction" &&
+      latestInteractions.get(`${event.runId}:${event.interaction.id}`) === event
+    ) {
       persisted.push({
         ...base(),
         type: event.type,
@@ -2289,10 +2300,9 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
       continue;
     }
     if (
-      (event.type === "task.created" ||
-        event.type === "task.updated" ||
-        event.type === "task.completed") &&
-      event.task.assignedAgentId
+      event.type === "task.created" ||
+      event.type === "task.updated" ||
+      event.type === "task.completed"
     ) {
       persisted.push({
         ...base(),

@@ -188,7 +188,7 @@ export function formatGuidedAnswersForAgent(
 
 export const SETTLED_ANSWERS_INSTRUCTION = [
   "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.",
-  "Open your reply with a short summary: one line per question pairing the question with the user's answer in plain words. For a question marked no answer, say so and state the assumption you will use. Then close with one line saying what you will do next.",
+  "Open your reply with a short summary: one line per question pairing the question with the user's answer in plain words. For a question marked no answer, say so and state the assumption you will use. Then close with one line saying what you will do next. Give this summary once: after tool calls or a continuation, go on from where you were without restating it.",
 ].join(" ");
 
 function defaultGuidedSubmitContext(formattedAnswers: string): string {

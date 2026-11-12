@@ -17825,10 +17825,12 @@ export function createProductionAgentHandler(
             await import("../resources/agents.js");
           const customResults = await Promise.allSettled(
             customAgentRefs.map(async (ref, index) => {
+              const agentCallId = randomUUID();
               send({
                 type: "agent_call",
                 agent: ref.name,
                 status: "start",
+                agentCallId,
               });
               try {
                 const profile = await findAccessibleCustomAgent(
@@ -17920,6 +17922,7 @@ export function createProductionAgentHandler(
                         type: "agent_call_text",
                         agent: ref.name,
                         text: event.text,
+                        agentCallId,
                       });
                     } else if (
                       event.type === "tool_start" ||
@@ -17977,6 +17980,7 @@ export function createProductionAgentHandler(
                   type: "agent_call",
                   agent: ref.name,
                   status: "done",
+                  agentCallId,
                 });
                 return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent">\n${responseText}\n</agent-response>`;
               } catch (err: any) {
@@ -17984,6 +17988,7 @@ export function createProductionAgentHandler(
                   type: "agent_call",
                   agent: ref.name,
                   status: "error",
+                  agentCallId,
                 });
                 const message =
                   userFacingLlmCredentialError(err, {

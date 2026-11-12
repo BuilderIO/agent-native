@@ -5029,6 +5029,74 @@ describe("createAgentNativeChatRuntime", () => {
     ]);
   });
 
+  it("streams a delegated agent's reply into one message row", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          {
+            type: "agent_call",
+            agent: "Researcher",
+            status: "start",
+            agentCallId: "call-1",
+            seq: 1,
+          },
+          {
+            type: "agent_call_text",
+            agent: "Researcher",
+            agentCallId: "call-1",
+            text: "The largest",
+            seq: 2,
+          },
+          {
+            type: "agent_call_text",
+            agent: "Researcher",
+            agentCallId: "call-1",
+            text: " lake is Ladoga.",
+            seq: 3,
+          },
+          {
+            type: "agent_call",
+            agent: "Researcher",
+            status: "start",
+            agentCallId: "call-2",
+            seq: 4,
+          },
+          {
+            type: "agent_call_text",
+            agent: "Researcher",
+            agentCallId: "call-2",
+            text: "Second call.",
+            seq: 5,
+          },
+          { type: "done" },
+        ]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-stream",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession({ id: "thread-stream" })).startTurn({
+          prompt: "Ask the researcher",
+        })
+      ).events,
+    );
+
+    const messages = events.flatMap((event) =>
+      event.type === "interaction" && event.interaction.kind === "messaged"
+        ? [[event.interaction.id, event.interaction.detail]]
+        : [],
+    );
+    expect(messages).toEqual([
+      ["call-1:message", "The largest"],
+      ["call-1:message", "The largest lake is Ladoga."],
+      ["call-2:message", "Second call."],
+    ]);
+  });
+
   it("normalizes delegated-agent activity and task lifecycles without flattening them", async () => {
     const snapshot = {
       kind: "agent-native/agent-activity",
@@ -5161,7 +5229,7 @@ describe("createAgentNativeChatRuntime", () => {
     expect(events[5]).toMatchObject({
       type: "interaction",
       interaction: {
-        id: "agent-call-1:message:3",
+        id: "agent-call-1:message",
         kind: "messaged",
         detail: "Found the runtime boundary.",
       },
@@ -5196,6 +5264,52 @@ describe("createAgentNativeChatRuntime", () => {
       },
     });
     expect(events.at(-1)).toMatchObject({ type: "done" });
+  });
+
+  it("titles a background task by its name and keeps its description as detail", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_task",
+          taskId: "named",
+          threadId: "child-1",
+          description: "Research pricing pages",
+          name: "Pricing research",
+          status: "running",
+        },
+        {
+          type: "agent_task",
+          taskId: "unnamed",
+          threadId: "child-2",
+          description: "Write the hero copy",
+          status: "completed",
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-tasks",
+      fetch: fetchMock as typeof fetch,
+    });
+    const events = await drain(
+      (
+        await (await runtime.createSession({ id: "thread-tasks" })).startTurn({
+          prompt: "Plan it",
+        })
+      ).events,
+    );
+    const tasks = events.flatMap((event) =>
+      event.type === "task" ? [event] : [],
+    );
+    expect(tasks[0]?.task).toMatchObject({
+      title: "Pricing research",
+      detail: "Research pricing pages",
+    });
+    expect(tasks[1]).toMatchObject({
+      operation: "complete",
+      task: { title: "Write the hero copy", status: "completed" },
+    });
+    expect(tasks[1]?.task).not.toHaveProperty("detail");
   });
 
   it("maps a failed agent_call to a reason key instead of the app name or raw code", async () => {

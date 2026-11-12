@@ -3771,6 +3771,8 @@ interface AgentNativeMessageProjectionState {
     omitFromPersistedHistory?: boolean;
     /** Delegated calls that streamed an activity row, which reports their end. */
     activityParticipants?: Set<string>;
+    /** Text each delegated call has streamed so far. */
+    agentCallText?: Map<string, string>;
     /** Ids given to tool input that streamed without one, by tool name. */
     pendingToolInputIds?: Map<string, string>;
   };
@@ -4152,6 +4154,7 @@ function mapAgentNativeEvent(
       connectionPending: boolean;
       omitFromPersistedHistory?: boolean;
       activityParticipants?: Set<string>;
+      agentCallText?: Map<string, string>;
       pendingToolInputIds?: Map<string, string>;
     };
   },
@@ -4708,15 +4711,19 @@ function mapAgentNativeEvent(
   if (ev.type === "agent_call_text") {
     const agent = ev.agent ?? "agent";
     const participantId = agentNativeParticipantId(ev);
+    // Text streams in pieces; each piece extends the call's one message row.
+    const texts = (input.message.agentCallText ??= new Map());
+    const text = (texts.get(participantId) ?? "") + (ev.text ?? "");
+    texts.set(participantId, text);
     return [
       {
         type: "interaction",
         ...base,
         interaction: {
-          id: `${participantId}:message:${ev.seq ?? "current"}`,
+          id: `${participantId}:message`,
           kind: "messaged",
           participantId,
-          detail: ev.text,
+          detail: text,
           scope: "external",
           source: agentNativeAgentReference(agent),
         },
@@ -4769,11 +4776,11 @@ function mapAgentNativeEvent(
         operation: agentNativeTaskOperation(status),
         task: {
           id: ev.taskId,
-          title: ev.description ?? "Agent task",
+          title: ev.name || ev.description || "Agent task",
           kind: "sub-agent",
           status,
           threadId: ev.threadId,
-          detail: ev.description,
+          ...(ev.name && ev.description ? { detail: ev.description } : {}),
         },
       },
     ];

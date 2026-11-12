@@ -549,6 +549,7 @@ type AgentChatEventPayload =
       taskId: string;
       threadId: string;
       description: string;
+      name?: string;
       status: "running" | "completed" | "errored";
     }
   | {

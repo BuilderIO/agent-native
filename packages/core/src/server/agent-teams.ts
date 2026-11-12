@@ -1924,6 +1924,7 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     taskId,
     threadId: thread.id,
     description: opts.description,
+    ...(opts.name ? { name: opts.name } : {}),
     status: "running",
   });
 
