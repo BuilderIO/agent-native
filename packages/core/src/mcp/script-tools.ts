@@ -55,8 +55,9 @@ export const MCP_SCRIPT_LIMITS = Object.freeze({
   /** Characters of the value a script returns, as the server copies it out
    *  of the sandbox, where a part the value repeats counts each time. */
   returnChars: 4 * 1024 * 1024,
-  /** The same for the arguments of one call. */
-  argumentChars: 1024 * 1024,
+  /** UTF-8 bytes of the arguments of one call, measured the same way, so
+   *  the sandbox's own byte limit on what it sends is never the tighter. */
+  argumentBytes: 1024 * 1024,
   /** Characters of the text `run-script` returns. */
   resultChars: 30_000,
   /** Scripts running at once in this process; another gets a busy error. */
@@ -844,11 +845,16 @@ export function searchMcpScriptActions(
   const collisions = [...catalog.collisions];
   for (const [fn, actions] of collisions.slice(0, MAX_SEARCH_COLLISION_NOTES)) {
     const more = actions.length - MAX_COLLISION_ACTIONS_NAMED;
+    const named = actions
+      .slice(0, MAX_COLLISION_ACTIONS_NAMED)
+      .map((action) => oneLine(action, 120));
     const sharing =
       more > 0
-        ? `${actions.slice(0, MAX_COLLISION_ACTIONS_NAMED).join(", ")} and ${more} more actions`
-        : actions.join(" and ");
-    lines.push(`// api.${fn} is not available: ${sharing} share that name.`);
+        ? `${named.join(", ")} and ${more} more actions`
+        : named.join(" and ");
+    lines.push(
+      `// api.${oneLine(fn, 120)} is not available: ${sharing} share that name.`,
+    );
   }
   if (collisions.length > MAX_SEARCH_COLLISION_NOTES) {
     lines.push(
@@ -974,7 +980,10 @@ function loadRuntime() {
           maxConsoleOutputBytes: 64 * 1024,
           // The prelude and wrapper add a few kilobytes to the model's code.
           maxSourceBytes: MCP_SCRIPT_LIMITS.sourceBytes + 16 * 1024,
-          maxHostFunctionArgumentsBytes: 1024 * 1024,
+          // What the sandbox sends holds a repeated part once, so it is never
+          // longer than the server's copy; the room past it is its framing.
+          maxHostFunctionArgumentsBytes:
+            MCP_SCRIPT_LIMITS.argumentBytes + 64 * 1024,
           maxHostFunctionOutputBytes:
             MCP_SCRIPT_LIMITS.callResultBytes + 64 * 1024,
           // Calls past the script limit are refused by the bridge itself;
@@ -1394,7 +1403,12 @@ export async function runMcpScript(
       let args: unknown;
       let argumentProblem: string | undefined;
       try {
-        plainResultValue(rawArgs, MCP_SCRIPT_LIMITS.argumentChars, "refuse");
+        plainResultValue(
+          rawArgs,
+          MCP_SCRIPT_LIMITS.argumentBytes,
+          "refuse",
+          utf8Bytes,
+        );
         const held =
           rawArgs === undefined ? undefined : nonJsonArgument(rawArgs);
         if (held !== undefined) {
@@ -1406,7 +1420,7 @@ export async function runMcpScript(
       } catch (error) {
         argumentProblem =
           error instanceof McpScriptValueTooLargeError
-            ? `api.${fn} takes at most ${MCP_SCRIPT_LIMITS.argumentChars} characters of arguments.`
+            ? `api.${fn} takes at most ${MCP_SCRIPT_LIMITS.argumentBytes} bytes of arguments.`
             : error instanceof McpScriptValueTooDeepError
               ? `api.${fn} takes arguments nested at most ${MAX_RESULT_DEPTH} levels deep.`
               : `api.${fn} takes one object of JSON data.`;
@@ -1814,8 +1828,9 @@ function nonJsonArgument(value: unknown): string | undefined {
  * The sandbox sends a part a value repeats once, and JSON spells out every
  * copy, so a short script can return something enormous. Every node, key
  * and string the copy holds, a converted one included, is charged as often
- * as it appears, at its length before JSON escapes it, and past `maxChars`
- * this throws `McpScriptValueTooLargeError`. Past 64 levels a part is
+ * as it appears, at its length before JSON escapes it (by `measure`, in
+ * UTF-16 units unless told otherwise), and past `maxChars` this throws
+ * `McpScriptValueTooLargeError`. Past 64 levels a part is
  * marked, or with `tooDeep: "refuse"` this throws
  * `McpScriptValueTooDeepError`, so that a caller about to serialize the
  * original has measured all of it.
@@ -1824,6 +1839,7 @@ export function plainResultValue(
   value: unknown,
   maxChars: number = MCP_SCRIPT_LIMITS.returnChars,
   tooDeep: "mark" | "refuse" = "mark",
+  measure: (text: string) => number = (text) => text.length,
 ): unknown {
   const onPath = new Set<object>();
   let spent = 0;
@@ -1832,7 +1848,7 @@ export function plainResultValue(
     if (spent > maxChars) throw new McpScriptValueTooLargeError(maxChars);
   };
   const text = (out: string) => {
-    charge(out.length + 2);
+    charge(measure(out) + 2);
     return out;
   };
   // Each member costs at least its separator, so a collection longer than
@@ -1924,7 +1940,7 @@ export function plainResultValue(
         const out: Array<[unknown, unknown]> = [];
         for (const [key, member] of item) {
           if (stringKeys && typeof key === "string") {
-            charge(key.length + 4);
+            charge(measure(key) + 4);
             out.push([key, walk(member, depth + 1)]);
           } else {
             charge(3);
@@ -1937,7 +1953,7 @@ export function plainResultValue(
       const out: Array<[string, unknown]> = [];
       for (const [key, member] of Object.entries(item)) {
         if (member === undefined) continue;
-        charge(key.length + 4);
+        charge(measure(key) + 4);
         out.push([key, walk(member, depth + 1)]);
       }
       // Assigning an own "__proto__" key would set the copy's prototype and
