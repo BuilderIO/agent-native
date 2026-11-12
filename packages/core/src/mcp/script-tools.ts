@@ -83,7 +83,14 @@ export const MCP_SCRIPT_LIMITS = Object.freeze({
   lingeringCalls: 32,
   /** Of those, the calls one caller's stopped runs may leave running. */
   lingeringCallsPerCaller: 16,
+  /** Refused calls one run records in the audit log, each on its own row;
+   *  one more row says the run's later refusals are left out. */
+  recordedDenials: 8,
 });
+
+/** The name the audit log keeps for a call to no action: the name the
+ *  script gave is its own text, which may carry anything it read. */
+const UNKNOWN_FUNCTION = "(unknown)";
 
 /**
  * Tools that run other code, other tools or an agent. A script that reached
@@ -1294,6 +1301,7 @@ export async function runMcpScript(
   const hasStopped = () => stopped;
   let callCount = 0;
   let readBytes = 0;
+  let denialCount = 0;
   // The sandbox can't cancel a call it started, so a run that stops with
   // calls in flight (an action, or the audit write for a refusal) keeps its
   // slot until they settle. Otherwise runs that time out could pile up work
@@ -1367,6 +1375,36 @@ export async function runMcpScript(
       );
     }
     const { runner, RunError } = loaded;
+
+    // Records a refused call. Each is a row in the audit log, so a script
+    // refused in a loop would write one per call; a run records its first
+    // few, and one more row says it left the rest out.
+    const recordRefusal = async (denial: McpScriptDenial) => {
+      denialCount += 1;
+      if (denialCount > MCP_SCRIPT_LIMITS.recordedDenials + 1) return;
+      const named =
+        denial.action === undefined
+          ? {
+              functionName: UNKNOWN_FUNCTION,
+              message: `api.${UNKNOWN_FUNCTION} ${DENIAL_MESSAGES[denial.reason]}.`,
+            }
+          : {};
+      const recorded = { ...denial, ...named };
+      try {
+        await input.recordDenial(
+          denialCount > MCP_SCRIPT_LIMITS.recordedDenials
+            ? {
+                ...recorded,
+                message: `${recorded.message} This run was refused more than ${MCP_SCRIPT_LIMITS.recordedDenials} calls, so its later refusals are left out of the audit log.`,
+              }
+            : recorded,
+        );
+      } catch (error) {
+        console.error(
+          `[mcp] Could not record a script call denial: ${describeThrownForLog(error)}`,
+        );
+      }
+    };
 
     // One call from the script's `api`, answered as the guest's `__call`
     // reads it.
@@ -1468,18 +1506,16 @@ export async function runMcpScript(
       // so the run's status lists it in order.
       const recordDenial = async (denial: McpScriptDenial) => {
         recordMcpScriptPolicyDenial(denial.reason);
-        try {
-          await input.recordDenial(denial);
-        } catch (error) {
-          console.error(
-            `[mcp] Could not record a script call denial: ${describeThrownForLog(error)}`,
-          );
-        }
+        await recordRefusal(denial);
         if (!input.writes) return;
         try {
           await input.writes.recordDenial({
             seq: slot,
-            functionName: denial.functionName,
+            // As in the audit log, a call to no action keeps a fixed name.
+            functionName:
+              denial.action === undefined
+                ? UNKNOWN_FUNCTION
+                : denial.functionName,
             action: denial.action,
             reason: denial.reason,
             args: denial.args,

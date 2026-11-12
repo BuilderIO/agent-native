@@ -826,9 +826,69 @@ describe("runMcpScript", () => {
       { id: "doc_1", link: "[hidden embed URL]" },
       {},
     ]);
-    expect(denials[2]!.functionName).toBe("[hidden embed URL]");
+    expect(denials[2]!.functionName).toBe("(unknown)");
     expect(JSON.stringify(payload)).not.toContain("leaked-ticket");
     expect(JSON.stringify(denials)).not.toContain("leaked-ticket");
+  });
+
+  it("records a fixed name, not the script's, for a call to no action", async () => {
+    const { run, denials, calls } = runner({ "get-document": entry() });
+    const payload = await run(`
+      try { await api["password=hunter2-secret"]({}); } catch {}
+      try { await api.notAvailable({}); } catch {}
+    `);
+    expect(calls).toEqual([]);
+    expect(
+      denials.map((denial) => [
+        denial.functionName,
+        denial.action,
+        denial.message,
+      ]),
+    ).toEqual([
+      [
+        "(unknown)",
+        undefined,
+        "api.(unknown) is not an action this script can call.",
+      ],
+      [
+        "(unknown)",
+        undefined,
+        "api.(unknown) is not an action this script can call.",
+      ],
+    ]);
+    expect(JSON.stringify(denials)).not.toContain("hunter2");
+    // The caller still sees the name it used.
+    expect(payload.calls.map((call) => call.function)).toEqual([
+      "password=hunter2-secret",
+      "notAvailable",
+    ]);
+  });
+
+  it("records a bounded number of one run's refused calls", async () => {
+    const { run, denials } = runner({ "get-document": entry() });
+    const payload = await run(`
+      let refused = 0;
+      for (let i = 0; i < 40; i++) {
+        try { await api.notAvailable({ i }); } catch { refused += 1; }
+      }
+      return refused;
+    `);
+    expect(payload.result).toBe(40);
+    expect(denials).toHaveLength(MCP_SCRIPT_LIMITS.recordedDenials + 1);
+    expect(denials.map((denial) => denial.args)).toEqual(
+      Array.from({ length: MCP_SCRIPT_LIMITS.recordedDenials + 1 }, (_, i) => ({
+        i,
+      })),
+    );
+    expect(denials.at(-2)!.message).toBe(
+      "api.(unknown) is not an action this script can call.",
+    );
+    expect(denials.at(-1)!.message).toBe(
+      `api.(unknown) is not an action this script can call. This run was refused more than ${MCP_SCRIPT_LIMITS.recordedDenials} calls, so its later refusals are left out of the audit log.`,
+    );
+    // Each run has its own count.
+    await run(`try { await api.notAvailable({}); } catch {}`);
+    expect(denials).toHaveLength(MCP_SCRIPT_LIMITS.recordedDenials + 2);
   });
 
   it("stops calls past the call limit", async () => {
@@ -1399,7 +1459,7 @@ describe("runMcpScript", () => {
       return (await __host.call(a, {})).code;
     `);
     expect(payload.result).toBe("unknown-function");
-    expect(denials.map((denial) => denial.functionName)).toEqual(["(unnamed)"]);
+    expect(denials.map((denial) => denial.functionName)).toEqual(["(unknown)"]);
   });
 
   it("holds console limits the script cannot reach around", async () => {
@@ -1674,6 +1734,7 @@ describe("script writes", () => {
       [];
     const abandoned: number[] = [];
     const ledgerDenials: Array<{ seq: number; reason: string }> = [];
+    const ledgerNames: string[] = [];
     let settledOnce: () => void = () => {};
     const settledSignal = new Promise<void>((resolve) => {
       settledOnce = resolve;
@@ -1695,9 +1756,17 @@ describe("script writes", () => {
       },
       recordDenial: async (denial) => {
         ledgerDenials.push({ seq: denial.seq, reason: denial.reason });
+        ledgerNames.push(denial.functionName);
       },
     };
-    return { writes, settled, settledSignal, abandoned, ledgerDenials };
+    return {
+      writes,
+      settled,
+      settledSignal,
+      abandoned,
+      ledgerDenials,
+      ledgerNames,
+    };
   }
 
   function writeRunner(
@@ -1936,7 +2005,7 @@ describe("script writes", () => {
   });
 
   it("records a denied call in the run's ledger at its place in the run", async () => {
-    const { writes, ledgerDenials } = fakeGate();
+    const { writes, ledgerDenials, ledgerNames } = fakeGate();
     const { run } = writeRunner(
       { "save-doc": writeEntry(), "get-doc": entry() },
       writes,
@@ -1948,6 +2017,8 @@ describe("script writes", () => {
       return null;
     `);
     expect(ledgerDenials).toEqual([{ seq: 1, reason: "unknown-function" }]);
+    // A call to no action keeps a fixed name, as in the audit log.
+    expect(ledgerNames).toEqual(["(unknown)"]);
   });
 
   it("settles a write still in flight when the script times out", async () => {
