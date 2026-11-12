@@ -2124,6 +2124,7 @@ describe("closing a page this tab never edited", () => {
     act(() => mounted(mounted(fixture.editor).onRemoteSnapshotChange)(held));
     // The change settles before the tab saves or closes.
     await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    return written;
   }
 
   it("closes a page another writer rewrote with blank lines", async () => {
@@ -2149,6 +2150,26 @@ describe("closing a page this tab never edited", () => {
     const saved = mounted(fixture.save.mock.calls[0])[0];
     expect(saved).toMatchObject({ title: "Renamed row" });
     expect(saved).not.toHaveProperty("content");
+  });
+
+  it("journals a failed rename of a page another writer rewrote on its stored body", async () => {
+    const written = await adoptBlankLineRewrite();
+    fixture.save.mockRejectedValue(
+      new Error("Action update-document failed (500)"),
+    );
+    pasteTitle("Renamed row");
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(fixture.save).toHaveBeenCalledOnce();
+    // Recovery compares the journaled body with the stored one exactly, so
+    // the editor's spelling would come back as a body edit nobody made.
+    const journal = Object.keys(localStorage)
+      .filter((key) => key.startsWith("content-page-draft-journal-v1:"))
+      .map((key) => JSON.parse(mounted(localStorage.getItem(key))));
+    expect(journal).toHaveLength(1);
+    expect(mounted(journal[0]).snapshot).toMatchObject({
+      title: "Renamed row",
+      content: written,
+    });
   });
 
   it.each([

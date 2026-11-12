@@ -4064,6 +4064,9 @@ function PageEditorSessionBody({
       if (bodyWritesThroughLiveCopyRef.current) return;
       const scope = journalScope();
       if (!scope) return;
+      // Recovery compares a journaled body with the stored one exactly, so the
+      // editor's spelling of an unedited body would come back as a body edit.
+      content = bodyToSave(content);
       const authored =
         prepared?.authoredContentIntent ??
         (authoredContentIntentRef.current?.editGeneration === editGeneration
@@ -4110,7 +4113,13 @@ function PageEditorSessionBody({
         }
       }
     },
-    [isLinkedLocalSourceDocument, isLocalFileDocument, journalScope, t],
+    [
+      bodyToSave,
+      isLinkedLocalSourceDocument,
+      isLocalFileDocument,
+      journalScope,
+      t,
+    ],
   );
   const clearConfirmedDraftJournal = useCallback(
     (editGeneration: number) => {
