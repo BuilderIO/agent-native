@@ -52,7 +52,7 @@ export default defineAction({
     // A page loaded before Can view sends locked: true to limit agents; that
     // leaves a page someone has set to Can view where it is, decided in the
     // write so a level set meanwhile still counts.
-    const [row] = await getDb()
+    const updated = await getDb()
       .update(schema.documents)
       .set({
         agentTextLocked:
@@ -64,6 +64,7 @@ export default defineAction({
       })
       .where(eq(schema.documents.id, id))
       .returning({ agentTextLocked: stored });
+    const row = updated.shift();
     const agentLevel =
       level ??
       (row
