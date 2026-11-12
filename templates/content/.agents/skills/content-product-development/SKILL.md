@@ -77,10 +77,15 @@ Load the domain skill for the work, especially `actions`, `security`, `sharing`,
 The advisory Content product conformance workflow has been retired. The
 standalone validator can still check a fenced `content_product_impact` YAML
 block in a pull request body. To run it from the repo root, set
-`GITHUB_EVENT_PATH` to a JSON file containing the `pull_request` object,
-including its `body`, `base.sha`, and `head.sha`. Set `CONTENT_IMPACT_BASE_SHA`
-and `CONTENT_IMPACT_HEAD_SHA` to those same revisions and fetch both commits
-locally. Then run `pnpm content-product-impact`.
+`GITHUB_EVENT_PATH` to a JSON file with this webhook payload shape:
+
+```json
+{"pull_request":{"body":"<PR body>","base":{"sha":"<base SHA>"},"head":{"sha":"<head SHA>"}}}
+```
+
+Set `CONTENT_IMPACT_BASE_SHA` and `CONTENT_IMPACT_HEAD_SHA` to the full commit
+SHAs in that payload, fetch both commits locally, and run
+`pnpm content-product-impact`.
 
 The validator snapshots the product catalog and skill. Links to files outside
 that snapshot can make the run fail during catalog validation.
