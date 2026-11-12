@@ -1128,10 +1128,18 @@ export function ReviewCanvasPins({
     null,
   );
   // Each box keeps its draft in the browser, so a reload doesn't lose it: a
-  // reply per thread, an edit per comment, and a new pin per screen.
+  // reply per thread, an edit per comment, and a new pin per screen, apart
+  // for each account.
+  const { session } = useSession();
+  const sessionOrgId = session?.orgId;
   const draftScope = useMemo<ReviewCommentDraftScope>(
-    () => ({ resourceType, resourceId, userEmail: currentUserEmail }),
-    [currentUserEmail, resourceId, resourceType],
+    () => ({
+      resourceType,
+      resourceId,
+      userEmail: currentUserEmail,
+      orgId: sessionOrgId,
+    }),
+    [currentUserEmail, resourceId, resourceType, sessionOrgId],
   );
   const replyDraftState = useReviewCommentDraft(
     draftScope,
@@ -1169,6 +1177,11 @@ export function ReviewCanvasPins({
   );
   const newDraftRef = useRef(newDraftState);
   newDraftRef.current = newDraftState;
+  const draftPinRef = useRef(draftPin);
+  draftPinRef.current = draftPin;
+  // The pin open when the screen changed belongs to the screen before, so it
+  // is never saved under the next one's draft.
+  const leftDraftPinRef = useRef<ReviewDraftPin | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<ReviewComment | null>(
     null,
   );
@@ -2107,6 +2120,7 @@ export function ReviewCanvasPins({
   }, []);
 
   useEffect(() => {
+    leftDraftPinRef.current = draftPinRef.current;
     cancelDraft();
     setActiveThreadId(null);
     setExpandedClusterKey(null);
@@ -2138,10 +2152,19 @@ export function ReviewCanvasPins({
     setDraftPin({ ...pin, draft: draft.text, resolutionTarget: "human" });
     setDraftMentions(draft.mentions);
     setDraftAttachments(draft.images);
-  }, [active, currentUserEmail, hidden, resourceId, screenAnchorId, targetId]);
+  }, [
+    active,
+    currentUserEmail,
+    hidden,
+    resourceId,
+    screenAnchorId,
+    sessionOrgId,
+    targetId,
+  ]);
 
   useEffect(() => {
     if (draftMode !== "comment" || !draftPin) return;
+    if (draftPin === leftDraftPinRef.current) return;
     const store = newDraftRef.current;
     if (!draftPin.draft.trim() && !draftAttachments.length) {
       store.clear();

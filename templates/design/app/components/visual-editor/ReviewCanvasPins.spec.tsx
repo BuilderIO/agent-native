@@ -43,7 +43,7 @@ const mocks = vi.hoisted(() => ({
   agentMarkSurfaceUsed: vi.fn(),
   useRealComposer: false,
   useRealThreads: false,
-  session: null as { email: string; name?: string } | null,
+  session: null as { email: string; name?: string; orgId?: string } | null,
   uploadImage: vi.fn().mockResolvedValue({
     src: "https://cdn.example.com/review.png",
   }),
@@ -5309,6 +5309,83 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         await reload();
         await renderPins({ ...signedIn, active: true });
         expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(1);
+      });
+
+      // Each stored draft's text, by its box's key, across every account.
+      const storedDraftTexts = () =>
+        Object.fromEntries(
+          Object.keys(window.localStorage)
+            .filter((key) => key.startsWith("agent-native-review-drafts:"))
+            .flatMap((key) =>
+              Object.entries(
+                (
+                  JSON.parse(window.localStorage.getItem(key) ?? "{}") as {
+                    drafts?: Record<string, { text: string }>;
+                  }
+                ).drafts ?? {},
+              ).map(([draftKey, draft]) => [draftKey, draft.text]),
+            ),
+        );
+
+      it("keeps a new comment's draft on its own screen when the screen changes as you type", async () => {
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await typeInto(
+          document.querySelector<HTMLTextAreaElement>(
+            "[data-review-test-textarea]",
+          ),
+          "Tighten the header",
+        );
+        // The last keystroke and the move to the next screen land in one render.
+        await act(async () => {
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click();
+          root.render(
+            <ReviewAgentProvider controller={null}>
+              <ReviewCanvasPins
+                active
+                onClose={vi.fn()}
+                canvasSelector=".review-test-canvas"
+                resourceType="design"
+                resourceId="design-1"
+                targetId="screen-2"
+                canPost
+                canResolve
+                {...signedIn}
+              />
+            </ReviewAgentProvider>,
+          );
+        });
+
+        expect(storedDraftTexts()).toEqual({
+          [`new:${JSON.stringify(["screen-1", "screen-1"])}`]:
+            "Tighten the header",
+        });
+        expect(
+          document.querySelector("[data-review-test-textarea]"),
+        ).toBeNull();
+      });
+
+      it("keeps each account's drafts apart", async () => {
+        mocks.session = { email: "reviewer@example.com", orgId: "org-a" };
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click(),
+        );
+
+        await reload();
+        mocks.session = { email: "reviewer@example.com", orgId: "org-b" };
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(1);
+
+        await reload();
+        mocks.session = { email: "reviewer@example.com", orgId: "org-a" };
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
       });
 
       it("sends an edit's images only when they change", async () => {
