@@ -1386,7 +1386,9 @@ export interface ActionEntry {
   fromMcpServer?: boolean;
   mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
   /** See `mcpScript` in `defineAction`. Read only by the MCP script tools. */
-  mcpScript?: "read";
+  mcpScript?: "read" | "write";
+  /** See `mcpScriptWrite` in `defineAction`. */
+  mcpScriptWrite?: import("../action.js").McpScriptWriteContract;
   mcpOutputContract?: import("../action-output-contract.js").ActionMcpOutputContract;
   /** Hints the framework supplies for an action that declares none, such as a
    *  file a dev server discovers. MCP advertises them only when

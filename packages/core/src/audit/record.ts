@@ -162,103 +162,10 @@ export async function recordActionAudit(
 ): Promise<void> {
   // Outside the try: a caller with no attribution is a bug to surface, not a
   // write failure to swallow along with its row.
-  const attribution = input.attribution;
-  assertAuditAttribution(attribution, "recordActionAudit");
+  assertAuditAttribution(input.attribution, "recordActionAudit");
   try {
-    if (isAuditDisabled()) return;
-    const ctx = input.ctx;
-    const actionName = ctx?.actionName;
-    if (!actionName) return;
-    if (!shouldRecordAudit(input.config, actionName)) return;
-
-    const caller = attribution.caller;
-    const actorEmail = ctx?.userEmail ?? null;
-    const committed =
-      input.status === "error"
-        ? committedActionAuditOutcome(input.error)
-        : undefined;
-    // A refused call is an attempt worth seeing, not a failure.
-    const status: AuditStatus = committed
-      ? "success"
-      : input.status === "error" && isRefusal(input.error)
-        ? "denied"
-        : input.status;
-    if (isRejectedProbe(input.args, status, input.error)) return;
-    const meta: AuditCallMeta = {
-      status,
-      caller,
-      userEmail: ctx?.userEmail,
-      orgId: ctx?.orgId ?? null,
-    };
-
-    const result = committed ? committed.result : input.result;
-    const target = safeTarget(input.config, input.args, result, meta);
-    const summary = safeSummary(input.config, input.args, result, meta);
-
-    const recordInputs = input.config?.recordInputs !== false;
-    const inputJson = recordInputs ? redactArgsToJson(input.args) : null;
-
-    const hasExplicitTargetVisibility = target?.visibility !== undefined;
-    const integration = getIntegrationRequestContext();
-    const lineage = integration?.lineage;
-    const event: AuditEvent = {
-      id: crypto.randomUUID(),
-      createdAt: Date.now(),
-      action: actionName,
-      caller,
-      actorKind: deriveActorKind(caller, actorEmail, ctx?.orgId),
-      actorEmail,
-      orgId: ctx?.orgId ?? null,
-      threadId: attribution.threadId ?? null,
-      turnId: attribution.turnId ?? null,
-      targetType: target?.type ?? null,
-      targetId: target?.id ?? null,
-      status,
-      summary,
-      input: inputJson,
-      errorCode: input.error ? errorCode(input.error) : null,
-      ownerEmail: target?.ownerEmail ?? actorEmail,
-      visibility: target?.visibility ?? "private",
-      runId: attribution.runId ?? lineage?.runId ?? null,
-      networkProtocol: attribution.networkProtocol ?? null,
-      networkId: attribution.networkId ?? null,
-      networkPeer: attribution.networkPeer ?? null,
-      app: auditAppKey(),
-      reportedClientName: reportedLabel(attribution.mcpClient?.name),
-      reportedClientVersion: reportedLabel(attribution.mcpClient?.version),
-      oauthClientId: attribution.mcpClient?.oauthClientId ?? null,
-      approval: approvalEvidence(attribution),
-      identityAssurance: attribution.identityAssurance ?? null,
-    };
-    if (integration) {
-      if (
-        ctx?.orgId &&
-        event.visibility === "private" &&
-        !hasExplicitTargetVisibility
-      ) {
-        event.visibility = "org";
-      }
-      event.runId = attribution.runId ?? lineage?.runId ?? null;
-      event.taskId = integration.taskId;
-      event.parentTaskId = lineage?.parentTaskId ?? null;
-      event.sourceKind = lineage?.source?.kind ?? null;
-      event.sourcePlatform = lineage?.source?.platform ?? null;
-      event.sourceId = lineage?.source?.id ?? null;
-      event.sourceUrl = lineage?.source?.url ?? null;
-      event.networkProtocol = lineage?.network?.protocol ?? null;
-      event.networkId = lineage?.network?.id ?? null;
-      event.networkPeer = lineage?.network?.peer ?? null;
-      if (!event.networkProtocol && actionName === "provider-api-request") {
-        event.networkProtocol = "provider-api";
-        event.networkId = target?.id ?? "provider-api-request";
-      }
-      if (!event.networkProtocol && actionName === "call-agent") {
-        event.networkProtocol = "a2a";
-        event.networkId = target?.id ?? "call-agent";
-      }
-    }
-    if (target?.orgId !== undefined) event.orgId = target.orgId;
-
+    const event = buildActionAuditEvent(input);
+    if (!event) return;
     // The row records the call; a call that failed after saving only this
     // saved nothing a retry would repeat.
     await withoutWriteObservation(() => insertAuditEvent(event));
@@ -274,4 +181,110 @@ export async function recordActionAudit(
       tags: { component: "audit", operation: "record-action-audit", action },
     });
   }
+}
+
+/**
+ * The row `recordActionAudit` would write, or undefined when auditing is off
+ * or skips this action. Throws when the row cannot be built. The script
+ * ledger builds the row as the call settles and delivers it later itself.
+ */
+export function buildActionAuditEvent(
+  input: RecordActionAuditInput,
+): AuditEvent | undefined {
+  const attribution = input.attribution;
+  assertAuditAttribution(attribution, "buildActionAuditEvent");
+  if (isAuditDisabled()) return undefined;
+  const ctx = input.ctx;
+  const actionName = ctx?.actionName;
+  if (!actionName) return undefined;
+  if (!shouldRecordAudit(input.config, actionName)) return undefined;
+
+  const caller = attribution.caller;
+  const actorEmail = ctx.userEmail ?? null;
+  const committed =
+    input.status === "error"
+      ? committedActionAuditOutcome(input.error)
+      : undefined;
+  // A refused call is an attempt worth seeing, not a failure.
+  const status: AuditStatus = committed
+    ? "success"
+    : input.status === "error" && isRefusal(input.error)
+      ? "denied"
+      : input.status;
+  if (isRejectedProbe(input.args, status, input.error)) return undefined;
+  const meta: AuditCallMeta = {
+    status,
+    caller,
+    ...(ctx.userEmail === undefined ? {} : { userEmail: ctx.userEmail }),
+    orgId: ctx.orgId ?? null,
+  };
+
+  const result = committed ? committed.result : input.result;
+  const target = safeTarget(input.config, input.args, result, meta);
+  const summary = safeSummary(input.config, input.args, result, meta);
+
+  const recordInputs = input.config?.recordInputs !== false;
+  const inputJson = recordInputs ? redactArgsToJson(input.args) : null;
+
+  const hasExplicitTargetVisibility = target?.visibility !== undefined;
+  const integration = getIntegrationRequestContext();
+  const lineage = integration?.lineage;
+  const event: AuditEvent = {
+    id: crypto.randomUUID(),
+    createdAt: Date.now(),
+    action: actionName,
+    caller,
+    actorKind: deriveActorKind(caller, actorEmail, ctx.orgId),
+    actorEmail,
+    orgId: ctx.orgId ?? null,
+    threadId: attribution.threadId ?? null,
+    turnId: attribution.turnId ?? null,
+    targetType: target?.type ?? null,
+    targetId: target?.id ?? null,
+    status,
+    summary,
+    input: inputJson,
+    errorCode: input.error ? errorCode(input.error) : null,
+    ownerEmail: target?.ownerEmail ?? actorEmail,
+    visibility: target?.visibility ?? "private",
+    runId: attribution.runId ?? lineage?.runId ?? null,
+    networkProtocol: attribution.networkProtocol ?? null,
+    networkId: attribution.networkId ?? null,
+    networkPeer: attribution.networkPeer ?? null,
+    app: auditAppKey(),
+    reportedClientName: reportedLabel(attribution.mcpClient?.name),
+    reportedClientVersion: reportedLabel(attribution.mcpClient?.version),
+    oauthClientId: attribution.mcpClient?.oauthClientId ?? null,
+    approval: approvalEvidence(attribution),
+    identityAssurance: attribution.identityAssurance ?? null,
+  };
+  if (integration) {
+    if (
+      ctx.orgId &&
+      event.visibility === "private" &&
+      !hasExplicitTargetVisibility
+    ) {
+      event.visibility = "org";
+    }
+    event.runId = attribution.runId ?? lineage?.runId ?? null;
+    event.taskId = integration.taskId;
+    event.parentTaskId = lineage?.parentTaskId ?? null;
+    event.sourceKind = lineage?.source?.kind ?? null;
+    event.sourcePlatform = lineage?.source?.platform ?? null;
+    event.sourceId = lineage?.source?.id ?? null;
+    event.sourceUrl = lineage?.source?.url ?? null;
+    event.networkProtocol = lineage?.network?.protocol ?? null;
+    event.networkId = lineage?.network?.id ?? null;
+    event.networkPeer = lineage?.network?.peer ?? null;
+    if (!event.networkProtocol && actionName === "provider-api-request") {
+      event.networkProtocol = "provider-api";
+      event.networkId = target?.id ?? "provider-api-request";
+    }
+    if (!event.networkProtocol && actionName === "call-agent") {
+      event.networkProtocol = "a2a";
+      event.networkId = target?.id ?? "call-agent";
+    }
+  }
+  if (target?.orgId !== undefined) event.orgId = target.orgId;
+  return event;
 }

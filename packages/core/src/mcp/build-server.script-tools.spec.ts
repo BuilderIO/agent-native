@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getRequestContext } from "../server/request-context.js";
 import {
   createMCPServerForRequest,
+  scriptOutputContract,
   type MCPCallerIdentity,
   type MCPConfig,
 } from "./build-server.js";
@@ -313,6 +314,34 @@ describe("the MCP script catalog", () => {
     expect(JSON.stringify(reported)).not.toContain(TICKET);
   });
 
+  it("keeps a run status request's text out of analytics", async () => {
+    vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_WRITES", "true");
+    const client = await clientFor(user);
+    const start = `https://docs.example/_agent-native/embed/start?ticket=${TICKET}`;
+    const runId = crypto.randomUUID();
+    for (const asked of [start, runId]) {
+      const result: any = await client.callTool({
+        name: "get-script-run",
+        arguments: { runId: asked },
+      });
+      expect(result.isError).toBe(true);
+    }
+    const reported = trackMcpToolCallMock.mock.calls.map(([, args]) => args);
+    expect(reported).toEqual([
+      expect.objectContaining({
+        toolName: "get-script-run",
+        parameters: { runId: "(not a run id)" },
+        errorMessage: "The script run could not be read.",
+      }),
+      expect.objectContaining({
+        toolName: "get-script-run",
+        parameters: { runId },
+        errorMessage: "The script run could not be read.",
+      }),
+    ]);
+    expect(JSON.stringify(reported)).not.toContain(TICKET);
+  });
+
   it("keeps an unknown tool's name and arguments out of analytics and audit", async () => {
     // A service principal's grant refuses names by name; an unknown one is
     // refused as unknown first.
@@ -449,6 +478,33 @@ describe("the MCP script catalog", () => {
     ).callTool({ name: "count-documents", arguments: { broken: true } });
     expect(direct.isError).toBe(true);
     expect(textOf(direct)).toContain("output_contract_violation");
+  });
+
+  it("keeps a write's effect when its result breaks the contract", () => {
+    const contract = scriptOutputContract("save-count", {
+      mcpOutputContract: {
+        semantic: { type: "object", properties: { count: { type: "number" } } },
+        response: {
+          type: "object",
+          properties: { count: { type: "number" } },
+          additionalProperties: false,
+        },
+      },
+    } as never);
+    if ("refused" in contract) throw new Error("the contract compiles");
+    const held = contract.hold({
+      status: "completed",
+      value: { count: "three" },
+      reportedError: false,
+      effect: "committed",
+    });
+    expect(held).toMatchObject({
+      status: "failed",
+      stage: "result",
+      errorCode: "output_contract_violation",
+      effect: "committed",
+    });
+    expect((held as { message: string }).message).toContain("already applied");
   });
 
   it("gives analytics a script's length, not its source", async () => {

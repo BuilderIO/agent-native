@@ -9,6 +9,7 @@ import {
   isActionContractError,
   recordInvalidActionCall,
   preparedCallArguments,
+  preparedCallIsFor,
   preparedCallNeedsApproval,
   runPreparedActionCall,
   type ActionExecutionOutcome,
@@ -515,6 +516,12 @@ export interface McpActionCall {
   /** Adapter-specific facts to attach to the action's audit context. */
   actionRunContext?: Partial<ActionRunContext>;
   approval?: McpActionApprovalResponse;
+  /**
+   * The call as `actionCallIntent` already prepared it from `args` for this
+   * action, to run as it is rather than prepared again. A script write's
+   * ledger names the rows and receipt of these arguments before it runs.
+   */
+  prepared?: PreparedActionCall;
 }
 
 type McpActionCallRefusal<Approval, Review> =
@@ -578,13 +585,21 @@ export type McpActionCallOutcome =
       value: unknown;
       /** The action reported failure inside its own value. */
       reportedError: boolean;
+      /** What the run did, by `invocationEffect`. */
+      effect: McpActionCallEffect;
     }
   | {
       status: "failed";
       stage: McpActionCallFailureStage;
       message: string;
       errorCode: string | undefined;
+      /** What the run did: `none` before the action was invoked, and
+       *  otherwise by `invocationEffect`. */
+      effect: McpActionCallEffect;
     };
+
+/** `unknown`: a write may have run that nothing confirms or rules out. */
+export type McpActionCallEffect = "none" | "committed" | "unknown";
 
 /**
  * Runs inside the caller's request context (`runWithRequestContext`), which
@@ -600,9 +615,17 @@ export async function executeMcpActionCall(
   const outcome = await runMcpActionCallUnredacted(context, call);
   switch (outcome.status) {
     case "ran":
-      return completedOutcome(outcome.result);
+      return completedOutcome(outcome.result, outcome.entry, outcome.execution);
     case "threw":
-      return failedOutcome(outcome.stage, outcome.error);
+      return failedOutcome(
+        outcome.stage,
+        outcome.error,
+        outcome.stage === "action"
+          ? invocationEffect(outcome.entry, outcome.execution, {
+              failed: { error: outcome.error },
+            }).effect
+          : "none",
+      );
     case "approval-required":
     case "approval-pending":
       return Object.freeze({
@@ -679,7 +702,19 @@ export async function runMcpActionCallUnredacted(
   try {
     // One preparation: approval decides on, and the run executes, the
     // arguments the action runs with, defaults applied.
-    const prepared = await actionCallIntent(entry, callArgs);
+    if (call.prepared && !preparedCallIsFor(call.prepared, entry)) {
+      // Server code passed a call prepared for another action; none runs.
+      return {
+        status: "threw",
+        stage: "action",
+        error: new TypeError(
+          `A call prepared for another action can't run as ${name}.`,
+        ),
+        entry,
+        execution: { refused: true },
+      };
+    }
+    const prepared = call.prepared ?? (await actionCallIntent(entry, callArgs));
     if (!prepared.valid) {
       // Recorded and reported as the action's own validation failure was,
       // with no path to its handler.
@@ -785,17 +820,31 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-function completedOutcome(result: unknown): McpActionCallOutcome {
+function completedOutcome(
+  result: unknown,
+  entry: ActionEntry,
+  execution: ActionExecutionOutcome,
+): McpActionCallOutcome {
+  const ranEffect = (reported: boolean) =>
+    invocationEffect(
+      entry,
+      execution,
+      reported ? { failed: { reported: true } } : {},
+    ).effect;
+  let reportedError = false;
   try {
     const mcpResult = isMcpActionResult(result) ? result : null;
+    reportedError = isReportedProxyError(mcpResult);
     const raw = mcpResult ? mcpResult.raw : result;
     return Object.freeze({
       status: "completed" as const,
       value: deepFreeze(redactEmbedCredentials(toJsonData(raw))),
-      reportedError: isReportedProxyError(mcpResult),
+      reportedError,
+      effect: ranEffect(reportedError),
     });
   } catch (error) {
-    return failedOutcome("result", error);
+    // A value that cannot be read afterwards undoes nothing the run did.
+    return failedOutcome("result", error, ranEffect(reportedError));
   }
 }
 
@@ -837,13 +886,14 @@ async function refuseOutsideServiceGrant(
         );
       }
     }
-    return failedOutcome("authorization", error);
+    return failedOutcome("authorization", error, "none");
   }
 }
 
 function failedOutcome(
   stage: McpActionCallFailureStage,
   error: unknown,
+  effect: McpActionCallEffect,
 ): McpActionCallOutcome {
   let message: string;
   let errorCode: string | undefined;
@@ -876,6 +926,7 @@ function failedOutcome(
     stage,
     message,
     errorCode,
+    effect,
   });
 }
 
