@@ -120,6 +120,29 @@ function config(): MCPConfig {
       }),
       // Declares the opt-in, but runs other code, so it is refused by name.
       "run-code": action("run-code", { readOnly: true, mcpScript: "read" }),
+      // A hand-built entry with an MCP output contract its value may break.
+      "count-documents": action(
+        "count-documents",
+        {
+          readOnly: true,
+          mcpTool: true,
+          mcpScript: "read",
+          mcpOutputContract: {
+            semantic: {
+              type: "object",
+              properties: { count: { type: "number" } },
+              required: ["count"],
+            },
+            response: {
+              type: "object",
+              properties: { count: { type: "number" } },
+              required: ["count"],
+              additionalProperties: false,
+            },
+          },
+        },
+        (args) => ({ count: args.broken ? "three" : 3 }),
+      ),
     },
   };
 }
@@ -331,6 +354,35 @@ describe("the MCP script catalog", () => {
     expect(JSON.stringify(reported)).not.toContain("read Plan");
   });
 
+  it("holds a script's call to the action's MCP output contract", async () => {
+    const client = await clientFor(user);
+    const { payload } = await runScript(
+      client,
+      `
+        const kept = await api.countDocuments({});
+        try {
+          await api.countDocuments({ broken: true });
+          return "read";
+        } catch (error) {
+          return { kept, code: error.code, message: error.message };
+        }
+      `,
+    );
+    expect(payload.result).toEqual({
+      kept: { count: 3 },
+      code: "output_contract_violation",
+      message: expect.stringContaining(
+        "does not match its declared output contract",
+      ),
+    });
+    // A direct call refuses the same value.
+    const direct: any = await (
+      await clientFor(user, {})
+    ).callTool({ name: "count-documents", arguments: { broken: true } });
+    expect(direct.isError).toBe(true);
+    expect(textOf(direct)).toContain("output_contract_violation");
+  });
+
   it("gives analytics a script's length, not its source", async () => {
     const client = await clientFor(user);
     const code = `return "https://docs.example/_agent-native/embed/start?ticket=${TICKET}";`;
@@ -343,6 +395,23 @@ describe("the MCP script catalog", () => {
       }),
     ]);
     expect(JSON.stringify(reported)).not.toContain(TICKET);
+    // A field run-script ignores is left out too.
+    const ignored = trackMcpToolCallMock.mock.calls.length;
+    await client.callTool({
+      name: "run-script",
+      arguments: { code: "return 1;", note: TICKET },
+    });
+    expect(trackMcpToolCallMock.mock.calls.slice(ignored)).toEqual([
+      [
+        expect.anything(),
+        expect.objectContaining({
+          parameters: { code: "(a script of 9 characters)" },
+        }),
+      ],
+    ]);
+    expect(JSON.stringify(trackMcpToolCallMock.mock.calls)).not.toContain(
+      TICKET,
+    );
   });
 
   it("refuses bridge calls outside the policy and records each in the audit log", async () => {
