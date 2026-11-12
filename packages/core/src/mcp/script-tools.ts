@@ -1020,6 +1020,7 @@ function deniedCallArguments(args: unknown): unknown {
   try {
     return redactEmbedCredentials(args);
   } catch {
+    // coercion-ok: undefined means "left out of the record", as for arguments past the limits.
     return undefined;
   }
 }
