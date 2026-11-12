@@ -15,7 +15,11 @@ import { and, inArray } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 
 /** Actions whose success leaves the user a new standalone Page. */
-const PAGE_CREATING_TOOLS = new Set(["create-document", "duplicate-page"]);
+const PAGE_CREATING_TOOLS = new Set([
+  "create-document",
+  "duplicate-page",
+  "clone-creative-context-document",
+]);
 
 const MAX_TITLE_CHARS = 120;
 
@@ -91,6 +95,8 @@ export function createdPages(
 const CODE = /(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g;
 const MARKDOWN_LINK_TARGETS = /\]\(\s*<?([^)\s>]+)/g;
 const BARE_URLS = /https?:\/\/[^\s<>()[\]]+/g;
+// Punctuation that ends a sentence, not the URL before it.
+const TRAILING_PUNCTUATION = /[.,;:!?'"]+$/;
 
 function linkTargets(text: string): string[] {
   const prose = text.replace(CODE, " ");
@@ -98,7 +104,9 @@ function linkTargets(text: string): string[] {
     ...[...prose.matchAll(MARKDOWN_LINK_TARGETS)].flatMap((match) =>
       match[1] ? [match[1]] : [],
     ),
-    ...[...prose.matchAll(BARE_URLS)].map((match) => match[0]),
+    ...[...prose.matchAll(BARE_URLS)].map((match) =>
+      match[0].replace(TRAILING_PUNCTUATION, ""),
+    ),
   ];
 }
 
@@ -107,7 +115,9 @@ const RELATIVE_BASE = "https://relative.invalid";
 
 /**
  * Whether a link opens the Page: its route or its open link under this app's
- * base path, either root-relative or on this app's origin.
+ * base path, as a path or on this app's origin. A relative target must still
+ * resolve to the origin it was read against: "//host" and "/\host" both name
+ * another host.
  */
 function opensPage(
   target: string,
@@ -117,8 +127,8 @@ function opensPage(
   const base = origin ?? RELATIVE_BASE;
   if (!URL.canParse(target, base)) return false;
   const url = new URL(target, base);
-  const rootRelative = target.startsWith("/") && !target.startsWith("//");
-  if (!rootRelative && url.origin !== origin) return false;
+  const expected = URL.canParse(target) ? origin : new URL(base).origin;
+  if (url.origin !== expected) return false;
   const basePath = getConfiguredAppBasePath();
   const path = url.pathname.replace(/\/+$/, "");
   return (
@@ -203,18 +213,22 @@ export const requireCreatedPageLinks: AgentLoopFinalResponseGuard = async (
     ? unlinked.filter((page) => live.has(page.id))
     : unlinked;
   if (missing.length === 0) return null;
+  const one = missing.length === 1;
   const links = missing.map((page) => `- ${pageLink(page)}`).join("\n");
-  const which = missing.length === 1 ? "the page" : "every page";
+  const which = one ? "the page" : "every page";
   if (!live) {
-    // Only the agent knows now whether it moved one to Trash, so ask it once
-    // and keep its answer, rather than add links that may open nothing.
-    if (context.retryCount > 0) return null;
+    // Only the agent knows now whether it moved one to Trash, so it's asked to
+    // leave those out. Links it still omits go above its answer, marked as
+    // unconfirmed.
+    const unconfirmed = `${one ? "New page" : "New pages"} (Content couldn't confirm ${one ? "it's" : "they're"} still out of Trash):\n${links}`;
     return {
       retryMessage: `Your answer does not link ${which} you created this turn. Content couldn't check whether you since moved any to Trash, so link each one you didn't, using these exact links:\n${links}`,
+      fallbackMessage: unconfirmed,
+      exhaustedDraftPrefix: unconfirmed,
       maxRetries: 1,
     };
   }
-  const summary = `${missing.length === 1 ? "New page" : "New pages"}:\n${links}`;
+  const summary = `${one ? "New page" : "New pages"}:\n${links}`;
   return {
     retryMessage: `Your answer does not link ${which} you created this turn. Revise it so it links each one, using these exact links:\n${links}`,
     fallbackMessage: summary,

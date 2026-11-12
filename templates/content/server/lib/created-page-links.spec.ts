@@ -108,6 +108,7 @@ describe("requireCreatedPageLinks", () => {
   it.each([
     ["its path", "Done: [Meeting Notes](/page/abc123XYZ)."],
     ["its absolute URL", `Opened ${ORIGIN}/page/abc123XYZ for you.`],
+    ["its URL at the end of a sentence", `It's at ${ORIGIN}/page/abc123XYZ.`],
     [
       "its open link",
       "[Meeting Notes](/_agent-native/open?app=content&view=editor&documentId=abc123XYZ)",
@@ -215,19 +216,21 @@ describe("requireCreatedPageLinks", () => {
     });
   });
 
-  it("asks the agent once, adding no links itself, when the database can't say", async () => {
+  it("marks the links unconfirmed when the database can't say", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.lookup.mockRejectedValue(new Error("database unavailable"));
-    const turn = {
-      text: "The draft is ready.",
-      toolResults: [created("draft1", "Draft")],
-    };
 
-    expect(await guard(turn)).toEqual({
+    expect(
+      await guard({
+        text: "The draft is ready.",
+        toolResults: [created("draft1", "Draft")],
+      }),
+    ).toEqual({
       retryMessage: `Your answer does not link the page you created this turn. Content couldn't check whether you since moved any to Trash, so link each one you didn't, using these exact links:\n- [Draft](${ORIGIN}/page/draft1)`,
+      fallbackMessage: `New page (Content couldn't confirm it's still out of Trash):\n- [Draft](${ORIGIN}/page/draft1)`,
+      exhaustedDraftPrefix: `New page (Content couldn't confirm it's still out of Trash):\n- [Draft](${ORIGIN}/page/draft1)`,
       maxRetries: 1,
     });
-    expect(await guard({ ...turn, retryCount: 1 })).toBeNull();
   });
 
   it("checks only Pages the user can open", async () => {
@@ -259,6 +262,14 @@ describe("requireCreatedPageLinks", () => {
     [
       "a link to another host",
       "See [Notes](https://elsewhere.example.org/page/abc123XYZ).",
+    ],
+    [
+      "a protocol-relative link to another host",
+      "See [Notes](//elsewhere.example.org/page/abc123XYZ).",
+    ],
+    [
+      "a path that URL parsing reads as another host",
+      "See [Notes](/\\elsewhere.example.org/page/abc123XYZ).",
     ],
     ["an anchor", "See [Notes](#abc123XYZ)."],
     ["another route", "See [settings](/settings?ref=abc123XYZ)."],
@@ -327,6 +338,30 @@ describe("requireCreatedPageLinks", () => {
 
     expect(result).toMatchObject({
       exhaustedDraftPrefix: `New page:\n- [Copy of Plan](${ORIGIN}/page/copy0001)`,
+    });
+  });
+
+  it("reads a cloned governed Page from its result", async () => {
+    mocks.documents.set("clone001", null);
+    const result = await guard({
+      text: "Cloned the brand guide.",
+      toolResults: [
+        {
+          toolCallId: "call-clone",
+          name: "clone-creative-context-document",
+          content: JSON.stringify({
+            id: "clone001",
+            title: "Brand guide",
+            urlPath: "/page/clone001",
+            clonedExactVersion: "version-7",
+          }),
+          isError: false,
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      exhaustedDraftPrefix: `New page:\n- [Brand guide](${ORIGIN}/page/clone001)`,
     });
   });
 
