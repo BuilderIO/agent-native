@@ -31,10 +31,9 @@
     --agentkit-accent: var(--agent-kit-accent, CanvasText);
     --agentkit-accent-text: var(--agent-kit-accent-text, Canvas);
     --agentkit-danger: var(--agent-kit-danger, CanvasText);
-    --agentkit-danger-text: color-mix(
-      in srgb,
-      var(--agentkit-danger) 60%,
-      var(--agentkit-text)
+    --agentkit-danger-text: var(
+      --agent-kit-danger-text,
+      color-mix(in srgb, var(--agentkit-danger) 60%, var(--agentkit-text))
     );
     --agentkit-warning: var(--agent-kit-warning-color, CanvasText);
     --agentkit-text-muted-strong: color-mix(
@@ -43,9 +42,38 @@
       var(--agentkit-text)
     );
     --agentkit-success: var(--agent-kit-success, CanvasText);
+    /* Own tokens: a host's success color may be its near-black primary. */
+    --agentkit-diff-added: var(
+      --agent-kit-diff-added-color,
+      var(--agentkit-success)
+    );
+    --agentkit-diff-removed: var(
+      --agent-kit-diff-removed-color,
+      var(--agentkit-danger)
+    );
+    /* Pure diff green or red sits near 3:1 as text on a light surface. */
+    --agentkit-diff-added-text: color-mix(
+      in srgb,
+      var(--agentkit-diff-added) 70%,
+      var(--agentkit-text)
+    );
+    --agentkit-diff-removed-text: color-mix(
+      in srgb,
+      var(--agentkit-diff-removed) 70%,
+      var(--agentkit-text)
+    );
     --agentkit-focus: var(--agent-kit-focus, Highlight);
-    --agentkit-radius: var(--radius-xl, calc(var(--radius, 0.75rem) + 0.5rem));
-    --agentkit-radius-inner: var(--radius-lg, var(--radius, 0.75rem));
+    /* Not the accent: a short dark arc on a light track reads as a spinner. */
+    --agentkit-progress: var(--agent-kit-progress-color, Highlight);
+    /* Radius by element size, not the theme's --radius; nested corners are
+       outer = inner + inset. xs: 24px and under; sm: 32px controls, cards,
+       popovers; md: dialogs and sheets; lg: the composer. */
+    --agentkit-radius-xs: var(--agent-kit-radius-xs, 0.25rem);
+    --agentkit-radius-sm: var(--agent-kit-radius-sm, 0.5rem);
+    --agentkit-radius-md: var(--agent-kit-radius-md, 0.75rem);
+    --agentkit-radius-lg: var(--agent-kit-radius-lg, 1rem);
+    --agentkit-radius: var(--agentkit-radius-md);
+    --agentkit-radius-inner: var(--agentkit-radius-sm);
     --agentkit-elevation: var(--agent-kit-composer-elevation, none);
     --agentkit-composer-border: var(
       --agent-kit-composer-border-color,
@@ -65,8 +93,8 @@
     --agentkit-composer-inset: 0.75rem;
     /* Concentric with the 32px Send circle, which sits about 8px inside the
        edge: 16 + 8. */
-    --agentkit-composer-radius: 1.5rem;
-    --agentkit-composer-control-radius: var(--agentkit-radius-inner);
+    --agentkit-composer-radius: var(--agentkit-radius-lg);
+    --agentkit-composer-control-radius: var(--agentkit-radius-xs);
     --agentkit-composer-primary-control-size: var(
       --agent-kit-composer-control-size,
       2rem
@@ -255,86 +283,10 @@
     transform: translateY(0.5rem);
   }
 
+  /* Rows keep the drawer's own styles; the list only fills it to scroll. */
   .agentkit-composer-stack [data-agent-message-queue="true"] ul {
-    display: flex;
     block-size: 100%;
     max-block-size: 10rem;
-    flex-direction: column;
-    gap: 0.25rem;
-    margin: 0;
-    padding: 0.25rem 0;
-    overflow-y: auto;
-    list-style: none;
-  }
-
-  .agentkit-composer-stack [data-agent-message-queue-variant="recessed"] ul {
-    max-block-size: 10rem;
-    gap: 0;
-    padding: 0;
-    overflow-y: auto;
-  }
-
-  .agentkit-composer-stack [data-agent-message-queue="true"] li {
-    display: flex;
-    min-block-size: 2.25rem;
-    min-inline-size: 0;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    color: var(--agentkit-text);
-    font-size: 0.8125rem;
-    line-height: 1rem;
-  }
-
-  .agentkit-composer-stack [data-agent-message-queue-variant="recessed"] li {
-    padding-block: 0.25rem;
-  }
-
-  .agentkit-composer-stack [data-agent-message-queue="true"] li > svg {
-    inline-size: 0.875rem;
-    block-size: 0.875rem;
-    flex: none;
-    color: var(--agentkit-text-muted);
-  }
-
-  /* Keyed on attributes, not :first-of-type: a :first-of-type above the subject
-     makes WebKit restyle the whole page whenever an element is inserted at the
-     top of <body>, which every Radix menu and popover does as it opens. */
-  .agentkit-composer-stack
-    [data-agent-message-queue="true"]
-    li
-    > [data-agent-message-queue-body="true"] {
-    min-inline-size: 0;
-    flex: 1;
-  }
-
-  .agentkit-composer-stack
-    [data-agent-message-queue="true"]
-    li
-    > [data-agent-message-queue-body="true"]
-    > [data-agent-message-queue-text="true"] {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .agentkit-composer-stack
-    [data-agent-message-queue="true"]
-    li
-    > div:last-child {
-    display: flex;
-    flex: none;
-    align-items: center;
-    gap: 0.25rem;
-    color: var(--agentkit-text-muted-strong);
-  }
-
-  .agentkit-composer-stack [data-agent-message-queue="true"] img {
-    inline-size: 2rem;
-    block-size: 2rem;
-    border: 1px solid var(--agentkit-border);
-    border-radius: var(--radius-md, var(--radius));
-    object-fit: cover;
   }
 
   .agentkit-suggestions {
@@ -464,7 +416,7 @@
     border-radius: var(--agentkit-radius);
     color: var(--agentkit-text);
     background: color-mix(in srgb, var(--agentkit-canvas) 88%, transparent);
-    font-size: 0.875rem;
+    font-size: var(--agent-kit-body-font-size, 0.875rem);
     font-weight: 600;
     pointer-events: none;
   }
@@ -551,7 +503,7 @@
     min-inline-size: 0;
     max-inline-size: calc(min(100cqi, var(--agentkit-lane-width)) - 2rem);
     overflow: hidden;
-    font-size: 0.8125rem;
+    font-size: var(--agent-kit-density-font-size, 0.8125rem);
     font-weight: 560;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -602,7 +554,8 @@
     background: transparent;
   }
 
-  .agentkit-transcript[data-scrollbar-visible="true"] {
+  /* Also on hover, for a pointer user looking for the scrollbar to drag. */
+  .agentkit-transcript:is([data-scrollbar-visible="true"], :hover) {
     scrollbar-color: color-mix(
         in srgb,
         var(--agentkit-text-muted) 42%,
@@ -611,11 +564,17 @@
       transparent;
   }
 
-  .agentkit-transcript[data-scrollbar-visible="true"]::-webkit-scrollbar-thumb {
+  .agentkit-transcript:is(
+      [data-scrollbar-visible="true"],
+      :hover
+    )::-webkit-scrollbar-thumb {
     background: color-mix(in srgb, var(--agentkit-text-muted) 42%, transparent);
   }
 
-  .agentkit-transcript[data-scrollbar-visible="true"]::-webkit-scrollbar-thumb:hover {
+  .agentkit-transcript:is(
+      [data-scrollbar-visible="true"],
+      :hover
+    )::-webkit-scrollbar-thumb:hover {
     background: color-mix(in srgb, var(--agentkit-text-muted) 62%, transparent);
   }
 
@@ -685,6 +644,38 @@
     pointer-events: none;
   }
 
+  .agentkit-skip-link {
+    position: absolute;
+    z-index: 4;
+    grid-column: 1 / 2;
+    grid-row: 2 / 3;
+    inset-inline: 0;
+    inset-block-start: 0.5rem;
+    inline-size: fit-content;
+    block-size: 2rem;
+    margin-inline: auto;
+    padding-inline: 0.75rem;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--agentkit-radius-sm);
+    background: var(--agentkit-surface);
+    box-shadow: var(--agent-kit-overlay-elevation);
+    color: var(--agentkit-text);
+    font: inherit;
+    font-size: var(--agent-kit-density-font-size, 0.8125rem);
+    line-height: var(--agent-kit-density-line-height, 1.25rem);
+    cursor: pointer;
+  }
+
+  .agentkit-skip-link:not(:focus) {
+    inline-size: 1px;
+    block-size: 1px;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
   .agentkit-visually-hidden {
     position: absolute;
     inline-size: 1px;
@@ -702,7 +693,7 @@
     flex-direction: column;
     align-items: flex-start;
     margin-block: 0 var(--agentkit-transcript-message-gap, 1.5rem);
-    font-size: 0.875rem;
+    font-size: var(--agent-kit-body-font-size, 0.875rem);
     font-family: var(
       --agentkit-transcript-font-family,
       var(--font-sans, inherit)
@@ -837,11 +828,13 @@
     min-block-size: 1.25rem;
     padding: 0 0.5rem;
     border: 1px solid var(--agentkit-border);
-    border-radius: var(--agentkit-radius-inner);
+    border-radius: var(--agentkit-radius-xs);
     color: var(--agentkit-text);
     background: color-mix(in srgb, var(--agentkit-subtle) 75%, transparent);
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
     font-weight: 550;
+    /* Keeps the chip at 20px including its border. */
+    line-height: var(--agent-kit-supporting-line-height, 1rem);
     vertical-align: middle;
     user-select: text;
   }
@@ -866,11 +859,11 @@
     padding-block: 0;
     padding-inline: 0.5rem;
     border: 0;
-    border-radius: var(--agentkit-radius-inner);
+    border-radius: var(--agentkit-radius-xs);
     color: var(--agentkit-text-muted-strong);
     background: transparent;
     font: inherit;
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
     cursor: pointer;
   }
 
@@ -1123,7 +1116,7 @@
   .agentkit-markdown :not(pre) > code {
     padding: 0.125rem 0.25rem;
     line-height: 1;
-    border-radius: var(--radius-sm, calc(var(--radius, 0.75rem) / 2));
+    border-radius: var(--agentkit-radius-xs);
     background: var(--agentkit-subtle);
     font-size: 0.875em;
   }
@@ -1140,14 +1133,19 @@
   }
 
   .agentkit-markdown pre code {
-    font-size: 0.8125rem;
+    font-size: var(--agent-kit-density-font-size, 0.8125rem);
   }
 
   .agentkit-code-block {
+    /* Actions sit 4px inside the block, so their corners are 4px tighter. */
+    --agentkit-code-action-radius: var(--agentkit-radius-xs);
+
+    position: relative;
     margin: 0 0 0.75rem;
     overflow: hidden;
     border: 1px solid var(--agentkit-border);
     border-radius: var(--agentkit-radius-inner);
+    background: var(--agentkit-subtle);
   }
 
   .agentkit-code-block-header {
@@ -1160,20 +1158,160 @@
     background: var(--agentkit-subtle);
   }
 
-  .agentkit-code-block-language {
+  .agentkit-code-block-title {
     min-inline-size: 0;
     overflow: hidden;
     color: var(--agentkit-text-muted-strong);
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .agentkit-markdown .agentkit-code-block > pre {
+  .agentkit-code-block-actions {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.125rem;
+    margin-inline-start: auto;
+  }
+
+  /* Without a header the actions float over the content's top corner. */
+  .agentkit-code-block > .agentkit-code-block-actions {
+    position: absolute;
+    inset-block-start: 0.25rem;
+    inset-inline-end: 0.25rem;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  .agentkit-code-block:hover > .agentkit-code-block-actions,
+  .agentkit-code-block:focus-within > .agentkit-code-block-actions {
+    opacity: 1;
+  }
+
+  .agentkit-code-block-content {
+    box-sizing: border-box;
+    max-inline-size: 100%;
     margin: 0;
-    overflow-x: auto;
+    padding: 0.75rem;
+    overflow: auto;
+    color: var(--agentkit-text);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--agent-kit-density-font-size, 0.8125rem);
+    line-height: var(--agent-kit-density-line-height, 1.25rem);
+    text-align: left;
+    white-space: pre;
+    counter-reset: agentkit-code-line var(--agentkit-code-start-line, 0);
+  }
+
+  .agentkit-code-block-content > code {
+    font: inherit;
+  }
+
+  /* Beats `.agentkit-markdown pre`, which frames a bare fenced block. */
+  .agentkit-code-block > .agentkit-code-block-content {
+    margin: 0;
     border: 0;
     border-radius: 0;
+    background: transparent;
+  }
+
+  .agentkit-code-block-content:focus-visible {
+    outline: 2px solid var(--agentkit-focus);
+    outline-offset: -2px;
+  }
+
+  .agentkit-code-block-content[data-wrap="true"] {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .agentkit-code-block[data-size="sm"] .agentkit-code-block-content {
+    padding: 0.5rem 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
+    line-height: var(--agent-kit-supporting-line-height, 1rem);
+  }
+
+  .agentkit-code-block[data-variant="destructive"] {
+    border-color: color-mix(
+      in srgb,
+      var(--agentkit-warning) 40%,
+      var(--agentkit-border)
+    );
+  }
+
+  .agentkit-code-token {
+    color: var(--shiki-light);
+    font-style: var(--shiki-light-font-style, inherit);
+  }
+
+  :where(.dark, [data-theme="dark"]) .agentkit-code-token {
+    color: var(--shiki-dark);
+    font-style: var(--shiki-dark-font-style, inherit);
+  }
+
+  .agentkit-code-line-change {
+    user-select: none;
+  }
+
+  .agentkit-code-line[data-variant] {
+    display: inline-block;
+    box-sizing: border-box;
+    min-inline-size: 100%;
+  }
+
+  .agentkit-code-line[data-variant="added"] {
+    background: color-mix(in srgb, var(--agentkit-diff-added) 12%, transparent);
+  }
+
+  .agentkit-code-line[data-variant="removed"] {
+    background: color-mix(
+      in srgb,
+      var(--agentkit-diff-removed) 12%,
+      transparent
+    );
+  }
+
+  .agentkit-code-line[data-variant="highlighted"] {
+    background: color-mix(in srgb, var(--agentkit-text) 8%, transparent);
+  }
+
+  .agentkit-code-line[data-variant="added"]::before {
+    content: "+ " / "";
+  }
+
+  .agentkit-code-line[data-variant="removed"]::before {
+    content: "\2212  " / "";
+  }
+
+  [data-line-numbers="true"] > code > .agentkit-code-line::before {
+    display: inline-block;
+    min-inline-size: 2ch;
+    margin-inline-end: 1rem;
+    color: var(--agentkit-text-muted);
+    text-align: end;
+    content: counter(agentkit-code-line) / "";
+    counter-increment: agentkit-code-line;
+    user-select: none;
+  }
+
+  [data-line-numbers="true"]
+    > code
+    > .agentkit-code-line[data-variant="added"]::before {
+    content: counter(agentkit-code-line) " +" / "";
+  }
+
+  [data-line-numbers="true"]
+    > code
+    > .agentkit-code-line[data-variant="removed"]::before {
+    content: counter(agentkit-code-line) " \2212" / "";
+  }
+
+  /* Aligns with the code's 12px edge. */
+  .agentkit-code-block-footer {
+    display: flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
   }
 
   .agentkit-markdown a {
@@ -1345,7 +1483,7 @@
     margin: 0.25rem 0 0.5rem 0.5rem;
     padding-inline-start: 1rem;
     border-inline-start: 1px solid var(--agentkit-border);
-    font-size: 0.875rem;
+    font-size: var(--agent-kit-body-font-size, 0.875rem);
   }
 
   .agentkit-run-details-row {
@@ -1491,11 +1629,11 @@
     gap: 0.25rem;
     padding-inline: 0.5rem;
     border: 0;
-    border-radius: var(--radius-md, var(--radius));
+    border-radius: var(--agentkit-radius-xs);
     color: inherit;
     background: transparent;
     font: inherit;
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
     white-space: nowrap;
     cursor: pointer;
   }
@@ -1542,7 +1680,7 @@
 
   .agentkit-message-actions time {
     margin-inline-start: 0.25rem;
-    font-size: 0.6875rem;
+    font-size: var(--agent-kit-caption-font-size, 0.6875rem);
   }
 
   .agentkit-branch-navigation {
@@ -1550,7 +1688,7 @@
     align-items: center;
     gap: 0.25rem;
     margin-inline-start: 0.25rem;
-    font-size: 0.6875rem;
+    font-size: var(--agent-kit-caption-font-size, 0.6875rem);
   }
 
   .agentkit-icon {
@@ -1567,7 +1705,7 @@
   .agentkit-tasks {
     margin-block: var(--agentkit-run-segment-gap, 0.75rem);
     color: var(--agentkit-text-muted);
-    font-size: 0.8125rem;
+    font-size: var(--agent-kit-density-font-size, 0.8125rem);
   }
 
   .agentkit-agent-feed {
@@ -1607,7 +1745,7 @@
     margin: 0;
     padding: 0.25rem 0;
     border: 0;
-    border-radius: var(--agentkit-radius-inner, 0.375rem);
+    border-radius: var(--agentkit-radius-xs);
     color: inherit;
     background: transparent;
     font: inherit;
@@ -1626,9 +1764,18 @@
   /* Inside a row the trigger keeps its content width, so a detail that
    does not fit drops to its own line instead of squeezing the label. */
   .agentkit-disclosure-row > .agentkit-disclosure-summary {
+    position: relative;
     inline-size: auto;
     flex: none;
     padding-block: 0;
+  }
+
+  /* The row is 20px; the press target reaches 24px without changing it. */
+  .agentkit-disclosure-row > .agentkit-disclosure-summary::after {
+    position: absolute;
+    inset-block: -0.125rem;
+    inset-inline: 0;
+    content: "";
   }
 
   .agentkit-disclosure-icon-slot {
@@ -1665,6 +1812,63 @@
     display: none;
   }
 
+  /* Zero specificity, so a row rule or host class on the same element wins. */
+  :where(.agentkit-trace) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+
+  :where(.agentkit-trace-line) {
+    display: flex;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    align-items: center;
+    gap: var(--agentkit-disclosure-gap, 0.5rem);
+    color: var(--agentkit-text-muted);
+  }
+
+  /* Joins the summary's flex row, so steps share the disclosure icon column. */
+  :where(.agentkit-disclosure-summary > .agentkit-trace-line) {
+    display: contents;
+    color: inherit;
+  }
+
+  /* Muted, not faded, to keep contrast. On the children: a `display:
+   contents` box passes no color to a child that sets its own. */
+  :where(.agentkit-trace-line[data-trace-status="pending"]) > * {
+    color: var(--agentkit-text-muted);
+  }
+
+  :where(.agentkit-trace-line[data-trace-status="error"])
+    > :where(.agentkit-disclosure-icon-slot) {
+    color: var(--agentkit-warning);
+  }
+
+  :where(.agentkit-trace-title) {
+    min-inline-size: 0;
+    overflow: hidden;
+    color: var(--agentkit-text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  :where(.agentkit-trace-description) {
+    flex: none;
+    color: var(--agentkit-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  :where(.agentkit-trace-content) {
+    margin-inline-start: 1.5rem;
+    padding: 0.25rem 0 0.5rem;
+    color: var(--agentkit-text);
+  }
+
+  .agentkit-trace-content[hidden]:not([hidden="until-found"]) {
+    display: none;
+  }
+
   .agentkit-disclosure-summary:not([aria-disabled="true"], span):hover,
   .agentkit-disclosure-row[data-expandable="true"]:hover,
   .agentkit-agent-interaction:hover,
@@ -1678,16 +1882,17 @@
     max-inline-size: 12rem;
     flex: none;
     align-items: center;
-    min-block-size: 1.5rem;
+    gap: 0.25rem;
+    min-block-size: 1.25rem;
     padding: 0 0.5rem;
     border: 1px solid var(--agentkit-border);
-    border-radius: 999px;
+    border-radius: var(--agentkit-radius-xs);
     color: var(--agentkit-text);
     overflow: hidden;
     background: var(--agentkit-subtle);
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
     font-weight: 500;
-    line-height: 1.25rem;
+    line-height: var(--agent-kit-supporting-line-height, 1rem);
   }
 
   .agentkit-agent-name,
@@ -1699,25 +1904,24 @@
   }
 
   .agentkit-agent[data-status="working"] .agentkit-agent-name {
-    color: transparent;
-    background: linear-gradient(
-      90deg,
-      var(--agentkit-text),
-      color-mix(in srgb, var(--agentkit-text) 34%, transparent),
-      var(--agentkit-text)
-    );
-    background-size: 200% 100%;
-    background-clip: text;
-    animation: agentkit-shimmer 1.8s linear infinite;
+    --agentkit-shimmer-base: var(--agentkit-text);
+    --agentkit-shimmer-highlight: var(--agentkit-text-muted);
   }
 
+  /* Failures are warnings: amber, not destructive red. */
   .agentkit-agent[data-status="failed"] {
     border-color: color-mix(
       in srgb,
-      var(--agentkit-danger) 32%,
+      var(--agentkit-warning) 32%,
       var(--agentkit-border)
     );
-    color: var(--agentkit-danger);
+    color: var(--agentkit-warning);
+  }
+
+  .agentkit-agent > .agentkit-icon {
+    flex: none;
+    inline-size: 0.875rem;
+    block-size: 0.875rem;
   }
 
   .agentkit-agent-interaction-detail {
@@ -1778,7 +1982,7 @@
   .agentkit-activity-cluster-count,
   .agentkit-tasks-count,
   .agentkit-task-progress {
-    color: color-mix(in srgb, var(--agentkit-text-muted) 75%, transparent);
+    color: var(--agentkit-text-muted);
     font-variant-numeric: tabular-nums;
   }
 
@@ -1819,7 +2023,7 @@
     min-inline-size: 0;
     overflow: hidden;
     color: var(--agentkit-text);
-    font-size: 0.875rem;
+    font-size: var(--agent-kit-body-font-size, 0.875rem);
     font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1843,11 +2047,11 @@
     gap: 0.25rem;
     padding-inline: 0.25rem;
     color: var(--agentkit-text-muted);
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
   }
 
   .agentkit-active-run-actions-feedback-error {
-    color: var(--agentkit-danger);
+    color: var(--agentkit-warning);
   }
 
   .agentkit-active-run-actions-trigger {
@@ -1948,16 +2152,8 @@
   }
 
   .agentkit-work-step-label[data-active="true"] {
-    color: transparent;
-    background: linear-gradient(
-      90deg,
-      var(--agentkit-text),
-      color-mix(in srgb, var(--agentkit-text) 28%, transparent),
-      var(--agentkit-text)
-    );
-    background-size: 200% 100%;
-    background-clip: text;
-    animation: agentkit-shimmer 1.8s linear infinite;
+    --agentkit-shimmer-base: var(--agentkit-text);
+    --agentkit-shimmer-highlight: var(--agentkit-text-muted);
   }
 
   .agentkit-work-step-body {
@@ -2013,14 +2209,14 @@
   .agentkit-work-object[data-kind="url"] {
     padding: 0 0.5rem;
     border: 1px solid var(--agentkit-border);
-    border-radius: 999px;
-    font-size: 0.75rem;
+    border-radius: var(--agentkit-radius-xs);
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
     line-height: 1.125rem;
   }
 
   .agentkit-work-object:is([data-kind="file"], [data-kind="command"]) {
     font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
   }
 
   .agentkit-work-objects-more {
@@ -2042,19 +2238,6 @@
     flex: 0 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  .agentkit-work-group[data-running="true"] .agentkit-work-group-label {
-    color: transparent;
-    background: linear-gradient(
-      90deg,
-      var(--agentkit-text-muted),
-      color-mix(in srgb, var(--agentkit-text-muted) 28%, transparent),
-      var(--agentkit-text-muted)
-    );
-    background-size: 200% 100%;
-    background-clip: text;
-    animation: agentkit-shimmer 1.8s linear infinite;
   }
 
   .agentkit-work-more {
@@ -2084,32 +2267,12 @@
     white-space: nowrap;
   }
 
-  .agentkit-task-row[data-status="running"] .agentkit-task-title {
-    color: transparent;
-    background: linear-gradient(
-      90deg,
-      var(--agentkit-text-muted),
-      color-mix(in srgb, var(--agentkit-text-muted) 28%, transparent),
-      var(--agentkit-text-muted)
-    );
-    background-size: 200% 100%;
-    background-clip: text;
-    animation: agentkit-shimmer 1.8s linear infinite;
-  }
-
   .agentkit-activity-label {
     min-inline-size: 0;
     overflow: hidden;
     color: var(--agentkit-text);
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .agentkit-activity-item[data-status="failed"]
-    > .agentkit-activity-row
-    .agentkit-disclosure-icon-slot
-    > .agentkit-icon {
-    color: var(--agentkit-warning);
   }
 
   .agentkit-activity-error {
@@ -2126,25 +2289,8 @@
     color: var(--agentkit-text-muted);
   }
 
-  .agentkit-task-row[data-status="failed"] .agentkit-task-status-icon {
-    color: var(--agentkit-warning);
-  }
-
   .agentkit-task-status-icon {
     flex: none;
-  }
-
-  .agentkit-activity-item[data-status="running"] .agentkit-activity-label {
-    color: transparent;
-    background: linear-gradient(
-      90deg,
-      var(--agentkit-text-muted),
-      color-mix(in srgb, var(--agentkit-text-muted) 28%, transparent),
-      var(--agentkit-text-muted)
-    );
-    background-size: 200% 100%;
-    background-clip: text;
-    animation: agentkit-shimmer 1.8s linear infinite;
   }
 
   .agentkit-activity-detail,
@@ -2194,11 +2340,11 @@
   }
 
   .agentkit-diff-added {
-    color: var(--agentkit-success);
+    color: var(--agentkit-diff-added-text);
   }
 
   .agentkit-diff-removed {
-    color: var(--agentkit-danger);
+    color: var(--agentkit-diff-removed-text);
   }
 
   .agentkit-activity-summary {
@@ -2207,37 +2353,342 @@
     color: var(--agentkit-text);
   }
 
-  .agentkit-activity-summary-section {
+  /* The composer's frame and type scale, so the two read as one input. */
+  .agentkit-question {
     display: grid;
-    gap: 0.25rem;
-    margin-block-start: 0.5rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+    padding: 0.5rem var(--agent-kit-composer-editor-padding-inline, 1rem);
+    border: 1px solid var(--agentkit-composer-border);
+    border-radius: var(--agentkit-composer-radius);
+    color: var(--agentkit-text);
+    /* Composer surface variables, so restyling the composer restyles this. */
+    background: var(
+      --agentkit-composer-background,
+      var(--agent-kit-composer-surface, var(--agentkit-surface))
+    );
+    box-shadow: var(--agentkit-elevation);
+    font-size: var(--agent-kit-composer-font-size, 0.875rem);
+    line-height: var(--agent-kit-composer-line-height, 1.25rem);
   }
 
-  .agentkit-activity-summary-label {
+  .agentkit-question-header {
+    display: flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.5rem;
+    min-block-size: 1.5rem;
     color: var(--agentkit-text-muted);
-    font-size: 0.6875rem;
-    font-weight: 500;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
+    line-height: var(--agent-kit-supporting-line-height, 1rem);
+  }
+
+  .agentkit-question-header > .agentkit-icon {
+    inline-size: 0.875rem;
+    block-size: 0.875rem;
+  }
+
+  .agentkit-question-title {
+    margin: 0;
+    font: inherit;
+  }
+
+  .agentkit-question-progress {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* The icon button's glyph sits on the text's edge, not its box's. */
+  .agentkit-question-dismiss {
+    margin-inline: auto -0.25rem;
+  }
+
+  .agentkit-question-text,
+  .agentkit-question-description {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .agentkit-question-description {
+    color: var(--agentkit-text-muted);
+  }
+
+  /* Row text sits flush with the text above. */
+  .agentkit-question-options {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    margin-inline: -0.5rem;
+  }
+
+  .agentkit-question-option {
+    display: flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.5rem;
+    min-block-size: 1.75rem;
+    padding: 0.25rem 0.5rem;
+    border: 0;
+    border-radius: var(--agentkit-radius-xs);
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .agentkit-question-option:hover,
+  .agentkit-question-option[data-selected="true"] {
+    background: var(--agentkit-subtle);
+  }
+
+  .agentkit-question-option:focus-visible {
+    outline: 2px solid var(--agentkit-focus);
+    outline-offset: -2px;
+  }
+
+  .agentkit-question-option[aria-disabled="true"] {
+    cursor: default;
+  }
+
+  .agentkit-question-key {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    inline-size: 1rem;
+    block-size: 1rem;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--agentkit-radius-xs);
+    color: var(--agentkit-text-muted);
+    font-size: var(--agent-kit-caption-font-size, 0.6875rem);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .agentkit-question-option[data-selected="true"] .agentkit-question-key {
+    border-color: var(--agentkit-text);
+    color: var(
+      --agentkit-composer-background,
+      var(--agent-kit-composer-surface, var(--agentkit-surface))
+    );
+    background: var(--agentkit-text);
+  }
+
+  .agentkit-question-option-label {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-question-recommended {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    padding: 0 0.25rem;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--agentkit-radius-xs);
+    color: var(--agentkit-text-muted);
+    font-size: var(--agent-kit-caption-font-size, 0.6875rem);
+    line-height: var(--agent-kit-caption-line-height, 1rem);
+  }
+
+  .agentkit-question-swatch {
+    flex: none;
+    inline-size: 1rem;
+    block-size: 1rem;
+    border-radius: var(--agentkit-radius-xs);
+    box-shadow: inset 0 0 0 1px var(--agentkit-border);
+  }
+
+  .agentkit-question-range {
+    display: flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.5rem;
+    min-block-size: 1.75rem;
+    color: var(--agentkit-text-muted);
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
+    line-height: var(--agent-kit-supporting-line-height, 1rem);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .agentkit-question-range input {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    margin: 0;
+    accent-color: var(--agentkit-text);
+  }
+
+  .agentkit-question-range-value {
+    min-inline-size: 2rem;
+    color: var(--agentkit-text);
+    font-size: var(--agent-kit-composer-font-size, 0.875rem);
+    line-height: var(--agent-kit-composer-line-height, 1.25rem);
+    text-align: end;
+  }
+
+  .agentkit-question-files {
+    display: flex;
+    flex-wrap: wrap;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  /* Matches the shared chip. */
+  .agentkit-question-file {
+    display: inline-flex;
+    min-inline-size: 0;
+    max-inline-size: 16rem;
+    align-items: center;
+    gap: 0.25rem;
+    block-size: 1.25rem;
+    padding-inline: 0.5rem 0.125rem;
+    border: 1px solid var(--agentkit-border);
+    border-radius: var(--agentkit-radius-xs);
+    color: var(--agentkit-text);
+    background: var(--agentkit-subtle);
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
+    line-height: var(--agent-kit-supporting-line-height, 1rem);
+  }
+
+  .agentkit-question-file-name {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-question-file-remove {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    inline-size: 1rem;
+    block-size: 1rem;
+    padding: 0;
+    border: 0;
+    border-radius: var(--agentkit-radius-xs);
+    color: var(--agentkit-text-muted);
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .agentkit-question-file-remove:hover {
+    color: var(--agentkit-text);
+  }
+
+  .agentkit-question-file-remove .agentkit-icon {
+    inline-size: 0.75rem;
+    block-size: 0.75rem;
+  }
+
+  /* A field of its own: shows the composer's focus border, 8px in from the
+   card's corner. */
+  .agentkit-question-footer {
+    display: flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.5rem;
+    margin-inline: calc(
+      0.5rem - var(--agent-kit-composer-editor-padding-inline, 1rem)
+    );
+    padding: 0.25rem 0.25rem 0.25rem
+      calc(var(--agent-kit-composer-editor-padding-inline, 1rem) - 0.5rem - 1px);
+    border: 1px solid transparent;
+    border-radius: calc(var(--agentkit-composer-radius) - 0.5rem);
+  }
+
+  .agentkit-question-footer:has(.agentkit-question-other:focus-within) {
+    border-color: var(--agentkit-composer-focus-border);
+  }
+
+  .agentkit-question-other,
+  .agentkit-question-spacer {
+    display: flex;
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .agentkit-question-other {
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-question-other > .agentkit-icon {
+    inline-size: 0.875rem;
+    block-size: 0.875rem;
+  }
+
+  .agentkit-question-other input {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    min-block-size: 1.5rem;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    color: var(--agentkit-text);
+    background: transparent;
+    font: inherit;
+  }
+
+  .agentkit-question-other input::placeholder {
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-question-actions {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  /* Rows keep the trace's muted ink; the reply reads as text. */
+  .agentkit-subagent-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+    margin-inline-start: 1.5rem;
+    padding: 0.25rem 0 0.5rem;
+  }
+
+  .agentkit-subagent-content
+    > :not(.agentkit-activity-item, .agentkit-agent-interaction) {
+    color: var(--agentkit-text);
+  }
+
+  .agentkit-code-block.agentkit-activity-summary-section {
+    margin-block: 0.5rem 0;
   }
 
   .agentkit-activity-summary-value {
     max-block-size: 12rem;
-    overflow: auto;
-    border: 1px solid var(--agentkit-border);
-    border-radius: var(--radius-md, var(--radius));
-    padding: 0.5rem 0.75rem;
-    background: var(--agentkit-subtle);
-    color: var(--agentkit-text);
-    font: inherit;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.75rem;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
   }
 
-  .agentkit-activity-summary-value:focus-visible {
-    outline: 2px solid var(--agentkit-focus);
-    outline-offset: 2px;
+  .agentkit-activity-tool-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.125rem 0.75rem;
+    margin: 0;
+    color: var(--agentkit-text-muted);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--agent-kit-caption-font-size, 0.6875rem);
+  }
+
+  .agentkit-activity-tool-options > div {
+    display: flex;
+    min-inline-size: 0;
+    gap: 0.375rem;
+  }
+
+  .agentkit-activity-tool-options dd {
+    min-inline-size: 0;
+    margin: 0;
+    overflow: hidden;
+    color: var(--agentkit-text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* The approval card draws its own chrome; it only takes the spacing. */
@@ -2254,9 +2705,10 @@
     background: var(--agentkit-surface);
   }
 
+  /* Every card in a turn shares this frame. */
   .agentkit-connection-request-copy,
   .agentkit-widget {
-    padding: 1rem;
+    padding: 0.75rem;
   }
 
   .agentkit-widget {
@@ -2266,7 +2718,7 @@
   .agentkit-connection-request h3,
   .agentkit-widget h3 {
     margin: 0;
-    font-size: 0.875rem;
+    font-size: var(--agent-kit-body-font-size, 0.875rem);
     font-weight: 600;
   }
 
@@ -2274,7 +2726,7 @@
   .agentkit-widget p {
     margin: 0.25rem 0 0;
     color: var(--agentkit-text-muted);
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
   }
 
   .agentkit-connection-request-copy {
@@ -2299,7 +2751,7 @@
     display: flex;
     justify-content: flex-end;
     gap: 0.5rem;
-    padding: 0.75rem 1rem;
+    padding: 0.75rem;
     border-block-start: 1px solid var(--agentkit-border);
   }
 
@@ -2321,11 +2773,11 @@
     gap: 0.25rem;
     padding: 0.75rem;
     border: 1px solid var(--agentkit-border);
-    border-radius: var(--radius-md, var(--radius));
+    border-radius: var(--agentkit-radius-sm);
     color: var(--agentkit-text);
     background: transparent;
     font: inherit;
-    font-size: 0.875rem;
+    font-size: var(--agent-kit-body-font-size, 0.875rem);
     text-align: start;
     cursor: pointer;
   }
@@ -2347,7 +2799,7 @@
 
   .agentkit-approval-options small {
     color: var(--agentkit-text-muted);
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
   }
 
   .agentkit-approval-input input {
@@ -2357,14 +2809,14 @@
   .agentkit-approval-input {
     display: grid;
     color: var(--agentkit-text-muted);
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
   }
 
   .agentkit-widget-actions {
     display: flex;
     justify-content: flex-end;
     gap: 0.5rem;
-    padding: 0.75rem 1rem;
+    padding: 0.75rem;
     border-block-start: 1px solid var(--agentkit-border);
   }
 
@@ -2374,17 +2826,16 @@
     margin-block-end: -1rem;
   }
 
-  /* Plain buttons only: a design-system Button would also pick up the
-     properties its own variant leaves unset, such as this border. */
+  /* Plain buttons only: a design-system Button would pick up this border. */
   :where(.agentkit-widget-actions) :where(button:not([data-slot="button"])) {
     min-block-size: 2rem;
     padding-inline: 0.75rem;
     border: 1px solid var(--agentkit-border);
-    border-radius: var(--radius-md, var(--radius));
+    border-radius: var(--agentkit-radius-sm);
     color: var(--agentkit-text);
     background: transparent;
     font: inherit;
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
     cursor: pointer;
   }
 
@@ -2400,10 +2851,11 @@
     gap: 0.25rem;
   }
 
+  /* Amber: red is only for destructive actions. */
   .agentkit-command-error {
-    color: var(--agentkit-danger-text);
-    font-size: 0.75rem;
-    line-height: 1.35;
+    color: var(--agentkit-warning);
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
+    line-height: var(--agent-kit-supporting-line-height, 1rem);
   }
 
   .agentkit-file {
@@ -2416,10 +2868,10 @@
 
   .agentkit-file--pasted-text {
     border: 1px solid var(--agentkit-border);
-    border-radius: 999px;
+    border-radius: var(--agentkit-radius-xs);
     min-block-size: 1.5rem;
     padding: 0 0.5rem;
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
   }
 
   .agentkit-annotations,
@@ -2428,7 +2880,471 @@
     flex-wrap: wrap;
     gap: 0.5rem;
     margin-block-start: 0.5rem;
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
+  }
+
+  .agentkit-context-ring-trigger {
+    display: flex;
+    flex: none;
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: var(--agentkit-composer-control-radius);
+    color: var(--agentkit-text-muted);
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .agentkit-context-ring-trigger:hover,
+  .agentkit-context-ring-trigger[data-state="open"] {
+    background: var(--agentkit-subtle);
+  }
+
+  .agentkit-context-ring-trigger:focus-visible {
+    outline: 2px solid var(--agentkit-focus);
+    outline-offset: 1px;
+  }
+
+  .agentkit-context-ring {
+    inline-size: 1.25rem;
+    block-size: 1.25rem;
+    transform: rotate(-90deg);
+  }
+
+  /* Unused window. The subtle surface would vanish on a dark-mode popover. */
+  .agentkit-context-ring-trigger,
+  .agentkit-context-usage {
+    --agentkit-context-free: color-mix(
+      in srgb,
+      var(--agentkit-text-muted) 25%,
+      transparent
+    );
+  }
+
+  .agentkit-context-ring-track {
+    stroke: var(--agentkit-context-free);
+  }
+
+  .agentkit-context-ring-fill {
+    stroke: var(--agentkit-progress);
+    transition: stroke-dashoffset 300ms ease;
+  }
+
+  .agentkit-context-ring-fill[data-warning="true"] {
+    stroke: var(--agentkit-warning);
+  }
+
+  /* The shared popover surface pads 4px; 8px more puts content 12px in. */
+  .agentkit-context-usage {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.5rem;
+    color: var(--agentkit-text);
+    font-size: var(--agent-kit-density-font-size, 0.8125rem);
+    line-height: var(--agent-kit-density-line-height, 1.25rem);
+  }
+
+  .agentkit-context-usage-header {
+    display: flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .agentkit-context-usage-title {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    overflow: hidden;
+    color: var(--agentkit-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-context-usage-total {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .agentkit-context-usage-toggle {
+    flex: none;
+    margin-inline-end: -0.25rem;
+  }
+
+  .agentkit-context-usage-bar {
+    display: flex;
+    inline-size: 100%;
+    block-size: 0.5rem;
+    overflow: hidden;
+    border-radius: var(--agentkit-radius-xs);
+    background: var(--agentkit-context-free);
+  }
+
+  .agentkit-context-usage-bar > span {
+    block-size: 100%;
+  }
+
+  .agentkit-context-usage-breakdown {
+    max-block-size: 12rem;
+    margin-block: -0.25rem;
+    overflow-y: auto;
+  }
+
+  .agentkit-context-usage-breakdown[hidden] {
+    display: none;
+  }
+
+  .agentkit-context-usage-breakdown table {
+    inline-size: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  .agentkit-context-usage-breakdown td {
+    padding-block: 0.125rem;
+    vertical-align: middle;
+  }
+
+  .agentkit-context-usage-breakdown td:first-child {
+    inline-size: 1rem;
+  }
+
+  .agentkit-context-usage-breakdown td:nth-child(2) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agentkit-context-usage-breakdown td:nth-child(3),
+  .agentkit-context-usage-breakdown td:nth-child(4) {
+    padding-inline-start: 0.75rem;
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .agentkit-context-usage-breakdown td:nth-child(3) {
+    inline-size: 5rem;
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-context-usage-breakdown td:nth-child(4) {
+    inline-size: 4rem;
+  }
+
+  .agentkit-context-usage-swatch {
+    display: block;
+    inline-size: 0.5rem;
+    block-size: 0.5rem;
+    border-radius: calc(var(--agentkit-radius-xs) / 2);
+    background: var(--agentkit-context-free);
+  }
+
+  .agentkit-context-usage-caption {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.375rem;
+    margin: 0;
+    color: var(--agentkit-text-muted);
+    font-size: var(--agent-kit-caption-font-size, 0.6875rem);
+    line-height: var(--agent-kit-caption-line-height, 1rem);
+  }
+
+  .agentkit-context-usage-caption[data-warning="true"] {
+    color: var(--agentkit-warning);
+  }
+
+  .agentkit-context-usage-caption > .agentkit-icon {
+    margin-block-start: 0;
+  }
+
+  .agentkit-context-usage-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .agentkit-file-path {
+    display: flex;
+    min-inline-size: 0;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--agent-kit-density-font-size, 0.8125rem);
+  }
+
+  /* The directory gives way first, so the file name stays readable. */
+  .agentkit-file-path-directory {
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Not while running: a colored child would cancel the title's shimmer. */
+  .agentkit-trace-line:not([data-trace-status="running"])
+    .agentkit-file-path-directory {
+    color: var(--agentkit-text-muted);
+  }
+
+  /* Holds its width until the directory has collapsed. */
+  .agentkit-file-path-name {
+    flex: none;
+    max-inline-size: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Open steps show the whole title; a hover-only title fails keyboard and
+   touch users. */
+  .agentkit-trace-collapsible[data-state="open"]
+    > :is(.agentkit-disclosure-summary, * > .agentkit-disclosure-summary)
+    :is(
+      .agentkit-trace-title,
+      .agentkit-trace-description,
+      .agentkit-file-path-directory,
+      .agentkit-file-path-name
+    ) {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .agentkit-trace-collapsible[data-state="open"]
+    > :is(.agentkit-disclosure-summary, * > .agentkit-disclosure-summary)
+    .agentkit-file-path {
+    flex-wrap: wrap;
+  }
+
+  .agentkit-file-change-stats {
+    display: inline-flex;
+    gap: 0.375rem;
+    margin-inline-start: auto;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
+  }
+
+  .agentkit-file-change-stats > [data-sign="added"] {
+    color: var(--agentkit-diff-added-text);
+  }
+
+  .agentkit-file-change-stats > [data-sign="removed"] {
+    color: var(--agentkit-diff-removed-text);
+  }
+
+  .agentkit-file-change .agentkit-file-change-content {
+    padding-block-end: 0;
+  }
+
+  .agentkit-file-change .agentkit-code-block {
+    margin: 0;
+  }
+
+  .agentkit-file-change-body .agentkit-code-block-content {
+    max-block-size: 24rem;
+  }
+
+  .agentkit-files-changed {
+    gap: 0;
+  }
+
+  .agentkit-terminal-row {
+    display: flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .agentkit-terminal-row > .agentkit-disclosure-summary {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+  }
+
+  .agentkit-terminal-command {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--agent-kit-density-font-size, 0.8125rem);
+  }
+
+  .agentkit-terminal-actions {
+    flex: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  .agentkit-terminal-row:hover > .agentkit-terminal-actions,
+  .agentkit-terminal-row:focus-within > .agentkit-terminal-actions,
+  [data-state="open"] > .agentkit-terminal-row > .agentkit-terminal-actions {
+    opacity: 1;
+  }
+
+  .agentkit-terminal .agentkit-terminal-body {
+    padding-block-end: 0;
+  }
+
+  .agentkit-terminal .agentkit-code-block {
+    margin: 0;
+  }
+
+  .agentkit-terminal-output {
+    max-block-size: 16rem;
+  }
+
+  .agentkit-terminal-earlier {
+    padding: 0;
+    border: 0;
+    color: var(--agentkit-text-muted-strong);
+    background: none;
+    font: inherit;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+    cursor: pointer;
+  }
+
+  .agentkit-terminal-earlier:hover {
+    color: var(--agentkit-text);
+  }
+
+  .agentkit-stack-trace {
+    margin-block: 0.5rem 0;
+  }
+
+  .agentkit-stack-trace-row {
+    display: flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .agentkit-stack-trace-row > .agentkit-disclosure-summary {
+    flex: 1 1 auto;
+    min-inline-size: 0;
+  }
+
+  .agentkit-stack-trace-actions {
+    flex: none;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+
+  .agentkit-stack-trace-row:hover > .agentkit-stack-trace-actions,
+  .agentkit-stack-trace-row:focus-within > .agentkit-stack-trace-actions,
+  [data-state="open"]
+    > .agentkit-stack-trace-row
+    > .agentkit-stack-trace-actions {
+    opacity: 1;
+  }
+
+  /* Touch has no hover, so show these. Must follow the base rules. */
+  @media (hover: none), (any-pointer: coarse) {
+    .agentkit-code-block > .agentkit-code-block-actions,
+    .agentkit-terminal-actions,
+    .agentkit-stack-trace-actions {
+      opacity: 1;
+    }
+  }
+
+  .agentkit-stack-trace .agentkit-stack-trace-body {
+    margin-inline-start: 0;
+    padding: 0.5rem 0.75rem;
+    overflow-x: auto;
+    border: 1px solid
+      color-mix(in srgb, var(--agentkit-warning) 40%, var(--agentkit-border));
+    border-radius: var(--agentkit-radius-inner);
+    background: var(--agentkit-subtle);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
+    line-height: var(--agent-kit-supporting-line-height, 1rem);
+  }
+
+  .agentkit-stack-trace-error {
+    margin: 0 0 0.25rem;
+    color: var(--agentkit-text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .agentkit-stack-frames {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .agentkit-stack-frame {
+    display: flex;
+    min-inline-size: 0;
+    gap: 0.5rem;
+    padding-inline-start: 1rem;
+    color: var(--agentkit-text);
+    white-space: nowrap;
+  }
+
+  .agentkit-stack-frame[data-internal="true"] {
+    color: var(--agentkit-text-muted);
+  }
+
+  .agentkit-stack-frame-name {
+    flex: none;
+  }
+
+  .agentkit-stack-frame-location {
+    min-inline-size: 0;
+    overflow: hidden;
+    padding: 0;
+    border: 0;
+    color: var(--agentkit-text-muted);
+    background: none;
+    font: inherit;
+    text-align: start;
+    text-overflow: ellipsis;
+  }
+
+  button.agentkit-stack-frame-location {
+    color: var(--agentkit-text);
+    text-decoration: underline;
+    text-decoration-color: var(--agentkit-text-muted);
+    text-underline-offset: 0.2em;
+    cursor: pointer;
+  }
+
+  .agentkit-stack-frames-folded .agentkit-disclosure-summary {
+    padding-inline-start: 1rem;
+    font-family: inherit;
+    font-size: inherit;
+  }
+
+  .agentkit-stack-frames-folded .agentkit-trace-content {
+    margin-inline-start: 0;
+    padding: 0;
+  }
+
+  .agentkit-sources {
+    margin-block-start: 0.5rem;
+  }
+
+  .agentkit-sources-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.125rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .agentkit-sources-list a {
+    display: flex;
+    min-inline-size: 0;
+    padding-block: 0.125rem;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .agentkit-sources-list a:hover .agentkit-trace-title {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+
+  .agentkit-sources .agentkit-trace-content {
+    margin-inline-start: 0;
+    padding-block-end: 0;
   }
 
   .agentkit-annotations a,
@@ -2446,7 +3362,7 @@
   .agentkit-reasoning {
     margin-block: 0.5rem 0.75rem;
     color: var(--agentkit-text-muted);
-    font-size: 0.8125rem;
+    font-size: var(--agent-kit-density-font-size, 0.8125rem);
   }
 
   .agentkit-reasoning-summary {
@@ -2460,26 +3376,13 @@
     white-space: nowrap;
   }
 
-  .agentkit-reasoning[data-active="true"] .agentkit-reasoning-label {
-    color: transparent;
-    background: linear-gradient(
-      90deg,
-      var(--agentkit-text-muted),
-      color-mix(in srgb, var(--agentkit-text-muted) 28%, transparent),
-      var(--agentkit-text-muted)
-    );
-    background-size: 200% 100%;
-    background-clip: text;
-    animation: agentkit-shimmer 1.8s linear infinite;
-  }
-
   .agentkit-reasoning-content {
     min-inline-size: 0;
     overflow-wrap: anywhere;
     margin-inline-start: 1.5rem;
     padding: 0.25rem 0 0.5rem;
     color: var(--agentkit-text-muted);
-    font-size: 0.8125rem;
+    font-size: var(--agent-kit-density-font-size, 0.8125rem);
   }
 
   .agentkit-reasoning-content p {
@@ -2496,12 +3399,11 @@
     align-items: start;
     gap: 0.25rem 0.5rem;
     margin-block: var(--agentkit-run-segment-gap, 0.75rem);
-    padding: 0.75rem 1rem;
+    padding: 0.75rem;
     border: 1px solid
-      color-mix(in srgb, var(--agentkit-danger) 32%, var(--agentkit-border));
+      color-mix(in srgb, var(--agentkit-warning) 32%, var(--agentkit-border));
     border-radius: var(--agentkit-radius-inner);
-    background: color-mix(in srgb, var(--agentkit-danger) 6%, transparent);
-    font-size: 0.75rem;
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
   }
 
   .agentkit-error > :not(.agentkit-icon) {
@@ -2510,7 +3412,7 @@
 
   .agentkit-error > .agentkit-icon {
     margin-block-start: 0.0625rem;
-    color: var(--agentkit-danger-text);
+    color: var(--agentkit-warning);
   }
 
   .agentkit-error > span:not(.agentkit-command-error) {
@@ -2529,9 +3431,9 @@
     gap: 0.5rem;
     margin-block: var(--agentkit-run-segment-gap, 0.75rem);
     padding-block: 0.25rem;
-    color: var(--agentkit-danger);
-    font-size: 0.75rem;
-    line-height: 1.4;
+    color: var(--agentkit-warning);
+    font-size: var(--agent-kit-supporting-font-size, 0.75rem);
+    line-height: var(--agent-kit-supporting-line-height, 1rem);
   }
 
   .agentkit-run-failure > .agentkit-icon {
@@ -2547,7 +3449,7 @@
   }
 
   .agentkit-run-failure-copy strong {
-    color: var(--agentkit-danger-text);
+    color: var(--agentkit-text);
     font-weight: 600;
   }
 
@@ -2562,20 +3464,6 @@
 
   .agentkit-run-failure-copy > .agentkit-command-error {
     flex-basis: 100%;
-    color: var(--agentkit-danger-text);
-  }
-
-  .agentkit-run-failure[data-tone="warning"] {
-    color: var(--agentkit-warning);
-  }
-
-  .agentkit-run-failure[data-tone="warning"] .agentkit-run-failure-copy strong {
-    color: var(--agentkit-text);
-  }
-
-  .agentkit-run-failure[data-tone="warning"]
-    .agentkit-run-failure-copy
-    > .agentkit-command-error {
     color: var(--agentkit-text-muted-strong);
   }
 
@@ -2672,7 +3560,7 @@
   .agentkit-run-stopped {
     margin-block-start: 0.25rem;
     color: var(--agentkit-text-muted);
-    font-size: 0.8125rem;
+    font-size: var(--agent-kit-density-font-size, 0.8125rem);
   }
 
   .agentkit-transcript-skeleton {
@@ -2694,8 +3582,28 @@
     gap: 0.75rem;
     padding-block: 1.5rem;
     color: var(--agentkit-text-muted);
-    font-size: 0.875rem;
+    font-size: var(--agent-kit-body-font-size, 0.875rem);
     text-align: center;
+  }
+
+  /* Sweep between two readable colors, never toward the background, or the
+   label drops under 4.5:1. The trace title keeps real specificity so a row
+   color class cannot cancel the transparent fill. */
+  .agentkit-trace-line[data-trace-status="running"] .agentkit-trace-title,
+  .agentkit-agent[data-status="working"] .agentkit-agent-name,
+  .agentkit-reasoning[data-active="true"] .agentkit-reasoning-label,
+  .agentkit-work-step-label[data-active="true"],
+  .agentkit-work-group[data-running="true"] .agentkit-work-group-label {
+    color: transparent;
+    background: linear-gradient(
+      90deg,
+      var(--agentkit-shimmer-base, var(--agentkit-text-muted)),
+      var(--agentkit-shimmer-highlight, var(--agentkit-text)),
+      var(--agentkit-shimmer-base, var(--agentkit-text-muted))
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    animation: agentkit-shimmer 1.8s linear infinite;
   }
 
   @keyframes agentkit-shimmer {
@@ -2705,15 +3613,17 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .agentkit-activity-item[data-status="running"] .agentkit-activity-label,
+    .agentkit-trace-line[data-trace-status="running"] .agentkit-trace-title,
     .agentkit-agent[data-status="working"] .agentkit-agent-name,
     .agentkit-reasoning[data-active="true"] .agentkit-reasoning-label,
     .agentkit-work-step-label[data-active="true"],
-    .agentkit-work-group[data-running="true"] .agentkit-work-group-label,
-    .agentkit-task-row[data-status="running"] .agentkit-task-title {
+    .agentkit-work-group[data-running="true"] .agentkit-work-group-label {
+      color: var(--agentkit-shimmer-base, var(--agentkit-text-muted));
+      background: none;
       animation: none;
     }
 
+    .agentkit-context-ring-fill,
     .agentkit-message-actions,
     .agentkit-message-toolbar,
     .agentkit-scroll-to-bottom-control,
@@ -2761,7 +3671,8 @@
     --agentkit-composer-inset: 1rem;
     --agentkit-composer-editor-padding-top: 1rem;
     --agentkit-composer-toolbar-padding-bottom: 0.75rem;
-    --agentkit-composer-radius: 1.75rem;
+    /* Concentric with the 8px Send at this size's 12px inset. */
+    --agentkit-composer-radius: calc(var(--agentkit-radius-sm) + 0.75rem);
   }
 
   @container agentkit-chat (max-width: 40rem) {

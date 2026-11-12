@@ -34,6 +34,13 @@ import {
   useState,
 } from "react";
 
+import { useVoiceDictation } from "../../../composer/useVoiceDictation.js";
+import { VoiceButton } from "../../../composer/VoiceButton.js";
+import {
+  QuestionCard as AgentKitQuestionCard,
+  type AgentKitQuestion,
+  type AgentKitQuestionAnswers,
+} from "../../agentkit/react/question-card.js";
 import { BuilderSetupCard } from "../chat/run-recovery.js";
 
 export type GuidedQuestionType =
@@ -454,9 +461,116 @@ export interface GuidedQuestionFlowProps {
   isSubmissionBlocked?: boolean;
   providerStatus?: AgentEngineConfiguredState;
   modelListUnavailable?: boolean;
-  onRetryProviderStatus?: () => void;
+  onRetryProviderStatus?: (() => void) | undefined;
   showProviderStatusGate?: boolean;
   className?: string;
+}
+
+function toQuestionCardQuestion(
+  question: GuidedQuestion,
+  defaults: { explore: GuidedQuestionOption; decide: GuidedQuestionOption },
+): AgentKitQuestion {
+  const choices =
+    question.type === "text-options"
+      ? withDefaultOptions(question, defaults)
+      : question.type === "color-options"
+        ? recommendedFirst(question.options ?? question.choices ?? [])
+        : [];
+  const options = choices.map((option) => ({
+    value: option.value,
+    label: option.label,
+    ...(option.recommended ? { recommended: true } : {}),
+    ...(question.type === "color-options"
+      ? { color: option.color || option.value }
+      : {}),
+  }));
+  const min = question.min ?? 0;
+  const max = question.max ?? 100;
+  const step = question.step ?? 1;
+  return {
+    id: question.id,
+    question: question.question,
+    options,
+    ...(question.description ? { description: question.description } : {}),
+    ...(question.placeholder ? { placeholder: question.placeholder } : {}),
+    ...(question.type === "slider"
+      ? {
+          range: {
+            min,
+            max,
+            step,
+            initial: min + Math.round((max - min) / 2 / step) * step,
+          },
+        }
+      : {}),
+    ...(question.type === "file" ? { files: true } : {}),
+    multiSelect: question.multiSelect === true,
+    allowOther:
+      question.type === "freeform" ||
+      (question.type === "text-options" && question.allowOther !== false),
+    required: question.required === true,
+    submitOnSelect: question.submitOnSelect === true,
+  };
+}
+
+function fromQuestionCardAnswers(
+  questions: readonly GuidedQuestion[],
+  answers: AgentKitQuestionAnswers,
+): GuidedQuestionAnswers {
+  const result: GuidedQuestionAnswers = {};
+  for (const question of questions) {
+    const answer = answers[question.id] as
+      | AgentKitQuestionAnswers[string]
+      | undefined;
+    if (!answer) continue;
+    const other = answer.other?.trim() ?? "";
+    if (question.type === "freeform") {
+      if (other) result[question.id] = other;
+      continue;
+    }
+    if (question.type === "slider") {
+      if (answer.values.length > 0) {
+        result[question.id] = Number(answer.values[0]);
+      }
+      continue;
+    }
+    if (question.type === "file") {
+      if (answer.files?.length) result[question.id] = answer.files;
+      continue;
+    }
+    if (question.multiSelect) {
+      result[question.id] = [
+        ...answer.values,
+        ...(other ? [makeOtherGuidedAnswer(other)] : []),
+      ];
+      continue;
+    }
+    if (answer.values.length > 0) result[question.id] = answer.values[0];
+    else if (other) result[question.id] = makeOtherGuidedAnswer(other);
+  }
+  return result;
+}
+
+function GuidedQuestionDictation({
+  onTranscript,
+  disabled,
+}: {
+  onTranscript: (text: string) => void;
+  disabled: boolean;
+}) {
+  const voice = useVoiceDictation({ onTranscript });
+  const isMac =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.userAgent);
+  return (
+    <VoiceButton
+      voice={voice}
+      isMac={isMac}
+      disabled={disabled}
+      voiceChat={false}
+      showShortcut={false}
+    />
+  );
 }
 
 export function GuidedQuestionProviderGate({
@@ -502,6 +616,99 @@ export function GuidedQuestionProviderGate({
         </button>
       ) : null}
     </div>
+  );
+}
+
+/** Docked above a chat composer; full-panel hosts use `GuidedQuestionFlow`. */
+export function GuidedQuestionCard({
+  questions,
+  onSubmit,
+  onSkip,
+  title,
+  description,
+  skipLabel,
+  submitLabel,
+  isSubmitting = false,
+  isSubmissionBlocked = false,
+  providerStatus = "configured",
+  modelListUnavailable = false,
+  onRetryProviderStatus,
+  showProviderStatusGate = true,
+  className,
+}: GuidedQuestionFlowProps) {
+  const t = useT();
+  const questionsFingerprint = useMemo(
+    () => guidedQuestionsFingerprint(questions),
+    [questions],
+  );
+  const inputsDisabled =
+    isSubmitting || (isSubmissionBlocked && providerStatus !== "unknown");
+  const exploreLabel = t("agentChat.guided.exploreLabel");
+  const exploreDescription = t("agentChat.guided.exploreDescription");
+  const decideLabel = t("agentChat.guided.decideLabel");
+  const decideDescription = t("agentChat.guided.decideDescription");
+  const cardQuestions = useMemo(
+    () =>
+      questions.map((question) =>
+        toQuestionCardQuestion(question, {
+          explore: {
+            label: exploreLabel,
+            value: EXPLORE_OPTION_VALUE,
+            description: exploreDescription,
+          },
+          decide: {
+            label: decideLabel,
+            value: DECIDE_OPTION_VALUE,
+            description: decideDescription,
+          },
+        }),
+      ),
+    [
+      questions,
+      exploreLabel,
+      exploreDescription,
+      decideLabel,
+      decideDescription,
+    ],
+  );
+  const providerGate =
+    isSubmissionBlocked && showProviderStatusGate ? (
+      <div className="guided-question-provider-gate">
+        <GuidedQuestionProviderGate
+          providerStatus={providerStatus}
+          modelListUnavailable={modelListUnavailable}
+          {...(onRetryProviderStatus ? { onRetry: onRetryProviderStatus } : {})}
+        />
+      </div>
+    ) : null;
+
+  return (
+    <AgentKitQuestionCard
+      // A new set of questions starts over at the first one.
+      key={questionsFingerprint}
+      questions={cardQuestions}
+      {...(title ? { title } : {})}
+      {...(description ? { description } : {})}
+      {...(skipLabel ? { skipLabel } : {})}
+      {...(submitLabel ? { submitLabel } : {})}
+      {...(className ? { className } : {})}
+      busy={isSubmitting}
+      disabled={inputsDisabled}
+      submitBlocked={isSubmissionBlocked}
+      footer={providerGate}
+      renderResponseControl={({ append, disabled }) => (
+        <GuidedQuestionDictation onTranscript={append} disabled={disabled} />
+      )}
+      onDismiss={onSkip}
+      onSubmit={(cardAnswers) => {
+        if (isSubmissionBlocked || isSubmitting) return;
+        onSubmit(
+          normalizeGuidedAnswers(
+            fromQuestionCardAnswers(questions, cardAnswers),
+          ),
+        );
+      }}
+    />
   );
 }
 
@@ -661,7 +868,7 @@ function QuestionCard({
   const t = useT();
   const questionId = useId();
   return (
-    <section className="guided-question-card border-t border-border/60 py-3 first:border-t-0 first:pt-0 last:pb-0">
+    <section className="guided-question-card border-t border-border py-3 first:border-t-0 first:pt-0 last:pb-0">
       <div className="mb-2 flex gap-2.5">
         <div className="guided-question-index mt-0.5 min-w-4 text-xs font-medium tabular-nums text-muted-foreground">
           {index + 1}
@@ -899,7 +1106,7 @@ function OptionButton({
           </span>
         )}
         {option.preview && (
-          <span className="mt-1.5 block max-h-40 overflow-auto whitespace-pre-wrap rounded border border-border/60 bg-background/60 px-2 py-1.5 font-mono text-[11px] leading-4 text-muted-foreground">
+          <span className="mt-1.5 block max-h-40 overflow-auto whitespace-pre-wrap rounded border border-border bg-background/60 px-2 py-1.5 font-mono text-[11px] leading-4 text-muted-foreground">
             {option.preview}
           </span>
         )}
@@ -1506,4 +1713,30 @@ export function useGuidedQuestionFlow({
     refetchPendingQuestion,
     refetchPendingQuestionStatus,
   };
+}
+
+/**
+ * Nothing else wakes the question reader when `ask-question` finishes: without
+ * this the question waits for window focus or a reload.
+ */
+export function useRefetchGuidedQuestionsWhenAsked({
+  tools,
+  refetch,
+}: {
+  /** The thread's tool calls, read by the host from its own AgentKit context. */
+  tools: Readonly<Record<string, { name: string; status: string }>>;
+  refetch: () => unknown;
+}) {
+  const askedIds = Object.entries(tools)
+    .filter(
+      ([, tool]) => tool.name === "ask-question" && tool.status === "completed",
+    )
+    .map(([id]) => id)
+    .sort()
+    .join("\n");
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  useEffect(() => {
+    if (askedIds) void refetchRef.current();
+  }, [askedIds]);
 }
