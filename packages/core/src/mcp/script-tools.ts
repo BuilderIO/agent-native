@@ -1665,13 +1665,15 @@ export function plainResultValue(
         return stringKeys ? Object.fromEntries(out) : out;
       }
       charge(2);
-      const out: Record<string, unknown> = {};
+      const out: Array<[string, unknown]> = [];
       for (const [key, member] of Object.entries(item)) {
         if (member === undefined) continue;
         charge(key.length + 4);
-        out[key] = walk(member, depth + 1);
+        out.push([key, walk(member, depth + 1)]);
       }
-      return out;
+      // Assigning an own "__proto__" key would set the copy's prototype and
+      // drop the field; fromEntries defines every key as a field.
+      return Object.fromEntries(out);
     } finally {
       onPath.delete(item);
     }

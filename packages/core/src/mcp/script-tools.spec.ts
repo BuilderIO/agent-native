@@ -1218,6 +1218,18 @@ describe("plainResultValue", () => {
       error: { name: "RangeError", message: "too far" },
     });
   });
+
+  it("keeps an own __proto__ key as a field", () => {
+    const parsed = JSON.parse('{"__proto__":{"admin":true},"id":"doc_1"}');
+    const copy = plainResultValue({
+      parsed,
+      map: new Map([["__proto__", 1]]),
+    }) as Record<string, object>;
+    expect(JSON.stringify(copy)).toBe(
+      '{"parsed":{"__proto__":{"admin":true},"id":"doc_1"},"map":{"__proto__":1}}',
+    );
+    expect(Object.getPrototypeOf(copy.parsed!)).toBe(Object.prototype);
+  });
 });
 
 describe("utf8Bytes", () => {
