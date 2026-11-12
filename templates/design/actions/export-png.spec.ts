@@ -352,6 +352,58 @@ describe("export-png width", () => {
     );
   });
 
+  it("prefers the screen's metadata width over a scaled-down overview frame", async () => {
+    screenWithData(
+      JSON.stringify({
+        canvasFrames: { file_1: { x: 0, y: 0, width: 320, height: 640 } },
+        screenMetadata: { file_1: { width: 1280, height: 2560 } },
+      }),
+    );
+    mockRenderedScreen(1280);
+
+    await action.run({ fileId: "file_1", filename: "index.html" });
+
+    expect(takeDesignScreenshotRun).toHaveBeenCalledWith(
+      { fileId: "file_1", filename: "index.html", widths: [1280] },
+      undefined,
+    );
+  });
+
+  it("uses the frame when the metadata is for another screen or has no usable width", async () => {
+    screenWithData(
+      JSON.stringify({
+        canvasFrames: { file_1: { x: 0, y: 0, width: 390, height: 844 } },
+        screenMetadata: { other_file: { width: 1280 }, file_1: { width: 0 } },
+      }),
+    );
+    mockRenderedScreen(390);
+
+    await action.run({ fileId: "file_1", filename: "index.html" });
+
+    expect(takeDesignScreenshotRun).toHaveBeenCalledWith(
+      { fileId: "file_1", filename: "index.html", widths: [390] },
+      undefined,
+    );
+  });
+
+  it.each([
+    ["metadata is not an object", { screenMetadata: [] }],
+    [
+      "the screen's metadata is not an object",
+      { screenMetadata: { file_1: 7 } },
+    ],
+  ])("fails typed when %s", async (_label, data) => {
+    screenWithData(JSON.stringify(data));
+
+    await expect(
+      action.run({ fileId: "file_1", filename: "index.html" }),
+    ).rejects.toMatchObject({
+      errorCode: "design_data_unreadable",
+      noWrite: true,
+    });
+    expect(takeDesignScreenshotRun).not.toHaveBeenCalled();
+  });
+
   it("lets an explicit width win over the authored frame without reading it", async () => {
     screenWithData(mobileFrames);
     mockRenderedScreen(900);

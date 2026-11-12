@@ -689,6 +689,48 @@ describe("apply-visual-edit deleteNode and font-family on design files (real cod
       expect(mocks.updateChain.set).not.toHaveBeenCalled();
     });
 
+    it.each([
+      ["a breakpoint list that is not an array", { breakpoints: "oops" }],
+      [
+        "breakpoints with no usable width",
+        { breakpoints: [{ widthPx: "390" }] },
+      ],
+      ["a breakpoint set that is not an object", "oops"],
+    ])(
+      "refuses, without writing, when the design has %s",
+      async (_label, breakpointSet) => {
+        setPage(JSON.stringify({ breakpointSet }));
+
+        const result = await action.run({
+          source,
+          intent: deleteCta,
+          activeFrameWidthPx: 390,
+        });
+
+        expect(result.result.status).toBe("needsAgent");
+        expect(result.persisted).toBe(false);
+        expect(mocks.updateChain.set).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      ["no breakpoint list", { id: "set_1" }],
+      ["an empty breakpoint list", { breakpoints: [] }],
+    ])(
+      "deletes the layer when the design has %s",
+      async (_label, breakpointSet) => {
+        setPage(JSON.stringify({ breakpointSet }));
+
+        await action.run({
+          source,
+          intent: deleteCta,
+          activeFrameWidthPx: 390,
+        });
+
+        expect(lastSavedContent()).not.toContain('id="cta"');
+      },
+    );
+
     it("refuses a legacy min-width prefix scope instead of deleting at every width", async () => {
       const result = await action.run({
         source,

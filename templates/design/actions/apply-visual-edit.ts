@@ -215,6 +215,16 @@ function scopeIntentToFramerBound(
   return intent;
 }
 
+// An absent set, or one whose list is missing or empty, means "no
+// breakpoints". Anything else that yields no width is damaged data: treating it
+// as "no breakpoints" would let a delete remove the layer at every width.
+function breakpointSetIsDamaged(rawSet: unknown): boolean {
+  if (rawSet == null) return false;
+  if (typeof rawSet !== "object") return true;
+  const list = (rawSet as { breakpoints?: unknown }).breakpoints;
+  return list !== undefined && !(Array.isArray(list) && list.length === 0);
+}
+
 function resolveFramerBoundFromDesignData(
   designData: string | null,
   fileId: string,
@@ -238,7 +248,13 @@ function resolveFramerBoundFromDesignData(
               typeof width === "number" && Number.isFinite(width),
           )
       : [];
-    if (widths.length === 0) return { kind: "unknown" };
+    if (widths.length === 0) {
+      return {
+        kind: breakpointSetIsDamaged(parsed.breakpointSet)
+          ? "unreadable"
+          : "unknown",
+      };
+    }
 
     const metadataByFileId = parsed.screenMetadata as
       | Record<string, { width?: unknown } | undefined>

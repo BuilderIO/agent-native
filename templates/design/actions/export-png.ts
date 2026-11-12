@@ -40,6 +40,36 @@ function unreadableDesignData(): NoWriteError {
   );
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// screenMetadata holds the screen's real viewport width; a canvas frame can be
+// a scaled-down overview size of it (new overview frames are 320px wide), so
+// the frame only answers when the screen has no metadata width.
+function authoredWidthPx(
+  data: Record<string, unknown>,
+  fileId: string,
+): number | undefined {
+  const metadata = data.screenMetadata;
+  if (metadata !== undefined && !isPlainRecord(metadata)) {
+    throw unreadableDesignData();
+  }
+  const entry = metadata?.[fileId];
+  if (entry !== undefined && !isPlainRecord(entry)) {
+    throw unreadableDesignData();
+  }
+  const metadataWidth = entry?.width;
+  if (
+    typeof metadataWidth === "number" &&
+    Number.isFinite(metadataWidth) &&
+    metadataWidth > 0
+  ) {
+    return metadataWidth;
+  }
+  return parseCanvasFrameGeometryById(data.canvasFrames)[fileId]?.width;
+}
+
 function frameWidthPx(row: { fileId: string; data: string }) {
   let data: unknown;
   try {
@@ -47,12 +77,10 @@ function frameWidthPx(row: { fileId: string; data: string }) {
   } catch {
     throw unreadableDesignData();
   }
-  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+  if (!isPlainRecord(data)) {
     throw unreadableDesignData();
   }
-  const width = parseCanvasFrameGeometryById(
-    (data as Record<string, unknown>).canvasFrames,
-  )[row.fileId]?.width;
+  const width = authoredWidthPx(data, row.fileId);
   return width !== undefined && width > 0
     ? Math.min(MAX_WIDTH_PX, Math.max(MIN_WIDTH_PX, Math.round(width)))
     : undefined;
