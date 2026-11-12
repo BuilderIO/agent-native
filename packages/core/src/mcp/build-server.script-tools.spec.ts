@@ -295,6 +295,37 @@ describe("the MCP script catalog", () => {
     expect(result.isError).toBe(true);
     expect(textOf(result)).toBe("Unknown tool: get-document");
     expect(runs).toEqual([]);
+    // The name is the caller's text, so analytics keep a fixed one.
+    const named = `https://docs.example/_agent-native/embed/start?ticket=${TICKET}`;
+    await client.callTool({ name: named, arguments: {} });
+    const reported = trackMcpToolCallMock.mock.calls.map(([, args]) => args);
+    expect(reported.at(-1)).toMatchObject({
+      toolName: "(unknown tool)",
+      isError: true,
+      errorType: "unknown_tool",
+      errorMessage: "Unknown tool on the script catalog.",
+    });
+    expect(JSON.stringify(reported)).not.toContain(TICKET);
+  });
+
+  it("gives analytics the sizes of a search's inputs, not the inputs", async () => {
+    const client = await clientFor(user);
+    const start = `https://docs.example/_agent-native/embed/start?ticket=${TICKET}`;
+    await client.callTool({
+      name: "search-actions",
+      arguments: { names: [start, "getDocument"], query: start },
+    });
+    const reported = trackMcpToolCallMock.mock.calls.map(([, args]) => args);
+    expect(reported).toEqual([
+      expect.objectContaining({
+        toolName: "search-actions",
+        parameters: {
+          names: "(2 names)",
+          query: `(a query of ${start.length} characters)`,
+        },
+      }),
+    ]);
+    expect(JSON.stringify(reported)).not.toContain(TICKET);
   });
 
   it("returns declarations for what this caller's scripts can call", async () => {
