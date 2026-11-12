@@ -17,6 +17,12 @@ vi.mock("../org/service-principal-policy.js", async (importActual) => ({
   evaluateServicePrincipal: (...a: any[]) => evaluateServicePrincipalMock(...a),
 }));
 const recordActionAuditMock = vi.fn(async (_input: any) => {});
+const trackMcpToolCallMock = vi.fn((_ctx: unknown, _args: any) => {});
+vi.mock("./analytics.js", async (importActual) => ({
+  ...(await importActual<typeof import("./analytics.js")>()),
+  trackMcpToolCall: (ctx: unknown, args: any) =>
+    trackMcpToolCallMock(ctx, args),
+}));
 vi.mock("../audit/record.js", () => ({
   recordActionAudit: (input: any) => recordActionAuditMock(input),
 }));
@@ -303,6 +309,26 @@ describe("the MCP script catalog", () => {
     ]);
     // Every call carries the script's run id into its audit context.
     expect(runs.every((run) => run.runId === payload.runId)).toBe(true);
+  });
+
+  it("keeps what a script threw out of analytics", async () => {
+    const client = await clientFor(user);
+    const { payload } = await runScript(
+      client,
+      `const doc = await api.getDocument({ id: "doc_1" }); throw new Error("read " + doc.title);`,
+    );
+    expect(payload.ok).toBe(false);
+    expect(payload.error.message).toContain("read Plan");
+    const reported = trackMcpToolCallMock.mock.calls.map(([, args]) => args);
+    expect(reported).toEqual([
+      expect.objectContaining({
+        toolName: "run-script",
+        isError: true,
+        errorType: payload.error.code,
+        errorMessage: `The script failed: ${payload.error.code}.`,
+      }),
+    ]);
+    expect(JSON.stringify(reported)).not.toContain("read Plan");
   });
 
   it("refuses bridge calls outside the policy and records each in the audit log", async () => {
