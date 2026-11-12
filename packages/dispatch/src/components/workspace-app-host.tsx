@@ -745,6 +745,44 @@ export function WorkspaceAppHost({
 
 const MAX_KEEP_ALIVE_APPS = 3;
 
+/**
+ * The chat rail must not depend on the workspace app list: that list loads
+ * after the route renders (and can fail or omit the app), and swapping the rail
+ * in later also changes the keep-alive pane's position in the tree, remounting
+ * the app iframe. `appName` only labels the rail, so it falls back to the id.
+ */
+export function WorkspaceAppRouteSurface({
+  appId,
+  appName,
+  initialPath,
+  agentPageHref,
+  onFullscreenRequest,
+}: {
+  appId: string;
+  appName?: string;
+  initialPath?: string;
+  agentPageHref?: string;
+  onFullscreenRequest?: () => void;
+}) {
+  const keepAlive = (
+    <WorkspaceAppKeepAlive
+      activeAppId={appId}
+      {...(initialPath ? { initialPath } : {})}
+    />
+  );
+  if (isDispatchWorkspaceAppId(appId)) return keepAlive;
+  return (
+    <WorkspaceAppChatRail
+      appId={appId}
+      appName={appName ?? appId}
+      {...(agentPageHref ? { agentPageHref } : {})}
+      {...(onFullscreenRequest ? { onFullscreenRequest } : {})}
+    >
+      {keepAlive}
+    </WorkspaceAppChatRail>
+  );
+}
+
 export function WorkspaceAppKeepAlive({
   activeAppId,
   initialPath,

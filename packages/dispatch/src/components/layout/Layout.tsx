@@ -155,9 +155,9 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip";
 import {
-  WorkspaceAppChatRail,
   WorkspaceAppFrame,
   WorkspaceAppKeepAlive,
+  WorkspaceAppRouteSurface,
 } from "../workspace-app-host";
 import {
   AppNotice,
@@ -2521,28 +2521,13 @@ function DispatchLayout({
     : undefined;
   const workspaceAppContent =
     workspaceAppRouteActive && workspaceAppId ? (
-      workspaceAppChatRegistration ? (
-        <WorkspaceAppChatRail
-          appId={workspaceAppId}
-          appName={workspaceAppChatRegistration.name ?? workspaceAppId}
-          agentPageHref={agentPageHref}
-          onFullscreenRequest={openAskAgentFullscreen}
-        >
-          <WorkspaceAppKeepAlive
-            activeAppId={workspaceAppId}
-            {...(workspaceAppDeepPath
-              ? { initialPath: workspaceAppDeepPath }
-              : {})}
-          />
-        </WorkspaceAppChatRail>
-      ) : (
-        <WorkspaceAppKeepAlive
-          activeAppId={workspaceAppId}
-          {...(workspaceAppDeepPath
-            ? { initialPath: workspaceAppDeepPath }
-            : {})}
-        />
-      )
+      <WorkspaceAppRouteSurface
+        appId={workspaceAppId}
+        appName={workspaceAppChatRegistration?.name}
+        agentPageHref={agentPageHref}
+        onFullscreenRequest={openAskAgentFullscreen}
+        {...(workspaceAppDeepPath ? { initialPath: workspaceAppDeepPath } : {})}
+      />
     ) : (
       <WorkspaceAppKeepAlive
         activeAppId={workspaceAppRouteActive ? workspaceAppId : null}

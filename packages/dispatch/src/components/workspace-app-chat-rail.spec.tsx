@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const railState = vi.hoisted(() => ({
@@ -58,7 +59,11 @@ vi.mock("next-themes", () => ({
   useTheme: () => ({ resolvedTheme: "light" }),
 }));
 
-import { WorkspaceAppChatRail, WorkspaceAppFrame } from "./workspace-app-host";
+import {
+  WorkspaceAppChatRail,
+  WorkspaceAppFrame,
+  WorkspaceAppRouteSurface,
+} from "./workspace-app-host";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -177,5 +182,66 @@ describe("WorkspaceAppChatRail", () => {
       expect.stringContaining("workspace-app-chat"),
       expect.anything(),
     );
+  });
+
+  describe("WorkspaceAppRouteSurface", () => {
+    it("shows the app chat rail before the app list has resolved", async () => {
+      railState.fetchImpl.mockResolvedValue(jsonResponse(200, {}));
+
+      await render(
+        <MemoryRouter>
+          <WorkspaceAppRouteSurface appId="mail" />
+        </MemoryRouter>,
+      );
+
+      const sidebar = container.querySelector("[data-agent-sidebar]");
+      expect(sidebar?.getAttribute("data-api-url")).toBe(
+        "/_agent-native/workspace-app-chat/mail",
+      );
+      expect(railState.sidebarProps.at(-1)?.scope).toMatchObject({
+        id: "mail",
+        label: "mail",
+      });
+      expect(
+        container.querySelector("[data-dispatch-workspace-app-cache-entry]"),
+      ).not.toBeNull();
+    });
+
+    it("keeps the app pane mounted when the app name arrives late", async () => {
+      railState.fetchImpl.mockResolvedValue(jsonResponse(200, {}));
+
+      await render(
+        <MemoryRouter>
+          <WorkspaceAppRouteSurface appId="mail" />
+        </MemoryRouter>,
+      );
+      const entry = container.querySelector(
+        "[data-dispatch-workspace-app-cache-entry]",
+      );
+      expect(entry).not.toBeNull();
+
+      await render(
+        <MemoryRouter>
+          <WorkspaceAppRouteSurface appId="mail" appName="Mail" />
+        </MemoryRouter>,
+      );
+
+      expect(
+        container.querySelector("[data-dispatch-workspace-app-cache-entry]"),
+      ).toBe(entry);
+      expect(railState.sidebarProps.at(-1)?.scope).toMatchObject({
+        label: "Mail",
+      });
+    });
+
+    it("does not wrap Dispatch itself in an app chat rail", async () => {
+      await render(
+        <MemoryRouter>
+          <WorkspaceAppRouteSurface appId="dispatch" />
+        </MemoryRouter>,
+      );
+
+      expect(container.querySelector("[data-agent-sidebar]")).toBeNull();
+    });
   });
 });
