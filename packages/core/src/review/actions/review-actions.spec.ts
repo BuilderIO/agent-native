@@ -749,6 +749,52 @@ describe("review actions", () => {
     expect(edited.metadata).toEqual({ attachments: [stored, added] });
   });
 
+  it("keeps an image no comment list shows when an edit changes the others, counting it toward five", async () => {
+    // Stored under an upload provider this server no longer has, so the list
+    // leaves it out and no editor has it to send back.
+    const unseen = {
+      url: "https://uploads.s3.amazonaws.com/review/unseen.png",
+      name: "unseen.png",
+      contentType: "image/png",
+      provider: "s3",
+    };
+    const shown = {
+      url: "https://cdn.builder.io/api/v1/image/shown",
+      name: "shown.png",
+      contentType: "image/png",
+    };
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "public",
+      body: "Look",
+      authorEmail: COMMENTER_EMAIL,
+      visibility: "public",
+      metadata: { attachments: [unseen, shown] },
+    });
+    const edit = (attachments: { url: string; name: string }[]) =>
+      updateReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          commentId: root.id,
+          attachments,
+        },
+        { userEmail: COMMENTER_EMAIL },
+      );
+
+    const edited = await edit([]);
+    expect(edited.metadata).toEqual({ attachments: [unseen] });
+
+    await expect(
+      edit(
+        Array.from({ length: 5 }, (_, index) => ({
+          url: `https://cdn.builder.io/api/v1/image/${index}`,
+          name: `${index}.png`,
+        })),
+      ),
+    ).rejects.toMatchObject({ statusCode: 400, errorCode: "too_many_images" });
+  });
+
   it("refuses an edit with more images than a comment keeps, before checking any", () => {
     const images = (count: number) =>
       Array.from({ length: count }, (_, index) => ({

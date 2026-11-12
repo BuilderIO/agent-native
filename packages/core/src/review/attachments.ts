@@ -64,6 +64,11 @@ export async function sanitizeReviewCommentMetadata(
  * comment already keeps stay as stored, without their checks running again,
  * so a change of upload provider since never drops them. New ones are checked
  * as a new comment's are.
+ *
+ * An edit only takes out what its author could see. A stored attachment that
+ * fails the checks now is left out of every comment list, so no one editing
+ * can have taken it out: it stays, after the edit's own. A comment still keeps
+ * at most five, and an edit that would leave more is refused.
  */
 export async function sanitizeReviewCommentAttachmentEdit(
   attachments: readonly unknown[],
@@ -85,7 +90,20 @@ export async function sanitizeReviewCommentAttachmentEdit(
     if (!url || !attachment || taken.has(url)) continue;
     taken.add(url);
     next.push(attachment);
-    if (next.length >= MAX_REVIEW_IMAGE_ATTACHMENTS) break;
+  }
+  // The stored ones a comment list shows, as `list-review-comments` reads them.
+  const listed = attachmentsByUrl(
+    (await sanitizeReviewCommentMetadata({ attachments: [...stored.values()] }))
+      ?.attachments,
+  );
+  for (const [url, attachment] of stored) {
+    if (!listed.has(url) && !taken.has(url)) next.push(attachment);
+  }
+  if (next.length > MAX_REVIEW_IMAGE_ATTACHMENTS) {
+    fail(
+      `A comment keeps at most ${MAX_REVIEW_IMAGE_ATTACHMENTS} images, counting ones it already has that can't be shown.`,
+      { errorCode: "too_many_images" },
+    );
   }
   return next;
 }
