@@ -4065,7 +4065,9 @@ export async function createMCPServerForRequest(
       }, mcpRequestId);
 
       const toolName = request.params?.name;
-      const calledEntry = actions[toolName];
+      // The script catalog's tools are not actions, and an action reached by
+      // name there is not on its catalog, so analytics describe no action.
+      const calledEntry = scriptCatalog ? undefined : actions[toolName];
       trackMcpToolCall(analyticsContext(request, ctx), {
         // The script catalog has only its own tools, so any other name is
         // the caller's text, kept out as its error message is.

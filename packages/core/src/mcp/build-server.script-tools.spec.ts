@@ -295,6 +295,11 @@ describe("the MCP script catalog", () => {
     expect(result.isError).toBe(true);
     expect(textOf(result)).toBe("Unknown tool: get-document");
     expect(runs).toEqual([]);
+    // An action off this catalog is not described to analytics either.
+    const first = trackMcpToolCallMock.mock.calls[0]?.[1];
+    expect(first).toMatchObject({ toolName: "(unknown tool)" });
+    expect(first).not.toHaveProperty("toolDescription");
+    expect(first).not.toHaveProperty("toolCategory");
     // The name is the caller's text, so analytics keep a fixed one.
     const named = `https://docs.example/_agent-native/embed/start?ticket=${TICKET}`;
     await client.callTool({ name: named, arguments: {} });
