@@ -2382,6 +2382,8 @@ describe("incomplete evidence detection", () => {
       "Don't create a dashboard; just refresh the numbers.",
       "Don't create a dashboard; just copy it into your reply.",
       "Don't create a dashboard; just make it a short table.",
+      "Don't create a dashboard; just make a copy of the revenue numbers into your reply.",
+      "Don't create a dashboard; just make one table with the numbers.",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
     }

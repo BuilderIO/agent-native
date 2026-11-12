@@ -170,10 +170,11 @@ const NO_DASHBOARD_NEEDED_TERMS =
 
 // A build whose object is "one" or "it" ("Don't edit the Revenue dashboard but
 // build one for Sales") lost its only dashboard noun with the ruled-out span.
-// Only verbs that make something count: "copy it into your reply" and "make it
-// a table" are about the answer.
+// Only verbs that make something count, and only when the object stands alone:
+// "copy it into your reply", "make it a table", "make a copy of the numbers"
+// and "make one table" are about the answer.
 const PRONOUN_BUILD_TERMS =
-  /\b(?:(?:build|create|make|replicate|clone|duplicate)\s+(?:a\s+)?(?:new\s+)?(?:one|another(?:\s+one)?|copy)|(?:build|create|replicate|clone|duplicate)\s+(?:it|them))\b/gi;
+  /\b(?:(?:build|create|make|replicate|clone|duplicate)\s+(?:a\s+)?(?:new\s+)?(?:one|another(?:\s+one)?|copy)|(?:build|create|replicate|clone|duplicate)\s+(?:it|them))\b(?=\s*(?:$|[.,;:!?)]|(?:for|instead|too|again|like|from|based|as|but|and|then|so|that|which)\b))/gi;
 
 function stripRuledOutWriteInstructions(text: string): string {
   const request = text.replace(NO_DASHBOARD_NEEDED_TERMS, " ");
