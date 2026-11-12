@@ -61,6 +61,9 @@ export const MCP_SCRIPT_LIMITS = Object.freeze({
   resultChars: 30_000,
   /** Scripts running at once in this process; another gets a busy error. */
   concurrentRuns: 4,
+  /** Calls still running from scripts that stopped and gave their slot
+   *  back; at this many, another script gets a busy error until some settle. */
+  lingeringCalls: 32,
 });
 
 /**
@@ -839,6 +842,8 @@ export interface RunMcpScriptInput {
 }
 
 let activeRuns = 0;
+/** Calls still running from runs that have given their slot back. */
+let lingeringCalls = 0;
 
 let runtime:
   | Promise<{ runner: Runner; RunError: typeof RunErrorClass }>
@@ -1074,7 +1079,10 @@ export async function runMcpScript(
       `The script is larger than ${MCP_SCRIPT_LIMITS.sourceBytes / 1024} KB.`,
     );
   }
-  if (activeRuns >= MCP_SCRIPT_LIMITS.concurrentRuns) {
+  if (
+    activeRuns >= MCP_SCRIPT_LIMITS.concurrentRuns ||
+    lingeringCalls >= MCP_SCRIPT_LIMITS.lingeringCalls
+  ) {
     return fail(
       "script_busy",
       "Too many scripts are running on this server. Try again shortly, or call the tools directly.",
@@ -1088,9 +1096,12 @@ export async function runMcpScript(
   // calls in flight (an action, or the audit write for a refusal) keeps its
   // slot until they settle. Otherwise runs that time out could pile up work
   // past the process limit. A call that never settles gives the slot back
-  // after as long again as the run's timeout, with a warning.
+  // after as long again as the run's timeout, with a warning, and counts
+  // against `lingeringCalls` until it settles, so those can't pile up
+  // past a limit either.
   let callsInFlight = 0;
   let released = false;
+  let lingering = false;
   let stuckTimer: ReturnType<typeof setTimeout> | undefined;
   const giveSlotBack = () => {
     released = true;
@@ -1109,6 +1120,8 @@ export async function runMcpScript(
       console.warn(
         `[mcp] Script run ${runId} stopped with ${callsInFlight} call(s) still running after ${timeoutMs} ms; giving its slot back.`,
       );
+      lingering = true;
+      lingeringCalls += callsInFlight;
       giveSlotBack();
     }, timeoutMs);
     (stuckTimer as { unref?: () => void }).unref?.();
@@ -1195,8 +1208,14 @@ export async function runMcpScript(
       let argumentProblem: string | undefined;
       try {
         plainResultValue(rawArgs, MCP_SCRIPT_LIMITS.argumentChars, "refuse");
-        args = toJsonData(rawArgs === undefined ? {} : rawArgs);
-        if (!isSchemaObject(args)) throw new TypeError("not an object");
+        const held =
+          rawArgs === undefined ? undefined : nonJsonArgument(rawArgs);
+        if (held !== undefined) {
+          argumentProblem = `api.${fn} takes one object of JSON data, and its arguments hold ${held}.`;
+        } else {
+          args = toJsonData(rawArgs === undefined ? {} : rawArgs);
+          if (!isSchemaObject(args)) throw new TypeError("not an object");
+        }
       } catch (error) {
         argumentProblem =
           error instanceof McpScriptValueTooLargeError
@@ -1362,10 +1381,12 @@ export async function runMcpScript(
       __host: {
         call: async (rawName: unknown, rawArgs: unknown) => {
           callsInFlight += 1;
+          if (lingering) lingeringCalls += 1;
           try {
             return await answerCall(rawName, rawArgs);
           } finally {
             callsInFlight -= 1;
+            if (lingering) lingeringCalls -= 1;
             release();
           }
         },
@@ -1533,6 +1554,72 @@ export class McpScriptValueTooDeepError extends Error {
     super(`The value is nested more than ${MAX_RESULT_DEPTH} levels deep.`);
     this.name = "McpScriptValueTooDeepError";
   }
+}
+
+/**
+ * What a script's arguments hold that JSON has no form of, said with how to
+ * pass it instead, or undefined when they are JSON data. Copied as JSON, a
+ * `Map` or `Set` would become `{}`, a `Date` a string and `NaN` null,
+ * and the action would run with values the script didn't pass. A property
+ * set to undefined is left out, as JSON leaves it out. Run after
+ * `plainResultValue` has measured the arguments, which bounds the walk.
+ */
+function nonJsonArgument(value: unknown): string | undefined {
+  const onPath = new Set<object>();
+  const visit = (item: unknown, inObject: boolean): string | undefined => {
+    switch (typeof item) {
+      case "string":
+      case "boolean":
+        return undefined;
+      case "number":
+        return Number.isFinite(item)
+          ? undefined
+          : "NaN or Infinity; pass a finite number or null";
+      case "bigint":
+        return "a BigInt; pass it as a string or a number";
+      case "undefined":
+        return inObject ? undefined : "undefined in a list; pass null";
+      case "function":
+        return "a function";
+      case "symbol":
+        return "a symbol";
+      case "object":
+        break;
+    }
+    if (typeof item !== "object" || item === null) return undefined;
+    const object = item;
+    if (object instanceof Map) {
+      return "a Map; convert it with Object.fromEntries";
+    }
+    if (object instanceof Set) return "a Set; convert it with Array.from";
+    if (object instanceof Date) return "a Date; pass date.toISOString()";
+    if (object instanceof RegExp) {
+      return "a regular expression; pass its source as a string";
+    }
+    if (object instanceof Error) return "an Error; pass its message";
+    if (ArrayBuffer.isView(object) || object instanceof ArrayBuffer) {
+      return "binary data";
+    }
+    if (onPath.has(object)) return "a circular reference";
+    onPath.add(object);
+    try {
+      if (Array.isArray(object)) {
+        for (let index = 0; index < object.length; index += 1) {
+          const held = visit(object[index], false);
+          if (held !== undefined) return held;
+        }
+        return undefined;
+      }
+      for (const member of Object.values(object)) {
+        const held = visit(member, true);
+        if (held !== undefined) return held;
+      }
+      return undefined;
+    } finally {
+      onPath.delete(object);
+    }
+  };
+  return visit(value, true);
 }
 
 /**
