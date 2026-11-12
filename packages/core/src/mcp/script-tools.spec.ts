@@ -816,10 +816,21 @@ describe("runMcpScript", () => {
 
   it("gives a stopped run's slot back when a call never settles", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Its calls settle only once the test is done, so later tests start with
+    // no calls from stopped runs still running.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     try {
       const { run } = runner(
         { "get-document": entry() },
-        { callAction: () => new Promise<McpActionCallOutcome>(() => {}) },
+        {
+          callAction: async () => {
+            await gate;
+            return completed("done");
+          },
+        },
       );
       await Promise.all(
         Array.from({ length: MCP_SCRIPT_LIMITS.concurrentRuns }, () =>
@@ -835,6 +846,8 @@ describe("runMcpScript", () => {
         expect.stringContaining("giving its slot back"),
       );
     } finally {
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 0));
       warn.mockRestore();
     }
   }, 20_000);
@@ -876,6 +889,65 @@ describe("runMcpScript", () => {
         MCP_SCRIPT_LIMITS.concurrentRuns * MCP_SCRIPT_LIMITS.inFlightCalls,
       ).toBeGreaterThanOrEqual(MCP_SCRIPT_LIMITS.lingeringCalls);
       expect((await run(`return 1;`)).error?.code).toBe("script_busy");
+      release();
+      await everySlotFree(run);
+    } finally {
+      release();
+      warn.mockRestore();
+    }
+  }, 20_000);
+
+  it("keeps a stopped run's slot when its calls would pass the lingering limit", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warned = (text: string) =>
+      warn.mock.calls.filter(([message]) => String(message).includes(text))
+        .length;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      const { run } = runner(
+        { "get-document": entry() },
+        {
+          callAction: async () => {
+            await gate;
+            return completed("done");
+          },
+        },
+      );
+      const calls = (count: number) =>
+        run(
+          `await Promise.all(Array.from({ length: ${count} }, () => api.getDocument({}))); return 1;`,
+          { timeoutMs: STOPPED_RUN_TIMEOUT_MS },
+        );
+      // Leave one call of room fewer than a full run needs.
+      const full = Math.floor(
+        (MCP_SCRIPT_LIMITS.lingeringCalls - 1) /
+          MCP_SCRIPT_LIMITS.inFlightCalls,
+      );
+      const rest =
+        MCP_SCRIPT_LIMITS.lingeringCalls -
+        full * MCP_SCRIPT_LIMITS.inFlightCalls -
+        MCP_SCRIPT_LIMITS.inFlightCalls +
+        1;
+      expect(full + 1).toBeLessThanOrEqual(MCP_SCRIPT_LIMITS.concurrentRuns);
+      await Promise.all([
+        ...Array.from({ length: full }, () =>
+          calls(MCP_SCRIPT_LIMITS.inFlightCalls),
+        ),
+        calls(rest),
+      ]);
+      await vi.waitFor(
+        () => expect(warned("giving its slot back")).toBe(full + 1),
+        { timeout: 10_000 },
+      );
+      const last = await calls(MCP_SCRIPT_LIMITS.inFlightCalls);
+      expect(last.error?.code).toBe("script_timeout");
+      await vi.waitFor(() => expect(warned("keeping its slot")).toBe(1), {
+        timeout: 10_000,
+      });
+      expect(warned("giving its slot back")).toBe(full + 1);
       release();
       await everySlotFree(run);
     } finally {
