@@ -764,13 +764,6 @@ export function WorkspaceAppRouteSurface({
   agentPageHref?: string;
   onFullscreenRequest?: () => void;
 }) {
-  const keepAlive = (
-    <WorkspaceAppKeepAlive
-      activeAppId={appId}
-      {...(initialPath ? { initialPath } : {})}
-    />
-  );
-  if (isDispatchWorkspaceAppId(appId)) return keepAlive;
   return (
     <WorkspaceAppChatRail
       appId={appId}
@@ -778,7 +771,10 @@ export function WorkspaceAppRouteSurface({
       {...(agentPageHref ? { agentPageHref } : {})}
       {...(onFullscreenRequest ? { onFullscreenRequest } : {})}
     >
-      {keepAlive}
+      <WorkspaceAppKeepAlive
+        activeAppId={appId}
+        {...(initialPath ? { initialPath } : {})}
+      />
     </WorkspaceAppChatRail>
   );
 }

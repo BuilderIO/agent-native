@@ -234,14 +234,33 @@ describe("WorkspaceAppChatRail", () => {
       });
     });
 
-    it("does not wrap Dispatch itself in an app chat rail", async () => {
+    it("keeps the keep-alive cache mounted when switching to Dispatch", async () => {
+      railState.fetchImpl.mockResolvedValue(jsonResponse(200, {}));
+
+      await render(
+        <MemoryRouter>
+          <WorkspaceAppRouteSurface appId="mail" />
+        </MemoryRouter>,
+      );
+      const cache = container.querySelector(
+        "[data-dispatch-workspace-app-cache]",
+      );
+      expect(cache).not.toBeNull();
+
       await render(
         <MemoryRouter>
           <WorkspaceAppRouteSurface appId="dispatch" />
         </MemoryRouter>,
       );
 
-      expect(container.querySelector("[data-agent-sidebar]")).toBeNull();
+      expect(
+        container.querySelector("[data-dispatch-workspace-app-cache]"),
+      ).toBe(cache);
+      expect(
+        container.querySelector(
+          '[data-dispatch-workspace-app-cache-entry="mail"]',
+        ),
+      ).not.toBeNull();
     });
   });
 });
