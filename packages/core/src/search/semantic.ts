@@ -243,6 +243,44 @@ function resolveFamily(
   );
 }
 
+/**
+ * The organization a user's credentials resolve to when a request names
+ * none, or undefined when they have none. Throws when their memberships
+ * can't be read.
+ */
+async function ownerOrgId(
+  userEmail: string | undefined,
+): Promise<string | undefined> {
+  if (!userEmail) return undefined;
+  const { resolveOrgIdForEmail } = await import("../org/context.js");
+  return (await resolveOrgIdForEmail(userEmail)) ?? undefined;
+}
+
+/**
+ * The organization whose switch decides whether a resource is embedded: its
+ * own, or for one with no organization, its owner's, since that
+ * organization's provider embeds it. Resolved as `resolveFamily` resolves
+ * credentials, so both name the same organization.
+ */
+async function governingOrgId(
+  identity: SemanticEmbeddingIdentity,
+): Promise<string | undefined> {
+  if (identity.orgId) return identity.orgId;
+  const { userEmail } = identity;
+  if (!userEmail) return undefined;
+  return runWithRequestContext({ userEmail }, () => ownerOrgId(userEmail));
+}
+
+/**
+ * The audiences an organization's switch governs: the organization's own,
+ * and its members' resources with no organization. A member's resources
+ * count even when their credentials resolve to another of their
+ * organizations, so turning the lane off never leaves their vectors behind.
+ * Binds the audience id, then the organization id.
+ */
+const GOVERNED_AUDIENCES_SQL = `SELECT CAST(? AS TEXT) AS audience_id
+  UNION SELECT 'user:' || LOWER(TRIM(email)) FROM org_members WHERE org_id = ?`;
+
 const storeAvailability = new Map<
   SearchVectorStore,
   { available: boolean; checkedAt: number }
@@ -766,8 +804,9 @@ async function embedAudienceGroup(
   stored: Map<string, StoredEmbedding>,
   { done, deadline }: { done: ClaimedResourceChange[]; deadline: number },
 ): Promise<void> {
-  const { orgId } = group.identity;
-  // An unreadable setting throws, so nothing is sent until it reads as on.
+  // An unreadable setting or membership throws, so nothing is sent until it
+  // reads as on.
+  const orgId = await governingOrgId(group.identity);
   if (
     orgId &&
     !(await readSemanticSearchSetting(orgId, { fresh: true })).enabled
@@ -929,9 +968,9 @@ async function embedAudienceGroup(
     written.push({ change: item.change, chunkCount: own.length });
     done.push(item.change);
   }
-  // Turning the lane off deletes the organization's vectors after saving the
-  // setting. Checking again after storing means that either that deletion
-  // sees these vectors or this check sees the setting.
+  // Turning the lane off deletes the vectors of every audience it governs
+  // after saving the setting. Checking again after storing means that either
+  // that deletion sees these vectors or this check sees the setting.
   if (
     orgId &&
     written.length &&
@@ -1270,42 +1309,70 @@ async function forgetResource(
 }
 
 /**
- * Deletes every vector stored for an organization's resources, keeping each
- * resource's row so `requeueSemanticSearchForOrg` can embed them again.
- * Called when the organization turns semantic search off.
+ * Deletes every vector stored for the resources an organization's switch
+ * governs, keeping each resource's row so `requeueSemanticSearchForOrg` can
+ * embed them again. Called when the organization turns semantic search off.
  */
 export async function forgetSemanticSearchForOrg(orgId: string): Promise<void> {
   await ensureSemanticSearchTables();
   const exec = getDbExec();
-  const audienceId = `org:${orgId}`;
+  // raw-sql-ok: GOVERNED_AUDIENCES_SQL is a constant; values are bound.
   const { rows } = await exec.execute({
-    sql: `SELECT DISTINCT dimensions FROM search_embeddings
-          WHERE audience_id = ? AND dimensions IS NOT NULL`,
-    args: [audienceId],
+    sql: `SELECT DISTINCT audience_id, dimensions FROM search_embeddings
+          WHERE dimensions IS NOT NULL
+            AND audience_id IN (${GOVERNED_AUDIENCES_SQL})`,
+    args: [`org:${orgId}`, orgId],
   });
   const store = vectorStore();
   for (const row of rows) {
     await store.removeAudience(exec, {
       dimensions: Number(row.dimensions),
-      audienceId,
+      audienceId: String(row.audience_id),
     });
   }
   // A pending or repairing row may have vectors being stored right now,
   // after the deletion above. It keeps its count, so the drain, which sees
   // the lane off when it retries or checks after storing, can delete them.
+  // raw-sql-ok: GOVERNED_AUDIENCES_SQL is a constant; values are bound.
   await exec.execute({
     sql: `UPDATE search_embeddings
           SET embedding_set_id = NULL, dimensions = NULL, chunk_count = 0, content_hash = ?
-          WHERE audience_id = ? AND content_hash NOT IN (?, ?)`,
-    args: [OFF_HASH, audienceId, PENDING_HASH, REPAIR_HASH],
+          WHERE content_hash NOT IN (?, ?)
+            AND audience_id IN (${GOVERNED_AUDIENCES_SQL})`,
+    args: [OFF_HASH, PENDING_HASH, REPAIR_HASH, `org:${orgId}`, orgId],
   });
+  // A member whose credentials resolve to another of their organizations
+  // lost vectors that organization's switch still allows. Queued again, the
+  // drain embeds those and leaves the rest off.
+  for (const registration of listSearchableResources()) {
+    if (!registration.semantic) continue;
+    // raw-sql-ok: GOVERNED_AUDIENCES_SQL is a constant; values are bound.
+    await enqueueSelectedResourceChanges(
+      exec,
+      feedFor(registration),
+      {
+        sql: `SELECT resource_id FROM search_embeddings
+              WHERE app = ? AND resource_type = ? AND audience_id <> ?
+                AND audience_id IN (${GOVERNED_AUDIENCES_SQL})`,
+        args: [
+          registration.app,
+          registration.type,
+          `org:${orgId}`,
+          `org:${orgId}`,
+          orgId,
+        ],
+      },
+      "semantic-requeue",
+    );
+  }
 }
 
 /**
- * Queues an organization's resources to be embedded again: after it turns
- * semantic search back on, or changes the provider its embeddings use. Pages
- * never embedded have no row to say whose they are, so every queued change
- * without one is retried now too, whichever organization it belongs to.
+ * Queues the resources an organization's switch governs to be embedded
+ * again: after it turns semantic search back on, or changes the provider its
+ * embeddings use. Pages never embedded have no row to say whose they are, so
+ * every queued change without one is retried now too, whichever organization
+ * it belongs to.
  */
 export async function requeueSemanticSearchForOrg(
   orgId: string,
@@ -1314,12 +1381,14 @@ export async function requeueSemanticSearchForOrg(
   const exec = getDbExec();
   for (const registration of listSearchableResources()) {
     if (!registration.semantic) continue;
+    // raw-sql-ok: GOVERNED_AUDIENCES_SQL is a constant; values are bound.
     await enqueueSelectedResourceChanges(
       exec,
       feedFor(registration),
       {
         sql: `SELECT resource_id FROM search_embeddings
-              WHERE app = ? AND resource_type = ? AND audience_id = ?
+              WHERE app = ? AND resource_type = ?
+                AND audience_id IN (${GOVERNED_AUDIENCES_SQL})
               UNION
               SELECT c.resource_id FROM app_resource_changes AS c
               WHERE c.consumer = ? AND c.app = ? AND c.resource_type = ?
@@ -1332,6 +1401,7 @@ export async function requeueSemanticSearchForOrg(
           registration.app,
           registration.type,
           `org:${orgId}`,
+          orgId,
           SEMANTIC_CHANGE_CONSUMER,
           registration.app,
           registration.type,
@@ -1402,18 +1472,22 @@ export async function searchSemanticIndex(
 ): Promise<SemanticSearchResult> {
   const label = `${registration.app}/${registration.type}`;
   const orgId = getRequestOrgId();
-  if (orgId) {
-    try {
-      if (!(await readSemanticSearchSetting(orgId)).enabled) {
-        return { status: "off" };
-      }
-    } catch (error) {
-      console.warn(
-        `[search] Reading whether ${label} semantic search is on failed:`,
-        error instanceof Error ? error.message : String(error),
-      );
-      return { status: "unavailable", reason: "error" };
+  try {
+    // With no organization in the request, the searcher's credentials, and so
+    // the provider that embeds the query, are their own organization's.
+    const settingOrgId = orgId ?? (await ownerOrgId(getRequestUserEmail()));
+    if (
+      settingOrgId &&
+      !(await readSemanticSearchSetting(settingOrgId)).enabled
+    ) {
+      return { status: "off" };
     }
+  } catch (error) {
+    console.warn(
+      `[search] Reading whether ${label} semantic search is on failed:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return { status: "unavailable", reason: "error" };
   }
   try {
     const exec = getDbExec();

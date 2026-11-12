@@ -161,6 +161,16 @@ beforeAll(async () => {
           visibility: "private" as const,
         },
         {
+          // A member's personal space, embedded through the organization's
+          // provider, so its switch covers this page too.
+          id: "personal-refunds",
+          title: "My refunds",
+          content: "Reimburse my flight.",
+          ownerEmail: OWNER,
+          orgId: null,
+          visibility: "private" as const,
+        },
+        {
           id: "hidden-refunds",
           title: "Refund drafts",
           content: "Reimbursed cases.",
@@ -260,6 +270,7 @@ describe("hybrid search", () => {
   });
 
   it("matches words only, and says so, once the organization turns it off", async () => {
+    expect(store.keys()).toContain("content/document/personal-refunds/0");
     await writeSemanticSearchSetting(ORG, { enabled: false, updatedBy: OWNER });
     await forgetSemanticSearchForOrg(ORG);
     try {

@@ -156,9 +156,16 @@ beforeAll(async () => {
   });
   const db = createGetDb({ pages })();
   search = await import("./index.js");
+  // An app loads it at boot; loaded here, the first drain's deadline isn't
+  // spent importing it.
+  await import("../org/context.js");
 
   await run(
     `CREATE TABLE pages (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', org_id TEXT, owner_email TEXT NOT NULL)`,
+  );
+  // The organization store's table, which every app has.
+  await run(
+    `CREATE TABLE org_members (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at BIGINT NOT NULL, federation_removal_pending_at BIGINT)`,
   );
   registration = search.registerSearchableResource({
     app: "wiki",
@@ -469,6 +476,74 @@ describe("an organization that turns semantic search off", () => {
       "money back",
     );
     expect(result.status === "used" && result.hits[0]?.id).toBe("refunds");
+  });
+
+  it("covers the pages its members keep outside any organization", async () => {
+    // A member's credentials resolve to their first organization, so org-a's
+    // provider embeds Member's pages and org-b's embeds Both's.
+    await run(
+      `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES
+         ('m1', 'org-a', 'Member@A.com', 'member', 1),
+         ('m2', 'org-b', 'both@a.com', 'member', 1),
+         ('m3', 'org-a', 'both@a.com', 'member', 2)`,
+    );
+    await insertPage("member-notes", "Laptop notes", "Hardware I use.", {
+      ownerEmail: "member@a.com",
+    });
+    await insertPage("both-notes", "Laptop wishes", "Hardware I want.", {
+      ownerEmail: "both@a.com",
+    });
+    await settle();
+    await drain();
+    expect(store.keys()).toEqual(
+      expect.arrayContaining([
+        "wiki/page/member-notes/0",
+        "wiki/page/both-notes/0",
+      ]),
+    );
+
+    try {
+      await turnSemanticSearch("org-a", false);
+      expect(store.keys()).not.toContain("wiki/page/member-notes/0");
+      // Solo belongs to no organization.
+      expect(store.keys()).toContain("wiki/page/mine/0");
+
+      embedCalls.length = 0;
+      await insertPage("member-new", "Vacation notes", "Leave I plan.", {
+        ownerEmail: "member@a.com",
+      });
+      await settle();
+      await drain();
+      expect(embedCalls.flatMap((call) => call.texts)).toEqual([
+        expect.stringContaining("Hardware I want."),
+      ]);
+      expect(store.keys()).not.toContain("wiki/page/member-new/0");
+      // org-b's switch governs Both's pages, so they are embedded again.
+      expect(store.keys()).toContain("wiki/page/both-notes/0");
+      expect(
+        await searchAs({ userEmail: "member@a.com" }, "my computer"),
+      ).toEqual({ status: "off" });
+      expect(
+        (await searchAs({ userEmail: "both@a.com" }, "my computer")).status,
+      ).toBe("used");
+
+      await turnSemanticSearch("org-a", true);
+      await settle();
+      await drain();
+      expect(store.keys()).toEqual(
+        expect.arrayContaining([
+          "wiki/page/member-notes/0",
+          "wiki/page/member-new/0",
+        ]),
+      );
+    } finally {
+      await run(
+        `DELETE FROM pages WHERE id IN ('member-notes', 'member-new', 'both-notes')`,
+      );
+      await run(`DELETE FROM org_members`);
+      await settle();
+      await drain();
+    }
   });
 
   it("stores nothing from a batch embedded while the setting turned off", async () => {

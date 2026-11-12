@@ -522,23 +522,32 @@ OpenAI's `text-embedding-3-small`.
   `search` namespace. When the database offers `vector` but hasn't installed
   it, the store creates the extension.
 - **Provider.** Pages embed with the organization's embedding family, Builder's
-  gateway by default. With no provider, the row records `no-provider` and keeps
-  any vectors it had; choosing a provider in the Embeddings setting queues the
+  gateway by default. A page with no organization, such as one in a personal
+  space, embeds as its owner, whose credentials resolve to their active
+  organization (else their first), so that organization's provider embeds it.
+  With no provider, the row records `no-provider` and keeps any vectors it
+  had; choosing a provider in the Embeddings setting queues the
   organization's pages again. Every embedding call records usage:
   `search-index-embeddings` for pages and `search-query-embeddings` for
   queries.
 - **Off switch.** The organization setting `semantic-search` is on unless an
   admin turns it off, in Settings → Infrastructure or with
-  `manage-service-providers` `{ semanticSearch: false }`. Turning it off
-  deletes the organization's vectors and stops new ones. The drain checks the
+  `manage-service-providers` `{ semanticSearch: false }`. It governs the pages
+  its provider would embed: the organization's own, and its members' pages
+  with no organization whose owner's credentials resolve to it. The same rule
+  decides whether a search with no organization in its request may embed the
+  query. Turning it off deletes the organization's vectors and every member's
+  private-page vectors, then queues the members' pages, so those another of
+  the owner's organizations governs are embedded again. The drain checks the
   setting before embedding, before storing and after storing, reading past the
   request's settings snapshot, so a page in flight when another request turns
   it off leaves nothing behind. Rows marked pending or `repair` keep their
   chunk count when it turns off, so vectors stored after the deletion, even by
-  a store that fails part way, are found and deleted when the drain retries. Turning it on queues the organization's pages
-  again, along with any queued page never embedded. If deleting or queuing
-  fails, the setting stays changed and calling again finishes the job; the
-  settings page offers Retry. Each change is audited.
+  a store that fails part way, are found and deleted when the drain retries.
+  Turning it on queues the pages it governs again, along with any queued page
+  never embedded. If deleting or queuing fails, the setting stays changed and
+  calling again finishes the job; the settings page offers Retry. Each change
+  is audited.
 - **Querying.** `searchSemanticIndex()` embeds the query (cached for 10
   minutes, with a 4-second timeout) and asks the store for the 100 nearest
   chunks in the searcher's audiences. It drops chunks below the model's
@@ -784,7 +793,8 @@ Planned:
 - **Hybrid over HyDE, reranking and enrichment,** from the bake-off. It adds
   one embedding call per new query and no model call per result.
 - **On by default through Builder's gateway, with an organization off switch.**
-  Off deletes the organization's vectors rather than hiding them.
+  Off deletes the organization's vectors, and its members' private-page
+  vectors, rather than hiding them.
 - **Embeddings are another consumer of the change feed,** not a separate queue,
   so they reuse the triggers, leases and backoff the lexical index has.
 - **Vectors are grouped by audience** (organization or owner), not by a page's
