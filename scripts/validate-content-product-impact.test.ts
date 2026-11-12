@@ -1,3 +1,4 @@
+// oracle-change(scripts/validate-content-product-impact-workflow.test.ts): The PR workflow and its wiring guard were retired. The standalone validator is still tested here.
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
