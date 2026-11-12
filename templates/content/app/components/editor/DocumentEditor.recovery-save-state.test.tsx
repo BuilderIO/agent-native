@@ -49,6 +49,7 @@ const fixture = vi.hoisted(() => ({
   realPrimaryEditor: false,
   realPrimaryCollab: false,
   cachedDocument: false,
+  sessionReady: true,
   realDocumentMutation: false,
   lockAdditionalForSuggestions: false,
   session: null as PageEditorSession | null,
@@ -160,7 +161,9 @@ vi.mock("@agent-native/core/client/application-state", () => ({
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useSession: () => ({
-    session: { email: "writer@example.test", orgId: "org" },
+    session: fixture.sessionReady
+      ? { email: "writer@example.test", orgId: "org" }
+      : null,
   }),
   useDbSync: (options: { onEvent?: typeof fixture.onSyncEvent }) => {
     if (options.onEvent) fixture.onSyncEvent = options.onEvent;
@@ -494,6 +497,7 @@ beforeEach(() => {
   fixture.realPrimaryEditor = false;
   fixture.realPrimaryCollab = false;
   fixture.cachedDocument = false;
+  fixture.sessionReady = true;
   fixture.realDocumentMutation = false;
   fixture.lockAdditionalForSuggestions = false;
   fixture.session = null;
@@ -1524,6 +1528,17 @@ it.each([
     ]);
   },
 );
+
+it("answers a mounted editor's flush request while the session resolves", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  fixture.sessionReady = false;
+  await act(async () => renderEditor());
+  const request = flushRequest("prepare");
+  await deliver(request);
+  expect(publishedAcks()).toEqual([
+    expect.objectContaining({ status: "prepared", ...request.targets[0] }),
+  ]);
+});
 
 it("stops checking a closed editor's flush mailbox", async () => {
   vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
