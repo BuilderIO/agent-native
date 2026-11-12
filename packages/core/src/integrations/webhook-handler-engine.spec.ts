@@ -3766,4 +3766,82 @@ describe("integration webhook handler engine resolution", () => {
       "tool-search",
     ]);
   });
+  it(
+    "gives the agent a Telegram photo or document as a file reference line, not the file contents",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const { telegramAdapter } = await import("./adapters/telegram.js");
+      const telegramUpdate = (message: Record<string, unknown>) => ({
+        context: {
+          __rawBody: {
+            update_id: 1,
+            message: {
+              message_id: 7,
+              date: 1_700_000_000,
+              chat: { id: 4242, type: "private" },
+              from: { id: 99, first_name: "QA" },
+              ...message,
+            },
+          },
+        },
+      });
+
+      const photo = await telegramAdapter().parseIncomingMessage(
+        telegramUpdate({
+          caption: "my pay stub",
+          photo: [
+            { file_id: "example-thumbnail", width: 90, height: 60 },
+            { file_id: "example-photo", width: 1280, height: 853 },
+          ],
+        }) as any,
+      );
+      const document = await telegramAdapter().parseIncomingMessage(
+        telegramUpdate({
+          document: {
+            file_id: "example-document",
+            file_name: "example.pdf",
+            mime_type: "application/pdf",
+          },
+        }) as any,
+      );
+
+      for (const incoming of [photo, document]) {
+        await processIntegrationTask(
+          pendingTask({ payload: JSON.stringify({ incoming }) }),
+          {
+            adapter: createAdapter(),
+            systemPrompt: "system",
+            actions: {},
+            model: "claude-sonnet-4-6",
+            apiKey: "",
+            ownerEmail: "dispatch+qa@integration.local",
+          },
+        );
+      }
+
+      expect(runAgentLoopMock).toHaveBeenCalledTimes(2);
+      const userContent = (call: number) =>
+        runAgentLoopMock.mock.calls[call]?.[0]?.messages?.at(-1)?.content;
+
+      // The agent gets one text part: the caption plus a "[file]" line naming
+      // the Telegram file_id and type. The file itself is not downloaded and no
+      // image or document part is attached.
+      const photoContent = userContent(0);
+      expect(photoContent).toHaveLength(1);
+      expect(photoContent[0].type).toBe("text");
+      expect(photoContent[0].text).toContain(
+        "[file] example-photo (image/jpeg)",
+      );
+      expect(photoContent[0].text).toContain("my pay stub");
+      expect(photoContent[0].text).not.toContain("example-thumbnail");
+
+      const documentContent = userContent(1);
+      expect(documentContent).toHaveLength(1);
+      expect(documentContent[0].type).toBe("text");
+      expect(documentContent[0].text).toContain(
+        "[file] example.pdf (application/pdf)",
+      );
+    },
+  );
 });
