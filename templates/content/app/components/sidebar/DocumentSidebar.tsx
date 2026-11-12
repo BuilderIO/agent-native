@@ -7,6 +7,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useActionQueryCanFetch } from "@agent-native/core/client/use-action";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
 import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
@@ -1241,13 +1242,14 @@ export function DocumentSidebar({
   const contentSpacesQuery = useContentSpaces();
   const { session } = useSession();
   const filesRootScope = filesRootHintScope(session?.email, session?.orgId);
+  const canPrefetchFilesRoot = useActionQueryCanFetch();
   useEffect(() => {
-    if (!filesRootScope) return;
+    if (!filesRootScope || !canPrefetchFilesRoot) return;
     const root = readPagedFilesRootHint(filesRootScope);
     if (!root) return;
     const { branches } = readSidebarLayoutHint(filesRootScope, null);
     prefetchPagedFilesRoot(queryClient, root, Object.keys(branches ?? {}));
-  }, [filesRootScope, queryClient]);
+  }, [canPrefetchFilesRoot, filesRootScope, queryClient]);
   const localFileMode = contentSpacesQuery.data?.sourceMode === "local-files";
   const documentsQuery = useDocuments({ enabled: localFileMode });
   const { data: documents = [] } = documentsQuery;

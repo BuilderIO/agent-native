@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { setAgentNativeApiDisabled } from "@agent-native/core/client/api-surface";
 import type { ContentDatabaseNavigationPageResponse } from "@shared/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
@@ -64,6 +65,51 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   queryClient.clear();
+  setAgentNativeApiDisabled(null);
+});
+
+describe("a Files read", () => {
+  async function mountBreadcrumb() {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <BreadcrumbReader />
+        </QueryClientProvider>,
+      );
+    });
+  }
+
+  it("drops the rows it showed once a reread is refused", async () => {
+    callActionWithRetry.mockImplementation(async () => ({
+      ...empty(),
+      items: [{ documentId: "page-1", type: "page" }],
+    }));
+    await mountBreadcrumb();
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(ROOT)),
+    ).toBeDefined();
+
+    callActionWithRetry.mockRejectedValue(
+      Object.assign(new Error("Forbidden"), { status: 403 }),
+    );
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: filesNavigationQueryKey(ROOT),
+        exact: true,
+      });
+    });
+
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(ROOT)),
+    ).toBeUndefined();
+  });
+
+  it("isn't made while the app's API is off", async () => {
+    setAgentNativeApiDisabled("builder shell canvas");
+    await mountBreadcrumb();
+
+    expect(callActionWithRetry).not.toHaveBeenCalled();
+  });
 });
 
 describe("readers of one Files page", () => {
