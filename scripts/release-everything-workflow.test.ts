@@ -430,10 +430,8 @@ describe("release everything workflow", () => {
     const fanout = source.slice(fanoutStart, fanoutEnd);
     assert.equal((fanout.match(/dispatchAndWait\(/g) ?? []).length, 1);
     assert.equal((fanout.match(/publishStagedBuild\(/g) ?? []).length, 2);
-    assert.match(fanout, /dispatchDocsAndReconcile\(\)/);
-    assert(
-      source.indexOf("async function dispatchDocsAndReconcile()") < fanoutStart,
-    );
+    assert.match(fanout, /waitForReleaseDocs\(releaseSha, releaseBaseSha\)/);
+    assert(source.indexOf("async function waitForReleaseDocs(") < fanoutStart);
 
     const helperStart = source.indexOf("async function dispatchAndWait(");
     const helperEnd = source.indexOf(
@@ -584,151 +582,85 @@ describe("release everything workflow", () => {
     );
   });
 
-  it("starts docs push reconciliation before sibling releases settle", async () => {
+  it("follows the release's docs run while sibling releases are still running", async () => {
     const source = String((coordinator.with as Workflow).script);
-    const helperStart = source.indexOf("let reconciledDocsRun = null;");
     const fanoutStart = source.indexOf(
       "const downstream = await Promise.allSettled([",
-      helperStart,
     );
-    assert(helperStart >= 0 && fanoutStart > helperStart);
     const fanoutEnd = source.indexOf("]);", fanoutStart);
-    assert(fanoutEnd > fanoutStart);
-    const fanout = source.slice(fanoutStart, fanoutEnd);
-    assert.match(fanout, /dispatchDocsAndReconcile\(\)/);
+    assert(fanoutStart >= 0 && fanoutEnd > fanoutStart);
+    // The coordinator no longer deploys docs; push-to-main runs do.
+    assert.doesNotMatch(
+      source,
+      /deploy-docs-production\.yml",\s*siteWorkflowRef/,
+    );
     const AsyncFunction = Object.getPrototypeOf(
       async function () {},
     ).constructor;
     const createFanout = new AsyncFunction(
       "dispatchAndWait",
-      "findSuccessfulDocsPushDeployment",
-      "core",
+      "waitForReleaseDocs",
       "siteWorkflowRef",
       "releaseSha",
-      "workflowRef",
-      "desktopVersion",
-      "clipsVersion",
+      "releaseBaseSha",
       "productionSites",
-      "publicationUnavailable",
       "publishStagedBuild",
       "desktopStage",
       "clipsStage",
-      `${source.slice(helperStart, fanoutEnd + "]);".length)}
-return { downstream, getReconciledDocsRun: () => reconciledDocsRun };`,
-    ) as (
-      dispatchAndWait: (
-        workflow: string,
-        ref: string,
-        inputs: Workflow,
-        label: string,
-        timeoutMs: number,
-      ) => Promise<Workflow>,
-      findSuccessfulDocsPushDeployment: () => Promise<Workflow | null>,
-      core: { warning: (message: string) => void },
-      siteWorkflowRef: string,
-      releaseSha: string,
-      workflowRef: string,
-      desktopVersion: string,
-      clipsVersion: string,
-      productionSites: string[],
-      publicationUnavailable: Error | null,
-      publishStagedBuild: (staged: { workflow: string }) => Promise<Workflow>,
-      desktopStage: { workflow: string },
-      clipsStage: { workflow: string },
-    ) => Promise<{
-      downstream: PromiseSettledResult<Workflow>[];
-      getReconciledDocsRun: () => Workflow | null;
-    }>;
+      `${source.slice(fanoutStart, fanoutEnd + "]);".length)}
+return downstream;`,
+    ) as (...args: unknown[]) => Promise<PromiseSettledResult<Workflow>[]>;
 
-    const reconciledRun = {
+    const docsRun = {
       id: 42,
-      url: "https://github.com/BuilderIO/agent-native/actions/runs/42",
+      html_url: "https://github.com/BuilderIO/agent-native/actions/runs/42",
     };
     const siblingWorkflows: string[] = [];
     const releaseSiblingWaits: (() => void)[] = [];
-    let siblingWaitsFinished = false;
-    let siblingCountAtReconciliation = -1;
-    let siblingsFinishedAtReconciliation = true;
-    let markReconciliationStarted!: () => void;
-    const reconciliationStarted = new Promise<void>((resolve) => {
-      markReconciliationStarted = resolve;
-    });
-    let dispatchSibling!: (workflow: string) => Promise<Workflow>;
+    let siblingsFinished = false;
+    let docsWaitArgs: unknown[] = [];
+    let siblingsFinishedWhenDocsStarted = true;
+    const dispatchSibling = async (workflow: string) => {
+      const siblingId = siblingWorkflows.length + 1;
+      siblingWorkflows.push(workflow);
+      return new Promise<Workflow>((resolve) => {
+        releaseSiblingWaits.push(() =>
+          resolve({ run: { id: siblingId }, error: null }),
+        );
+      });
+    };
     const fanoutPromise = createFanout(
-      (dispatchSibling = async (workflow) => {
-        if (workflow === "deploy-docs-production.yml") {
-          return {
-            run: {
-              id: 43,
-              url: "https://github.com/BuilderIO/agent-native/actions/runs/43",
-            },
-            error: new Error("docs workflow_dispatch failed"),
-          };
-        }
-        const siblingId = siblingWorkflows.length + 1;
-        siblingWorkflows.push(workflow);
-        return new Promise<Workflow>((resolve) => {
-          releaseSiblingWaits.push(() =>
-            resolve({
-              run: {
-                id: siblingId,
-                url: `https://github.com/BuilderIO/agent-native/actions/runs/${siblingId}`,
-              },
-              error: null,
-            }),
-          );
-        });
-      }),
-      async () => {
-        siblingCountAtReconciliation = siblingWorkflows.length;
-        siblingsFinishedAtReconciliation = siblingWaitsFinished;
-        markReconciliationStarted();
-        return reconciledRun;
+      dispatchSibling,
+      async (...args: unknown[]) => {
+        docsWaitArgs = args;
+        siblingsFinishedWhenDocsStarted = siblingsFinished;
+        return { run: docsRun, error: null };
       },
-      { warning: () => {} },
       "main",
       "release-sha",
-      "v1.2.3",
-      "1.2.3",
-      "1.2.3",
+      "release-base-sha",
       ["chat", "design"],
-      null,
-      (staged) => dispatchSibling(staged.workflow),
+      (staged: { workflow: string }) => dispatchSibling(staged.workflow),
       { workflow: "desktop-release.yml" },
       { workflow: "clips-desktop-release.yml" },
     );
-
-    let timedOut = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      reconciliationStarted,
-      new Promise<void>((resolve) => {
-        timeout = setTimeout(() => {
-          timedOut = true;
-          resolve();
-        }, 100);
-      }),
-    ]);
-    if (timeout) clearTimeout(timeout);
-    siblingWaitsFinished = true;
+    await new Promise((resolve) => setImmediate(resolve));
+    siblingsFinished = true;
     for (const release of releaseSiblingWaits) release();
-    const { downstream, getReconciledDocsRun } = await fanoutPromise;
+    const downstream = await fanoutPromise;
 
-    assert.equal(timedOut, false);
     assert.deepEqual(siblingWorkflows, [
       "desktop-release.yml",
       "clips-desktop-release.yml",
       "deploy-production-sites-prebuilt.yml",
     ]);
-    assert.equal(siblingCountAtReconciliation, 3);
-    assert.equal(siblingsFinishedAtReconciliation, false);
-    assert.equal(getReconciledDocsRun(), reconciledRun);
+    assert.deepEqual(docsWaitArgs, ["release-sha", "release-base-sha"]);
+    assert.equal(siblingsFinishedWhenDocsStarted, false);
     assert.equal(downstream.length, 4);
-    const docsResult = downstream[3];
-    assert.equal(docsResult.status, "fulfilled");
-    if (docsResult.status === "fulfilled") {
-      assert.deepEqual(docsResult.value, { run: reconciledRun, error: null });
-    }
+    assert.deepEqual(downstream[3], {
+      status: "fulfilled",
+      value: { run: docsRun, error: null },
+    });
   });
 
   it("adds correlation inputs and run titles to coordinated child workflows", () => {
@@ -1280,13 +1212,11 @@ return removeSupersededReservations;`,
     assert.match(source, /const docsSite = sitesManifest\.fw/);
     assert.match(source, /docsSite\?\.host !== "www\.agent-native\.com"/);
     assert.match(source, /name !== "fw"/);
-    assert.match(source, /async function findSuccessfulDocsPushDeployment\(\)/);
     assert.match(
       source,
-      /docs production prebuilt deploy \/ production fw prebuilt deploy/,
+      /async function waitForReleaseDocs\(releaseSha, releaseBaseSha\)/,
     );
-    assert.match(source, /docsSourceHasCurrentInputs\(sourceSha, mainSha\)/);
-    assert.match(source, /index === 3 && reconciledDocsRun/);
+    assert.match(source, /isDocsJob\(job, "docs production prebuilt deploy"\)/);
     const readPaths = (text: string, declaration: string) => {
       const start = text.indexOf(`const ${declaration} = [`);
       const arrayStart = text.indexOf("[", start);
@@ -1314,13 +1244,9 @@ return removeSupersededReservations;`,
         "scripts/check-production-cache-contract.mjs",
       ].every((file) => docsDeploymentPaths.includes(file)),
     );
-    assert.match(
+    assert.doesNotMatch(
       source,
-      /dispatchAndWait\(\s*"deploy-docs-production\.yml",\s*siteWorkflowRef/,
-    );
-    assert.match(
-      source,
-      /"Agent-Native docs production site",\s*120 \* 60_000/,
+      /dispatchAndWait\(\s*"deploy-docs-production\.yml"/,
     );
     assert.match(
       source,
@@ -1428,18 +1354,21 @@ return removeSupersededReservations;`,
     });
   });
 
-  it("reconciles a failed docs dispatch against a current successful main deployment", async () => {
+  it("follows the docs run that carries the release, and fails as soon as one cannot deploy it", async () => {
+    // oracle-change: the coordinator no longer deploys docs or reconciles a
+    // failed docs deploy against current main; it follows the push-to-main
+    // docs runs that contain the release commit.
     const source = String((coordinator.with as Workflow).script);
-    const helperStart = source.indexOf("const docsDeploymentPaths = [");
-    const helperEnd = source.indexOf(
-      '\n\nif (process.env.RELEASE_PHASE === "prepare")',
-      helperStart,
-    );
-    assert(helperStart >= 0 && helperEnd > helperStart);
+    const slice = (from: string, to: string) => {
+      const start = source.indexOf(from);
+      const end = source.indexOf(to, start);
+      assert(start >= 0 && end > start);
+      return source.slice(start, end);
+    };
     const AsyncFunction = Object.getPrototypeOf(
       async function () {},
     ).constructor;
-    const createHelpers = new AsyncFunction(
+    const createWait = new AsyncFunction(
       "github",
       "owner",
       "repo",
@@ -1447,273 +1376,313 @@ return removeSupersededReservations;`,
       "phaseDeadline",
       "sleep",
       "pollIntervalMs",
-      "dispatchReconciliationPolls",
-      `${source.slice(helperStart, helperEnd)}
-return { docsSourceHasCurrentInputs, findSuccessfulDocsPushDeployment };`,
+      "maxFailedRunReads",
+      `${slice(
+        "function isTransientDispatchFailure(error)",
+        "\n\nasync function findDispatchedRun",
+      )}
+${slice(
+  "const docsDeploymentPaths = [",
+  '\n\nif (process.env.RELEASE_PHASE === "prepare")',
+)}
+return waitForReleaseDocs;`,
     ) as (
-      github: Workflow,
-      owner: string,
-      repo: string,
-      core: { warning: (message: string) => void },
-      phaseDeadline: (timeoutMs: number) => number,
-      sleep: (ms: number) => Promise<void>,
-      pollIntervalMs: number,
-      dispatchReconciliationPolls: number,
-    ) => Promise<{
-      docsSourceHasCurrentInputs: (
-        sourceSha: string,
-        mainSha: string,
-      ) => Promise<boolean>;
-      findSuccessfulDocsPushDeployment: () => Promise<{
-        id: number;
-        url: string;
-      } | null>;
-    }>;
-    const mainSha = "a".repeat(40);
-    const run = {
-      id: 42,
-      html_url: "https://github.com/BuilderIO/agent-native/actions/runs/42",
-      head_sha: mainSha,
-      head_branch: "main",
-      event: "push",
-      status: "completed",
-      conclusion: "success",
+      ...args: unknown[]
+    ) => Promise<
+      (releaseSha: string, releaseBaseSha: string) => Promise<Workflow>
+    >;
+
+    const releaseSha = "a".repeat(40);
+    const releaseBaseSha = "0".repeat(40);
+    type Run = {
+      id: number;
+      head_sha: string;
+      status: string;
+      conclusion: string | null;
+      html_url: string;
     };
-    const successfulDeploy = {
-      name: "docs production prebuilt deploy / production fw prebuilt deploy",
-      conclusion: "success",
-    };
-    const createGithub = (
-      candidate: Workflow,
-      jobs: Workflow[],
-      comparison?: Workflow,
-      readRuns: () => Workflow[] = () => [candidate],
-      onCompare: () => void = () => {},
-    ) =>
-      ({
-        rest: {
-          git: {
-            getRef: async () => ({ data: { object: { sha: mainSha } } }),
-          },
-          actions: {
-            listWorkflowRuns: async () => ({
-              data: { workflow_runs: readRuns() },
-            }),
-            listJobsForWorkflowRun: async () => ({
-              data: { jobs, total_count: jobs.length },
-            }),
-          },
-          repos: {
-            compareCommits: async () => {
-              onCompare();
-              return { data: comparison };
+    const run = (
+      id: number,
+      head_sha: string,
+      status: "queued" | "in_progress" | "completed",
+      conclusion: string | null = status === "completed" ? "success" : null,
+    ): Run => ({
+      id,
+      head_sha,
+      status,
+      conclusion,
+      html_url: `https://github.com/BuilderIO/agent-native/actions/runs/${id}`,
+    });
+    const migrate = "Migrate docs production schema";
+    const deploy = "docs production prebuilt deploy";
+    const reusable = (name: string) =>
+      `${name} / production fw prebuilt deploy`;
+    const published = [
+      { name: reusable(migrate), conclusion: "success" },
+      { name: reusable(deploy), conclusion: "success" },
+    ];
+    // A run that a newer docs change took over from before it built.
+    const handedOver = [
+      { name: migrate, conclusion: "skipped" },
+      { name: deploy, conclusion: "skipped" },
+    ];
+    const httpError = (status: number, message: string) =>
+      Object.assign(new Error(message), { status });
+
+    const follow = async ({
+      polls,
+      jobs = {},
+      releaseFiles = ["packages/core/package.json"],
+      carries = () => true,
+      readFailures = [],
+    }: {
+      polls: Run[][];
+      jobs?: Record<number, { name: string; conclusion: string }[]>;
+      releaseFiles?: string[];
+      carries?: (sha: string) => boolean;
+      readFailures?: (Error | undefined)[];
+    }) => {
+      let now = 0;
+      let reads = 0;
+      const warnings: string[] = [];
+      const waitForReleaseDocs = await createWait(
+        {
+          rest: {
+            actions: {
+              listWorkflowRuns: async (options: Workflow) => {
+                assert.deepEqual(options, {
+                  owner: "BuilderIO",
+                  repo: "agent-native",
+                  workflow_id: "deploy-docs-production.yml",
+                  branch: "main",
+                  event: "push",
+                  per_page: 100,
+                });
+                const failure = readFailures[reads];
+                const runs = polls[Math.min(reads, polls.length - 1)];
+                reads += 1;
+                if (failure) throw failure;
+                return { data: { workflow_runs: runs } };
+              },
+              listJobsForWorkflowRun: async ({
+                run_id,
+              }: {
+                run_id: number;
+              }) => ({
+                data: { jobs: jobs[run_id] },
+              }),
+            },
+            repos: {
+              compareCommits: async ({
+                base,
+                head,
+              }: {
+                base: string;
+                head: string;
+              }) => {
+                if (base === releaseBaseSha) {
+                  return {
+                    data: {
+                      files: releaseFiles.map((filename) => ({ filename })),
+                    },
+                  };
+                }
+                assert.equal(base, releaseSha);
+                if (head === releaseSha)
+                  return { data: { status: "identical" } };
+                return {
+                  data: { status: carries(head) ? "ahead" : "diverged" },
+                };
+              },
             },
           },
         },
-      }) as Workflow;
-    const runHelpers = async (
-      candidate: Workflow,
-      jobs: Workflow[],
-      comparison?: Workflow,
-      readRuns?: () => Workflow[],
-      onCompare?: () => void,
-    ) => {
-      const github = createGithub(
-        candidate,
-        jobs,
-        comparison,
-        readRuns,
-        onCompare,
-      );
-      let now = 0;
-      const warnings: string[] = [];
-      const helpers = await createHelpers(
-        github,
         "BuilderIO",
         "agent-native",
-        { warning: (message) => warnings.push(message) },
-        (timeoutMs) => Date.now() + timeoutMs,
-        async (ms) => {
+        { warning: (message: string) => warnings.push(message) },
+        (timeoutMs: number) => Date.now() + timeoutMs,
+        async (ms: number) => {
           now += ms;
         },
         15_000,
-        5,
+        20,
       );
-      const withFakeClock = async <T>(operation: () => Promise<T>) => {
-        const realNow = Date.now;
-        now = 0;
-        Date.now = () => now;
-        try {
-          return await operation();
-        } finally {
-          Date.now = realNow;
-        }
-      };
-      return {
-        docsSourceHasCurrentInputs: (sourceSha: string, mainSha: string) =>
-          withFakeClock(() =>
-            helpers.docsSourceHasCurrentInputs(sourceSha, mainSha),
-          ),
-        findSuccessfulDocsPushDeployment: () =>
-          withFakeClock(() => helpers.findSuccessfulDocsPushDeployment()),
-        warnings,
-      };
+      const realNow = Date.now;
+      Date.now = () => now;
+      try {
+        const result = await waitForReleaseDocs(releaseSha, releaseBaseSha);
+        return { result, reads, waitedMs: now, warnings };
+      } finally {
+        Date.now = realNow;
+      }
     };
+    const releaseRun = (
+      status: "queued" | "in_progress" | "completed",
+      conclusion?: string | null,
+    ) => run(10, releaseSha, status, conclusion);
+    // Listings are newest first.
+    const olderBuild = run(9, "9".repeat(40), "in_progress");
 
-    const current = await runHelpers(run, [successfulDeploy]);
-    assert.deepEqual(await current.findSuccessfulDocsPushDeployment(), {
-      id: run.id,
-      url: run.html_url,
+    // The release's own run publishes; an older run still building does not
+    // hold it up.
+    const direct = await follow({
+      polls: [[releaseRun("completed"), olderBuild]],
+      jobs: { 10: published },
+    });
+    assert.deepEqual(direct.result, {
+      run: releaseRun("completed"),
+      error: null,
+    });
+    assert.equal(direct.reads, 1);
+    assert.equal(direct.waitedMs, 0);
+
+    // A newer docs change took over before the release's run built, so the
+    // newer run decides.
+    const newer = run(11, "b".repeat(40), "in_progress");
+    const handedOff = await follow({
+      polls: [
+        [newer, releaseRun("completed")],
+        [run(11, "b".repeat(40), "completed"), releaseRun("completed")],
+      ],
+      jobs: { 10: handedOver, 11: published },
+    });
+    assert.equal(handedOff.result.error, null);
+    assert.equal((handedOff.result.run as Run).id, 11);
+    assert.equal(handedOff.reads, 2);
+    assert.equal(handedOff.waitedMs, 15_000);
+
+    // The first run that tries to deploy decides, even while a newer one runs.
+    const deployFailed = await follow({
+      polls: [[newer, releaseRun("completed", "failure")]],
+      jobs: {
+        10: [
+          { name: reusable(migrate), conclusion: "success" },
+          { name: reusable(deploy), conclusion: "failure" },
+        ],
+      },
+    });
+    assert.equal((deployFailed.result.run as Run).id, 10);
+    assert.equal(
+      String(deployFailed.result.error),
+      "Error: docs production prebuilt deploy / production fw prebuilt deploy ended failure in https://github.com/BuilderIO/agent-native/actions/runs/10. Re-run its failed jobs once the cause is fixed; any later docs change also carries the release.",
+    );
+    assert.equal(deployFailed.reads, 1);
+
+    const migrationFailed = await follow({
+      polls: [[releaseRun("completed", "failure")]],
+      jobs: {
+        10: [
+          { name: reusable(migrate), conclusion: "failure" },
+          { name: deploy, conclusion: "skipped" },
+        ],
+      },
+    });
+    assert.match(
+      String(migrationFailed.result.error),
+      /^Error: Migrate docs production schema \/ production fw prebuilt deploy ended failure in /,
+    );
+
+    // The newest run stopped before deploying, and nothing newer is coming.
+    const stoppedEarly = await follow({
+      polls: [[releaseRun("completed", "failure")]],
+      jobs: { 10: handedOver },
     });
     assert.equal(
-      await current.docsSourceHasCurrentInputs(mainSha, mainSha),
-      true,
+      String(stoppedEarly.result.error),
+      "Error: Docs production run https://github.com/BuilderIO/agent-native/actions/runs/10 ended failure before it deployed.",
     );
 
-    const skippedStableRelease = await runHelpers(run, [
-      { ...successfulDeploy, conclusion: "skipped" },
-    ]);
+    // Skipped for a newer change whose run GitHub has not listed yet.
+    const notListedYet = await follow({
+      polls: [
+        [releaseRun("completed")],
+        [run(11, "b".repeat(40), "completed"), releaseRun("completed")],
+      ],
+      jobs: { 10: handedOver, 11: published },
+    });
+    assert.equal((notListedYet.result.run as Run).id, 11);
+    assert.equal(notListedYet.reads, 2);
+
+    // A run for a commit without the release is not followed.
+    const unrelated = run(11, "c".repeat(40), "in_progress");
+    const skipsUnrelated = await follow({
+      polls: [
+        [unrelated, releaseRun("completed")],
+        [
+          run(12, "d".repeat(40), "completed"),
+          unrelated,
+          releaseRun("completed"),
+        ],
+      ],
+      jobs: { 10: handedOver, 12: published },
+      carries: (sha) => sha !== "c".repeat(40),
+    });
+    assert.equal((skipsUnrelated.result.run as Run).id, 12);
+
+    const stuck = await follow({ polls: [[releaseRun("in_progress")]] });
     assert.equal(
-      await skippedStableRelease.findSuccessfulDocsPushDeployment(),
-      null,
+      String(stuck.result.error),
+      `Error: Docs production had not published release commit ${releaseSha} after 35 minutes; https://github.com/BuilderIO/agent-native/actions/runs/10 has not finished.`,
     );
+    assert.equal((stuck.result.run as Run).id, 10);
+    assert.equal(stuck.waitedMs, 35 * 60_000);
 
-    for (const notSuccessful of [
-      { ...run, status: "in_progress", conclusion: null },
-      { ...run, status: "completed", conclusion: "failure" },
+    // A release that touches no docs input starts no docs run.
+    const unchanged = await follow({
+      polls: [[olderBuild]],
+      releaseFiles: ["packages/dispatch/package.json", "README.md"],
+    });
+    assert.deepEqual(unchanged.result, {
+      run: null,
+      error: null,
+      skipped: true,
+      skipReason: "the release changed no docs inputs",
+    });
+    for (const releaseFiles of [
+      ["packages/core/package.json"],
+      // GitHub lists at most 300 files, so a longer list is not proof.
+      Array.from(
+        { length: 300 },
+        (_, index) => `packages/dispatch/${index}.ts`,
+      ),
     ]) {
-      let comparisons = 0;
-      const unqualifiedRun = await runHelpers(
-        notSuccessful,
-        [successfulDeploy],
-        {
-          status: "ahead",
-          total_commits: 1,
-          commits: [{ sha: mainSha }],
-          files: [{ filename: "packages/core/docs/content/guide.md" }],
-        },
-        undefined,
-        () => {
-          comparisons += 1;
-        },
-      );
+      const missing = await follow({ polls: [[olderBuild]], releaseFiles });
       assert.equal(
-        await unqualifiedRun.findSuccessfulDocsPushDeployment(),
-        null,
+        String(missing.result.error),
+        `Error: No docs production run started for release commit ${releaseSha}, which changes docs inputs.`,
       );
-      assert.equal(comparisons, 0);
     }
 
-    const oldSha = "b".repeat(40);
-    const oldRun = { ...run, head_sha: oldSha };
-    const docsChangedAfterRun = await runHelpers(oldRun, [successfulDeploy], {
-      status: "ahead",
-      total_commits: 1,
-      commits: [{ sha: mainSha }],
-      files: [{ filename: "packages/core/docs/content/guide.md" }],
+    // A brief GitHub error does not end the wait; others do.
+    const recovered = await follow({
+      polls: [[releaseRun("completed")]],
+      jobs: { 10: published },
+      readFailures: [httpError(502, "Bad Gateway")],
+    });
+    assert.equal((recovered.result.run as Run).id, 10);
+    assert.deepEqual(recovered.warnings, [
+      "Docs production: could not read its runs (HTTP 502: Bad Gateway); retrying.",
+    ]);
+    const denied = await follow({
+      polls: [[releaseRun("completed")]],
+      readFailures: [httpError(403, "Resource not accessible by integration")],
     });
     assert.equal(
-      await docsChangedAfterRun.findSuccessfulDocsPushDeployment(),
-      null,
+      String(denied.result.error),
+      "Error: Could not follow docs production runs: HTTP 403: Resource not accessible by integration",
     );
-
-    const unrelatedChangeAfterRun = await runHelpers(
-      oldRun,
-      [successfulDeploy],
-      {
-        status: "ahead",
-        total_commits: 1,
-        commits: [{ sha: mainSha }],
-        files: [{ filename: "README.md" }],
-      },
-    );
-    assert.deepEqual(
-      await unrelatedChangeAfterRun.findSuccessfulDocsPushDeployment(),
-      {
-        id: run.id,
-        url: run.html_url,
-      },
-    );
-
-    const earlierRun = {
-      ...oldRun,
-      id: 41,
-      html_url: "https://github.com/BuilderIO/agent-native/actions/runs/41",
-    };
-    const laterRun = {
-      ...oldRun,
-      id: 43,
-      head_sha: "c".repeat(40),
-      html_url: "https://github.com/BuilderIO/agent-native/actions/runs/43",
-    };
-    let failedComparisons = 0;
-    const continuesAfterComparisonFailure = await runHelpers(
-      earlierRun,
-      [successfulDeploy],
-      {
-        status: "ahead",
-        total_commits: 1,
-        commits: [{ sha: mainSha }],
-        files: [{ filename: "README.md" }],
-      },
-      () => [earlierRun, laterRun],
-      () => {
-        failedComparisons += 1;
-        if (failedComparisons === 1) {
-          throw new Error("transient compare failure");
-        }
-      },
-    );
-    assert.deepEqual(
-      await continuesAfterComparisonFailure.findSuccessfulDocsPushDeployment(),
-      { id: laterRun.id, url: laterRun.html_url },
-    );
-    assert.equal(failedComparisons, 2);
-    assert.match(
-      continuesAfterComparisonFailure.warnings[0],
-      /continuing through/,
-    );
-
-    let delayedRunPolls = 0;
-    const delayedRun = await runHelpers(
-      run,
-      [successfulDeploy],
-      undefined,
-      () => (++delayedRunPolls < 7 ? [] : [run]),
-    );
-    assert.deepEqual(await delayedRun.findSuccessfulDocsPushDeployment(), {
-      id: run.id,
-      url: run.html_url,
+    assert.equal(denied.reads, 1);
+    const outage = await follow({
+      polls: [[releaseRun("completed")]],
+      readFailures: Array.from({ length: 20 }, () =>
+        httpError(503, "Service Unavailable"),
+      ),
     });
-    assert.equal(delayedRunPolls, 7);
-
-    let comparisons = 0;
-    const cachedFreshness = await runHelpers(
-      oldRun,
-      [successfulDeploy],
-      {
-        status: "ahead",
-        total_commits: 1,
-        commits: [{ sha: mainSha }],
-        files: [{ filename: "packages/core/docs/content/guide.md" }],
-      },
-      undefined,
-      () => {
-        comparisons += 1;
-      },
-    );
     assert.equal(
-      await cachedFreshness.docsSourceHasCurrentInputs(oldSha, mainSha),
-      false,
+      String(outage.result.error),
+      "Error: Could not follow docs production runs: HTTP 503: Service Unavailable",
     );
-    assert.equal(
-      await cachedFreshness.docsSourceHasCurrentInputs(oldSha, mainSha),
-      false,
-    );
-    assert.equal(comparisons, 1);
-
-    assert.match(source, /async function dispatchDocsAndReconcile\(\)/);
-    assert.match(source, /index === 3 && reconciledDocsRun/);
+    assert.equal(outage.reads, 20);
   });
 
   it("waits through the observed stable release review and CI delay", async () => {
@@ -2036,10 +2005,11 @@ return { publicationError, publicationStatusUnknownError, publicationUnavailable
     const releaseDownstream = new AsyncFunction(
       "publicationUnavailable",
       "releaseSha",
+      "releaseBaseSha",
       "siteWorkflowRef",
       "productionSites",
       "dispatchAndWait",
-      "dispatchDocsAndReconcile",
+      "waitForReleaseDocs",
       "desktopStage",
       "clipsStage",
       `${source.slice(publishStart, publishEnd)}
@@ -2068,6 +2038,7 @@ return downstream;`,
       const downstream = (await releaseDownstream(
         publication.publicationUnavailable,
         mergeSha,
+        "release-base-sha",
         publication.siteWorkflowRef,
         ["design"],
         async (workflow: string, ref: string, inputs: Workflow) => {

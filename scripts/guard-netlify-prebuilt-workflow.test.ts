@@ -3056,16 +3056,26 @@ describe("production Netlify site concurrency guard", () => {
       String(netlifyBuild.run),
       /SKIP_BUILD_MIGRATIONS.*SOURCE_TEMPLATE.*@agent-native\/docs[\s\S]*AGENT_NATIVE_PREBUILT_SKIP_RELEASE_MIGRATIONS=1/,
     );
-    const migrationFreshnessScript = String(
-      (preMigrationFreshness.with as Workflow).script,
-    );
-    assert.match(
-      migrationFreshnessScript,
-      /github\.rest\.repos\.compareCommits/,
-    );
-    assert.match(migrationFreshnessScript, /!files\.every\(/);
-    assert.match(migrationFreshnessScript, /file\?\.filename === "string"/);
-    assert.match(migrationFreshnessScript, /files\.some\(\(file\)/);
+    // oracle-change: every check after a docs run starts compares the source
+    // against the live deploy instead of asking for the newest docs inputs on
+    // main, so a docs change that lands during the build no longer refuses it.
+    for (const lateCheck of [
+      preMigrationFreshness,
+      prePauseFreshness,
+      preUnlockFreshness,
+      preUploadFreshness,
+    ]) {
+      assert.equal(
+        lateCheck.uses,
+        "./.docs-freshness-action/.github/actions/docs-source-freshness",
+      );
+      assert.deepEqual(lateCheck.with, {
+        "source-ref": "${{ steps.source.outputs.source_ref }}",
+        "fail-on-stale": "true",
+        "live-site-id": "${{ steps.target.outputs.site_id }}",
+        "netlify-auth-token": "${{ secrets.NETLIFY_AUTH_TOKEN }}",
+      });
+    }
 
     const on = docsWorkflow.on as Workflow;
     const push = on.push as Workflow;
@@ -3093,14 +3103,8 @@ describe("production Netlify site concurrency guard", () => {
     const reusableDocsPathLists = [
       ...reusableSource.matchAll(/const docsPaths = \[([\s\S]*?)\];/g),
     ];
-    assert.equal(reusableDocsPathLists.length, 2);
-    for (const [, list] of reusableDocsPathLists) {
-      assert(list);
-      assert.deepEqual(
-        [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]),
-        push.paths,
-      );
-    }
+    // Only the shared action lists the docs inputs.
+    assert.equal(reusableDocsPathLists.length, 0);
     type WorkspacePackageManifest = {
       name?: string;
       dependencies?: Record<string, string>;
@@ -3174,32 +3178,6 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(script, /core\.setOutput\("current", "false"\)/);
     assert.doesNotMatch(script, /context\.eventName !== "push"/);
     assert.match(script, /context\.eventName === "workflow_dispatch"/);
-    const preUploadScript = String(
-      (preUploadFreshness.with as Workflow).script,
-    );
-    const preUploadDocsPathList = preUploadScript.match(
-      /const docsPaths = \[([\s\S]*?)\];/,
-    )?.[1];
-    assert(preUploadDocsPathList);
-    const preUploadDocsPaths = [
-      ...preUploadDocsPathList.matchAll(/"([^"]+)"/g),
-    ].map((match) => match[1]);
-    assert.deepEqual(preUploadDocsPaths, push.paths);
-    assert.match(preUploadScript, /github\.rest\.git\.getRef/);
-    assert.match(preUploadScript, /github\.rest\.repos\.compareCommits/);
-    assert.match(preUploadScript, /per_page: 100/);
-    assert.match(
-      preUploadScript,
-      /for \(let page = 1; page <= pageCount; page \+= 1\)/,
-    );
-    assert.match(
-      preUploadScript,
-      /data\.commits\.length !== expectedPageCommits/,
-    );
-    assert.match(preUploadScript, /files\.length >= 300/);
-    assert.match(preUploadScript, /file\.previous_filename/);
-    assert.match(preUploadScript, /core\.setOutput\("current", "false"\)/);
-
     const runFreshnessScript = async (
       freshnessScript: string,
       files: Array<{ filename: string; previous_filename?: string }>,
@@ -3334,29 +3312,188 @@ describe("production Netlify site concurrency guard", () => {
       [{ sha: "commit-100" }],
     );
     assert.equal(sourceWasFreshBeforeBuild.outputs.current, "true");
-    const docsChangedDuringBuild = await runFreshnessScript(
-      preUploadScript,
-      [{ filename: "packages/docs/content/guide.mdx" }],
-      [{ sha: "commit-100" }],
-    );
-    assert.deepEqual(docsChangedDuringBuild.pagesRequested, [1, 2]);
-    assert.equal(docsChangedDuringBuild.outputs.current, "false");
-    assert.match(
-      docsChangedDuringBuild.failures[0] ?? "",
-      /Refusing to publish docs source .* newer docs deployment inputs/,
-    );
-    assert.deepEqual(docsChangedDuringBuild.notices, []);
 
-    const incompletePreUpload = await runFreshnessScript(
-      preUploadScript,
-      [{ filename: "README.md" }],
-      [],
-    );
-    assert.equal(incompletePreUpload.outputs.current, "false");
-    assert.match(
-      incompletePreUpload.failures[0] ?? "",
-      /Cannot verify every newer commit/,
-    );
+    // After a run starts, only a newer live deploy stops it. Main is not read
+    // at all, so a docs change landing during the build cannot refuse it.
+    const liveSource = "b".repeat(40);
+    const runLiveCheck = async ({
+      responses,
+      compareStatus = "ahead",
+      eventName = "push",
+      failOnStale = true,
+    }: {
+      responses: Array<Error | { status: number; body?: unknown }>;
+      compareStatus?: string;
+      eventName?: string;
+      failOnStale?: boolean;
+    }) => {
+      const outputs: Record<string, string> = {};
+      const failures: string[] = [];
+      const notices: string[] = [];
+      const infos: string[] = [];
+      const fetched: Array<{ url: string; authorization: string }> = [];
+      const compared: unknown[] = [];
+      const fetch = async (
+        url: string,
+        init: { headers: Record<string, string> },
+      ) => {
+        fetched.push({ url, authorization: init.headers.Authorization! });
+        const next = responses[Math.min(fetched.length, responses.length) - 1]!;
+        if (next instanceof Error) throw next;
+        return {
+          ok: next.status >= 200 && next.status < 300,
+          status: next.status,
+          json: async () => next.body,
+        };
+      };
+      const github = {
+        rest: {
+          git: {
+            getRef: async () => {
+              throw new Error("the live-deploy check must not read main");
+            },
+          },
+          repos: {
+            compareCommits: async (args: unknown) => {
+              compared.push(args);
+              return { data: { status: compareStatus } };
+            },
+          },
+        },
+      };
+      const run = new Function(
+        "github",
+        "context",
+        "core",
+        "process",
+        "fetch",
+        "setTimeout",
+        `return (async () => {\n${actionScript}\n})();`,
+      ) as (...args: unknown[]) => Promise<void>;
+      await run(
+        github,
+        { eventName, repo: { owner: "BuilderIO", repo: "agent-native" } },
+        {
+          setOutput: (name: string, value: string) => {
+            outputs[name] = value;
+          },
+          setFailed: (message: string) => failures.push(message),
+          notice: (message: string) => notices.push(message),
+          info: (message: string) => infos.push(message),
+        },
+        {
+          env: {
+            SOURCE_REF: "a".repeat(40),
+            FAIL_ON_STALE: failOnStale ? "true" : "false",
+            LIVE_SITE_ID: "site-fw",
+            NETLIFY_AUTH_TOKEN: "netlify-token",
+          },
+        },
+        fetch,
+        (resolve: () => void) => resolve(),
+      );
+      return { outputs, failures, notices, infos, fetched, compared };
+    };
+    const liveDeploy = (title: string) => ({
+      status: 200,
+      body: { published_deploy: { id: "deploy-1", title } },
+    });
+    const liveTitle = `GitHub Actions prebuilt deploy ${liveSource}`;
+
+    const newerThanLive = await runLiveCheck({
+      responses: [liveDeploy(liveTitle)],
+    });
+    assert.equal(newerThanLive.outputs.current, "true");
+    assert.deepEqual(newerThanLive.failures, []);
+    assert.deepEqual(newerThanLive.fetched, [
+      {
+        url: "https://api.netlify.com/api/v1/sites/site-fw",
+        authorization: "Bearer netlify-token",
+      },
+    ]);
+    assert.deepEqual(newerThanLive.compared, [
+      {
+        owner: "BuilderIO",
+        repo: "agent-native",
+        base: liveSource,
+        head: "a".repeat(40),
+        per_page: 1,
+      },
+    ]);
+
+    // A re-run of the deploy that is already live.
+    const alreadyLive = await runLiveCheck({
+      responses: [
+        liveDeploy(`GitHub Actions prebuilt deploy ${"a".repeat(40)}`),
+      ],
+    });
+    assert.equal(alreadyLive.outputs.current, "true");
+    assert.deepEqual(alreadyLive.compared, []);
+
+    const olderThanLive = await runLiveCheck({
+      responses: [liveDeploy(liveTitle)],
+      compareStatus: "behind",
+    });
+    assert.equal(olderThanLive.outputs.current, "false");
+    assert.deepEqual(olderThanLive.failures, [
+      `Refusing to publish Docs source ${"a".repeat(40)} is older than the live deploy's ${liveSource}.`,
+    ]);
+    const skippedOlderPush = await runLiveCheck({
+      responses: [liveDeploy(liveTitle)],
+      compareStatus: "behind",
+      failOnStale: false,
+    });
+    assert.deepEqual(skippedOlderPush.failures, []);
+    assert.match(skippedOlderPush.notices[0] ?? "", /^Skipping Docs source/);
+    const olderDispatch = await runLiveCheck({
+      responses: [liveDeploy(liveTitle)],
+      compareStatus: "behind",
+      eventName: "workflow_dispatch",
+      failOnStale: false,
+    });
+    assert.match(olderDispatch.failures[0] ?? "", /^Refusing to publish/);
+
+    const diverged = await runLiveCheck({
+      responses: [liveDeploy(liveTitle)],
+      compareStatus: "diverged",
+      failOnStale: false,
+    });
+    assert.equal(diverged.outputs.current, "false");
+    assert.deepEqual(diverged.failures, [
+      `Docs source ${"a".repeat(40)} is diverged from the live deploy's ${liveSource}.`,
+    ]);
+
+    // A deploy this workflow did not make carries no source to order against.
+    const untitled = await runLiveCheck({
+      responses: [liveDeploy("Deploy from the Netlify UI")],
+    });
+    assert.equal(untitled.outputs.current, "true");
+    assert.match(untitled.infos[0] ?? "", /names no source commit/);
+
+    const nothingLive = await runLiveCheck({
+      responses: [{ status: 200, body: { published_deploy: null } }],
+    });
+    assert.equal(nothingLive.outputs.current, "false");
+    assert.deepEqual(nothingLive.failures, [
+      "Netlify site site-fw has no published deploy to compare against.",
+    ]);
+
+    const recoveredLookup = await runLiveCheck({
+      responses: [{ status: 502 }, liveDeploy(liveTitle)],
+    });
+    assert.equal(recoveredLookup.outputs.current, "true");
+    assert.equal(recoveredLookup.fetched.length, 2);
+    const failedLookup = await runLiveCheck({ responses: [{ status: 503 }] });
+    assert.equal(failedLookup.outputs.current, "false");
+    assert.deepEqual(failedLookup.failures, [
+      "Netlify site site-fw lookup failed with HTTP 503.",
+    ]);
+    assert.equal(failedLookup.fetched.length, 3);
+    const deniedLookup = await runLiveCheck({ responses: [{ status: 401 }] });
+    assert.deepEqual(deniedLookup.failures, [
+      "Netlify site site-fw lookup failed with HTTP 401.",
+    ]);
+    assert.equal(deniedLookup.fetched.length, 1);
 
     const failureCleanup = steps.find(
       (step) =>
