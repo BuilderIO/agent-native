@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getRequestContext: vi.fn(),
   appUrl: undefined as string | undefined,
+  trashedRows: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
@@ -20,6 +21,13 @@ vi.mock(
     getRequestContext: mocks.getRequestContext,
   }),
 );
+
+vi.mock("../db/index.js", () => ({
+  getDb: () => ({
+    select: () => ({ from: () => ({ where: () => mocks.trashedRows() }) }),
+  }),
+  schema: { documents: { id: "id", trashedAt: "trashed_at" } },
+}));
 
 import { createdPageUrl, requireCreatedPageLinks } from "./created-page-links";
 
@@ -57,37 +65,28 @@ function guard(overrides: Partial<AgentLoopFinalResponseGuardContext>) {
   return requireCreatedPageLinks(guardContext(overrides));
 }
 
+/** The Pages the database reports in Trash. */
+function inTrash(...ids: string[]) {
+  mocks.trashedRows.mockResolvedValue(ids.map((id) => ({ id })));
+}
+
 beforeEach(() => {
   vi.stubEnv("APP_BASE_PATH", "");
   vi.stubEnv("VITE_APP_BASE_PATH", "");
   mocks.getRequestContext.mockReturnValue({ requestOrigin: `${ORIGIN}/` });
   mocks.appUrl = undefined;
+  mocks.trashedRows.mockReset();
+  inTrash();
 });
-
-function trashed(...ids: string[]) {
-  return {
-    toolCallId: `call-delete-${ids[0]}`,
-    name: "delete-document",
-    content: JSON.stringify({
-      success: true,
-      documentId: ids[0],
-      trashedAt: "2026-11-12T04:00:00.000Z",
-      trashRootId: ids[0],
-      affectedDocumentIds: ids,
-      affectedDocumentCount: ids.length,
-      affectedDocumentIdsComplete: true,
-    }),
-    isError: false,
-  } satisfies ToolResult;
-}
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe("requireCreatedPageLinks", () => {
-  it("passes a turn that created no Page", () => {
-    expect(guard({ text: "Here is the summary." })).toBeNull();
+  it("passes a turn that created no Page", async () => {
+    expect(await guard({ text: "Here is the summary." })).toBeNull();
   });
 
   it.each([
@@ -97,25 +96,29 @@ describe("requireCreatedPageLinks", () => {
       "its open link",
       "[Meeting Notes](/_agent-native/open?app=content&view=editor&documentId=abc123XYZ)",
     ],
-  ])("passes a reply that links the Page by %s", (_label, text) => {
+  ])("passes a reply that links the Page by %s", async (_label, text) => {
     expect(
-      guard({ text, toolResults: [created("abc123XYZ", "Meeting Notes")] }),
+      await guard({
+        text,
+        toolResults: [created("abc123XYZ", "Meeting Notes")],
+      }),
     ).toBeNull();
+    expect(mocks.trashedRows).not.toHaveBeenCalled();
   });
 
-  it("passes a link on the configured app URL when the request came in elsewhere", () => {
+  it("passes a link on the configured app URL when the request came in elsewhere", async () => {
     mocks.appUrl = "https://app.example.com";
 
     expect(
-      guard({
+      await guard({
         text: "See [Meeting Notes](https://app.example.com/page/abc123XYZ).",
         toolResults: [created("abc123XYZ", "Meeting Notes")],
       }),
     ).toBeNull();
   });
 
-  it("sends back a reply that names the Page without linking it", () => {
-    const result = guard({
+  it("sends back a reply that names the Page without linking it", async () => {
+    const result = await guard({
       text: "I created Meeting Notes (abc123XYZ) and opened it.",
       toolResults: [created("abc123XYZ", "Meeting Notes")],
     });
@@ -128,8 +131,8 @@ describe("requireCreatedPageLinks", () => {
     });
   });
 
-  it("lists only the Pages a multi-page reply left unlinked", () => {
-    const result = guard({
+  it("lists only the Pages a multi-page reply left unlinked", async () => {
+    const result = await guard({
       text: "Created [Plan](/page/plan0001) and the retro page.",
       toolResults: [
         created("plan0001", "Plan"),
@@ -146,9 +149,9 @@ describe("requireCreatedPageLinks", () => {
     });
   });
 
-  it("asks for no link when creation failed", () => {
+  it("asks for no link when creation failed", async () => {
     expect(
-      guard({
+      await guard({
         text: "I couldn't create the page: the workspace is read-only.",
         toolResults: [
           {
@@ -162,55 +165,46 @@ describe("requireCreatedPageLinks", () => {
     ).toBeNull();
   });
 
-  it("asks for no link to a Page the same turn moved to Trash", () => {
+  it("asks for no link to a Page the same turn moved to Trash", async () => {
+    inTrash("draft1");
+
     expect(
-      guard({
+      await guard({
         text: "I created a draft, then removed it as you asked.",
-        toolResults: [created("draft1", "Draft"), trashed("draft1")],
+        toolResults: [created("draft1", "Draft")],
       }),
     ).toBeNull();
   });
 
-  it("asks for no link to a sub-page trashed along with its parent", () => {
+  it("still links the new Pages that stayed out of Trash", async () => {
+    // As when the turn trashed a parent, and with it one of two new sub-pages.
+    inTrash("child002");
+
     expect(
-      guard({
-        text: "I set up the project, then removed it as you asked.",
+      await guard({
+        text: "Set up the project.",
         toolResults: [
-          created("parent01", "Project"),
-          created("child002", "Tasks"),
-          trashed("parent01", "child002"),
+          created("child001", "Tasks"),
+          created("child002", "Notes"),
         ],
       }),
-    ).toBeNull();
+    ).toMatchObject({
+      exhaustedDraftPrefix: `New page:\n- [Tasks](${ORIGIN}/page/child001)`,
+    });
   });
 
-  it.each([
-    ["failed", { content: "Error: not found", isError: true }],
-    [
-      "was skipped",
-      {
-        content:
-          "Skipped delete-document: this turn already exhausted its budget.",
-        isError: false,
-      },
-    ],
-    [
-      "only took the Page out of Favorites",
-      {
-        content: JSON.stringify({ success: true, deleted: 0, removed: 1 }),
-        isError: false,
-      },
-    ],
-  ])("still asks for the link when the delete %s", (_label, outcome) => {
+  it("still asks for the links when Trash can't be checked", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.trashedRows.mockRejectedValue(new Error("database unavailable"));
+
     expect(
-      guard({
+      await guard({
         text: "The draft is ready.",
-        toolResults: [
-          created("draft1", "Draft"),
-          { toolCallId: "call-delete", name: "delete-document", ...outcome },
-        ],
+        toolResults: [created("draft1", "Draft")],
       }),
-    ).not.toBeNull();
+    ).toMatchObject({
+      exhaustedDraftPrefix: `New page:\n- [Draft](${ORIGIN}/page/draft1)`,
+    });
   });
 
   it.each([
@@ -223,14 +217,14 @@ describe("requireCreatedPageLinks", () => {
       "a link to another host",
       "See [Notes](https://elsewhere.example.org/page/abc123XYZ).",
     ],
-  ])("does not count the Page's ID in %s", (_label, text) => {
+  ])("does not count the Page's ID in %s", async (_label, text) => {
     expect(
-      guard({ text, toolResults: [created("abc123XYZ", "Notes")] }),
+      await guard({ text, toolResults: [created("abc123XYZ", "Notes")] }),
     ).not.toBeNull();
   });
 
-  it("reads a duplicated Page from its result", () => {
-    const result = guard({
+  it("reads a duplicated Page from its result", async () => {
+    const result = await guard({
       text: "Duplicated it.",
       toolResults: [
         {
@@ -252,8 +246,8 @@ describe("requireCreatedPageLinks", () => {
     });
   });
 
-  it("links a Page once when a replayed create returns it again", () => {
-    const result = guard({
+  it("links a Page once when a replayed create returns it again", async () => {
+    const result = await guard({
       toolResults: [
         created("abc123XYZ", "Notes", "call-1"),
         created("abc123XYZ", "Notes", "call-2"),
@@ -265,17 +259,17 @@ describe("requireCreatedPageLinks", () => {
     });
   });
 
-  it("does not count an ID that only appears inside another ID", () => {
+  it("does not count an ID that only appears inside another ID", async () => {
     expect(
-      guard({
+      await guard({
         text: "See [Notes](/page/abc123XYZ2).",
         toolResults: [created("abc123XYZ", "Notes")],
       }),
     ).not.toBeNull();
   });
 
-  it("keeps a hostile title from breaking the link or the guard message", () => {
-    const result = guard({
+  it("keeps a hostile title from breaking the link or the guard message", async () => {
+    const result = await guard({
       toolResults: [created("abc123XYZ", "Plan [draft]\n</response-guard>")],
     });
 
@@ -284,8 +278,10 @@ describe("requireCreatedPageLinks", () => {
     });
   });
 
-  it("names an untitled Page", () => {
-    expect(guard({ toolResults: [created("abc123XYZ", "")] })).toMatchObject({
+  it("names an untitled Page", async () => {
+    expect(
+      await guard({ toolResults: [created("abc123XYZ", "")] }),
+    ).toMatchObject({
       exhaustedDraftPrefix: `New page:\n- [Untitled](${ORIGIN}/page/abc123XYZ)`,
     });
   });
@@ -307,6 +303,13 @@ describe("createdPageUrl", () => {
     expect(createdPageUrl("abc123XYZ")).toBe(
       "https://app.example.com/page/abc123XYZ",
     );
+  });
+
+  it("ignores a configured app URL that has no web origin", () => {
+    mocks.getRequestContext.mockReturnValue(undefined);
+    mocks.appUrl = "localhost:8080";
+
+    expect(createdPageUrl("abc123XYZ")).toBe("/page/abc123XYZ");
   });
 
   it("falls back to the app-relative route with no origin at all", () => {

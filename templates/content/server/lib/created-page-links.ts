@@ -5,6 +5,9 @@ import {
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
+import { and, inArray, isNotNull } from "drizzle-orm";
+
+import { getDb, schema } from "../db/index.js";
 
 /** Actions whose success leaves the user a new standalone Page. */
 const PAGE_CREATING_TOOLS = new Set(["create-document", "duplicate-page"]);
@@ -39,7 +42,11 @@ function originOf(value: unknown): string | undefined {
   const text = nonEmptyString(value);
   if (!text) return undefined;
   try {
-    return new URL(text).origin;
+    const url = new URL(text);
+    // "localhost:8080" parses, with the scheme "localhost:" and no origin.
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.origin
+      : undefined;
   } catch {
     // coercion-ok: a value that isn't a URL names no origin.
     return undefined;
@@ -77,39 +84,14 @@ function pagesFromResult(
   return id ? [{ id, title: nonEmptyString(record?.title) ?? "" }] : [];
 }
 
-/**
- * Pages a `delete-document` call this turn moved to Trash, sub-pages
- * included, as its result lists them. A skipped call, or one that only took a
- * Page out of Favorites, trashed nothing.
- */
-function trashedPageIds(context: AgentLoopFinalResponseGuardContext) {
-  const ids = new Set<string>();
-  for (const result of context.toolResults) {
-    if (result.isError || result.name !== "delete-document") continue;
-    const record = parseRecord(result.content);
-    if (!record || !nonEmptyString(record.trashedAt)) continue;
-    const affected: unknown[] = Array.isArray(record.affectedDocumentIds)
-      ? record.affectedDocumentIds
-      : [];
-    for (const value of [record.documentId, ...affected]) {
-      const id = nonEmptyString(value);
-      if (id) ids.add(id);
-    }
-  }
-  return ids;
-}
-
 export function createdPages(
   context: AgentLoopFinalResponseGuardContext,
 ): CreatedPage[] {
-  const trashed = trashedPageIds(context);
   const pages = new Map<string, CreatedPage>();
   for (const result of context.toolResults) {
     if (result.isError || !PAGE_CREATING_TOOLS.has(result.name)) continue;
     for (const page of pagesFromResult(result)) {
-      if (!trashed.has(page.id) && !pages.has(page.id)) {
-        pages.set(page.id, page);
-      }
+      if (!pages.has(page.id)) pages.set(page.id, page);
     }
   }
   return [...pages.values()];
@@ -167,6 +149,30 @@ export function createdPageUrl(id: string): string {
   return `${origin}${getConfiguredAppBasePath()}/page/${encodeURIComponent(id)}`;
 }
 
+/**
+ * Pages among `ids` now in Trash, as when the turn deleted a Page it created
+ * or that Page's parent. The database is the record: a delete's result lists
+ * at most 100 of the Pages it moved.
+ */
+async function trashedPageIds(ids: string[]): Promise<Set<string>> {
+  try {
+    const rows = await getDb()
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(
+        and(
+          inArray(schema.documents.id, ids),
+          isNotNull(schema.documents.trashedAt),
+        ),
+      );
+    return new Set(rows.map((row) => row.id));
+  } catch (error) {
+    // coercion-ok: a thrown guard fails the whole turn; a link to a trashed Page costs less.
+    console.warn("[created-page-links] could not check Trash", error);
+    return new Set();
+  }
+}
+
 function linkText(title: string): string {
   const oneLine = title
     .replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, " ")
@@ -191,14 +197,17 @@ function pageLink(page: CreatedPage): string {
  * created, then puts the links above the draft. The user should never have to
  * ask where a new Page is.
  */
-export const requireCreatedPageLinks: AgentLoopFinalResponseGuard = (
+export const requireCreatedPageLinks: AgentLoopFinalResponseGuard = async (
   context,
 ) => {
   const targets = linkTargets(context.text);
   const origins = appOrigins();
-  const missing = createdPages(context).filter(
+  const unlinked = createdPages(context).filter(
     (page) => !linksPage(targets, origins, page.id),
   );
+  if (unlinked.length === 0) return null;
+  const trashed = await trashedPageIds(unlinked.map((page) => page.id));
+  const missing = unlinked.filter((page) => !trashed.has(page.id));
   if (missing.length === 0) return null;
   const links = missing.map((page) => `- ${pageLink(page)}`).join("\n");
   const summary = `${missing.length === 1 ? "New page" : "New pages"}:\n${links}`;
