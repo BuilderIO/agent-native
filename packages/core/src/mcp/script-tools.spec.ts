@@ -6,6 +6,7 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import type { McpActionCallOutcome } from "./execute-action-call.js";
 import {
   MCP_SCRIPT_LIMITS,
+  MCP_SCRIPT_SEARCH_TOOL,
   type McpScriptDenial,
   type McpScriptRunPayload,
   buildMcpScriptCatalog,
@@ -533,6 +534,28 @@ describe("script types", () => {
     const byQuery = searchMcpScriptActions(catalog, { query: "folder" });
     expect(byQuery).toContain("listDocuments:");
     expect(byQuery).not.toContain("getDocument:");
+  });
+
+  it("looks up a bounded number of names, and says it left the rest out", () => {
+    const catalog = buildMcpScriptCatalog({ "get-document": entry() });
+    const names = Array.from(
+      { length: 10_000 },
+      (_, index) => `missing${index}`,
+    );
+    const found = searchMcpScriptActions(catalog, {
+      names: [...names, "getDocument"],
+    });
+    expect(found).not.toContain("getDocument:");
+    expect(found).not.toContain('"missing50"');
+    expect(found).toContain('"missing49"');
+    expect(found).toContain(
+      "// Looked up the first 50 of 10001 names; ask for the rest in another search.",
+    );
+    expect(found.length).toBeLessThan(5_000);
+    const tool = mcpScriptToolDescriptors(catalog).find(
+      (candidate) => candidate.name === MCP_SCRIPT_SEARCH_TOOL,
+    );
+    expect(JSON.stringify(tool?.inputSchema)).toContain('"maxItems":50');
   });
 });
 
