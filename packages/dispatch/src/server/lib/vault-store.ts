@@ -4,8 +4,8 @@ import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   deleteAppSecret,
-  last4,
   listAppSecretsForScope,
+  readAppSecret,
   VAULT_SYNC_DESCRIPTION_PREFIX,
   writeAppSecret,
   type SecretScope,
@@ -18,7 +18,6 @@ import {
   putOrgSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
-import { asc, gt } from "drizzle-orm";
 
 import { getDb, schema } from "../../db/index.js";
 import {
@@ -28,6 +27,13 @@ import {
 } from "./dispatch-store.js";
 
 const VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
+
+/**
+ * `vault_secrets.value` is NOT NULL and migrations can't drop columns, so it
+ * stays as an always-empty column; the value lives only, encrypted, in
+ * `app_secrets`. Treat "" as "no plaintext here", never as "no secret".
+ */
+const SEALED_VAULT_VALUE = "";
 
 export type VaultAccessMode = "all-apps" | "manual";
 
@@ -99,44 +105,6 @@ function now() {
 
 function safeJson(value: unknown) {
   return JSON.stringify(value ?? null);
-}
-
-function workspaceBaseOrigins(): Set<string> {
-  const out = new Set<string>();
-  for (const value of [
-    process.env.WORKSPACE_GATEWAY_URL,
-    process.env.APP_URL,
-    process.env.URL,
-    process.env.DEPLOY_URL,
-    process.env.BETTER_AUTH_URL,
-  ]) {
-    if (!value) continue;
-    try {
-      out.add(new URL(value).origin);
-    } catch {
-      // Ignore malformed deploy metadata.
-    }
-  }
-  return out;
-}
-
-export function isTrustedEnvVarSyncAgentUrl(agentUrl: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(agentUrl);
-  } catch {
-    return false;
-  }
-  const hostname = parsed.hostname.toLowerCase();
-  if (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "::1" ||
-    hostname.endsWith(".localhost")
-  ) {
-    return true;
-  }
-  return workspaceBaseOrigins().has(parsed.origin);
 }
 
 function scopedFilter<T extends { ownerEmail: any; orgId: any }>(table: T) {
@@ -306,8 +274,8 @@ export async function createSecret(
     credentialKey: string;
     value: string;
     name: string;
-    provider?: string | null;
-    description?: string | null;
+    provider?: string | null | undefined;
+    description?: string | null | undefined;
   },
   ctx: VaultCtx = requireVaultCtx(),
 ) {
@@ -316,6 +284,7 @@ export async function createSecret(
   const timestamp = now();
   const credentialKey = normalizeCredentialKey(input.credentialKey);
   if (!credentialKey) throw new Error("Credential key is required");
+  if (!input.value) throw new Error("Secret value is required");
   const existing = await db
     .select()
     .from(schema.vaultSecrets)
@@ -329,26 +298,32 @@ export async function createSecret(
     .limit(1);
 
   if (existing[0]) {
+    const found = existing[0];
     await db
       .update(schema.vaultSecrets)
       .set({
         name: input.name,
         credentialKey,
-        value: input.value,
+        value: SEALED_VAULT_VALUE,
         provider: input.provider || null,
         description: input.description || null,
         updatedAt: timestamp,
       })
       .where(
         and(
-          eq(schema.vaultSecrets.id, existing[0].id),
+          eq(schema.vaultSecrets.id, found.id),
           ctxScope(schema.vaultSecrets, ctx),
         ),
       );
+    await storeSecretValue(
+      ctxForSecretRow(found, ctx),
+      { credentialKey, name: input.name },
+      input.value,
+    );
 
     await recordVaultAudit({
       action: "secret.updated",
-      secretId: existing[0].id,
+      secretId: found.id,
       summary: `Updated secret "${input.name}" (${credentialKey})`,
       metadata: { credentialKey, provider: input.provider },
     });
@@ -356,18 +331,11 @@ export async function createSecret(
     await recordAudit({
       action: "vault.secret.updated",
       targetType: "vault-secret",
-      targetId: existing[0].id,
+      targetId: found.id,
       summary: `Updated vault secret "${input.name}" (${credentialKey})`,
     });
 
-    const updated = await getSecret(existing[0].id, ctx);
-    if (updated) {
-      await syncSecretsToCredentialStore(
-        [updated],
-        ctxForSecretRow(updated, ctx),
-      );
-    }
-    return updated;
+    return getSecret(found.id, ctx);
   }
 
   const secretId = id();
@@ -379,13 +347,14 @@ export async function createSecret(
     orgId: ctx.orgId,
     name: input.name,
     credentialKey,
-    value: input.value,
+    value: SEALED_VAULT_VALUE,
     provider: input.provider || null,
     description: input.description || null,
     createdBy: actor,
     createdAt: timestamp,
     updatedAt: timestamp,
   });
+  await storeSecretValue(ctx, { credentialKey, name: input.name }, input.value);
 
   await recordVaultAudit({
     action: "secret.created",
@@ -401,14 +370,7 @@ export async function createSecret(
     summary: `Created vault secret "${input.name}" (${credentialKey})`,
   });
 
-  const created = await getSecret(secretId, ctx);
-  if (created) {
-    await syncSecretsToCredentialStore(
-      [created],
-      ctxForSecretRow(created, ctx),
-    );
-  }
-  return created;
+  return getSecret(secretId, ctx);
 }
 
 export async function updateSecret(
@@ -416,11 +378,11 @@ export async function updateSecret(
   input:
     | string
     | {
-        credentialKey?: string;
-        value?: string;
-        name?: string;
-        provider?: string | null;
-        description?: string | null;
+        credentialKey?: string | undefined;
+        value?: string | undefined;
+        name?: string | undefined;
+        provider?: string | null | undefined;
+        description?: string | null | undefined;
       },
   ctx: VaultCtx = requireVaultCtx(),
 ) {
@@ -436,8 +398,9 @@ export async function updateSecret(
   if (!credentialKey) throw new Error("Credential key is required");
   const name = patch.name !== undefined ? patch.name.trim() : existing.name;
   if (!name) throw new Error("Secret name is required");
-  const value = patch.value !== undefined ? patch.value : existing.value;
-  if (!value) throw new Error("Secret value is required");
+  if (patch.value !== undefined && !patch.value) {
+    throw new Error("Secret value is required");
+  }
   const provider =
     patch.provider !== undefined ? patch.provider || null : existing.provider;
   const description =
@@ -461,12 +424,27 @@ export async function updateSecret(
     }
   }
 
+  const storeCtx = ctxForSecretRow(existing, ctx);
+  let valueForKey = patch.value;
+  if (!valueForKey && credentialKey !== existing.credentialKey) {
+    // A rename carries the stored value to the new key. A failed read throws;
+    // only a missing copy means there is nothing to move.
+    const current = await readAppSecret({
+      key: existing.credentialKey,
+      ...credentialStoreScopeForVaultCtx(storeCtx),
+    });
+    valueForKey = current?.value;
+  }
+
   await db
     .update(schema.vaultSecrets)
     .set({
       name,
       credentialKey,
-      value,
+      // Only a new value empties the row. A row that still holds an older
+      // plaintext value keeps it until it is cleared in bulk, so a label edit
+      // can never write that stale value over a newer one in the credential store.
+      ...(patch.value !== undefined ? { value: SEALED_VAULT_VALUE } : {}),
       provider,
       description,
       updatedAt: now(),
@@ -477,6 +455,9 @@ export async function updateSecret(
         ctxScope(schema.vaultSecrets, ctx),
       ),
     );
+  if (valueForKey) {
+    await storeSecretValue(storeCtx, { credentialKey, name }, valueForKey);
+  }
 
   const auditMetadata = {
     name,
@@ -492,7 +473,7 @@ export async function updateSecret(
     description,
     previousDescription:
       description !== existing.description ? existing.description : undefined,
-    valueChanged: value !== existing.value ? true : undefined,
+    valueChanged: patch.value !== undefined ? true : undefined,
   };
 
   await recordVaultAudit({
@@ -511,12 +492,6 @@ export async function updateSecret(
   });
 
   const updated = await getSecret(secretId, ctx);
-  if (updated) {
-    await syncSecretsToCredentialStore(
-      [updated],
-      ctxForSecretRow(updated, ctx),
-    );
-  }
   if (updated && credentialKey !== existing.credentialKey) {
     await cleanupSyncedCredentialKeysIfUnused(ctxForRow(existing), [
       existing.credentialKey,
@@ -787,11 +762,18 @@ export async function revokeGrant(
 
 type VaultSecretRow = typeof schema.vaultSecrets.$inferSelect;
 
+/**
+ * What the credential store holds for a vault row: a readable value, nothing,
+ * or a value this deployment cannot decrypt (a rotated key, a copied database).
+ */
+export type VaultValueStatus = "stored" | "missing" | "unreadable";
+
 export interface VaultSecretMetadata {
   id: string;
   name: string;
   credentialKey: string;
   last4: string;
+  valueStatus: VaultValueStatus;
   provider: string | null;
   description: string | null;
   createdBy: string;
@@ -799,15 +781,17 @@ export interface VaultSecretMetadata {
   updatedAt: number;
 }
 
-export function toVaultSecretMetadata(
-  secret: VaultSecretRow | null,
-): VaultSecretMetadata | null {
-  if (!secret) return null;
+function vaultSecretMetadata(
+  secret: VaultSecretRow,
+  last4Value: string,
+  valueStatus: VaultValueStatus,
+): VaultSecretMetadata {
   return {
     id: secret.id,
     name: secret.name,
     credentialKey: secret.credentialKey,
-    last4: last4(secret.value),
+    last4: last4Value,
+    valueStatus,
     provider: secret.provider,
     description: secret.description,
     createdBy: secret.createdBy,
@@ -824,136 +808,90 @@ export function credentialStoreScopeForVaultCtx(ctx: VaultCtx): {
   return { scope: "workspace", scopeId: `solo:${ctx.ownerEmail}` };
 }
 
-export async function syncSecretsToCredentialStore(
-  secrets: VaultSecretRow[],
-  ctx: VaultCtx,
-) {
-  const target = credentialStoreScopeForVaultCtx(ctx);
-  const syncedKeys: string[] = [];
-
-  for (const secret of secrets) {
-    if (!secret.credentialKey || !secret.value) continue;
-    await writeAppSecret({
-      key: secret.credentialKey,
-      value: secret.value,
-      scope: target.scope,
-      scopeId: target.scopeId,
-      description: `${VAULT_SYNC_DESCRIPTION_PREFIX} ${secret.name}`,
-    });
-    syncedKeys.push(secret.credentialKey);
-  }
-
-  return { ...target, keys: syncedKeys };
-}
-
 /**
- * Group secrets by the tenant their credential-store rows must land in.
- *
- * Every sync path must write a secret under the org that *owns the row*, not
- * under whoever happens to be syncing: `writeAppSecret` upserts, so syncing
- * with the caller's ctx copies credential material into the caller's org
- * instead of moving it, and it accumulates there permanently.
+ * Masked metadata for a page of vault rows. The preview is read from the
+ * encrypted copy in the credential store, one read per store scope, because
+ * the vault row itself holds no value.
  */
-function groupSecretsByTenant(
+export async function listVaultSecretMetadata(
   rows: VaultSecretRow[],
-  resolveCtx: (row: VaultSecretRow) => VaultCtx,
-): { ctx: VaultCtx; rows: VaultSecretRow[] }[] {
-  const groups = new Map<string, { ctx: VaultCtx; rows: VaultSecretRow[] }>();
+  fallback: VaultCtx = requireVaultCtx(),
+): Promise<VaultSecretMetadata[]> {
+  const storeKey = (row: VaultSecretRow) => {
+    const target = credentialStoreScopeForVaultCtx(
+      ctxForSecretRow(row, fallback),
+    );
+    return { target, scopeKey: `${target.scope}\u0000${target.scopeId}` };
+  };
+  const scopes = new Map<string, ReturnType<typeof storeKey>["target"]>();
   for (const row of rows) {
-    if (!row.credentialKey || !row.value) continue;
-    const ctx = resolveCtx(row);
-    const groupKey = `${ctx.orgId ?? ""}\u0000${ctx.ownerEmail}`;
-    const group = groups.get(groupKey);
-    if (group) {
-      group.rows.push(row);
-    } else {
-      groups.set(groupKey, { ctx, rows: [row] });
+    const { target, scopeKey } = storeKey(row);
+    scopes.set(scopeKey, target);
+  }
+  const previews = new Map<string, string>();
+  for (const [scopeKey, target] of scopes) {
+    for (const meta of await listAppSecretsForScope(
+      target.scope,
+      target.scopeId,
+    )) {
+      previews.set(`${scopeKey}\u0000${meta.key}`, meta.last4);
     }
   }
-  return [...groups.values()];
+  return rows.map((row) => {
+    const preview = previews.get(
+      `${storeKey(row).scopeKey}\u0000${row.credentialKey}`,
+    );
+    // The scope listing reports a copy it cannot decrypt as an empty preview,
+    // and a stored value is never empty, so empty here means unreadable.
+    if (preview === undefined) return vaultSecretMetadata(row, "", "missing");
+    return vaultSecretMetadata(
+      row,
+      preview,
+      preview === "" ? "unreadable" : "stored",
+    );
+  });
 }
 
-/**
- * Re-sync one bounded page of vault secrets across tenants into the shared
- * credential store. Continue with `nextCursor` only from an explicit
- * maintenance caller; this must not run automatically during process startup.
- *
- * `syncSecretsToCredentialStore` normally only runs on `createSecret` /
- * `updateSecret`, so it only re-encrypts the rows a user happens to touch.
- * When the shared `app_secrets` encryption format changes underneath it
- * (e.g. a new dual-write format, or a change to how key material is
- * derived), existing rows are stuck on the old format until someone
- * manually re-saves each vault secret. This reads a keyset page directly —
- * bypassing the ctx-scoped `listSecrets()` — groups the rows by their
- * (orgId, ownerEmail) tenant, and re-runs the sync per group.
- *
- * A failure syncing one tenant's group is caught and logged (key NAMES
- * only, never values) so it can't block the rest of the resync. If a group
- * fails, `nextCursor` rewinds to before its first row so the next pass retries
- * it; check `failedGroups` before treating a null cursor as completion.
- */
-export async function resyncVaultSecretsToCredentialStorePage(
-  options: {
-    afterId?: string;
-    limit?: number;
-  } = {},
-): Promise<{
-  groups: number;
-  failedGroups: number;
-  syncedKeys: number;
-  nextCursor: string | null;
-}> {
-  const requestedLimit = options.limit ?? 100;
-  const limit = Number.isFinite(requestedLimit)
-    ? Math.min(500, Math.max(1, Math.floor(requestedLimit)))
-    : 100;
-  const db = getDb();
-  const rowsWithNext = await db
-    .select()
-    .from(schema.vaultSecrets)
-    .where(
-      options.afterId ? gt(schema.vaultSecrets.id, options.afterId) : undefined,
-    )
-    .orderBy(asc(schema.vaultSecrets.id))
-    .limit(limit + 1);
-  const hasMore = rowsWithNext.length > limit;
-  const rows = hasMore ? rowsWithNext.slice(0, limit) : rowsWithNext;
-
-  const groups = groupSecretsByTenant(rows, ctxForRow);
-
-  let failedGroups = 0;
-  let syncedKeys = 0;
-  let firstFailedRowIndex = Number.POSITIVE_INFINITY;
-
-  for (const { ctx, rows: groupRows } of groups) {
-    try {
-      const result = await syncSecretsToCredentialStore(groupRows, ctx);
-      syncedKeys += result.keys.length;
-    } catch (error) {
-      failedGroups++;
-      const firstRowIndex = rows.findIndex(
-        (row) => row.id === groupRows[0]?.id,
-      );
-      firstFailedRowIndex = Math.min(firstFailedRowIndex, firstRowIndex);
-      const keyNames = groupRows.map((row) => row.credentialKey).join(", ");
-      console.warn(
-        `[dispatch] vault boot resync failed for org=${ctx.orgId ?? "(solo)"} owner=${ctx.ownerEmail}; affected keys: ${keyNames}`,
-        error instanceof Error ? error.message : error,
-      );
-    }
+export async function getVaultSecretMetadata(
+  row: VaultSecretRow | null,
+  fallback: VaultCtx = requireVaultCtx(),
+): Promise<VaultSecretMetadata | null> {
+  if (!row) return null;
+  try {
+    const copy = await readAppSecret({
+      key: row.credentialKey,
+      ...credentialStoreScopeForVaultCtx(ctxForSecretRow(row, fallback)),
+    });
+    return copy
+      ? vaultSecretMetadata(row, copy.last4, "stored")
+      : vaultSecretMetadata(row, "", "missing");
+  } catch (error) {
+    if (!isUnreadableSecretError(error)) throw error;
+    return vaultSecretMetadata(row, "", "unreadable");
   }
+}
 
-  return {
-    groups: groups.length,
-    failedGroups,
-    syncedKeys,
-    nextCursor:
-      failedGroups > 0
-        ? (rows[firstFailedRowIndex - 1]?.id ?? options.afterId ?? null)
-        : hasMore
-          ? (rows.at(-1)?.id ?? null)
-          : null,
-  };
+/** Core does not export `AppSecretDecryptionError`; it is recognised by its code. */
+function isUnreadableSecretError(error: unknown): boolean {
+  return (
+    (error as { errorCode?: unknown }).errorCode === "app_secret_unreadable"
+  );
+}
+
+/** Encrypt a vault secret's value into the credential store. */
+async function storeSecretValue(
+  ctx: VaultCtx,
+  secret: { credentialKey: string; name: string },
+  value: string,
+): Promise<void> {
+  const target = credentialStoreScopeForVaultCtx(ctx);
+  await writeAppSecret({
+    key: secret.credentialKey,
+    value,
+    scope: target.scope,
+    scopeId: target.scopeId,
+    description: `${VAULT_SYNC_DESCRIPTION_PREFIX} ${secret.name}`,
+  });
 }
 
 export async function cleanupSyncedCredentialKeysIfUnused(
@@ -989,143 +927,6 @@ export async function cleanupSyncedCredentialKeysIfUnused(
       });
     }
   }
-}
-
-export async function syncGrantsToApp(
-  appId: string,
-  ctx: VaultCtx = requireVaultCtx(),
-) {
-  await assertCanManageVault();
-  const db = getDb();
-  const access = await getVaultAccessSettings();
-  const agents = await discoverAgents("dispatch");
-  const agent = agents.find((a) => a.id === appId);
-  if (!agent) throw new Error(`App "${appId}" not found in agent registry`);
-
-  const secretsToSync: VaultSecretRow[] = [];
-  const activeGrants =
-    access.mode === "manual"
-      ? (await listGrants({ appId })).filter((g) => g.status === "active")
-      : [];
-
-  if (access.mode === "all-apps") {
-    const secrets = await listSecrets();
-    for (const secret of secrets) {
-      secretsToSync.push(secret);
-    }
-  } else {
-    for (const grant of activeGrants) {
-      const secret = await getSecret(grant.secretId, ctx);
-      if (secret) {
-        secretsToSync.push(secret);
-      }
-    }
-  }
-
-  if (secretsToSync.length === 0) {
-    return {
-      appId,
-      accessMode: access.mode,
-      synced: 0,
-      keys: [],
-      credentialStores: [],
-    };
-  }
-
-  const credentialStoreGroups = groupSecretsByTenant(secretsToSync, (row) =>
-    ctxForSecretRow(row, ctx),
-  );
-  const credentialStores: {
-    scope: ReturnType<typeof credentialStoreScopeForVaultCtx>["scope"];
-    scopeId: string;
-    synced: number;
-  }[] = [];
-  const credentialStoreKeys: string[] = [];
-  for (const group of credentialStoreGroups) {
-    const result = await syncSecretsToCredentialStore(group.rows, group.ctx);
-    credentialStores.push({
-      scope: result.scope,
-      scopeId: result.scopeId,
-      synced: result.keys.length,
-    });
-    credentialStoreKeys.push(...result.keys);
-  }
-
-  const vars = secretsToSync.map((secret) => ({
-    key: secret.credentialKey,
-    value: secret.value,
-  }));
-  let envVarSync:
-    | { status: "synced"; keys: string[] }
-    | { status: "skipped"; reason: string }
-    | { status: "failed"; reason: string };
-
-  if (!isTrustedEnvVarSyncAgentUrl(agent.url)) {
-    envVarSync = {
-      status: "skipped",
-      reason: "env-var sync is limited to localhost or workspace-owned apps",
-    };
-  } else {
-    try {
-      const res = await ssrfSafeFetch(
-        `${agent.url}/_agent-native/env-vars`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ vars }),
-          signal: AbortSignal.timeout(10_000),
-        },
-        { maxRedirects: 3 },
-      );
-
-      if (res.ok) {
-        const result = await res.json();
-        envVarSync = { status: "synced", keys: result.saved || [] };
-      } else {
-        const err = await res.text().catch(() => "Unknown error");
-        envVarSync = { status: "skipped", reason: err };
-      }
-    } catch (err) {
-      envVarSync = {
-        status: "failed",
-        reason: err instanceof Error ? err.message : String(err),
-      };
-    }
-  }
-
-  const syncedKeys = credentialStoreKeys;
-  const timestamp = now();
-
-  for (const grant of activeGrants) {
-    const secret = await getSecret(grant.secretId, ctx);
-    if (secret && syncedKeys.includes(secret.credentialKey)) {
-      await db
-        .update(schema.vaultGrants)
-        .set({ syncedAt: timestamp, updatedAt: timestamp })
-        .where(eq(schema.vaultGrants.id, grant.id));
-    }
-  }
-
-  await recordVaultAudit({
-    action: "secret.synced",
-    appId,
-    summary: `Synced ${syncedKeys.length} secret(s) to ${appId}: ${syncedKeys.join(", ")}`,
-    metadata: {
-      syncedKeys,
-      accessMode: access.mode,
-      credentialStores,
-      envVars: envVarSync,
-    },
-  });
-
-  return {
-    appId,
-    accessMode: access.mode,
-    synced: syncedKeys.length,
-    keys: syncedKeys,
-    credentialStores,
-    envVars: envVarSync,
-  };
 }
 
 export async function listRequests(filter?: { status?: string }) {

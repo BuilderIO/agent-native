@@ -322,7 +322,7 @@ pnpm action db-check-scoping --require-org  # يتطلب أيضًا org_id
 | رموز OAuth (Google، GitHub)             | قم بتخزين `oauth_tokens` عبر `saveOAuthTokens()`                 |
 | الرموز المميزة للجلسة                   | تلقائي (تتعامل المصادقة الأفضل مع هذا)                           |
 
-يتم تشفير بيانات الاعتماد لكل مستخدم/لكل مؤسسة والمخزن باستخدام AES-256-GCM. تفضل خزنة مساحة العمل `WORKSPACE_SECRETS_ENCRYPTION_KEY`، ثم المفاتيح القديمة المشتقة من `SECRETS_ENCRYPTION_KEY` و`A2A_SECRET` و`BETTER_AUTH_SECRET`؛ أثناء التدوير استخدم `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` حتى تُرحّل القراءات الصفوف. لتشفير صفوف بيانات الاعتماد النصية الموجودة، شغّل `pnpm action db-migrate-encrypt-credentials` (غير فعال وغير مدمر).
+يتم تشفير بيانات الاعتماد لكل مستخدم/لكل مؤسسة والمخزن باستخدام AES-256-GCM. لا يحتفظ مخزن Dispatch بأي نسخة نصية صريحة: يحتفظ `vault_secrets` بالأسماء والبيانات الوصفية، وتوجد كل قيمة فقط في `app_secrets`. تفضل خزنة مساحة العمل `WORKSPACE_SECRETS_ENCRYPTION_KEY`، ثم المفاتيح القديمة المشتقة من `SECRETS_ENCRYPTION_KEY` و`A2A_SECRET` و`BETTER_AUTH_SECRET`؛ أثناء التدوير استخدم `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` حتى تُرحّل القراءات الصفوف. لتشفير صفوف بيانات الاعتماد النصية الموجودة، شغّل `pnpm action db-migrate-encrypt-credentials` (غير فعال وغير مدمر).
 
 لا تقم مطلقًا بتخزين الأسرار في `settings` أو `application_state` أو التعليمات البرمجية المصدر أو الاستجابات الإجرائية. استخدم بيانات الاعتماد / المخزن APIs أعلاه - فهي تتعامل مع كل من التشفير وتحديد النطاق لكل مستخدم.
 
