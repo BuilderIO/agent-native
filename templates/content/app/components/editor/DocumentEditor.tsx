@@ -3824,6 +3824,15 @@ function PageEditorSessionBody({
     }
     return body === spelling.held;
   }, []);
+  // The body a save sends: the saved one when the editor holds it in its own
+  // spelling, so saving an unedited page asks for no body change. The server
+  // refuses a browser save that replaces another writer's body with an
+  // unedited copy of it.
+  const bodyToSave = useCallback(
+    (body: string) =>
+      bodyMatchesSaved(body) ? lastSavedContentRef.current.content : body,
+    [bodyMatchesSaved],
+  );
   const ownContentSaveLineageRef = useRef<OwnContentSaveLineage>(new Map());
   const editorSessionIdRef = useRef<string | null>(null);
   if (editorSessionIdRef.current === null) {
@@ -5018,6 +5027,7 @@ function PageEditorSessionBody({
         return { contentPersisted: false, outcome: "abandoned" };
       if (bodyWritesThroughLiveCopyRef.current)
         return saveWithLiveCopyBody(title, options);
+      content = bodyToSave(content);
       options = {
         ...options,
         editorSnapshotTitle: title,
@@ -5380,6 +5390,7 @@ function PageEditorSessionBody({
       };
     },
     [
+      bodyToSave,
       documentId,
       autoSync,
       canEditWithoutCollaboration,
@@ -6302,7 +6313,7 @@ function PageEditorSessionBody({
         historySessionId: historySessionRef.current.activity(documentId),
         editorSessionId: editorSessionIdRef.current!,
         title,
-        content,
+        content: bodyToSave(content),
         save: queueDocumentSave,
         canEditWhenQueued: canEditRef.current,
         contentEditVersion: contentEditVersionRef.current,
@@ -6342,6 +6353,7 @@ function PageEditorSessionBody({
       publishEditorSaveStateRef.current();
     },
     [
+      bodyToSave,
       flushPendingDocumentSave,
       isLinkedLocalSourceDocument,
       journalCurrentDraft,
@@ -10062,12 +10074,7 @@ function PageEditorSessionBody({
     }
 
     const title = localTitleRef.current;
-    // Close an unedited body on the saved spelling. The editor's spelling of
-    // another writer's body would ask the server to replace that body with an
-    // unedited copy, which it refuses.
-    const content = bodyMatchesSaved(localContentRef.current)
-      ? lastSavedContentRef.current.content
-      : localContentRef.current;
+    const content = bodyToSave(localContentRef.current);
     const savesThroughLiveCopy = bodyWritesThroughLiveCopyRef.current;
     const contentUnsaved = () =>
       !bodyWritesThroughLiveCopyRef.current &&
@@ -10132,6 +10139,7 @@ function PageEditorSessionBody({
     }
   }, [
     bodyMatchesSaved,
+    bodyToSave,
     documentId,
     documentReconcileConflict,
     flushSuggestionDraft,
