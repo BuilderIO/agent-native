@@ -1,4 +1,5 @@
 import {
+  getAppConfig,
   getConfiguredAppBasePath,
   type AgentLoopFinalResponseGuard,
   type AgentLoopFinalResponseGuardContext,
@@ -29,9 +30,32 @@ function parseRecord(content: string): Record<string, unknown> | null {
   try {
     return asRecord(JSON.parse(content));
   } catch {
-    // A truncated or plain-text result names no Page we can link.
+    // coercion-ok: a truncated or plain-text result names no Page, like JSON without one.
     return null;
   }
+}
+
+function originOf(value: unknown): string | undefined {
+  const text = nonEmptyString(value);
+  if (!text) return undefined;
+  try {
+    return new URL(text).origin;
+  } catch {
+    // coercion-ok: a value that isn't a URL names no origin.
+    return undefined;
+  }
+}
+
+/**
+ * Where this app's Pages open: the host the request came in on, then the
+ * configured app URL, which is all a scheduled or delegated run has.
+ */
+function appOrigins(): string[] {
+  const origins = [
+    originOf(getRequestContext()?.requestOrigin),
+    originOf(getAppConfig().app.url),
+  ];
+  return [...new Set(origins.filter((origin): origin is string => !!origin))];
 }
 
 function pagesFromResult(
@@ -53,20 +77,24 @@ function pagesFromResult(
   return id ? [{ id, title: nonEmptyString(record?.title) ?? "" }] : [];
 }
 
-/** IDs a later `delete-document` call in the same turn moved to Trash. */
+/**
+ * Pages a `delete-document` call this turn moved to Trash, sub-pages
+ * included, as its result lists them. A skipped call, or one that only took a
+ * Page out of Favorites, trashed nothing.
+ */
 function trashedPageIds(context: AgentLoopFinalResponseGuardContext) {
-  const succeeded = new Set(
-    context.toolResults
-      .filter((result) => !result.isError && result.toolCallId)
-      .map((result) => result.toolCallId),
-  );
   const ids = new Set<string>();
-  for (const call of context.toolCalls) {
-    if (call.name !== "delete-document" || !succeeded.has(call.toolCallId)) {
-      continue;
+  for (const result of context.toolResults) {
+    if (result.isError || result.name !== "delete-document") continue;
+    const record = parseRecord(result.content);
+    if (!record || !nonEmptyString(record.trashedAt)) continue;
+    const affected: unknown[] = Array.isArray(record.affectedDocumentIds)
+      ? record.affectedDocumentIds
+      : [];
+    for (const value of [record.documentId, ...affected]) {
+      const id = nonEmptyString(value);
+      if (id) ids.add(id);
     }
-    const id = nonEmptyString(asRecord(call.input)?.id);
-    if (id) ids.add(id);
   }
   return ids;
 }
@@ -88,31 +116,54 @@ export function createdPages(
 }
 
 // Markdown link targets and bare web URLs, the two forms chat renders as
-// clickable links.
-const LINK_TARGETS = /\]\(\s*<?([^)\s>]+)|https?:\/\/[^\s<>()[\]]+/g;
+// clickable links. Code spans and fenced blocks render as text, so they're
+// taken out first.
+const CODE = /(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g;
+const MARKDOWN_LINK_TARGETS = /\]\(\s*<?([^)\s>]+)/g;
+const BARE_URLS = /https?:\/\/[^\s<>()[\]]+/g;
+const HAS_SCHEME = /^(?:[a-z][a-z\d+.-]*:|\/\/)/i;
 
 function linkTargets(text: string): string[] {
-  return [...text.matchAll(LINK_TARGETS)].map((match) => match[1] ?? match[0]);
+  const prose = text.replace(CODE, " ");
+  return [
+    ...[...prose.matchAll(MARKDOWN_LINK_TARGETS)].flatMap((match) =>
+      match[1] ? [match[1]] : [],
+    ),
+    ...[...prose.matchAll(BARE_URLS)].map((match) => match[0]),
+  ];
+}
+
+/** A relative link opens this app; an absolute one must use its origin. */
+function opensThisApp(target: string, origins: readonly string[]): boolean {
+  if (!HAS_SCHEME.test(target)) return true;
+  const origin = originOf(target.startsWith("//") ? `https:${target}` : target);
+  return origin !== undefined && origins.includes(origin);
 }
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function linksPage(targets: readonly string[], id: string): boolean {
+function linksPage(
+  targets: readonly string[],
+  origins: readonly string[],
+  id: string,
+): boolean {
   const idToken = new RegExp(
     `(?:^|[^A-Za-z0-9_-])${escapeRegExp(id)}(?:$|[^A-Za-z0-9_-])`,
   );
-  return targets.some((target) => idToken.test(target));
+  return targets.some(
+    (target) => opensThisApp(target, origins) && idToken.test(target),
+  );
 }
 
 /**
  * The Page's canonical route on this app's own origin. An absolute link opens
  * in the same tab in Content and still works where a delegated reply lands,
- * such as Slack.
+ * such as Slack. With no origin known, the app-relative route is all there is.
  */
 export function createdPageUrl(id: string): string {
-  const origin = (getRequestContext()?.requestOrigin ?? "").replace(/\/+$/, "");
+  const [origin = ""] = appOrigins();
   return `${origin}${getConfiguredAppBasePath()}/page/${encodeURIComponent(id)}`;
 }
 
@@ -144,8 +195,9 @@ export const requireCreatedPageLinks: AgentLoopFinalResponseGuard = (
   context,
 ) => {
   const targets = linkTargets(context.text);
+  const origins = appOrigins();
   const missing = createdPages(context).filter(
-    (page) => !linksPage(targets, page.id),
+    (page) => !linksPage(targets, origins, page.id),
   );
   if (missing.length === 0) return null;
   const links = missing.map((page) => `- ${pageLink(page)}`).join("\n");

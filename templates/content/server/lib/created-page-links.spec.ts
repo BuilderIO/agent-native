@@ -3,6 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getRequestContext: vi.fn(),
+  appUrl: undefined as string | undefined,
+}));
+
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  getAppConfig: () => ({ app: { url: mocks.appUrl } }),
 }));
 
 vi.mock(
@@ -55,7 +61,25 @@ beforeEach(() => {
   vi.stubEnv("APP_BASE_PATH", "");
   vi.stubEnv("VITE_APP_BASE_PATH", "");
   mocks.getRequestContext.mockReturnValue({ requestOrigin: `${ORIGIN}/` });
+  mocks.appUrl = undefined;
 });
+
+function trashed(...ids: string[]) {
+  return {
+    toolCallId: `call-delete-${ids[0]}`,
+    name: "delete-document",
+    content: JSON.stringify({
+      success: true,
+      documentId: ids[0],
+      trashedAt: "2026-11-12T04:00:00.000Z",
+      trashRootId: ids[0],
+      affectedDocumentIds: ids,
+      affectedDocumentCount: ids.length,
+      affectedDocumentIdsComplete: true,
+    }),
+    isError: false,
+  } satisfies ToolResult;
+}
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -76,6 +100,17 @@ describe("requireCreatedPageLinks", () => {
   ])("passes a reply that links the Page by %s", (_label, text) => {
     expect(
       guard({ text, toolResults: [created("abc123XYZ", "Meeting Notes")] }),
+    ).toBeNull();
+  });
+
+  it("passes a link on the configured app URL when the request came in elsewhere", () => {
+    mocks.appUrl = "https://app.example.com";
+
+    expect(
+      guard({
+        text: "See [Meeting Notes](https://app.example.com/page/abc123XYZ).",
+        toolResults: [created("abc123XYZ", "Meeting Notes")],
+      }),
     ).toBeNull();
   });
 
@@ -131,48 +166,66 @@ describe("requireCreatedPageLinks", () => {
     expect(
       guard({
         text: "I created a draft, then removed it as you asked.",
-        toolCalls: [
-          { toolCallId: "call-draft1", name: "create-document", input: {} },
-          {
-            toolCallId: "call-delete",
-            name: "delete-document",
-            input: { id: "draft1" },
-          },
-        ],
+        toolResults: [created("draft1", "Draft"), trashed("draft1")],
+      }),
+    ).toBeNull();
+  });
+
+  it("asks for no link to a sub-page trashed along with its parent", () => {
+    expect(
+      guard({
+        text: "I set up the project, then removed it as you asked.",
         toolResults: [
-          created("draft1", "Draft"),
-          {
-            toolCallId: "call-delete",
-            name: "delete-document",
-            content: '{"trashed":true}',
-            isError: false,
-          },
+          created("parent01", "Project"),
+          created("child002", "Tasks"),
+          trashed("parent01", "child002"),
         ],
       }),
     ).toBeNull();
   });
 
-  it("still asks for the link when the delete failed", () => {
+  it.each([
+    ["failed", { content: "Error: not found", isError: true }],
+    [
+      "was skipped",
+      {
+        content:
+          "Skipped delete-document: this turn already exhausted its budget.",
+        isError: false,
+      },
+    ],
+    [
+      "only took the Page out of Favorites",
+      {
+        content: JSON.stringify({ success: true, deleted: 0, removed: 1 }),
+        isError: false,
+      },
+    ],
+  ])("still asks for the link when the delete %s", (_label, outcome) => {
     expect(
       guard({
         text: "The draft is ready.",
-        toolCalls: [
-          {
-            toolCallId: "call-delete",
-            name: "delete-document",
-            input: { id: "draft1" },
-          },
-        ],
         toolResults: [
           created("draft1", "Draft"),
-          {
-            toolCallId: "call-delete",
-            name: "delete-document",
-            content: "Error: not found",
-            isError: true,
-          },
+          { toolCallId: "call-delete", name: "delete-document", ...outcome },
         ],
       }),
+    ).not.toBeNull();
+  });
+
+  it.each([
+    ["an inline code span", "Created it at `/page/abc123XYZ`."],
+    [
+      "a fenced code block",
+      "Created it:\n```\n[Notes](/page/abc123XYZ)\n```\nDone.",
+    ],
+    [
+      "a link to another host",
+      "See [Notes](https://elsewhere.example.org/page/abc123XYZ).",
+    ],
+  ])("does not count the Page's ID in %s", (_label, text) => {
+    expect(
+      guard({ text, toolResults: [created("abc123XYZ", "Notes")] }),
     ).not.toBeNull();
   });
 
@@ -247,7 +300,16 @@ describe("createdPageUrl", () => {
     );
   });
 
-  it("falls back to the app-relative route without a request origin", () => {
+  it("uses the configured app URL when the run has no request", () => {
+    mocks.getRequestContext.mockReturnValue(undefined);
+    mocks.appUrl = "https://app.example.com/";
+
+    expect(createdPageUrl("abc123XYZ")).toBe(
+      "https://app.example.com/page/abc123XYZ",
+    );
+  });
+
+  it("falls back to the app-relative route with no origin at all", () => {
     mocks.getRequestContext.mockReturnValue(undefined);
 
     expect(createdPageUrl("abc123XYZ")).toBe("/page/abc123XYZ");
