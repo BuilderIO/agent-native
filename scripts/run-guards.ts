@@ -91,6 +91,7 @@ const guards = [
   "guard:no-unbounded-table-reads",
   "guard:no-bare-error-in-actions",
   "guard:no-unsealed-secret-columns",
+  "guard:no-vault-secrets-table",
   "guard:no-unobserved-writes",
   "guard:no-bare-pnpm-spawn",
   "guard:no-deferred-server-counts",

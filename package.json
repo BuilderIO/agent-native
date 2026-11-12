@@ -186,6 +186,8 @@
     "guard:no-bare-error-in-actions": "tsx scripts/guard-no-bare-error-in-actions.ts",
     "guard:no-unsealed-secret-columns": "tsx scripts/guard-no-unsealed-secret-columns.ts",
     "test:no-unsealed-secret-columns": "tsx --test scripts/guard-no-unsealed-secret-columns.test.ts",
+    "guard:no-vault-secrets-table": "tsx scripts/guard-no-vault-secrets-table.ts",
+    "test:no-vault-secrets-table": "tsx --test scripts/guard-no-vault-secrets-table.test.ts",
     "guard:no-unobserved-writes": "tsx scripts/guard-no-unobserved-writes.ts",
     "guard:no-bare-pnpm-spawn": "tsx scripts/guard-no-bare-pnpm-spawn.ts",
     "guard:no-deferred-server-counts": "tsx scripts/guard-no-deferred-server-counts.ts",
