@@ -6629,7 +6629,7 @@ function PageEditorSessionBody({
     flushParticipantRef.current = createDocumentFlushParticipant({
       documentId: () => currentDocumentRef.current.id,
       identity: () =>
-        collabClientIdRef.current === null
+        sessionScopeRef.current === null || collabClientIdRef.current === null
           ? null
           : {
               clientId: collabClientIdRef.current,

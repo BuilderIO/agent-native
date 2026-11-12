@@ -1525,6 +1525,20 @@ it.each([
   },
 );
 
+it("stops checking a closed editor's flush mailbox", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  await act(async () => renderEditor());
+  await deliver(flushRequest("prepare"));
+  expect(publishedAcks()).toHaveLength(1);
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  fixture.readAppState.mockClear();
+  fixture.compareAppState.mockClear();
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  expect(fixture.readAppState).not.toHaveBeenCalled();
+  expect(fixture.compareAppState).not.toHaveBeenCalled();
+});
+
 it.each(["mailbox", "wildcard"] as const)(
   "wakes the current mounted participant from a shared-sync %s event without waiting for a poll",
   async (key) => {
