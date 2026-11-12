@@ -116,8 +116,12 @@ vi.mock("../../lib/share-password.js", () => ({
   getRecordingAccessTokenResourceId: (
     id: string,
     password: string | null,
-    _sharePasswordVersion?: string | null,
-  ) => (password ? `${id}:password-scoped` : `${id}:update-scoped`),
+    _version: string,
+    visibility: string,
+  ) => {
+    const base = password ? `${id}:password-scoped` : `${id}:update-scoped`;
+    return visibility === "public" ? base : `${base}:visibility:${visibility}`;
+  },
   verifySharePassword: (...args: unknown[]) => mockVerifySharePassword(...args),
 }));
 
@@ -129,7 +133,10 @@ vi.mock("../../../shared/agent-context.js", () => ({
   CLIPS_AGENT_ACCESS_PARAM: "agent_access",
 }));
 
-vi.mock("../../../shared/transcript-segments.js", () => ({
+vi.mock("../../../shared/transcript-segments.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../../shared/transcript-segments.js")
+  >()),
   normalizeTranscriptSegments: vi.fn(() => []),
   parseTranscriptSegments: vi.fn(() => []),
 }));
@@ -695,7 +702,7 @@ describe("/api/public-recording route", () => {
       "agent-token",
       {
         resourceKind: "clip-agent-context",
-        resourceId: "rec-1:update-scoped",
+        resourceId: "rec-1:update-scoped:visibility:private",
       },
     );
     expect(mockSetResponseStatus).not.toHaveBeenCalledWith(event, 404);
@@ -704,6 +711,32 @@ describe("/api/public-recording route", () => {
       expect.objectContaining({ token: "agent-token" }),
     );
   });
+
+  it.each(["private", "org"] as const)(
+    "scopes media derived from a %s agent grant away from the public password gate",
+    async (visibility) => {
+      const event = { setCookies: [] as unknown[] };
+      mockGetQuery.mockReturnValue({
+        id: "rec-1",
+        agent_access: "agent-token",
+      });
+      mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResults([
+          [makeRecording({ visibility, password: "encrypted-password" })],
+          [],
+          [],
+          [],
+          [],
+        ]),
+      );
+      await handler(event as unknown as Parameters<typeof handler>[0]);
+      expect(mockSignShortLivedToken).toHaveBeenCalledWith({
+        resourceId: `rec-1:password-scoped:visibility:${visibility}`,
+        ttlSeconds: 21_600,
+      });
+    },
+  );
 
   it("rejects a token minted before a recording gained a password", async () => {
     const event = { setCookies: [] as unknown[] };
@@ -775,6 +808,33 @@ describe("/api/public-recording route", () => {
       "private, max-age=0, no-store",
     );
   });
+
+  it.each(["private", "org"] as const)(
+    "allows authorized %s viewers without the stored password",
+    async (visibility) => {
+      const event = { setCookies: [] as unknown[] };
+      const recording = makeRecording({ visibility, organizationId: "org-1" });
+      mockGetQuery.mockReturnValue({ id: "rec-1" });
+      mockGetSession.mockResolvedValue({
+        email: "viewer@example.com",
+        orgId: "org-1",
+      });
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: recording,
+      });
+      mockGetOrganizationRoleForEmail.mockResolvedValue("member");
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResults([[recording], [], [], [], []]),
+      );
+      const result = await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      );
+      expect(result).toMatchObject({ recording: { id: "rec-1", visibility } });
+      expect(mockVerifySharePassword).not.toHaveBeenCalled();
+      expect(mockSetResponseStatus).not.toHaveBeenCalledWith(event, 401);
+    },
+  );
 
   it("allows an authenticated viewer with an explicit user share", async () => {
     const event = { setCookies: [] as unknown[] };
@@ -1056,6 +1116,39 @@ describe("/api/public-recording route", () => {
       },
     });
   });
+
+  it.each([
+    { segmentsJson: "[{", unreadable: true },
+    { segmentsJson: "[]", unreadable: false },
+    { segmentsJson: null, unreadable: false },
+  ])(
+    "tells the share page when saved transcript lines can't be read ($segmentsJson)",
+    async ({ segmentsJson, unreadable }) => {
+      const event = { setCookies: [] as unknown[] };
+      mockGetQuery.mockReturnValue({ id: "rec-1" });
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResults([
+          [makeRecording({ visibility: "public", password: null })],
+          [{ status: "ready", language: "en", fullText: "", segmentsJson }],
+          [],
+          [],
+          [],
+        ]),
+      );
+
+      const result = (await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      )) as {
+        transcript: Record<string, unknown>;
+      };
+
+      if (unreadable) {
+        expect(result.transcript).toMatchObject({ segmentsUnreadable: true });
+      } else {
+        expect(result.transcript).not.toHaveProperty("segmentsUnreadable");
+      }
+    },
+  );
 
   it.each([
     "2020-01-01T00:00:00.000Z",

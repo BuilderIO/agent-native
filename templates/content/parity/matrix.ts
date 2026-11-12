@@ -60,6 +60,31 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "sidebar.command-menu-title-list",
+    surface: "sidebar",
+    label: "Rank page titles in the command menu on every keystroke",
+    uiEntrypoints: [
+      "app/components/ContentCommandSearch.tsx",
+      "app/hooks/use-documents.ts",
+      "app/root.tsx",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "The command menu ranks titles in the browser from a compact list of every page the caller can search, then merges search-documents results for the current query.",
+    status: "action-backed",
+    actions: ["list-document-titles"],
+    exception:
+      "list-document-titles is hidden with agentTool: false because it is a lean UI projection for ranking on each keystroke, not an agent capability limit; agents use search-documents and list-documents.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/list-document-titles.db.test.ts",
+      "app/lib/content-command-search.test.ts",
+    ],
+  },
+  {
     id: "sidebar.document-tree-crud",
     surface: "sidebar",
     label:
@@ -542,16 +567,21 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "export-document",
+      "read-composer-source",
       "reveal-local-source-file",
       "set-document-discoverability",
       "share-local-file-document",
     ],
-    exception: null,
+    exception:
+      "read-composer-source is MCP-only (agentTool: false, mcpTool: true): Design's and Slides' prompt boxes call it over A2A to attach a page as a reference, under the caller's own access. Content's own UI has no entry point for it, and its agent reads pages with list-documents, search-documents and get-document.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
-    coverageRefs: ["actions/_local-file-documents.test.ts"],
+    coverageRefs: [
+      "actions/_local-file-documents.test.ts",
+      "actions/read-composer-source.db.test.ts",
+    ],
     evalScenarioIds: ["local-file-source-truth"],
   },
   {

@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 async function freshTrackingModules() {
@@ -427,38 +429,202 @@ describe("tracking providers", () => {
     );
   });
 
-  it("waits for queued provider sends when flushing", async () => {
-    let resolveFetch: (() => void) | undefined;
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveFetch = () => resolve(new Response("{}"));
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
-    vi.stubEnv(
-      "AGENT_NATIVE_ANALYTICS_ENDPOINT",
-      "https://analytics.example.test/track",
-    );
-    const { flushTracking, registerBuiltinProviders, track } =
-      await freshTrackingModules();
+  it.each([false, true])(
+    "waits for provider sends when flushing (serverless=%s)",
+    async (serverless) => {
+      vi.stubEnv("NETLIFY", serverless ? "true" : "");
+      let resolveFetch: (() => void) | undefined;
+      const fetchMock = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFetch = () => resolve(new Response("{}"));
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+      vi.stubEnv(
+        "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+        "https://analytics.example.test/track",
+      );
+      const { flushTracking, registerBuiltinProviders, track } =
+        await freshTrackingModules();
 
-    registerBuiltinProviders();
-    track("qa.event", { app: "qa" }, { userId: "u1" });
-    let flushed = false;
-    const flushPromise = flushTracking().then(() => {
-      flushed = true;
+      registerBuiltinProviders();
+      track("qa_event", { app: "qa" }, { userId: "u1" });
+      let flushed = false;
+      const flushPromise = flushTracking().then(() => {
+        flushed = true;
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(flushed).toBe(false);
+
+      resolveFetch?.();
+      await flushPromise;
+
+      expect(flushed).toBe(true);
+    },
+  );
+
+  describe("sends that outlive the reply", () => {
+    const netlifyStoreKey = Symbol.for(
+      "@netlify/functions/request-context-store",
+    );
+
+    afterEach(() => {
+      delete (globalThis as Record<symbol, unknown>)[netlifyStoreKey];
     });
-    await Promise.resolve();
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(flushed).toBe(false);
+    function deferredFetch() {
+      const releases: Array<() => void> = [];
+      const fetchMock = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            releases.push(() => resolve(new Response("{}")));
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      return {
+        fetchMock,
+        release: () => {
+          for (const release of releases.splice(0)) release();
+        },
+      };
+    }
 
-    resolveFetch?.();
-    await flushPromise;
+    function stubAnalytics() {
+      vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+      vi.stubEnv(
+        "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+        "https://analytics.example.test/track",
+      );
+    }
 
-    expect(flushed).toBe(true);
+    async function settles(promise: Promise<unknown>): Promise<boolean> {
+      let settled = false;
+      void promise.then(() => {
+        settled = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return settled;
+    }
+
+    it("hands a serverless send to the request's waitUntil until the send ends", async () => {
+      const { fetchMock, release } = deferredFetch();
+      stubAnalytics();
+      vi.stubEnv("NETLIFY", "true");
+      const store = new AsyncLocalStorage<{
+        context: { waitUntil: (promise: Promise<unknown>) => void };
+      }>();
+      (globalThis as Record<symbol, unknown>)[netlifyStoreKey] = store;
+      const handedOff: Promise<unknown>[] = [];
+      const { registerBuiltinProviders, track } = await freshTrackingModules();
+      registerBuiltinProviders();
+
+      // An action never sees the request event: Netlify's store is all it has.
+      await store.run(
+        { context: { waitUntil: (promise) => handedOff.push(promise) } },
+        async () => {
+          track("qa_event", { app: "qa" }, { userId: "u1" });
+        },
+      );
+
+      await vi.waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+      expect(handedOff).toHaveLength(1);
+      expect(await settles(handedOff[0])).toBe(false);
+      release();
+      expect(await settles(handedOff[0])).toBe(true);
+    });
+
+    it("hands a Cloudflare Pages send to the waitUntil its request carries", async () => {
+      const { fetchMock, release } = deferredFetch();
+      stubAnalytics();
+      vi.stubEnv("CF_PAGES", "1");
+      const handedOff: Promise<unknown>[] = [];
+      const { registerBuiltinProviders, track } = await freshTrackingModules();
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      registerBuiltinProviders();
+
+      await runWithRequestContext(
+        { run: { waitUntil: (promise) => handedOff.push(promise) } },
+        async () => {
+          track("qa_event", { app: "qa" }, { userId: "u1" });
+        },
+      );
+
+      await vi.waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+      expect(handedOff).toHaveLength(1);
+      expect(await settles(handedOff[0])).toBe(false);
+      release();
+      expect(await settles(handedOff[0])).toBe(true);
+    });
+
+    it("waits for a send already under way when flushing", async () => {
+      const { fetchMock, release } = deferredFetch();
+      stubAnalytics();
+      vi.stubEnv("NETLIFY", "true");
+      const { flushTracking, registerBuiltinProviders, track } =
+        await freshTrackingModules();
+      registerBuiltinProviders();
+      track("qa_event", { app: "qa" }, { userId: "u1" });
+      await vi.waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+
+      const flushed = flushTracking();
+
+      expect(await settles(flushed)).toBe(false);
+      release();
+      expect(await settles(flushed)).toBe(true);
+    });
+
+    it.each(["NETLIFY", "CF_PAGES"])(
+      "flushes at the end of a serverless request on %s",
+      async (platformEnv) => {
+        const { fetchMock, release } = deferredFetch();
+        vi.stubEnv(platformEnv, "1");
+        vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+        const { flushTrackingSendsForResponse, sendPostHogEvent } =
+          await freshTrackingModules();
+        sendPostHogEvent("qa_event", {}, "u1");
+
+        const flushed = flushTrackingSendsForResponse();
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(await settles(flushed)).toBe(false);
+        release();
+        expect(await settles(flushed)).toBe(true);
+      },
+    );
+
+    it("keeps a long-running server's batch at the end of a request", async () => {
+      const { fetchMock, release } = deferredFetch();
+      stubAnalytics();
+      const {
+        flushTracking,
+        flushTrackingSendsForResponse,
+        registerBuiltinProviders,
+        track,
+      } = await freshTrackingModules();
+      registerBuiltinProviders();
+      track("qa_event", { app: "qa" }, { userId: "u1" });
+
+      await flushTrackingSendsForResponse();
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      const flushed = flushTracking();
+      await vi.waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      });
+      release();
+      await flushed;
+    });
   });
 
   it("times out every provider's send", async () => {

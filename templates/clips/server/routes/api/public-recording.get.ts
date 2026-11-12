@@ -32,6 +32,7 @@ import { parseStoredChapters } from "../../../shared/stored-chapters.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  storedSegmentsUnreadable,
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
@@ -49,6 +50,7 @@ import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
   type RecordingPageAccessRole,
+  recordingUsesSharePassword,
 } from "../../lib/recording-page-access.js";
 import { hasExplicitRecordingShare } from "../../lib/recording-share-grant.js";
 import {
@@ -110,11 +112,13 @@ function setProtectedMediaAccessCookie(
   recordingId: string,
   password: string | null | undefined,
   sharePasswordVersion: string | null | undefined,
+  visibility: "private" | "org" | "public",
 ): string {
   const resourceId = getRecordingAccessTokenResourceId(
     recordingId,
     password,
     sharePasswordVersion,
+    visibility,
   );
   // This helper runs only after the share or agent-access gate above.
   const existingToken = getHeader(event, "x-clips-media-token") ?? "";
@@ -242,6 +246,7 @@ export default defineEventHandler(async (event) => {
           rec.id,
           rec.password,
           rec.sharePasswordVersion,
+          rec.visibility,
         ),
       }).ok
     : false;
@@ -316,7 +321,11 @@ export default defineEventHandler(async (event) => {
 
   let protectedMediaToken: string | null = null;
   let commentAccessToken: string | null = null;
-  if (rec.password && !viewerIsOwner) {
+  if (
+    recordingUsesSharePassword(rec.visibility) &&
+    rec.password &&
+    !viewerIsOwner
+  ) {
     if (!tokenAllowsAgentAccess) {
       if (!password) {
         // No password supplied at all â€” this is the initial load or a
@@ -351,6 +360,7 @@ export default defineEventHandler(async (event) => {
       recordingId,
       rec.password,
       rec.sharePasswordVersion,
+      rec.visibility,
     );
   } else if (tokenAllowsAgentAccess && !viewerIsOwner) {
     protectedMediaToken = setProtectedMediaAccessCookie(
@@ -358,6 +368,7 @@ export default defineEventHandler(async (event) => {
       recordingId,
       rec.password,
       rec.sharePasswordVersion,
+      rec.visibility,
     );
   }
 
@@ -464,6 +475,7 @@ export default defineEventHandler(async (event) => {
               recordingId,
               rec.password,
               rec.sharePasswordVersion,
+              rec.visibility,
             ),
           })
         : undefined;
@@ -569,6 +581,9 @@ export default defineEventHandler(async (event) => {
           fullText: transcript.fullText,
           failureReason: transcriptPresentation.failureReason,
           segments: transcriptSegments,
+          ...(storedSegmentsUnreadable(transcript.segmentsJson)
+            ? { segmentsUnreadable: true as const }
+            : {}),
         }
       : null,
     comments: hydratedComments.map((c) => ({

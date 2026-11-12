@@ -307,6 +307,35 @@ describe("add-comment reply boundary", () => {
     },
   );
 
+  it.each([
+    [{ name: "claude-code", version: "2.1.308" }, "claude-code"],
+    [{ userAgent: "codex-mcp-client/0.167.0" }, "codex"],
+    [{ name: "mcp-remote" }, null],
+  ])(
+    "records which MCP client %o posted a comment",
+    async (mcpClient, authorClient) => {
+      await run(
+        { documentId: "doc-1", content: "Comment" },
+        { caller: "mcp", mcpClient },
+      );
+      expect(state.inserted[0]).toMatchObject({
+        submissionSource: "mcp",
+        authorClient,
+      });
+    },
+  );
+
+  it("names no MCP client on a comment the app's own agent posted", async () => {
+    await run(
+      { documentId: "doc-1", content: "Comment" },
+      { caller: "tool", runId: "run-1", mcpClient: { name: "claude-code" } },
+    );
+    expect(state.inserted[0]).toMatchObject({
+      submissionSource: "agent",
+      authorClient: null,
+    });
+  });
+
   it("does not infer an agent from absent caller metadata", async () => {
     await run({
       documentId: "doc-1",

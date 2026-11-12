@@ -1769,6 +1769,8 @@ export default {
       pendingEditsBlocked: "डुप्लिकेट करने से पहले लंबित विज़ुअल संपादन लागू करें या छोड़ दें।",
       allDesigns: "सभी डिज़ाइन",
       rename: "नाम बदलें",
+      builtFrom: "{{title}} से बनाया गया",
+      builtFromPage: "एक Content पेज से बनाया गया",
       duplicate: "डुप्लिकेट करें",
       versionHistory: "संस्करण इतिहास",
       import: "आयात करें…",
@@ -2551,6 +2553,9 @@ export default {
     changesDiscarded:
       "कुछ परिवर्तन सहेजे नहीं जा सके क्योंकि फ़ाइल अब मौजूद नहीं है, और उन्हें छोड़ दिया गया।",
     offline: "ऑफ़लाइन",
+    unsaved: "सहेजा नहीं गया",
+    saveRetrying:
+      "आपके परिवर्तन सहेजे नहीं जा सके। अपने-आप फिर से प्रयास किया जा रहा है।",
     saving: "सहेजा जा रहा है...",
     clearedAllAnnotations: "सभी एनोटेशन साफ़ किए गए",
     annotationsDiscardedOnViewChange:
@@ -2617,6 +2622,7 @@ export default {
     searchSystems: "डिज़ाइन सिस्टम खोजें…",
     searchDesigns: "डिज़ाइन खोजें…",
     searchPresentations: "प्रस्तुतियाँ खोजें…",
+    searchPages: "पेज खोजें…",
     searchDesign: "डिज़ाइन खोजें…",
     useDesignSystem: "डिज़ाइन सिस्टम का उपयोग करें",
     notReady:
@@ -2629,6 +2635,7 @@ export default {
     design: "डिज़ाइन संदर्भ",
     slides: "स्लाइड",
     referenceDesign: "डिज़ाइन को संदर्भ बनाएँ",
+    contentPage: "Content पेज",
     connectFigma: "Figma कनेक्ट करें",
     figmaReference: "Figma डिज़ाइन…",
     figmaDialogTitle: "Figma डिज़ाइन जोड़ें",

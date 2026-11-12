@@ -125,7 +125,7 @@ async function resolveScopeId(
   orgRole: string | null;
   orgId: string | null;
 }> {
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   const email = session?.email ?? null;
 
   if (scope === "user") {

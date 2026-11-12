@@ -3,6 +3,9 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
+
+const getOrgContext = vi.hoisted(() => vi.fn());
 
 const state = vi.hoisted(() => ({
   hasGatewayCredential: false,
@@ -35,7 +38,7 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("./auth.js", () => ({ getSession }));
-vi.mock("../org/context.js", () => ({ getOrgContext: async () => null }));
+vi.mock("../org/context.js", () => ({ getOrgContext }));
 vi.mock("../application-state/store.js", () => ({
   appStateGet: async () => null,
 }));
@@ -90,6 +93,8 @@ async function post(event: unknown = { node: {} }) {
 
 describe("transcribe-voice Builder provider gate", () => {
   beforeEach(() => {
+    getOrgContext.mockReset().mockResolvedValue(null);
+    getSession.mockResolvedValue(null);
     state.status = 0;
     state.provider = "builder";
     state.secrets = {};
@@ -105,6 +110,25 @@ describe("transcribe-voice Builder provider gate", () => {
       segments: [],
     });
   });
+
+  it.each([
+    { code: "57014", status: 503 },
+    { code: "42501", status: 500 },
+  ])(
+    "propagates org failure $code before voice work",
+    async ({ code, status }) => {
+      const cause = Object.assign(new Error("Fake membership failure"), {
+        code,
+      });
+      const error = sessionResolutionFailure(cause);
+      getOrgContext.mockRejectedValue(error);
+      getSession.mockResolvedValue({ email: "member@example.test" });
+      await expect(post()).rejects.toBe(error);
+      expect(error).toMatchObject({ statusCode: status, cause });
+      expect(transcribeWithBuilder).not.toHaveBeenCalled();
+      expect(readServiceProviderChoice).not.toHaveBeenCalled();
+    },
+  );
 
   it("transcribes through the gateway lane on a credits-only deployment", async () => {
     state.hasGatewayCredential = true;

@@ -28,15 +28,15 @@ export function createSlotsHandler() {
       .replace(/\/+$/, "");
     const parts = pathname ? pathname.split("/") : [];
 
-    const session = await getSession(event).catch(() => null);
+    const session = await getSession(event);
     if (!session?.email) {
       setResponseStatus(event, 401);
       return { error: "Authentication required" };
     }
 
-    const orgCtx = await getOrgContext(event).catch(() => null);
+    const orgCtx = await getOrgContext(event);
     const userEmail = session.email;
-    const orgId = orgCtx?.orgId ?? session.orgId ?? undefined;
+    const orgId = orgCtx.orgId ?? undefined;
 
     return runWithRequestContext({ userEmail, orgId }, () =>
       dispatch(event, method, parts),

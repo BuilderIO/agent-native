@@ -126,6 +126,8 @@ let highlights: {
 const page: { current: HTMLDivElement | null } = { current: null };
 // Hears the panel let go of the selected thread.
 let onSelectedThreadChange: ((threadId: string | null) => void) | undefined;
+// Asks the panel for a new comment on the whole page, as a row's Comment does.
+let pageComment: { focus: boolean; onFocused?: () => void } = { focus: false };
 
 function Owner({
   presentation,
@@ -151,6 +153,8 @@ function Owner({
       highlightsVisible={highlights.visible}
       onHighlightsVisibleChange={highlights.onChange}
       scrollContainerRef={page}
+      focusPageComposer={pageComment.focus}
+      onPageComposerFocused={pageComment.onFocused}
     />
   );
 }
@@ -176,6 +180,7 @@ describe("the Discussion panel", () => {
     page.current = null;
     threads = fixtureThreads;
     onSelectedThreadChange = undefined;
+    pageComment = { focus: false };
     queryClient.clear();
     window.localStorage.clear();
   });
@@ -455,6 +460,39 @@ describe("the Discussion panel", () => {
       expect(payload).not.toHaveProperty(anchor);
     }
     expect(richEditorValue(richEditor(composer)!)).toBe("");
+  });
+
+  it("puts the caret in the page composer when asked for a comment on the whole page", async () => {
+    const onFocused = vi.fn();
+    pageComment = { focus: true, onFocused };
+    render();
+    await nextFrame();
+    await nextFrame();
+
+    const composer = container.querySelector<HTMLElement>(
+      "[data-discussion-composer]",
+    );
+    expect(composer?.contains(document.activeElement)).toBe(true);
+    expect(onFocused).toHaveBeenCalledOnce();
+  });
+
+  it("drops a page composer request once the person clicks elsewhere", async () => {
+    const onFocused = vi.fn();
+    pageComment = { focus: true, onFocused };
+    render();
+    act(() => {
+      document.body.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+    });
+    await nextFrame();
+    await nextFrame();
+
+    const composer = container.querySelector<HTMLElement>(
+      "[data-discussion-composer]",
+    );
+    expect(composer?.contains(document.activeElement)).toBe(false);
+    expect(onFocused).toHaveBeenCalledOnce();
   });
 
   it("shows a linked thread whatever the filters say, Type included", () => {

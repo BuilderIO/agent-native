@@ -56,7 +56,10 @@ import {
   buildForwardDraft,
   buildReplyDraft,
 } from "@/lib/message-draft-builders";
-import { savedEmailDraftMetadata } from "@/lib/saved-draft";
+import {
+  savedEmailDraftAttachments,
+  savedEmailDraftMetadata,
+} from "@/lib/saved-draft";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
 
@@ -1006,22 +1009,7 @@ export function InboxPage() {
         bcc: email.bcc?.map((r) => r.email).join(", ") ?? "",
         subject: email.subject === "(no subject)" ? "" : email.subject,
         body: email.body,
-        attachments: email.attachments?.map((attachment) => ({
-          id: attachment.id,
-          filename: attachment.filename,
-          originalName: attachment.filename,
-          mimeType: attachment.mimeType,
-          size: attachment.size,
-          url: `/api/attachments?messageId=${encodeURIComponent(
-            email.id,
-          )}&id=${encodeURIComponent(
-            attachment.id,
-          )}&mimeType=${encodeURIComponent(attachment.mimeType)}`,
-          source: "gmail",
-          gmailMessageId: email.id,
-          gmailAttachmentId: attachment.id,
-          accountEmail: email.accountEmail,
-        })),
+        attachments: savedEmailDraftAttachments(email),
         mode: "compose",
         replyToId: (email as any).replyToId,
         replyToThreadId: (email as any).replyToThreadId,

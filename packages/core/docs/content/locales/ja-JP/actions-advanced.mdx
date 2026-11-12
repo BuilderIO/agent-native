@@ -83,20 +83,22 @@ export function CreateFusionAppButton() {
 
 </Steps>
 
-フラグが宣言・登録されると、実際のアカウントに対してそれをオンにする作業は、3つのマウント済みアクションを通じて行われます。`get-feature-flags` は、`useFeatureFlag()` 自身が呼び出すものです。すべてのユーザーが自分自身のフラグを確認する必要があるため、サインイン済みの呼び出し元であれば誰でも利用できます。`list-feature-flags` と `set-feature-flag` は、2つの管理用アクションです。どちらも、組織のオーナーと管理者 (または組織なしの管理者) に制限されており、どちらも監査されます。
+フラグが宣言・登録されると、実際のアカウントに対してそれをオンにする作業は、3つのマウント済みアクションを通じて行われます。`get-feature-flags` は、`useFeatureFlag()` 自身が呼び出すものです。すべてのユーザーが自分自身のフラグを確認する必要があるため、サインイン済みの呼び出し元であれば誰でも利用できます。`list-feature-flags` と `set-feature-flag` は、2つの管理用アクションで、どちらも監査されます。
 
-`set-feature-flag` は、オペレーターが実際に、誰に対してフラグをオンにするかを変更する方法です。
+フラグには、保存されたルールが2つある場合があります。グローバルルールはすべての組織に適用され、変更できるのはアプリの `AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS` リストにあるメールアドレスだけです。どの組織にサインインしているかは関係ありません。組織独自のルールはその組織の中だけに適用され、変更できるのはその組織のオーナーと管理者だけです。管理者リストに載っていても、その権限は得られません。組織が独自のルールを持つ場合、そのルールがグローバルルールを完全に置き換えます。2つはマージされないため、フラグをグローバルにオンにしても、独自のルールを持つ組織には届きません。`list-feature-flags` は、フラグごとに両方のルール、どちらが適用されているか、読み取れなかった保存済みルールを報告します。
 
-| 操作                                              | 内容                                                         | 引数の例                                                                                                        |
-| ------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `enable-for-current-user`                         | 自分自身のアカウントに対してのみフラグをオンにします。       | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
-| `off`                                             | 全員に対してフラグをオフにし、ルールをすべてリセットします。 | `{ key: "full-app-building", operation: "off" }`                                                                |
-| `replace-rules`、モード `"on"`                    | 全員に対してフラグをオンにします。                           | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
-| `replace-rules`、モード `"rules"` と `emails`     | 特定のアカウント一覧に対してオンにします。                   | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
-| `replace-rules`、モード `"rules"` と `orgIds`     | 特定の組織に対してオンにします。                             | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
-| `replace-rules`、モード `"rules"` と `percentage` | パーセンテージによる段階的展開でオンにします。               | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+`set-feature-flag` は、オペレーターが実際に、誰に対してフラグをオンにするかを変更する方法です。引数 `scope` で対象のルールを選びます。`"org"` はアクティブな組織のルールを、`"global"` はグローバルルールを変更します (例: `{ key: "full-app-building", operation: "off", scope: "global" }`)。`scope` を省略すると、アクティブな組織のルールを変更し、呼び出し元にアクティブな組織がない場合はグローバルルールを変更します。結果の `scope.kind` が、書き込んだルールを示します。各操作は選んだルールに作用します。
 
-フリート オペレーター UI は、共有ログインの代わりに、狭くスコープされた A2A 委任を通じて、これらと同じアクションを呼び出します。Analytics が、それらの唯一のオペレーター UI です。アプリは独自のフラグ設定パネルを構築すべきではなく、フラグの書き込みは、汎用の設定エンドポイントや生の SQL を経由すべきではありません。
+| 操作                                              | 内容                                                   | 引数の例                                                                                                        |
+| ------------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                         | 自分自身のアカウントに対してのみフラグをオンにします。 | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                             | ルールの対象となる全員に対してフラグをオフにします。   | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`、モード `"on"`                    | ルールの対象となる全員に対してフラグをオンにします。   | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`、モード `"rules"` と `emails`     | 特定のアカウント一覧に対してオンにします。             | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`、モード `"rules"` と `orgIds`     | 特定の組織に対してオンにします。                       | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`、モード `"rules"` と `percentage` | パーセンテージによる段階的展開でオンにします。         | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+
+フリート オペレーター UI は、共有ログインの代わりに、狭くスコープされた A2A 委任を通じて、これらと同じアクションを呼び出します。Analytics が、それらの唯一のオペレーター UI です。委任されたグローバルな変更は、委任されたメールアドレスが対象アプリ自身の管理者リストに載っている場合にのみ成功します。アプリは独自のフラグ設定パネルを構築すべきではなく、フラグの書き込みは、汎用の設定エンドポイントや生の SQL を経由すべきではありません。
 
 <Callout id="doc-block-actions-advanced-1" tone="warning">
 

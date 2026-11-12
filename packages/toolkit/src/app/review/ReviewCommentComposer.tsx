@@ -527,7 +527,7 @@ export function ReviewCommentComposer({
                       <DropdownMenuContent
                         data-review-popover=""
                         align="start"
-                        className="flex w-auto gap-0.5 p-1"
+                        className="flex w-auto gap-0.5"
                         onCloseAutoFocus={(event) => {
                           event.preventDefault();
                           editorRef.current?.focus("keep");

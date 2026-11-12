@@ -11,6 +11,8 @@ before starting, and check remote deployment settings separately: the CLI can
 read local environment files, but it cannot inspect remote environments or
 database-backed feature settings.
 
+Desktop GitHub releases use their own `v` tags. They do not identify the published `@agent-native/core` npm version. Run `npm view @agent-native/core version` for the latest published Core version and `npm ls @agent-native/core` for the installed version.
+
 ## 1. Preview the upgrade and import codemods
 
 Use the CLI shipped with Core 0.198.0 so it loads that release's migration

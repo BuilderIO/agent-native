@@ -681,13 +681,17 @@ describe("Content doc readers play a Clip uploaded to the doc", () => {
   });
 
   it("refuses doc readers a Clip its owner protected with a password", async () => {
-    await updateRecording("rec-upload", { password: "hashed-secret" });
+    await updateRecording("rec-upload", {
+      visibility: "public",
+      password: "hashed-secret",
+    });
     const result = await playback("rec-upload", await token());
     expect(result.status).toBe(403);
     expect(result.body).toMatchObject({ code: "password_required" });
   });
 
   it("stops an issued playback URL once a password is set, even with the password", async () => {
+    await updateRecording("rec-upload", { visibility: "public" });
     const result = await playback("rec-upload", await token());
     await updateRecording("rec-upload", { password: "hashed-secret" });
 

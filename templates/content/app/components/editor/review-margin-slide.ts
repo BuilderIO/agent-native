@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 
+import { PAGE_PANEL_SLIDE_MS } from "./document-page-panel-state";
+
 const SLIDE_MS = 260;
 
 /** Where the page's text starts. A container query can change the inset
@@ -18,17 +20,23 @@ function textLeft(lead: Element) {
  * in one jump. A transform runs on the compositor and counts from the first
  * frame it draws. It moves the page and the comment lane together, so the
  * lane, which measures its place against the page, holds still beside it.
+ *
+ * The page panel docking moves the text the same way, often in the same commit
+ * as the margin leaving, so one slide covers both: two would fight over the
+ * transform, and the page has to move only once.
  */
 export function useReviewMarginSlide(
   refs: {
     scroller: RefObject<HTMLElement | null>;
     content: RefObject<HTMLElement | null>;
     column: RefObject<HTMLElement | null>;
+    panelSpacer: RefObject<HTMLElement | null>;
   },
   reserved: boolean,
+  panelDocked: boolean,
 ) {
-  const { scroller, content, column } = refs;
-  const shown = useRef<string | null>(null);
+  const { scroller, content, column, panelSpacer } = refs;
+  const shown = useRef<{ margin: string; panel: string } | null>(null);
   const running = useRef<Animation | null>(null);
   useLayoutEffect(() => {
     const viewport = scroller.current;
@@ -36,13 +44,15 @@ export function useReviewMarginSlide(
     const page = column.current;
     if (!viewport || !moving || !page) return;
     const style = getComputedStyle(page);
-    const to = style.paddingRight;
+    const spacer = panelSpacer.current;
+    const panelWidth = spacer?.style.width ?? "";
+    const to = { margin: style.paddingRight, panel: panelWidth };
     const from = shown.current;
     shown.current = to;
     const lead = page.firstElementChild;
     if (
       from === null ||
-      from === to ||
+      (from.margin === to.margin && from.panel === to.panel) ||
       !lead ||
       !("animate" in moving) ||
       window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -50,9 +60,11 @@ export function useReviewMarginSlide(
       return;
     // The page is drawn at the old margin, moved by any slide still running,
     // so a slide reversed partway turns around where the page is.
-    page.style.paddingRight = from;
+    page.style.paddingRight = from.margin;
+    if (spacer) spacer.style.width = from.panel;
     const drawn = textLeft(lead);
     page.style.paddingRight = "";
+    if (spacer) spacer.style.width = panelWidth;
     running.current?.cancel();
     const shift = drawn - textLeft(lead);
     if (Math.abs(shift) < 1) return;
@@ -62,7 +74,7 @@ export function useReviewMarginSlide(
     const slide = moving.animate(
       [{ transform: `translateX(${shift}px)` }, { transform: "none" }],
       {
-        duration: SLIDE_MS,
+        duration: from.panel === to.panel ? SLIDE_MS : PAGE_PANEL_SLIDE_MS,
         easing: style.getPropertyValue("--ease-drawer").trim() || "ease-out",
       },
     );
@@ -76,7 +88,7 @@ export function useReviewMarginSlide(
     };
     slide.onfinish = settle;
     slide.oncancel = settle;
-  }, [scroller, content, column, reserved]);
+  }, [scroller, content, column, panelSpacer, reserved, panelDocked]);
   useLayoutEffect(
     () => () => {
       running.current?.cancel();

@@ -1762,6 +1762,8 @@ export default {
         "طبّق تعديلاتك المرئية المعلّقة أو تجاهلها قبل التكرار.",
       allDesigns: "كل التصاميم",
       rename: "إعادة التسمية",
+      builtFrom: "مبني على {{title}}",
+      builtFromPage: "مبني على صفحة Content",
       duplicate: "تكرار",
       versionHistory: "سجل الإصدارات",
       import: "استيراد…",
@@ -2541,6 +2543,8 @@ export default {
     changesDiscarded:
       "تعذّر حفظ بعض التغييرات لأن الملف لم يعد موجودًا، وتم تجاهلها.",
     offline: "غير متصل",
+    unsaved: "غير محفوظ",
+    saveRetrying: "تعذّر حفظ تغييراتك. جارٍ إعادة المحاولة تلقائيًا.",
     saving: "جارٍ الحفظ...",
     clearedAllAnnotations: "تم مسح جميع التعليقات التوضيحية",
     annotationsDiscardedOnViewChange:
@@ -2607,6 +2611,7 @@ export default {
     searchSystems: "البحث في أنظمة التصميم…",
     searchDesigns: "البحث في التصاميم…",
     searchPresentations: "البحث في العروض التقديمية…",
+    searchPages: "البحث في الصفحات…",
     searchDesign: "البحث في التصميم…",
     useDesignSystem: "استخدام نظام تصميم",
     notReady:
@@ -2619,6 +2624,7 @@ export default {
     design: "مراجع التصميم",
     slides: "الشرائح",
     referenceDesign: "استخدام تصميم كمرجع",
+    contentPage: "صفحة Content",
     connectFigma: "ربط Figma",
     figmaReference: "تصميم Figma…",
     figmaDialogTitle: "إضافة تصميم Figma",

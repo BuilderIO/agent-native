@@ -85,7 +85,7 @@ export function AgentsShareTab({
             <DropdownMenuContent
               align="end"
               data-agent-native-share-overlay=""
-              className="z-[100020] w-72 p-1"
+              className="z-[100020] w-72"
             >
               <DropdownMenuRadioGroup
                 value={level}
@@ -96,7 +96,7 @@ export function AgentsShareTab({
                     key={value}
                     value={value}
                     indicator="check"
-                    className="items-start py-1.5"
+                    className="items-start"
                   >
                     <span className="flex flex-col">
                       <span>

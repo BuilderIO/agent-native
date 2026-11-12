@@ -1806,6 +1806,8 @@ export default {
         "Wende deine ausstehenden visuellen Änderungen an oder verwirf sie, bevor du dupliziert.",
       allDesigns: "Alle Designs",
       rename: "Umbenennen",
+      builtFrom: "Erstellt aus {{title}}",
+      builtFromPage: "Erstellt aus einer Content-Seite",
       duplicate: "Duplizieren",
       versionHistory: "Versionsverlauf",
       import: "Importieren…",
@@ -2626,6 +2628,9 @@ export default {
     changesDiscarded:
       "Einige Änderungen konnten nicht gespeichert werden, da die Datei nicht mehr existiert, und wurden verworfen.",
     offline: "Offline",
+    unsaved: "Nicht gespeichert",
+    saveRetrying:
+      "Änderungen konnten nicht gespeichert werden. Es wird automatisch erneut versucht.",
     saving: "Speichern...",
     clearedAllAnnotations: "Alle Anmerkungen gelöscht",
     annotationsDiscardedOnViewChange:
@@ -2696,6 +2701,7 @@ export default {
     searchSystems: "Designsysteme suchen…",
     searchDesigns: "Designs suchen…",
     searchPresentations: "Präsentationen suchen…",
+    searchPages: "Seiten suchen…",
     searchDesign: "Design suchen…",
     useDesignSystem: "Ein Designsystem verwenden",
     notReady:
@@ -2708,6 +2714,7 @@ export default {
     design: "Designreferenzen",
     slides: "Folien",
     referenceDesign: "Ein Design als Referenz verwenden",
+    contentPage: "Content-Seite",
     connectFigma: "Figma verbinden",
     figmaReference: "Figma-Design…",
     figmaDialogTitle: "Figma-Design hinzufügen",

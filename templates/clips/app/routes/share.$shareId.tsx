@@ -295,6 +295,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
           id,
           rec.password,
           rec.sharePasswordVersion,
+          rec.visibility,
         ),
       }).ok
     : false;
@@ -936,6 +937,8 @@ export default function ShareRoute() {
   const transcriptStatus = dataQ.data?.data?.transcript?.status;
   const transcriptFailureReason =
     dataQ.data?.data?.transcript?.failureReason ?? null;
+  const transcriptUnreadable =
+    dataQ.data?.data?.transcript?.segmentsUnreadable === true;
   const ctas = dataQ.data?.data?.ctas ?? [];
   const apiStatus = dataQ.data?.status;
   const apiAccessDeniedStatus =
@@ -1638,7 +1641,9 @@ export default function ShareRoute() {
         thumbnailUrl={recording.thumbnailUrl}
         animatedThumbnailUrl={recording.animatedThumbnailUrl}
         isLoomRecording={isEmbedBacked}
-        hasPassword={Boolean(recording.hasPassword)}
+        {...(recording.hasPassword !== undefined && {
+          hasPassword: recording.hasPassword,
+        })}
         expiresAt={recording.expiresAt}
         viewerReshareOnly={viewerReshareOnly}
       >
@@ -2169,6 +2174,7 @@ export default function ShareRoute() {
                 onSeek={(ms) => playerRef.current?.seek(ms)}
                 status={transcriptStatus}
                 failureReason={transcriptFailureReason}
+                unreadable={transcriptUnreadable}
                 recordingTitle={recording.title}
                 audience="viewer"
               />

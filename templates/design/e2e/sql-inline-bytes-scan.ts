@@ -1,4 +1,6 @@
-import type { TestInfo } from "@playwright/test";
+import path from "node:path";
+
+import type { FullConfig, TestInfo } from "@playwright/test";
 
 /** One SQL cell whose text looks like inline file bytes. */
 export type InlineBytesHit = {
@@ -33,6 +35,7 @@ const THREAD_CANARY = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
 
 type ServerRequestInput =
   | { kind: "scan" }
+  | { kind: "verify-e2e-member"; email: string }
   | { kind: "chat-rows"; marker: string }
   | {
       kind: "poisoned-scan";
@@ -156,6 +159,23 @@ async function inDesignServer(request: ServerRequest): Promise<unknown> {
   try {
     if (request.kind === "scan") return await scan(db);
 
+    if (request.kind === "verify-e2e-member") {
+      const result = await db.execute({
+        sql: 'UPDATE "user" SET email_verified = TRUE WHERE email = ? RETURNING email, email_verified',
+        args: [request.email],
+      });
+      if (
+        result.rows.length !== 1 ||
+        result.rows[0]?.email !== request.email ||
+        result.rows[0]?.email_verified !== true
+      ) {
+        throw new Error(
+          `The isolated E2E member ${request.email} was not verified.`,
+        );
+      }
+      return;
+    }
+
     if (request.kind === "chat-rows") {
       const { rows: threads } = await db.execute({
         sql: "SELECT id, thread_data FROM chat_threads WHERE strpos(thread_data, ?) > 0",
@@ -210,7 +230,7 @@ async function inDesignServer(request: ServerRequest): Promise<unknown> {
 }
 
 async function evaluateInDesignServer<T>(
-  testInfo: TestInfo,
+  config: FullConfig,
   input: ServerRequestInput,
 ): Promise<T> {
   const databaseUrl = process.env.E2E_DATABASE_URL;
@@ -220,7 +240,7 @@ async function evaluateInDesignServer<T>(
     );
   }
   const request: ServerRequest = { ...input, databaseUrl };
-  const port = testInfo.config.metadata.serverInspectPort as number;
+  const port = config.metadata.serverInspectPort as number;
   const targets = (await (
     await fetch(
       `http://127.0.0.1:${port}/json/list`, // e2e-harness-ignore: the dev server's Node inspector, not the Design base URL.
@@ -288,7 +308,31 @@ async function evaluateInDesignServer<T>(
 export function scanSqlForInlineBytes(
   testInfo: TestInfo,
 ): Promise<InlineBytesScan> {
-  return evaluateInDesignServer(testInfo, { kind: "scan" });
+  return evaluateInDesignServer(testInfo.config, { kind: "scan" });
+}
+
+export function verifyIsolatedE2eMember(
+  config: FullConfig,
+  email: string,
+): Promise<void> {
+  const runRoot = process.env.E2E_RUN_ROOT;
+  const pgliteDir = process.env.E2E_RUN_PGLITE_DIR;
+  const isolatedPglite =
+    !!runRoot &&
+    !!pgliteDir &&
+    path.resolve(pgliteDir) === path.join(path.resolve(runRoot), "pglite") &&
+    process.env.E2E_DATABASE_URL === `pglite:${pgliteDir}`;
+  const dedicatedCiPostgres =
+    process.env.CI === "true" &&
+    process.env.GITHUB_ACTIONS === "true" &&
+    process.env.E2E_DATABASE_URL ===
+      "postgres://postgres@127.0.0.1:5432/design_e2e"; // e2e-harness-ignore: assert the dedicated CI database address before changing fixture data.
+  if (!isolatedPglite && !dedicatedCiPostgres) {
+    throw new Error(
+      "Member verification requires Playwright's isolated PGlite or dedicated CI Postgres fixture.",
+    );
+  }
+  return evaluateInDesignServer(config, { kind: "verify-e2e-member", email });
 }
 
 /**
@@ -300,7 +344,7 @@ export function scanSqlWithPoisonedRows(
   testInfo: TestInfo,
   threadId: string,
 ): Promise<{ poisoned: InlineBytesScan; afterRollback: InlineBytesScan }> {
-  return evaluateInDesignServer(testInfo, {
+  return evaluateInDesignServer(testInfo.config, {
     kind: "poisoned-scan",
     threadId,
     sessionId: CANARY_SESSION_ID,
@@ -314,7 +358,7 @@ export function readChatRows(
   testInfo: TestInfo,
   marker: string,
 ): Promise<ChatRows> {
-  return evaluateInDesignServer(testInfo, { kind: "chat-rows", marker });
+  return evaluateInDesignServer(testInfo.config, { kind: "chat-rows", marker });
 }
 
 export function newInlineBytesHits(

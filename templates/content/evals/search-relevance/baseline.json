@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-31T19:23:31.929Z",
+  "generatedAt": "2026-11-08T03:47:19.078Z",
   "epsilon": 0.005,
   "classes": {
     "known-item": {
@@ -30,12 +30,12 @@
       "gating": true
     },
     "question": {
-      "count": 9,
+      "count": 27,
       "top1": 0,
-      "top1Count": 9,
+      "top1Count": 24,
       "top3": 0,
       "mrr": 0,
-      "zeroResults": 9,
+      "zeroResults": 27,
       "gating": false
     },
     "access": {
@@ -49,11 +49,11 @@
     }
   },
   "overall": {
-    "count": 38,
-    "top1": 0.7297297297297297,
-    "top1Count": 37,
-    "top3": 0.7368421052631579,
-    "mrr": 0.7421052631578947,
-    "zeroResults": 9
+    "count": 56,
+    "top1": 0.5192307692307693,
+    "top1Count": 52,
+    "top3": 0.5,
+    "mrr": 0.5035714285714286,
+    "zeroResults": 27
   }
 }

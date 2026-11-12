@@ -483,6 +483,20 @@ const state = encodeOAuthState({
 تتعرف التطبيقات المستضافة الأساسية على طلبات Desktop SSO Canary المجمعة من دون إعداد بيئة مركز هوية لكل تطبيق. وتبقى المتصفحات العادية على تسجيل الدخول المعتاد لكل تطبيق. تحتاج التطبيقات ذاتية الاستضافة إلى `AGENT_NATIVE_IDENTITY_HUB_URL` فقط لمسار Desktop الصريح أو اتحاد الخادم المتبقي. لا تبدأ إصدارات Desktop المستقرة الوسيط قبل الموافقة على إصدار لاحق بشكل منفصل.
 لا يعترض إصدار Canary تنقّل تسجيل الدخول المجهول للتطبيق. يجب على المستخدم اختيار تسجيل الدخول إلى مساحة العمل صراحةً من إعدادات سطح المكتب للتطبيق المسجّل النشط؛ ويظل تسجيل الدخول العادي للتطبيق هو المسار الافتراضي.
 
+## تخصيص صفحة تسجيل الدخول
+
+يضبط قالب Chat القيمة `marketing: false` في `server/plugins/auth.ts`. يؤدي توفير كائن marketing إلى تفعيل اللوحة، وتظهر أسفل النموذج على الهاتف. يصف `AuthMarketingProps` خصائص الصفحة المعروضة، ويقبل المكون حقول `marketing` أدناه. يضيف `authHeadHtml` محتوى HTML موثوقًا كتبه التطبيق بعد الأنماط المضمنة. لا تمرر إليه مدخلات المستخدم.
+
+```ts filename="server/plugins/auth.ts"
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
+
+export default createToolkitAuthPlugin({
+  rootAuth: true,
+  marketing: { appName: "My app", tagline: "Make work easier" },
+  authHeadHtml: "<style>.auth-root { font-family: sans-serif; }</style>",
+});
+```
+
 ## النشر المُدار وتسجيل الدعوات
 
 للنشر المُدار، اضبط `AUTH_SIGNUP=invited` و`ORG_CREATION=closed` و`AUTO_CREATE_DEFAULT_ORG=0`. يشرح [دليل النشر المُدار](/docs/administered-deployments) حسابات مسؤولي التهيئة، والدعوات، والنطاقات المسموح بها. دعوة العضوية وسياسة الانضمام عبر النطاق قاعدتان منفصلتان.
