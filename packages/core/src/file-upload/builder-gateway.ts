@@ -73,11 +73,10 @@ const GATEWAY_POLICIES: Record<BuilderGatewayStep, GatewayStepPolicy> = {
     retryOnTimeout: true,
     traced: false,
   },
-  // Completing a stable video can spend up to ~20 s on Builder's side
-  // compressing it, so this keeps the long timeout and never retries after
-  // our own timeout: that retry would race the first attempt. A 409 is that
-  // race from elsewhere (a duplicate in flight); the next call returns the
-  // registered asset.
+  // Completing a stable video can include server-side compression, so this
+  // keeps the long timeout and never retries after our own timeout: that retry
+  // would race the first attempt. A 409 is that race from elsewhere (a
+  // duplicate in flight); the next call returns the registered asset.
   complete: {
     label: "Builder.io upload complete failed",
     attempts: 4,
