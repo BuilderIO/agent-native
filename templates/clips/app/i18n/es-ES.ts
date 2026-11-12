@@ -818,6 +818,10 @@ const messages = {
     saveThumbnail: "Guardar miniatura",
   },
   shareDialog: {
+    enterPassword: "Introduce una contraseña",
+    showPassword: "Mostrar contraseña",
+    hidePassword: "Ocultar contraseña",
+    copyPassword: "Copiar contraseña",
     redactionsPendingTitle: "Termina las ocultaciones antes de compartir",
     redactionsPendingBody:
       "Ocultaciones pendientes: {{count}}. Aplícalas en el editor antes de compartir; el video aún contiene el contenido original.",

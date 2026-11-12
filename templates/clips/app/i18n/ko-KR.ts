@@ -787,6 +787,10 @@ const messages = {
     saveThumbnail: "썸네일 저장",
   },
   shareDialog: {
+    enterPassword: "비밀번호 입력",
+    showPassword: "비밀번호 표시",
+    hidePassword: "비밀번호 숨기기",
+    copyPassword: "비밀번호 복사",
     redactionsPendingTitle: "공유하기 전에 가림 처리 완료",
     redactionsPendingBody:
       "적용되지 않은 가림 처리: {{count}}개. 공유하기 전에 편집기에서 적용하세요. 동영상에는 아직 원본 내용이 남아 있습니다.",

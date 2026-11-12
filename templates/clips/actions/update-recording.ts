@@ -42,7 +42,12 @@ export default defineAction({
     enableDownloads: z.union([z.boolean(), cliBoolean]).optional(),
     defaultSpeed: z.string().optional(),
     animatedThumbnailEnabled: z.union([z.boolean(), cliBoolean]).optional(),
-    password: z.string().nullish(),
+    password: z
+      .string()
+      .nullish()
+      .describe(
+        "Share password for public recordings. Stored passwords are inactive for private and organization recordings and become active again if made public; pass null to remove.",
+      ),
     expiresAt: z
       .union([z.literal(""), z.iso.datetime({ offset: true })])
       .transform((value) => (value ? new Date(value).toISOString() : null))
