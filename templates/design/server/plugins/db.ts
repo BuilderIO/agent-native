@@ -658,8 +658,9 @@ export const runDesignMigrations = runMigrations(designMigrations, {
  * local dev, and on serverless it silently stops applying anything past it on
  * every cold start. So this runs as its own best-effort step instead. When
  * legacy duplicates block the filename index, the later file of each pair
- * gets the next free name and the index is created after all; if that still
- * fails, it is skipped with a warning and tried again on the next boot.
+ * gets the next free name and the index is created after all. A boot repairs
+ * a bounded number of designs; if more remain, or the index still fails, it
+ * is skipped with a warning and the next boot carries on.
  * `add-localhost-screens.ts`'s insert path tolerates either outcome — it
  * catches a real unique-violation from this index and falls back to updating
  * the row that won the race, and is a no-op/no-crash path when the index
@@ -677,14 +678,20 @@ async function ensureDesignFilesUniqueIndex(): Promise<void> {
     try {
       // Only duplicates are worth a repair. Another failure, such as a
       // missing permission, would just scan the table on every cold start.
-      const renamed = isUniqueViolation(err)
+      const repair = isUniqueViolation(err)
         ? await renameLaterDuplicateDesignFilenames()
-        : 0;
-      if (renamed > 0) {
+        : undefined;
+      if (repair?.remaining) {
+        console.info(
+          `[db] gave ${repair.renamed} design file(s) that shared a filename ` +
+            "with an older file in the same design the next free name; more " +
+            "designs share names and are repaired on the next boot",
+        );
+      } else if (repair && repair.renamed > 0) {
         await createFilenameIndex();
         repaired = true;
         console.info(
-          `[db] gave ${renamed} design file(s) that shared a filename with an ` +
+          `[db] gave ${repair.renamed} design file(s) that shared a filename with an ` +
             "older file in the same design the next free name, then created " +
             "design_files_design_filename_unique_idx",
         );

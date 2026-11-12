@@ -11,18 +11,24 @@ import { withDesignSourceMutationTransaction } from "../source-workspace.js";
  * a lookup by filename could only ever reach one of them. The oldest keeps
  * the name; nothing is deleted. Each design is repaired under its own lock,
  * so a create picking a free name at the same time can't pick the same one.
- * Returns how many files were renamed.
+ * A call repairs at most `maxDesigns` designs, each committed on its own, so
+ * a boot does bounded work and the next one picks up where it stopped.
+ * Returns how many files were renamed and whether designs with shared names
+ * remain.
  */
-export async function renameLaterDuplicateDesignFilenames(): Promise<number> {
-  // guard:allow-unbounded-read — boot repair that runs only while the unique index can't be created; it returns only designs with a duplicate name
+export async function renameLaterDuplicateDesignFilenames(
+  maxDesigns = 50,
+): Promise<{ renamed: number; remaining: boolean }> {
   const duplicated = await getDb()
     .selectDistinct({ designId: schema.designFiles.designId })
     .from(schema.designFiles)
     .groupBy(schema.designFiles.designId, schema.designFiles.filename)
-    .having(sql`count(*) > 1`);
+    .having(sql`count(*) > 1`)
+    .orderBy(asc(schema.designFiles.designId))
+    .limit(maxDesigns + 1);
 
   let renamed = 0;
-  for (const { designId } of duplicated) {
+  for (const { designId } of duplicated.slice(0, maxDesigns)) {
     renamed += await withDesignSourceMutationTransaction(
       designId,
       async (tx) => {
@@ -62,5 +68,5 @@ export async function renameLaterDuplicateDesignFilenames(): Promise<number> {
       },
     );
   }
-  return renamed;
+  return { renamed, remaining: duplicated.length > maxDesigns };
 }

@@ -219,9 +219,8 @@ export default defineAction({
     const requestedId = nanoid();
     const now = new Date().toISOString();
 
-    const createdFile = await withDesignSourceMutationTransaction(
-      designId,
-      async (tx) => {
+    const insertFile = () =>
+      withDesignSourceMutationTransaction(designId, async (tx) => {
         let restoreClaim:
           | {
               id: string;
@@ -554,26 +553,38 @@ export default defineAction({
                 })
               : frameTypeFromStored(insertedFrameType),
         };
-      },
-    ).catch(async (error: unknown) => {
-      if (!isUniqueViolation(error)) throw error;
-      // A writer that doesn't take the design's lock, such as an import,
-      // claimed the name between the check and the insert. The unique index
-      // refused this file, so nothing was overwritten. If the name is still
-      // free, some other key refused the insert, and that error stands.
-      const taken = new Set(
-        (
-          await getDb()
-            .select({ filename: schema.designFiles.filename })
-            .from(schema.designFiles)
-            .where(eq(schema.designFiles.designId, designId))
-        ).map((file) => file.filename),
-      );
-      if (!taken.has(filename)) throw error;
-      throw nameTaken("file", filename, nextFreeName(filename, taken), {
-        hint: EDIT_INSTEAD_HINT,
       });
-    });
+    // A writer that doesn't take the design's lock, such as an import, can
+    // claim the name between the check and the insert. The unique index
+    // refuses this file then, so nothing is overwritten.
+    const insertUnderFreeName = async (
+      attempt: number,
+    ): Promise<Awaited<ReturnType<typeof insertFile>>> => {
+      try {
+        return await insertFile();
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        const taken = new Set(
+          (
+            await getDb()
+              .select({ filename: schema.designFiles.filename })
+              .from(schema.designFiles)
+              .where(eq(schema.designFiles.designId, designId))
+          ).map((file) => file.filename),
+        );
+        // If the name is still free, some other key refused the insert, and
+        // that error stands.
+        if (!taken.has(filename)) throw error;
+        // A create that asked for the free name looks for it again.
+        if (ifNameTaken === "next-free" && !restoreClaimId && attempt < 3) {
+          return insertUnderFreeName(attempt + 1);
+        }
+        throw nameTaken("file", filename, nextFreeName(filename, taken), {
+          hint: EDIT_INSTEAD_HINT,
+        });
+      }
+    };
+    const createdFile = await insertUnderFreeName(1);
 
     const { id } = createdFile;
     await seedFromText(id, createdFile.content);
