@@ -4152,6 +4152,40 @@ parentId: "${seed.ids.moved}"
       ).toEqual([]);
     });
 
+    it("refuses a webhook on a page that moved to another owner while it waited", async () => {
+      const seed = await seedCollectionSpaceMove();
+      const { action: created } = await raceAgainst(
+        async (tx) => {
+          // The move: lock the row page, then give it to its new owner.
+          await tx
+            .update(schema.documents)
+            .set({
+              spaceId: seed.ids.toSpace,
+              ownerEmail: "synthetic-lock-order-mover@example.test",
+            })
+            .where(eq(schema.documents.id, seed.ids.row));
+        },
+        () =>
+          asOwner(() =>
+            createContentWebhook.run({
+              documentId: seed.ids.row,
+              url: "https://hooks.example.com/content",
+              events: ["property.changed"],
+            } as Parameters<typeof createContentWebhook.run>[0]),
+          ),
+      );
+      await expect(created).rejects.toMatchObject({
+        errorCode: "WEBHOOK_SCOPE_MOVED",
+        statusCode: 409,
+      });
+      expect(
+        await getDb()
+          .select({ id: schema.contentWebhooks.id })
+          .from(schema.contentWebhooks)
+          .where(eq(schema.contentWebhooks.scopeId, seed.ids.row)),
+      ).toEqual([]);
+    });
+
     it("appends a page moved to another space after a page another move appended while it waited", async () => {
       const seed = await seedSpaceMove();
       const sibling = `${seed.key}_p4`;

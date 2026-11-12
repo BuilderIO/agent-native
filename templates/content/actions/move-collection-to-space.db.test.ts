@@ -475,7 +475,7 @@ describe("moving a collection between Content spaces", () => {
     ]);
   });
 
-  it("refuses a collection with webhooks or an outside source", async () => {
+  it("refuses a collection with webhooks on it or its pages, or an outside source", async () => {
     const hooked = await seedCollection("Hooked");
     await getDb().insert(schema.contentWebhooks).values({
       id: "webhook-hooked",
@@ -487,6 +487,19 @@ describe("moving a collection between Content spaces", () => {
       secretScope: "user",
       secretScopeId: OWNER,
       secretKey: "content-webhook-hooked",
+      createdBy: OWNER,
+    });
+    const rowHooked = await seedCollection("Row hooked");
+    await getDb().insert(schema.contentWebhooks).values({
+      id: "webhook-row-hooked",
+      ownerEmail: OWNER,
+      scopeType: "document",
+      scopeId: rowHooked.rows[0],
+      url: "https://example.com/hook",
+      eventsJson: "[]",
+      secretScope: "user",
+      secretScopeId: OWNER,
+      secretKey: "content-webhook-row-hooked",
       createdBy: OWNER,
     });
     const sourced = await seedCollection("Sourced");
@@ -501,6 +514,7 @@ describe("moving a collection between Content spaces", () => {
 
     for (const [seed, errorCode] of [
       [hooked, "COLLECTION_HAS_WEBHOOKS"],
+      [rowHooked, "PAGE_HAS_WEBHOOKS"],
       [sourced, "COLLECTION_SOURCE_LINKED"],
     ] as const) {
       await expect(

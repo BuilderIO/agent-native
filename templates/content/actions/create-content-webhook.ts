@@ -11,6 +11,7 @@ import {
   CONTENT_WEBHOOK_SECRET_PREFIX,
   generateContentWebhookSecret,
 } from "../server/lib/content-webhook-signature.js";
+import { firstRow } from "../server/lib/first-row.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
   CONTENT_WEBHOOK_EVENT_TYPES,
@@ -20,6 +21,7 @@ import {
   type ContentWebhookScope,
 } from "./_content-webhooks.js";
 import { nanoid } from "./_property-utils.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 const MAX_WEBHOOKS_PER_SCOPE = 10;
 
@@ -198,30 +200,44 @@ export default defineAction({
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtextextended(${`content-webhook-scope:${scope.scopeType}:${scope.scopeId}`}, 0::bigint))`,
         );
+        // A move to another workspace locks the collection or page and refuses
+        // one with webhooks, so hold the same lock and check it's still where
+        // the webhook's secret was stored.
+        const locking = tx as unknown as ReturnType<typeof getDb>;
+        let owner: { ownerEmail: string; orgId: string | null } | undefined;
         if (scope.scopeType === "database") {
-          // A move to another workspace locks the collection and refuses one
-          // with webhooks, so hold the same lock and check the collection is
-          // still where its secret was stored.
-          await lockContentDatabaseMutation(
-            tx as unknown as ReturnType<typeof getDb>,
-            scope.scopeId,
+          await lockContentDatabaseMutation(locking, scope.scopeId);
+          owner = firstRow(
+            await tx
+              .select({
+                ownerEmail: schema.contentDatabases.ownerEmail,
+                orgId: schema.contentDatabases.orgId,
+              })
+              .from(schema.contentDatabases)
+              .where(eq(schema.contentDatabases.id, scope.scopeId)),
           );
-          const [database] = await tx
-            .select({
-              ownerEmail: schema.contentDatabases.ownerEmail,
-              orgId: schema.contentDatabases.orgId,
-            })
-            .from(schema.contentDatabases)
-            .where(eq(schema.contentDatabases.id, scope.scopeId));
-          if (
-            database.ownerEmail !== scope.ownerEmail ||
-            (database.orgId ?? null) !== scope.orgId
-          ) {
-            throw new ActionContractError(
-              "The collection moved to another workspace while the webhook was being added. Add it again.",
-              { errorCode: "WEBHOOK_SCOPE_MOVED", statusCode: 409 },
-            );
-          }
+        } else {
+          await lockDocumentRows(locking, [scope.scopeId]);
+          owner = firstRow(
+            // guard:allow-unscoped — reads the owner of the page whose admin access resolveContentWebhookScope just checked.
+            await tx
+              .select({
+                ownerEmail: schema.documents.ownerEmail,
+                orgId: schema.documents.orgId,
+              })
+              .from(schema.documents)
+              .where(eq(schema.documents.id, scope.scopeId)),
+          );
+        }
+        if (
+          !owner ||
+          owner.ownerEmail !== scope.ownerEmail ||
+          (owner.orgId ?? null) !== scope.orgId
+        ) {
+          throw new ActionContractError(
+            `The ${scope.scopeType === "database" ? "collection" : "page"} moved to another workspace while the webhook was being added. Add it again.`,
+            { errorCode: "WEBHOOK_SCOPE_MOVED", statusCode: 409 },
+          );
         }
         const existing = await tx
           .select({ id: schema.contentWebhooks.id })

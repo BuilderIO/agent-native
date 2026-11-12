@@ -56,6 +56,33 @@ function contractError(message: string, errorCode: string, statusCode = 409) {
   return new ActionContractError(message, { errorCode, statusCode });
 }
 
+/**
+ * A page's webhook keeps the owner and workspace it was added under, where its
+ * signing secret is stored, so a page with one stays put, as a collection with
+ * one does. Adding a page webhook locks the page and checks again, so one
+ * can't land between this check, under the move's locks, and the move.
+ */
+async function assertNoPageWebhooks(db: ContentDb, ids: string[]) {
+  for (const idGroup of groups(ids)) {
+    const webhooks = await db
+      .select({ id: schema.contentWebhooks.id })
+      .from(schema.contentWebhooks)
+      .where(
+        and(
+          eq(schema.contentWebhooks.scopeType, "document"),
+          inArray(schema.contentWebhooks.scopeId, idGroup),
+        ),
+      )
+      .limit(1);
+    if (webhooks.length > 0) {
+      throw contractError(
+        "Pages with webhooks can't move to another workspace. Remove the webhooks first.",
+        "PAGE_HAS_WEBHOOKS",
+      );
+    }
+  }
+}
+
 async function rekeyPrimaryBlocksFields(args: {
   tx: ContentTx;
   documentIds: string[];
@@ -290,6 +317,7 @@ async function lockMoveBetweenSpaces(args: {
   // the move didn't lock, and a row or relation added meanwhile could tie a
   // moving collection to one that stays.
   await assertSubtreeCanChangeSpace(tx, lockedPages, { collectionsMove: true });
+  await assertNoPageWebhooks(tx, ids);
   const lockedCollectionIds = new Set(args.collectionIds);
   const collections = await readCollectionsForSpaceMove(tx, ids, {
     recheck: true,
@@ -412,6 +440,7 @@ export async function movePageToSpace(args: {
   }
   await assertSubtreeCanChangeSpace(db, subtree, { collectionsMove: true });
   const ids = subtree.map((document) => document.id);
+  await assertNoPageWebhooks(db, ids);
   const collectionIds = (await readCollectionsForSpaceMove(db, ids)).map(
     (collection) => collection.id,
   );

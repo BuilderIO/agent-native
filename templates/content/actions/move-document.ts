@@ -244,7 +244,7 @@ function documentMoveResult(doc: typeof schema.documents.$inferSelect) {
 
 export default defineAction({
   description:
-    "Move a document to a parent and/or position in the page tree. Pass spaceId to move the page and all its sub-pages into another Content space: the caller becomes the owner, access resets to the destination's (org-wide for an organization space, private otherwise, or the new parent's sharing), and existing shares and public access are removed. Collections in the moved pages, including a collection moved by its own page id, go with them in place, keeping their ids, rows, properties, values, row order and views. Refused with a reason: a collection linked to an outside source, with webhooks, or related to a collection that isn't moving; a collection row without its collection; local-folder files; and Notion- or Builder-linked pages.",
+    "Move a document to a parent and/or position in the page tree. Pass spaceId to move the page and all its sub-pages into another Content space: the caller becomes the owner, access resets to the destination's (org-wide for an organization space, private otherwise, or the new parent's sharing), and existing shares and public access are removed. Collections in the moved pages, including a collection moved by its own page id, go with them in place, keeping their ids, rows, properties, values, row order and views. Refused with a reason: a page or collection with webhooks; a collection linked to an outside source or related to a collection that isn't moving; a collection row without its collection; local-folder files; and Notion- or Builder-linked pages.",
   schema: z.object({
     id: z.string().optional().describe("Document ID (required)"),
     parentId: z
