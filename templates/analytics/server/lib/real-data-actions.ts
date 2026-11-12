@@ -157,12 +157,30 @@ const WRITE_VERB =
 // dash), a contrast ("just", "instead") or a new instruction (", add a panel",
 // "and build one"), so a build stated beside it still counts.
 const NEGATED_WRITE_INSTRUCTION_TERMS = new RegExp(
-  `\\b(?:do\\s+not|don['’]?t|never|without|not\\s+to|no\\s+need\\s+to|avoid|must\\s+not|mustn['’]?t|should\\s+not|shouldn['’]?t)\\s+` +
-    `(?:(?:actually|accidentally|ever|yet|try\\s+to|attempt\\s+to|need\\s+to|have\\s+to)\\s+)*` +
+  `\\b(?:do\\s+not|don['’]?t|never|without|not\\s+to|no\\s+need\\s+to|avoid|must\\s+not|mustn['’]?t|should\\s+not|shouldn['’]?t|cannot|can\\s+not|can['’]?t|will\\s+not|won['’]?t)\\s+` +
+    `(?:(?:actually|accidentally|ever|yet|try\\s+to|attempt\\s+to|need\\s+to|have\\s+to|want\\s+(?:you\\s+)?to)\\s+)*` +
     `${WRITE_VERB}(?:\\s*,\\s*(?:(?:or|and|nor)\\s+)?${WRITE_VERB}|\\s+(?:or|and|nor)\\s+${WRITE_VERB})*` +
     `(?:(?!,\\s*(?:(?:and|or|then)\\s+)?(?:please\\s+)?${WRITE_VERB}|\\s+and\\s+(?:then\\s+)?(?:please\\s+)?${WRITE_VERB}|,?\\s*\\b(?:but|instead|rather|just|only|then|so)\\b|\\s+-\\s)[^.!?;:\\n—–])*`,
   "gi",
 );
+
+// "No dashboard template needed" rules a build out without a verb to match.
+const NO_DASHBOARD_NEEDED_TERMS =
+  /\bno\s+(?:new\s+)?(?:(?:dashboard|extension|panel|widget)s?(?:\s+templates?)?|templates?)\s+(?:is\s+|are\s+)?(?:needed|required|necessary|wanted)\b/gi;
+
+// A build whose object is "one" or "it" ("Don't edit the Revenue dashboard but
+// build one for Sales") lost its only dashboard noun with the ruled-out span.
+const PRONOUN_BUILD_TERMS =
+  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|the)\s+)?(?:new\s+)?(?:one|another(?:\s+one)?|it|them|copy)\b/gi;
+
+function stripRuledOutWriteInstructions(text: string): string {
+  const request = text.replace(NO_DASHBOARD_NEEDED_TERMS, " ");
+  const ruledOut = request.match(NEGATED_WRITE_INSTRUCTION_TERMS) ?? [];
+  const kept = request.replace(NEGATED_WRITE_INSTRUCTION_TERMS, " ");
+  return ruledOut.some((span) => DASHBOARD_CONSTRUCTION_TARGET_TERMS.test(span))
+    ? kept.replace(PRONOUN_BUILD_TERMS, (build) => `${build} dashboard`)
+    : kept;
+}
 
 const DASHBOARD_CONSTRUCTION_OBJECT_TERMS =
   /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|an|the)\s+)?(?:(?:new|fresh|another|custom)\s+)?(?:(?!\b(?:and|or|then|plus)\b)[\w-]+\s+)*(?:dashboard|extension|panel|widget)(?!\s+(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,2}(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?|job(?:s)?|schedule(?:s)?)\b)(?!\s+(?:via|using|with|on)\s+(?:a\s+)?cron(?:\s+(?:job|schedule))?\b)\b/gi;
@@ -287,9 +305,7 @@ export function looksLikeDashboardConstructionRequest(text: string): boolean {
   const requestText = boundAnalyticsClassificationText(
     stripInjectedAnalyticsGuardContext(text),
   );
-  const lower = requestText
-    .toLowerCase()
-    .replace(NEGATED_WRITE_INSTRUCTION_TERMS, " ");
+  const lower = stripRuledOutWriteInstructions(requestText.toLowerCase());
   if (!lower.trim()) return false;
   const constructionRequestText = lower
     .replace(/\bbut\b/g, " and ")

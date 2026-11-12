@@ -2374,6 +2374,12 @@ describe("incomplete evidence detection", () => {
       "Never edit DevRel Leaderboard v3 or any dashboard Jason or Steve own. Count signups by source.",
       "You don't have to create a dashboard; just tell me which sources are connected.",
       "Do not use a dashboard template; just list the connected sources.",
+      "You can't create a dashboard; just list the connected sources.",
+      "I don't want you to create or edit any dashboard. Which sources are connected?",
+      "You won't need to edit any dashboard. Count signups by week.",
+      "No dashboard template needed. Count signups by plan.",
+      "Don't create or edit any dashboard; just copy the numbers into your reply.",
+      "Don't create a dashboard; just refresh the numbers.",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
     }
@@ -2391,6 +2397,10 @@ describe("incomplete evidence detection", () => {
       "Avoid duplicating the Revenue dashboard — create a new Sales dashboard",
       "Avoid duplicating the Revenue dashboard - create a new Sales dashboard",
       "Don't build it from scratch, use the Revenue dashboard as a template",
+      "Don't create a dashboard. Build one instead",
+      "Don't edit the Revenue dashboard but build one for Sales",
+      "Don't edit the Revenue dashboard; duplicate it for EMEA",
+      "Don't change the Revenue dashboard, make a copy for EMEA",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
     }
