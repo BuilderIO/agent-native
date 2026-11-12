@@ -12,6 +12,7 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowMessage,
+  isProviderTokenRateLimitMessage,
   isRejectedRequestErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
@@ -502,7 +503,9 @@ export function normalizeChatError(
     return {
       message:
         providerMessage ??
-        "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+        (isProviderTokenRateLimitMessage(text)
+          ? text
+          : "The model provider is rate-limiting this chat right now. Wait a moment, then retry."),
       details: text,
     };
   }

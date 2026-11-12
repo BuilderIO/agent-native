@@ -171,6 +171,14 @@ describe("formatChatErrorText", () => {
     expect(normalized.message).not.toContain("no body");
   });
 
+  it("keeps the provider's token budget in the visible error", () => {
+    const message =
+      "Request too large on tokens per minute (TPM): Limit 8000, Requested 8700.";
+    expect(normalizeChatError(message, "rate_limit_exceeded").message).toBe(
+      message,
+    );
+  });
+
   it("normalizes overloaded provider JSON payloads without exposing raw details in the message", () => {
     const raw =
       '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_example"}';
