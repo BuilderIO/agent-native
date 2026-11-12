@@ -160,7 +160,7 @@ const NEGATED_WRITE_INSTRUCTION_TERMS = new RegExp(
   `\\b(?:do\\s+not|don['’]?t|never|without|not\\s+to|no\\s+need\\s+to|avoid|must\\s+not|mustn['’]?t|should\\s+not|shouldn['’]?t|cannot|can\\s+not|can['’]?t|will\\s+not|won['’]?t)\\s+` +
     `(?:(?:actually|accidentally|ever|yet|try\\s+to|attempt\\s+to|need\\s+to|have\\s+to|want\\s+(?:you\\s+)?to)\\s+)*` +
     `${WRITE_VERB}(?:\\s*,\\s*(?:(?:or|and|nor)\\s+)?${WRITE_VERB}|\\s+(?:or|and|nor)\\s+${WRITE_VERB})*` +
-    `(?:(?!,\\s*(?:(?:and|or|then)\\s+)?(?:please\\s+)?${WRITE_VERB}|\\s+and\\s+(?:then\\s+)?(?:please\\s+)?${WRITE_VERB}|,?\\s*\\b(?:but|instead|rather|just|only|then|so)\\b|\\s+-\\s)[^.!?;:\\n—–])*`,
+    `(?:(?!,\\s*(?:(?:and|or|then)\\s+)?(?:please\\s+)?${WRITE_VERB}|\\s+and\\s+(?:then\\s+)?(?:please\\s+)?${WRITE_VERB}|,?\\s*\\b(?:but|instead|rather|just|only|then|so)\\b|,\\s*(?:i|we)(?:['’]d|\\s+would)?\\s+(?:want|need|like|prefer)\\b|\\s+-\\s)[^.!?;:\\n—–])*`,
   "gi",
 );
 
@@ -170,8 +170,10 @@ const NO_DASHBOARD_NEEDED_TERMS =
 
 // A build whose object is "one" or "it" ("Don't edit the Revenue dashboard but
 // build one for Sales") lost its only dashboard noun with the ruled-out span.
+// Only verbs that make something count: "copy it into your reply" and "make it
+// a table" are about the answer.
 const PRONOUN_BUILD_TERMS =
-  /\b(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch)\s+(?:(?:a|the)\s+)?(?:new\s+)?(?:one|another(?:\s+one)?|it|them|copy)\b/gi;
+  /\b(?:(?:build|create|make|replicate|clone|duplicate)\s+(?:a\s+)?(?:new\s+)?(?:one|another(?:\s+one)?|copy)|(?:build|create|replicate|clone|duplicate)\s+(?:it|them))\b/gi;
 
 function stripRuledOutWriteInstructions(text: string): string {
   const request = text.replace(NO_DASHBOARD_NEEDED_TERMS, " ");

@@ -2380,6 +2380,8 @@ describe("incomplete evidence detection", () => {
       "No dashboard template needed. Count signups by plan.",
       "Don't create or edit any dashboard; just copy the numbers into your reply.",
       "Don't create a dashboard; just refresh the numbers.",
+      "Don't create a dashboard; just copy it into your reply.",
+      "Don't create a dashboard; just make it a short table.",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
     }
@@ -2401,6 +2403,8 @@ describe("incomplete evidence detection", () => {
       "Don't edit the Revenue dashboard but build one for Sales",
       "Don't edit the Revenue dashboard; duplicate it for EMEA",
       "Don't change the Revenue dashboard, make a copy for EMEA",
+      "Don't create a dashboard, I want you to build a new Sales dashboard",
+      "Don't edit the Growth dashboard, we'd like you to create one for Sales",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
     }
