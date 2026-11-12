@@ -438,6 +438,11 @@ export function normalizeChatError(
   }
   if (isServerChosenVisitorMessage(text)) return { message: text };
 
+  const providerDetail = providerPayload?.message ?? text;
+  if (isProviderTokenRateLimitMessage(providerDetail)) {
+    return { message: providerDetail };
+  }
+
   const providerMessage =
     providerPayload?.errorCode === "overloaded_error"
       ? "The model provider is overloaded right now. Wait a moment, then retry."
@@ -503,9 +508,7 @@ export function normalizeChatError(
     return {
       message:
         providerMessage ??
-        (isProviderTokenRateLimitMessage(text)
-          ? text
-          : "The model provider is rate-limiting this chat right now. Wait a moment, then retry."),
+        "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
       details: text,
     };
   }
