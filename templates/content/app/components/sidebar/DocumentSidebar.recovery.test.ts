@@ -10,7 +10,6 @@ import {
   writePageDraftJournal,
 } from "../editor/page-draft-journal";
 import {
-  createUnlessCommitted,
   mergeCreatedDocumentWithDraft,
   prepareCreatedDraftReplay,
   readDocumentBeforeCreateDiscard,
@@ -86,37 +85,76 @@ describe("document sidebar create recovery", () => {
     ).rejects.toBe(unavailable);
   });
 
-  it("answers a pending create with the page the server already has", async () => {
-    const committed = createdDocument({ content: "Saved by the other tab" });
-    const create = vi.fn(async () => createdDocument());
-
-    await expect(
-      createUnlessCommitted(async () => committed, create),
-    ).resolves.toBe(committed);
-    expect(create).not.toHaveBeenCalled();
-  });
-
-  it("sends a pending create only after the server confirms the page is missing", async () => {
-    const created = createdDocument();
-    const notFound = Object.assign(new Error("not found"), { status: 404 });
-    const unavailable = Object.assign(new Error("unavailable"), {
-      status: 503,
+  describe("retrying another tab's pending create", () => {
+    const scope = { accountId: "writer@example.test", orgId: "org-1" };
+    const intent = {
+      id: "page-1",
+      parentId: null,
+      spaceId: null,
+      createdAt: "2026-10-08T12:00:00.000Z",
+      status: "pending" as const,
+    };
+    const noDraft = () => null;
+    afterEach(() => {
+      vi.unstubAllGlobals();
     });
-    const create = vi.fn(async () => created);
 
-    await expect(
-      createUnlessCommitted(async () => {
-        throw notFound;
-      }, create),
-    ).resolves.toBe(created);
-    expect(create).toHaveBeenCalledOnce();
+    function stubIntentStorage() {
+      vi.stubGlobal("window", { localStorage: { setItem: vi.fn() } });
+    }
 
-    await expect(
-      createUnlessCommitted(async () => {
-        throw unavailable;
-      }, create),
-    ).rejects.toBe(unavailable);
-    expect(create).toHaveBeenCalledOnce();
+    it("answers it with the page the server already has", async () => {
+      stubIntentStorage();
+      const committed = createdDocument({ content: "Saved by the other tab" });
+      const create = vi.fn(async () => createdDocument());
+
+      await expect(
+        retryCreateAfterIntentWrite(
+          scope,
+          intent,
+          noDraft,
+          async () => committed,
+          create,
+        ),
+      ).resolves.toEqual({ created: committed, draft: null });
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("sends it only after the server confirms the page is missing", async () => {
+      stubIntentStorage();
+      const created = createdDocument();
+      const notFound = Object.assign(new Error("not found"), { status: 404 });
+      const unavailable = Object.assign(new Error("unavailable"), {
+        status: 503,
+      });
+      const create = vi.fn(async () => created);
+
+      await expect(
+        retryCreateAfterIntentWrite(
+          scope,
+          intent,
+          noDraft,
+          async () => {
+            throw notFound;
+          },
+          create,
+        ),
+      ).resolves.toEqual({ created, draft: null });
+      expect(create).toHaveBeenCalledOnce();
+
+      await expect(
+        retryCreateAfterIntentWrite(
+          scope,
+          intent,
+          noDraft,
+          async () => {
+            throw unavailable;
+          },
+          create,
+        ),
+      ).rejects.toBe(unavailable);
+      expect(create).toHaveBeenCalledOnce();
+    });
   });
 
   it("overlays a restored draft onto the create response without losing server metadata", () => {
@@ -236,6 +274,9 @@ describe("document sidebar create recovery", () => {
             status: "failed",
           },
           read,
+          async () => {
+            throw Object.assign(new Error("not found"), { status: 404 });
+          },
           create,
         ),
       ).resolves.toEqual({ created, draft: null });

@@ -158,23 +158,6 @@ describe("document sidebar layout", () => {
     ).toBeLessThan(collectionCreate.indexOf("startPageOpenDocumentReads"));
   });
 
-  it("reads a pending page before sending another tab's create again", () => {
-    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const retryCreate = sidebar.slice(
-      sidebar.indexOf(
-        "const { created, draft } = await retryCreateAfterIntentWrite(",
-      ),
-      sidebar.indexOf("let confirmedDocument: Document = created;"),
-    );
-    const guarded = retryCreate.indexOf("createUnlessCommitted(");
-    const read = retryCreate.indexOf('"get-document"', guarded);
-    const create = retryCreate.indexOf("createDocumentAsync({", guarded);
-
-    expect(guarded).toBeGreaterThan(-1);
-    expect(read).toBeGreaterThan(guarded);
-    expect(create).toBeGreaterThan(read);
-  });
-
   it("restores deleted list and page snapshots before refetching on failure", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
