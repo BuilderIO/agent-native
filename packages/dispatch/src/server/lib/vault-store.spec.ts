@@ -95,6 +95,7 @@ async function boot() {
     org: string | null = orgId,
   ): Promise<T> =>
     runWithRequestContext({ userEmail, orgId: org ?? undefined }, run);
+  // raw-sql-ok: a test helper; every caller passes a literal statement.
   const rows = async (sql: string, args: unknown[] = []) =>
     (await exec.execute({ sql, args })).rows;
   const orgRef = (key: string) => ({

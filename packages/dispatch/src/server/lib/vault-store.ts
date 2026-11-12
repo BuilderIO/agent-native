@@ -23,6 +23,7 @@ import {
   putOrgSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
+import type { SQL } from "drizzle-orm";
 
 import { getDb, schema } from "../../db/index.js";
 import {
@@ -447,7 +448,7 @@ export async function createSecret(
     ...target,
     label: input.name,
     provider: input.provider || null,
-    description: input.description || undefined,
+    ...(input.description ? { description: input.description } : {}),
     createdBy: ctx.ownerEmail,
   });
 
@@ -640,17 +641,17 @@ export async function listGrants(filter?: {
   const ctx = requireVaultCtx();
   const db = getDb();
   const secrets = await listScopeSecrets(ctx);
-  const conditions = [scopedFilter(schema.vaultGrants)];
+  const conditions: Array<SQL | undefined> = [scopedFilter(schema.vaultGrants)];
   if (filter?.secretId) {
     const secret = secrets.find((row) => row.id === filter.secretId);
     conditions.push(
-      (secret
+      secret
         ? grantsOfSecret(secret, ctx)
-        : eq(schema.vaultGrants.secretId, filter.secretId)) as any,
+        : eq(schema.vaultGrants.secretId, filter.secretId),
     );
   }
   if (filter?.appId) {
-    conditions.push(eq(schema.vaultGrants.appId, filter.appId) as any);
+    conditions.push(eq(schema.vaultGrants.appId, filter.appId));
   }
   const rows = await db
     .select()
@@ -666,7 +667,7 @@ export async function getGrant(
 ) {
   await assertCanManageVault();
   const db = getDb();
-  const [row] = await db
+  const rows = await db
     .select()
     .from(schema.vaultGrants)
     .where(
@@ -676,6 +677,7 @@ export async function getGrant(
       ),
     )
     .limit(1);
+  const row = rows.at(0);
   return row ? withCurrentSecretId(row, await listScopeSecrets(ctx)) : null;
 }
 
@@ -995,15 +997,14 @@ export async function approveRequest(
     )
     .returning();
 
-  if (claimed.length === 0) {
+  const claimedRequest = claimed.at(0);
+  if (!claimedRequest) {
     const current = await getRequestForTenant(requestId, ctx);
     if (current?.status === "applying") {
       throw new Error("Vault request is already being applied");
     }
     return current;
   }
-
-  const claimedRequest = claimed[0];
 
   // Secret + grant must land in the REQUEST's tenant, not the approver's
   // (the approver may be acting on behalf of another user in the same org).
@@ -1101,11 +1102,10 @@ export async function denyRequest(
     )
     .returning();
 
-  if (claimed.length === 0) {
+  const claimedRequest = claimed.at(0);
+  if (!claimedRequest) {
     return getRequestForTenant(requestId, ctx);
   }
-
-  const claimedRequest = claimed[0];
 
   await recordVaultAudit({
     action: "request.denied",
