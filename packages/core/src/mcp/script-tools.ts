@@ -911,10 +911,18 @@ export function searchMcpScriptActions(
     );
   }
   if (matched.length === 0) {
+    const available = [...catalog.byFunction.keys()];
+    const listed = available
+      .slice(0, MAX_SEARCH_NAMES)
+      .map((fn) => `api.${fn}`)
+      .join(", ");
+    const more = available.length - MAX_SEARCH_NAMES;
     lines.push(
-      catalog.byFunction.size > 0
-        ? `// Available: ${[...catalog.byFunction.keys()].map((fn) => `api.${fn}`).join(", ")}.`
-        : "// No actions are available to scripts on this connection.",
+      available.length === 0
+        ? "// No actions are available to scripts on this connection."
+        : more > 0
+          ? `// Available: ${listed}, and ${more} more; search by words to find them.`
+          : `// Available: ${listed}.`,
     );
   }
   return lines.join("\n");

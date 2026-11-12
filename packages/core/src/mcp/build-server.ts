@@ -3809,7 +3809,9 @@ export async function createMCPServerForRequest(
     if (!payload.ok && payload.error) {
       onFailure({
         errorType: payload.error.code,
-        errorMessage: payload.error.message,
+        // The message can carry what the script threw, which may be data it
+        // read; analytics get only the code, and the caller the message.
+        errorMessage: `The script failed: ${payload.error.code}.`,
       });
     }
     return mcpScriptCallResult(payload);

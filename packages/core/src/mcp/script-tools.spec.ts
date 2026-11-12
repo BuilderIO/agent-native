@@ -577,6 +577,21 @@ describe("script types", () => {
     ).toContain("a?: string; b?: string;");
   });
 
+  it("lists a bounded number of functions when nothing matches", () => {
+    const catalog = buildMcpScriptCatalog(
+      Object.fromEntries(
+        Array.from({ length: 120 }, (_, index) => [
+          `get-item-${index}`,
+          entry(),
+        ]),
+      ),
+    );
+    const found = searchMcpScriptActions(catalog, { names: ["getNothing"] });
+    expect(found).toContain("api.getItem0");
+    expect(found).not.toContain("api.getItem50,");
+    expect(found).toContain(", and 70 more; search by words to find them.");
+  });
+
   it("keeps a search's declarations within a size, and names what it left out", () => {
     // Each function's declaration is longer than the whole budget.
     const wide = () =>
