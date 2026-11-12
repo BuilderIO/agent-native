@@ -1,3 +1,9 @@
+## 0.6.3
+
+### Patch Changes
+
+- 25f588e: Redirect legacy `/agent` management URLs to the canonical settings routes and preserve app-owned settings tabs.
+
 ## 0.6.2
 
 ### Patch Changes
