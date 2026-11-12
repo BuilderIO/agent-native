@@ -71,6 +71,10 @@ describe("Mail open paths", () => {
       resolveMailOpenPath({ view: "sent", params: { messageId: "m1" } }),
     ).toBeNull();
     expect(resolveMailOpenPath({ view: "draft-queue", params: {} })).toBeNull();
+    // InboxPage has no search branch and would navigate to the view itself.
+    expect(
+      resolveMailOpenPath({ view: "unknown", params: { q: "term" } }),
+    ).toBeNull();
   });
 
   it("builds the same encoded thread URL for the navigate command", () => {

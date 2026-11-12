@@ -51,9 +51,8 @@ export function resolveMailOpenPath({
     return `/inbox?filter=${encodeURIComponent(params.filter)}`;
   }
   if (params.threadId) return openThreadPath(view, params.threadId);
-  if (params.q) {
-    const listView = view && MAIL_VIEWS.has(view) ? view : "inbox";
-    return `/${listView}?q=${encodeURIComponent(params.q)}`;
+  if (params.q && isKnownMailView(view)) {
+    return `/${view || "inbox"}?q=${encodeURIComponent(params.q)}`;
   }
   return null;
 }
