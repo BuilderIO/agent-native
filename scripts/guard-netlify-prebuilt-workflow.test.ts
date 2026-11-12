@@ -4468,6 +4468,16 @@ describe("production Netlify site concurrency guard", () => {
       [publishedRun(99)],
     );
     assert.match(startCheckFailed.text, /: docs-source-freshness failed\./);
+    // Restoring the Git build setting after a deploy does not undo it.
+    const restoreFailed = {
+      ...published,
+      "restore-netlify-builds": result("failure"),
+    };
+    assert.equal((await decide(restoreFailed, [publishedRun(99)])).text, "");
+    assert.match(
+      (await decide(restoreFailed, [failedRun(99)])).text,
+      /^:white_check_mark: Docs production deploys again/,
+    );
   });
 
   it("keeps the fleet caller queue distinct from the shared site queues", () => {

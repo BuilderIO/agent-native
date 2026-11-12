@@ -602,10 +602,14 @@ jobs:
           script: |
             core.setOutput("text", "");
             const needs = JSON.parse(process.env.DOCS_JOB_RESULTS);
-            const failed = Object.keys(needs).filter((job) => needs[job].result === "failure");
-            const published = failed.length === 0 && needs.deploy.result === "success";
+            // Restoring the Git build setting runs after the deploy, so its
+            // failure does not decide whether docs deployed.
+            const published = needs.deploy.result === "success";
+            const failed = ["docs-source-freshness", "pause-netlify-builds", "migrate", "deploy"].filter(
+              (job) => needs[job].result === "failure",
+            );
             // Skipped because a newer docs change reached the queue.
-            if (failed.length === 0 && !published) return;
+            if (!published && failed.length === 0) return;
 
             const owner = context.repo.owner;
             const repo = context.repo.repo;
