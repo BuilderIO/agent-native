@@ -199,18 +199,23 @@ async function ensureAiTagLabelExists(
     return;
   }
 
-  try {
-    await Promise.all(
-      clients.map(async (client) => {
-        const cache = await buildLabelCache(client.accessToken);
-        await ensureGmailLabel(client.accessToken, labelName, cache);
-      }),
-    );
-  } catch (error) {
-    // Applying the rule creates the label too, so a Gmail cooldown must not
-    // stop the rule from being saved (first-run setup saves several at once).
-    if (error instanceof GmailQuotaCooldownError) return;
-    throw error;
+  const results = await Promise.allSettled(
+    clients.map(async (client) => {
+      const cache = await buildLabelCache(client.accessToken);
+      await ensureGmailLabel(client.accessToken, labelName, cache);
+    }),
+  );
+  // Applying the rule creates the label too, so a Gmail cooldown must not
+  // stop the rule from being saved (first-run setup saves several at once).
+  // Settle every account first so a cooldown on one cannot mask another's
+  // real failure.
+  for (const result of results) {
+    if (
+      result.status === "rejected" &&
+      !(result.reason instanceof GmailQuotaCooldownError)
+    ) {
+      throw result.reason;
+    }
   }
 }
 
