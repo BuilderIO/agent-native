@@ -628,6 +628,37 @@ describe("ShareButton", () => {
     expect(buttonWithText(container, "Copy link")).toBeDefined();
   });
 
+  it("offers quick copy beside the text-only share trigger", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            shareUrl="https://example.test/deck-1"
+          />
+        </QueryClientProvider>,
+      );
+    });
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Share"]',
+    );
+    expect(trigger?.textContent).toBe("Share");
+    expect(trigger?.querySelector("svg")).toBeNull();
+    const copy = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Copy link"]',
+    );
+    expect(copy).not.toBeNull();
+    await act(async () => copy!.click());
+    expect(writeText).toHaveBeenCalledWith("https://example.test/deck-1");
+    expect(copy?.getAttribute("aria-label")).toBe("Copied");
+  });
+
   it("falls back when async clipboard copy is denied", async () => {
     const shareUrl = "https://slides.agent-native.com/deck/deck-1";
     const writeText = vi.fn(async () => {

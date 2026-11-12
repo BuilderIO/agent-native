@@ -166,6 +166,8 @@ This mode is the recommended default because it reuses the full framework: backe
 
 Host auth is server-side. Do not pass identity from the browser as the source of truth; use the host's request/session object or a short-lived server-verified token. If the host does not expose emails, return a stable `userId` and Agent-Native will use it as the owner key.
 
+The server-side host callback is the authority for the organization it returns; no duplicate local membership row is required for that scope. Supported `orgRole` values are `owner`, `admin`, and `member`. An omitted role grants no organization-admin authority, and unsupported roles fail. Explicit `orgId: null` selects Personal; omitting the organization keeps local membership discovery. An explicit Personal selection takes precedence, and delegated credentials still require membership verification. Host scope applies only to the session that callback authenticated in the same request. It does not grant edit access to resources: existing resource shares and permissions still apply. An explicit null in a primary organization or role field overrides its alias.
+
 ### Database Isolation
 
 Embedded mode manages Agent-Native tables in SQL. For a mature SaaS product, the safest default is **same hosting and auth, dedicated Agent-Native database/schema**:

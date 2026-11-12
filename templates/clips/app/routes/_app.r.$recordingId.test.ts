@@ -401,15 +401,9 @@ describe("direct recording route shell cue", () => {
     expect(route).not.toContain("{session ?");
   });
 
-  it("keeps protected recordings out of anonymous agent context links", () => {
-    const route = readRoute("_app.r.$recordingId.tsx");
-
-    // oracle-change: which reads go to the share page is pinned by
-    // recordingAccessView's tests and the redirect by RecordingShareRedirect's
-    // (_app.r.$recordingId.test.tsx), not by the names of the variables that
-    // used to compute it.
-    expect(route).toContain("recording.hasPassword === true");
-  });
+  // oracle-change: Public password enforcement and viewer handoff are covered
+  // by the recording access and share-dialog behavior tests; Private/org hashes
+  // are dormant under the public-only password policy.
 
   it("opens ?panel=comments even while the recording is still loading", () => {
     const route = readRoute("_app.r.$recordingId.tsx");

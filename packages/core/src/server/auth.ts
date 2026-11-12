@@ -74,6 +74,10 @@ import {
   resolveEmbedSessionFromRequest,
   verifyEmbedSessionToken,
 } from "./embed-session.js";
+import {
+  getEmbeddedHostOrgScope,
+  preserveEmbeddedHostOrgScope,
+} from "./embedded-org-scope.js";
 import { createFirstTouchHandler } from "./first-touch-route.js";
 import { getPublicFrameworkPathname } from "./framework-request-context.js";
 import type { H3AppShim } from "./framework-request-handler.js";
@@ -84,6 +88,7 @@ import {
   publicFrameworkPath,
 } from "./framework-route-prefix.js";
 import { isHttpsRequest } from "./https-request.js";
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
 
 function toWebRequest(event: H3Event): Request {
   const req = (event as any).req as Request;
@@ -1398,6 +1403,7 @@ export async function getMcpOAuthBearerSession(
       identityVerificationUnavailableErrorClass &&
       e instanceof identityVerificationUnavailableErrorClass
     ) {
+      if (e.retryable === false) throw e;
       markCredentialMembershipUnavailable(event);
       return null;
     }
@@ -3779,6 +3785,78 @@ function magicLinkResponseError(
   }
 }
 
+function requestAuthCopy(event: H3Event) {
+  return resolveNativeAuthCopy(
+    resolveLocaleFromRequest({
+      acceptLanguage: getHeader(event, "accept-language") ?? null,
+    }).locale,
+  );
+}
+
+/**
+ * Better Auth creates a magic-link user inside verify, so on an invite-only
+ * workspace a stranger's link is refused there, and Better Auth answers that
+ * refusal with JSON instead of its error redirect. The link was opened from
+ * an email, so answer with a page: the desktop flow gets the error redirect to
+ * its callback, which tells the waiting app, and a browser gets the
+ * invite-only page Google sign-in shows. A verify without a callbackURL is an
+ * API call and keeps its JSON.
+ */
+async function inviteOnlyMagicLinkResponse(
+  event: H3Event,
+  verificationURL: URL,
+  response: Response,
+): Promise<Response> {
+  if (response.status !== 403) return response;
+  const callbackURL = verificationURL.searchParams.get("callbackURL");
+  if (!callbackURL) return response;
+  const payload = await response
+    .clone()
+    .json()
+    .catch(() => undefined);
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    Array.isArray(payload) ||
+    publicAuthErrorFromPayload(payload as Record<string, unknown>, "").code !==
+      AUTH_SIGNUP_INVITE_ONLY_CODE
+  ) {
+    return response;
+  }
+
+  let errorCallback: URL | undefined;
+  try {
+    errorCallback = new URL(
+      verificationURL.searchParams.get("errorCallbackURL") || callbackURL,
+      getOrigin(event),
+    );
+    // coercion-ok: a malformed callback gets the browser page, not a redirect.
+  } catch {
+    errorCallback = undefined;
+  }
+  if (
+    errorCallback &&
+    errorCallback.origin === new URL(getOrigin(event)).origin &&
+    isDesktopMagicLinkCallbackPath(errorCallback.pathname)
+  ) {
+    errorCallback.searchParams.set("error", AUTH_SIGNUP_INVITE_ONLY_CODE);
+    return new Response(null, {
+      status: 302,
+      headers: {
+        "cache-control": "no-store",
+        location: errorCallback.toString(),
+        "referrer-policy": "no-referrer",
+      },
+    });
+  }
+
+  const copy = requestAuthCopy(event);
+  return oauthErrorPage(copy.signupInviteOnly, 403, {
+    backHref: `${getAppBasePath()}${SIGN_IN_ENTRY_PATH}`,
+    backLabel: copy.signIn,
+  });
+}
+
 function logMagicLinkVerificationResponse(
   event: H3Event,
   source: string,
@@ -4996,13 +5074,22 @@ async function backfillSessionOrg(
   session: AuthSession,
   event: H3Event,
 ): Promise<AuthSession> {
-  if (session.orgId || hasExplicitPersonalOrgScope(event)) return session;
+  if (
+    session.orgId ||
+    hasExplicitPersonalOrgScope(event) ||
+    getEmbeddedHostOrgScope(event, session)
+  )
+    return session;
   const { resolveOrgIdForEmailViaEvent } = await import("../org/context.js");
-  const orgId = await resolveOrgIdForEmailViaEvent(event, session.email).catch(
-    () => null,
-  );
-  return orgId ? { ...session, orgId } : session;
+  try {
+    const orgId = await resolveOrgIdForEmailViaEvent(event, session.email);
+    return orgId ? { ...session, orgId } : session;
+  } catch (cause) {
+    throw sessionResolutionFailure(cause);
+  }
 }
+
+export { SessionResolutionUnavailableError } from "./session-resolution-errors.js";
 
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
   const ctx = event.context as {
@@ -5091,7 +5178,7 @@ async function resolveAdditionalSession(
   if (!resolve || customGetSession) return null;
   try {
     const session = await resolve(event);
-    return session ? normalizeCustomSession(session) : null;
+    return session ? normalizeCustomSession(session, event) : null;
   } catch (error) {
     markSessionResolutionUnavailable(event, "additional-session", error);
     return ADDITIONAL_SESSION_FAILED;
@@ -5123,7 +5210,7 @@ async function resolveBrowserCookieSession(
     }
     if (!getHeader(event, "cookie")) return null;
     const session = await customGetBrowserSession(event);
-    return session ? normalizeCustomSession(session) : null;
+    return session ? normalizeCustomSession(session, event) : null;
   }
   const cookie = getHeader(event, "cookie");
   if (cookie) {
@@ -5143,13 +5230,18 @@ async function resolveBrowserCookieSession(
   return getAuthDisabledSession(event);
 }
 
-function normalizeCustomSession(session: AuthSession): AuthSession {
+function normalizeCustomSession(
+  session: AuthSession,
+  event: H3Event,
+): AuthSession {
   const safeSession = { ...session };
   delete safeSession.authUserId;
-  if (trustCustomEmailVerification && session.emailVerified === undefined) {
-    return { ...safeSession, emailVerified: true };
-  }
-  return safeSession;
+  const normalized =
+    trustCustomEmailVerification && session.emailVerified === undefined
+      ? { ...safeSession, emailVerified: true }
+      : safeSession;
+  preserveEmbeddedHostOrgScope(event, session, normalized);
+  return normalized;
 }
 
 async function resolveSessionUncached(
@@ -5195,7 +5287,7 @@ async function resolveSessionUncached(
   if (customGetSession) {
     const session = await customGetSession(event);
     if (session) {
-      return normalizeCustomSession(session);
+      return normalizeCustomSession(session, event);
     }
 
     const bearerSession = await getBearerSession(event);
@@ -6304,6 +6396,11 @@ async function mountBetterAuthRoutes(
                 response,
               );
             }
+            return inviteOnlyMagicLinkResponse(
+              event,
+              verificationURL,
+              response,
+            );
           }
           return response;
         } catch (error) {
@@ -6371,8 +6468,12 @@ async function mountBetterAuthRoutes(
           .trim()
           .replace(/[^a-z0-9_-]/gi, "_")
           .slice(0, 64);
+        const inviteOnly = code === AUTH_SIGNUP_INVITE_ONLY_CODE;
+        const message = inviteOnly
+          ? requestAuthCopy(event).signupInviteOnly
+          : AUTH_MAGIC_LINK_FALLBACK;
         setDesktopExchangeError(flowId, {
-          message: AUTH_MAGIC_LINK_FALLBACK,
+          message,
           code: code || "callback_error",
         });
         logMagicLinkDebug(event, "callback-error", {
@@ -6393,7 +6494,7 @@ async function mountBetterAuthRoutes(
           message: callbackError,
           code: code || "callback_error",
         });
-        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+        return oauthErrorPage(message, inviteOnly ? 403 : 400);
       }
 
       logMagicLinkDebug(event, "callback-session-lookup", {
@@ -7016,6 +7117,13 @@ async function mountBetterAuthRoutes(
           betterAuthErrorFallback(reqPath),
           { path: reqPath, method: getMethod(event) },
         );
+        if (isMagicLinkVerification) {
+          response = await inviteOnlyMagicLinkResponse(
+            event,
+            new URL(authRequest.url),
+            response as Response,
+          );
+        }
       }
 
       // After email verification, add ?verified=1 to the redirect so the
