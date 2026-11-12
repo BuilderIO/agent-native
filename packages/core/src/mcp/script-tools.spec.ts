@@ -546,6 +546,25 @@ describe("script types", () => {
     expect(byQuery).not.toContain("getDocument:");
   });
 
+  it("reads a bounded query, and says it cut the rest", () => {
+    const catalog = buildMcpScriptCatalog({ "get-document": entry() });
+    const found = searchMcpScriptActions(catalog, {
+      query: "document ".repeat(100_000),
+    });
+    expect(found).toContain("getDocument:");
+    expect(found).toContain(
+      "// Searched with the query's first 20 words, within 500 characters.",
+    );
+    const tool = mcpScriptToolDescriptors(catalog).find(
+      (candidate) => candidate.name === MCP_SCRIPT_SEARCH_TOOL,
+    );
+    expect(JSON.stringify(tool?.inputSchema)).toContain('"maxLength":500');
+    // A query within both limits gets no note.
+    expect(
+      searchMcpScriptActions(catalog, { query: "document" }),
+    ).not.toContain("// Searched with");
+  });
+
   it("looks up a bounded number of names, and says it left the rest out", () => {
     const catalog = buildMcpScriptCatalog({ "get-document": entry() });
     const names = Array.from(
