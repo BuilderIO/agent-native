@@ -1,5 +1,11 @@
 import type { ReviewMention } from "@agent-native/core/review/types";
-import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 
 import {
   MAX_REVIEW_COMMENT_IMAGES,
@@ -45,6 +51,8 @@ export interface ReviewCommentDraftState {
 
 interface StoredDraft extends ReviewCommentDraft {
   updatedAt: number;
+  /** A fingerprint of the `initial` it started from, such as an edited comment. */
+  base?: string;
 }
 
 interface StoredDrafts {
@@ -188,6 +196,7 @@ function readStoredDraft(value: unknown): StoredDraft | null {
     images,
     ...(draft.context !== undefined ? { context: draft.context } : {}),
     updatedAt: typeof draft.updatedAt === "number" ? draft.updatedAt : 0,
+    ...(typeof draft.base === "string" ? { base: draft.base } : {}),
   };
 }
 
@@ -272,16 +281,39 @@ function sameDraft(left: ReviewCommentDraft, right: ReviewCommentDraft) {
   );
 }
 
+// A short fingerprint of what a draft started from, such as the comment an
+// edit opened on, so the draft is dropped once that comment changes.
+function draftBase(initial: ReviewCommentDraft): string | undefined {
+  if (isEmptyDraft(initial)) return undefined;
+  const source = JSON.stringify([
+    initial.text,
+    initial.mentions,
+    initial.images,
+    initial.context,
+  ]);
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${source.length}:${(hash >>> 0).toString(36)}`;
+}
+
 function setStoredDraft(
   id: string,
   persisted: boolean,
   key: string,
   draft: ReviewCommentDraft | null,
+  base?: string,
 ): void {
   const current = recordFor(id, persisted);
   const next = { ...current };
   if (draft) {
-    next[key] = { ...draft, updatedAt: Date.now() };
+    next[key] = {
+      ...draft,
+      updatedAt: Date.now(),
+      ...(base !== undefined ? { base } : {}),
+    };
     // The oldest drafts make room past the limit.
     const entries = Object.entries(next);
     if (entries.length > MAX_STORED_DRAFTS) {
@@ -305,7 +337,9 @@ function setStoredDraft(
  * A comment box's draft, kept in the browser so it survives a reload. Give
  * each box its own `key`: `new` for a new thread, `reply:<threadId>`, or
  * `edit:<commentId>` with the comment as `initial`. A draft that's empty, or
- * back to `initial`, isn't kept. With a null `key` the box has no draft.
+ * back to `initial`, isn't kept, and one whose `initial` has changed since,
+ * such as an edit to a comment changed elsewhere, is dropped. With a null
+ * `key` the box has no draft.
  */
 export function useReviewCommentDraft(
   scope: ReviewCommentDraftScope | null,
@@ -328,14 +362,27 @@ export function useReviewCommentDraft(
   );
   const initialRef = useRef(initial);
   if (!sameDraft(initialRef.current, initial)) initialRef.current = initial;
+  const base = draftBase(initialRef.current);
+  // A draft started from an older `initial` is stale: it's not shown, and
+  // it's dropped below.
+  const stale = stored !== undefined && stored.base !== base;
   const savedDraft = useMemo((): ReviewCommentDraft | undefined => {
-    if (!stored) return undefined;
-    const { updatedAt: _updatedAt, ...draft } = stored;
+    if (!stored || stale) return undefined;
+    const { updatedAt: _updatedAt, base: _base, ...draft } = stored;
     return draft;
-  }, [stored]);
+  }, [stale, stored]);
   const draft: ReviewCommentDraft = savedDraft ?? initialRef.current;
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  // A clear that comes after the box moved on, such as a reply sent before
+  // its thread changed, forgets its own draft and leaves the current one be.
+  const currentRef = useRef({ id, draftKey });
+  currentRef.current = { id, draftKey };
+
+  useEffect(() => {
+    if (stale && draftKey !== null)
+      setStoredDraft(id, persisted, draftKey, null);
+  }, [draftKey, id, persisted, stale]);
 
   const update = useCallback(
     (change: Partial<ReviewCommentDraft>) => {
@@ -349,15 +396,16 @@ export function useReviewCommentDraft(
         persisted,
         draftKey,
         isEmptyDraft(next) || sameDraft(next, initialRef.current) ? null : next,
+        base,
       );
     },
-    [draftKey, id, persisted],
+    [base, draftKey, id, persisted],
   );
 
   return useMemo(
     () => ({
       draft,
-      saved: stored !== undefined,
+      saved: savedDraft !== undefined,
       setText: (text) => update({ text }),
       setMentions: (mentions) => update({ mentions }),
       setImages: (images) => update({ images }),
@@ -365,10 +413,12 @@ export function useReviewCommentDraft(
       update,
       clear: () => {
         if (draftKey === null) return;
-        draftRef.current = initialRef.current;
+        const current = currentRef.current;
+        if (current.id === id && current.draftKey === draftKey)
+          draftRef.current = initialRef.current;
         setStoredDraft(id, persisted, draftKey, null);
       },
     }),
-    [draft, draftKey, id, persisted, stored, update],
+    [draft, draftKey, id, persisted, savedDraft, update],
   );
 }

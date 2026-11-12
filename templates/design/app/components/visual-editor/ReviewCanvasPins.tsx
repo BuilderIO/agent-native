@@ -1537,6 +1537,10 @@ export function ReviewCanvasPins({
         ...(imagesChanged
           ? { attachments: reviewCommentImageMetadata(editImages) }
           : {}),
+        // The edit is of the comment as it was opened, so a newer one refuses it.
+        ...(comment.revision !== undefined
+          ? { expectedRevision: comment.revision }
+          : {}),
       },
       {
         onSuccess: () => {

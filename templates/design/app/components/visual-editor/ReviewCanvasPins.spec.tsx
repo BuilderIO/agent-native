@@ -5388,10 +5388,11 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
       });
 
-      it("sends an edit's images only when they change", async () => {
+      it("sends an edit's images only when they change, against the comment's revision", async () => {
         reviewComments = [
           {
             ...comment,
+            revision: 3,
             metadata: {
               attachments: [
                 {
@@ -5417,6 +5418,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         await act(async () => submit(editing()!)?.click());
         expect(mocks.updateMutate.mock.calls[0]?.[0]).toMatchObject({
           body: "Keep this open",
+          expectedRevision: 3,
         });
         expect(mocks.updateMutate.mock.calls[0]?.[0]).not.toHaveProperty(
           "attachments",

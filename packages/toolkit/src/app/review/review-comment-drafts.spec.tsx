@@ -156,6 +156,48 @@ describe("useReviewCommentDraft", () => {
     expect(stored()).toBeNull();
   });
 
+  it("drops an edit's draft once the comment it started from changes", async () => {
+    const initial = { text: "Original", mentions: [], images: [] };
+    const states = mount([{ key: "edit:c1", initial }]);
+    act(() => states[0]!.setText("Edited"));
+
+    await reload();
+    const same = mount([{ key: "edit:c1", initial: { ...initial } }]);
+    expect(same[0]!.saved).toBe(true);
+    expect(same[0]!.draft.text).toBe("Edited");
+
+    await reload();
+    const changed = { ...initial, text: "Changed in another tab" };
+    const after = mount([{ key: "edit:c1", initial: changed }]);
+    expect(after[0]!.saved).toBe(false);
+    expect(after[0]!.draft).toEqual(changed);
+    expect(stored()).toBeNull();
+  });
+
+  it("leaves a thread's draft be when an earlier thread's send finishes after the box moved to it", () => {
+    let state!: DraftsModule.ReviewCommentDraftState;
+    function ReplyBox({ threadId }: { threadId: string }) {
+      state = drafts.useReviewCommentDraft(scope, `reply:${threadId}`);
+      return null;
+    }
+    act(() => root.render(<ReplyBox threadId="t1" />));
+    act(() => state.setText("For the first"));
+    const sentClear = state.clear;
+    act(() => root.render(<ReplyBox threadId="t2" />));
+    act(() => state.setText("For the second"));
+
+    act(() => {
+      sentClear();
+      state.setImages([image]);
+    });
+    expect(state.draft).toEqual({
+      text: "For the second",
+      mentions: [],
+      images: [image],
+    });
+    expect(Object.keys(stored()!.drafts)).toEqual(["reply:t2"]);
+  });
+
   it("keeps an image-only draft, and context the app stores with it", () => {
     const states = mount([{ key: "new:screen-1" }]);
     act(() =>
