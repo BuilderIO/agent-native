@@ -147,6 +147,7 @@ import {
 } from "./oauth-token.js";
 import {
   MCP_SCRIPT_SEARCH_TOOL,
+  MCP_SCRIPT_STATUS_TOOL,
   MCP_SCRIPT_TOOL_NAMES,
   buildMcpScriptCatalog,
   mcpScriptCallResult,
@@ -156,6 +157,10 @@ import {
   runMcpScript,
   searchMcpScriptActions,
 } from "./script-tools.js";
+import {
+  createScriptWriteGate,
+  mcpScriptRunStatusResult,
+} from "./script-writes.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
 
 export const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
@@ -3044,6 +3049,11 @@ export async function createMCPServerForRequest(
     requestMeta.scriptCatalog === true &&
     !directoryCatalog &&
     getAppConfig().mcp.scriptTools === true;
+  // Where the app also turns on script writes, scripts can call the actions
+  // that declare `mcpScript: "write"`, through the script ledger, and the
+  // connection gets `get-script-run` to read a run's ledger.
+  const scriptWrites =
+    scriptCatalog && getAppConfig().mcp.scriptWrites === true;
   // The compact catalog is the default for every caller. Directory mode is a
   // separate closed catalog; the full catalog still needs an explicit opt-in.
   const compactMcpAppCatalog =
@@ -3161,7 +3171,7 @@ export async function createMCPServerForRequest(
     instructions: directoryCatalog
       ? config.directoryProfile?.instructions
       : scriptCatalog
-        ? mcpScriptInstructions()
+        ? mcpScriptInstructions({ writes: scriptWrites })
         : agentNativeMcpInstructions(config.instructions, servedKeyToolNames),
     capabilities: {
       tools: {},
@@ -3664,15 +3674,18 @@ export async function createMCPServerForRequest(
   }
 
   function scriptCatalogFor(allowedActions: string[] | null) {
-    return buildMcpScriptCatalog(directlyReachable(allowedActions));
+    return buildMcpScriptCatalog(directlyReachable(allowedActions), {
+      writes: scriptWrites,
+    });
   }
 
   /**
-   * `tools/call` on a script-catalog connection. Only the two script tools
-   * exist, and both need `mcp:read`. A script's calls go through
-   * `executeMcpActionCall` in this call's request context, captured here
-   * and entered again for each call, because the sandbox answers its bridge
-   * from a worker's message events rather than from this call's stack.
+   * `tools/call` on a script-catalog connection. Only the script tools exist,
+   * and all need `mcp:read`; `get-script-run` exists only where writes are
+   * on. A script's calls go through `executeMcpActionCall` in this call's
+   * request context, captured here and entered again for each call, because
+   * the sandbox answers its bridge from a worker's message events rather
+   * than from this call's stack. A write also passes the run's ledger gate.
    */
   async function callScriptTool(
     call: {
@@ -3685,7 +3698,10 @@ export async function createMCPServerForRequest(
     onFailure: (failure: { errorType: string; errorMessage: string }) => void,
   ): Promise<CallToolResult> {
     const { name, args, allowedActions, request, ctx } = call;
-    if (!MCP_SCRIPT_TOOL_NAMES.has(name)) {
+    if (
+      !MCP_SCRIPT_TOOL_NAMES.has(name) ||
+      (name === MCP_SCRIPT_STATUS_TOOL && !scriptWrites)
+    ) {
       onFailure({
         errorType: "unknown_tool",
         errorMessage: `Unknown tool: ${name}`,
@@ -3703,8 +3719,28 @@ export async function createMCPServerForRequest(
         isError: true,
       };
     }
+    const callerContext = getRequestContext();
+    // A run's owner, as its ledger rows record it and its status matches.
+    const runOwner = {
+      email: effectiveIdentity?.userEmail ?? callerContext?.userEmail ?? null,
+      orgId: callerContext?.orgId ?? null,
+    };
+    if (name === MCP_SCRIPT_STATUS_TOOL) {
+      const result = await mcpScriptRunStatusResult(
+        approvalAppId,
+        args,
+        runOwner,
+      );
+      if (result.isError) {
+        onFailure({
+          errorType: "script_run_status",
+          errorMessage: result.content[0]?.text ?? "",
+        });
+      }
+      return result;
+    }
     const reachable = directlyReachable(allowedActions);
-    const catalog = buildMcpScriptCatalog(reachable);
+    const catalog = buildMcpScriptCatalog(reachable, { writes: scriptWrites });
     if (name === MCP_SCRIPT_SEARCH_TOOL) {
       return {
         content: [
@@ -3712,13 +3748,28 @@ export async function createMCPServerForRequest(
         ],
       };
     }
-    const callerContext = getRequestContext();
     const attribution = mcpCallAttribution({
       request,
       envelope: ctx.mcpReq.envelope,
       oauthClientId: effectiveIdentity?.oauthClientId,
     });
     const runId = crypto.randomUUID();
+    const mcpSettings = getAppConfig().mcp;
+    const writes = scriptWrites
+      ? createScriptWriteGate({
+          owner: {
+            appId: approvalAppId,
+            runId,
+            ownerEmail: runOwner.email,
+            orgId: runOwner.orgId,
+          },
+          rowBudget: mcpSettings.scriptWriteRowBudget,
+          recoveryMs: mcpSettings.scriptWriteRecoveryMs,
+          // The switch is read again before each write, so turning it off
+          // stops the next write of a run already going.
+          writesEnabled: () => getAppConfig().mcp.scriptWrites === true,
+        })
+      : undefined;
     const payload = await runMcpScript({
       code: metadataObject(args).code,
       catalog,
@@ -3726,13 +3777,14 @@ export async function createMCPServerForRequest(
       known: reachable,
       runId,
       signal: ctx.mcpReq.signal,
-      callAction: async (action, callArgs) => {
+      ...(writes ? { writes } : {}),
+      callAction: async (action, callArgs, runContext) => {
         const run = () =>
           executeMcpActionCall(actionCallContext, {
             name: action,
             args: callArgs,
             callable: catalog.actions,
-            actionRunContext: { ...attribution, runId },
+            actionRunContext: { ...attribution, runId, ...runContext },
           });
         return callerContext
           ? runWithRequestContext(callerContext, run)

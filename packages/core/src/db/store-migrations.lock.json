@@ -667,6 +667,16 @@
       "checksum": "4b5d5edf48a0f71b"
     }
   ],
+  "mcp_script_ledger": [
+    {
+      "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "sweep-indexes",
+      "checksum": "33eb15c1e6b15f71"
+    }
+  ],
   "notifications": [
     {
       "name": "baseline",

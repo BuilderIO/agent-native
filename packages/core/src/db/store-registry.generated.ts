@@ -247,6 +247,10 @@ export const FRAMEWORK_STORES: ReadonlyArray<
     () => import("../mcp/oauth-store.js").then((m) => m.mcpOauthStore),
   ],
   [
+    "mcp_script_ledger",
+    () => import("../mcp/script-ledger.js").then((m) => m.mcpScriptLedgerStore),
+  ],
+  [
     "notifications",
     () => import("../notifications/store.js").then((m) => m.notificationsStore),
   ],

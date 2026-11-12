@@ -85,6 +85,10 @@ interface Instruments {
   flushFailures: MetricCounter;
   traceWriteFailures: MetricCounter;
   actionChangeMarkerFailures: MetricCounter;
+  mcpScriptWriteEffects: MetricCounter;
+  mcpScriptBudgetRefusals: MetricCounter;
+  mcpScriptPolicyDenials: MetricCounter;
+  mcpScriptBusyRefusals: MetricCounter;
 }
 
 let cachedInstruments: Instruments | undefined;
@@ -157,8 +161,68 @@ function instruments(): Instruments | undefined {
           "Action writes whose durable change marker did not persist; polling clients were not told about them.",
       },
     ),
+    mcpScriptWriteEffects: meter.createCounter(
+      "agent_native.mcp.script.write_effects",
+      {
+        description:
+          "MCP script writes entering each effect status: pending when recorded before they run, then committed, not-applied or unknown as they settle.",
+      },
+    ),
+    mcpScriptBudgetRefusals: meter.createCounter(
+      "agent_native.mcp.script.budget_refusals",
+      {
+        description:
+          "MCP script writes refused before running because their row bound would pass the script's budget.",
+      },
+    ),
+    mcpScriptPolicyDenials: meter.createCounter(
+      "agent_native.mcp.script.policy_denials",
+      {
+        description:
+          "MCP script calls the script policy refused before they reached an action.",
+      },
+    ),
+    mcpScriptBusyRefusals: meter.createCounter(
+      "agent_native.mcp.script.busy_refusals",
+      {
+        description:
+          "MCP scripts refused because every script worker in the process was busy.",
+      },
+    ),
   };
   return cachedInstruments;
+}
+
+export type McpScriptWriteEffectMetric =
+  | "pending"
+  | "committed"
+  | "not-applied"
+  | "unknown";
+
+/** Counted once each time a script write's ledger row enters `effect`. */
+export function recordMcpScriptWriteEffect(
+  effect: McpScriptWriteEffectMetric,
+  via: "run" | "recovery",
+): void {
+  instruments()?.mcpScriptWriteEffects.add(1, {
+    "agent_native.mcp.script.effect": effect,
+    "agent_native.mcp.script.settled_by": via,
+  });
+}
+
+export function recordMcpScriptBudgetRefusal(): void {
+  instruments()?.mcpScriptBudgetRefusals.add(1);
+}
+
+/** `reason` is one of the script policy's fixed denial reasons. */
+export function recordMcpScriptPolicyDenial(reason: string): void {
+  instruments()?.mcpScriptPolicyDenials.add(1, {
+    "agent_native.mcp.script.denial_reason": reason,
+  });
+}
+
+export function recordMcpScriptBusyRefusal(): void {
+  instruments()?.mcpScriptBusyRefusals.add(1);
 }
 
 function httpRequestMethod(method: string): string {

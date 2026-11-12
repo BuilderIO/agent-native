@@ -9,6 +9,7 @@ import {
 } from "h3";
 
 import { getAppConfig } from "../app-config/store.js";
+import { registerRecurringSweepHandler } from "../jobs/sweep-hooks.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   describeBearerCredentialRefusal,
@@ -55,6 +56,7 @@ import {
   MCP_ROUTE_PREFIXES,
   joinMcpRoute,
 } from "./route-paths.js";
+import { recoverScriptWrites } from "./script-writes.js";
 
 export { createMCPServerForRequest } from "./build-server.js";
 export {
@@ -583,6 +585,20 @@ export function mountMCP(
       appPage: config.appApprovalPage === true,
     },
     routePrefix,
+  );
+  // Settles script writes a run left unclear: a crash, a timeout, a dropped
+  // connection. It runs whether or not script writes are on now, so turning
+  // them off still lets the writes already made settle.
+  const scriptLedgerAppId = mcpApprovalAppId(config);
+  registerRecurringSweepHandler(
+    `mcp-script-ledger:${scriptLedgerAppId}`,
+    async ({ deadlineAt }) => {
+      await recoverScriptWrites({
+        appId: scriptLedgerAppId,
+        actions: config.productionActions ?? config.actions,
+        deadlineAt,
+      });
+    },
   );
   for (const routePath of routePaths) {
     getH3App(nitroApp).use(

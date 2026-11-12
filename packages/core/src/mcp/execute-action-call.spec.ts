@@ -165,6 +165,7 @@ describe("executeMcpActionCall", () => {
 
     expect(outcome).toEqual({
       status: "completed",
+      effect: "committed",
       value: {
         title: "Thread",
         items: [{ url: "[hidden embed URL]" }, { id: "kept" }],
@@ -172,6 +173,7 @@ describe("executeMcpActionCall", () => {
       reportedError: false,
     });
     expect(Reflect.ownKeys(outcome).sort()).toEqual([
+      "effect",
       "reportedError",
       "status",
       "value",
@@ -207,6 +209,7 @@ describe("executeMcpActionCall", () => {
 
     expect(outcome).toEqual({
       status: "completed",
+      effect: "none",
       reportedError: true,
       value: { isError: true, detail: "nope" },
     });
@@ -236,6 +239,7 @@ describe("executeMcpActionCall", () => {
 
     expect(outcome).toEqual({
       status: "completed",
+      effect: "committed",
       reportedError: false,
       value: {
         content: [{ type: "text", text: "[hidden embed ticket]" }],
@@ -262,6 +266,7 @@ describe("executeMcpActionCall", () => {
 
     await expect(execute(callable, "big")).resolves.toEqual({
       status: "failed",
+      effect: "committed",
       stage: "result",
       message: "Do not know how to serialize a BigInt",
       errorCode: undefined,
@@ -273,6 +278,7 @@ describe("executeMcpActionCall", () => {
     });
     await expect(execute(callable, "getter")).resolves.toEqual({
       status: "failed",
+      effect: "committed",
       stage: "result",
       message: "[hidden embed URL]",
       errorCode: undefined,
@@ -285,6 +291,7 @@ describe("executeMcpActionCall", () => {
       execute({ write: entry({ run }) }, "write", { n: Infinity }),
     ).resolves.toEqual({
       status: "failed",
+      effect: "none",
       stage: "approval",
       message: "MCP action arguments must contain finite numbers",
       errorCode: undefined,
@@ -295,6 +302,7 @@ describe("executeMcpActionCall", () => {
       execute({ write: entry({ run }) }, "write", { at: new Date(0) }),
     ).resolves.toEqual({
       status: "failed",
+      effect: "none",
       stage: "approval",
       message: "MCP action arguments must be JSON values",
       errorCode: undefined,
@@ -318,6 +326,7 @@ describe("executeMcpActionCall", () => {
       ),
     ).resolves.toEqual({
       status: "failed",
+      effect: "unknown",
       stage: "action",
       message: "Revision is stale.",
       errorCode: "stale_revision",
@@ -340,12 +349,14 @@ describe("executeMcpActionCall", () => {
     };
     await expect(execute(failing, "generic")).resolves.toEqual({
       status: "failed",
+      effect: "unknown",
       stage: "action",
       message: "Generic failure.",
       errorCode: undefined,
     });
     await expect(execute(failing, "plain")).resolves.toEqual({
       status: "failed",
+      effect: "unknown",
       stage: "action",
       message: "plain string",
       errorCode: undefined,
@@ -596,6 +607,7 @@ describe("executeMcpActionCall", () => {
       stage: "authorization",
       message: "Forbidden: write is not permitted for this service principal.",
       errorCode: "service_principal_action_denied",
+      effect: "none",
     };
 
     vi.mocked(assertServicePrincipalMayRun).mockResolvedValueOnce({
@@ -629,6 +641,7 @@ describe("executeMcpActionCall", () => {
       );
       await expect(execute(callable, "write")).resolves.toEqual({
         status: "failed",
+        effect: "none",
         stage: "authorization",
         message,
         errorCode: code,
@@ -653,6 +666,7 @@ describe("executeMcpActionCall", () => {
       ),
     ).resolves.toEqual({
       status: "failed",
+      effect: "unknown",
       stage: "action",
       message: "Forbidden: write is not permitted for this service principal.",
       errorCode: "service_principal_action_denied",
@@ -683,6 +697,7 @@ describe("executeMcpActionCall sanitizing", () => {
       ),
     ).resolves.toEqual({
       status: "failed",
+      effect: "unknown",
       stage: "action",
       message: "Revision is stale.",
       errorCode: "[hidden embed URL]",
@@ -709,6 +724,7 @@ describe("executeMcpActionCall sanitizing", () => {
 
     expect(outcome).toEqual({
       status: "completed",
+      effect: "committed",
       value: { title: "Thread", links: { keep: "me" } },
       reportedError: false,
     });
@@ -798,6 +814,7 @@ describe("executeMcpActionCall sanitizing", () => {
         const outcome = await execute(callable, name);
         expect(outcome, `${name}: ${nested}`).toEqual({
           status: "completed",
+          effect: "committed",
           value,
           reportedError: false,
         });
@@ -827,7 +844,12 @@ describe("executeMcpActionCall sanitizing", () => {
         { read: entry({ readOnly: true, run: async () => value }) },
         "read",
       ),
-    ).resolves.toEqual({ status: "completed", value, reportedError: false });
+    ).resolves.toEqual({
+      status: "completed",
+      value,
+      reportedError: false,
+      effect: "committed",
+    });
   });
 
   it("redacts the framework route even when its separators are disguised", async () => {
@@ -848,6 +870,7 @@ describe("executeMcpActionCall sanitizing", () => {
         mention,
       ).resolves.toEqual({
         status: "completed",
+        effect: "committed",
         value: { mention: "[hidden embed URL]", keep: "me" },
         reportedError: false,
       });
@@ -875,6 +898,7 @@ describe("executeMcpActionCall sanitizing", () => {
 
     expect(outcome).toEqual({
       status: "completed",
+      effect: "committed",
       value: {
         readback: {
           title: "Row",
@@ -913,6 +937,7 @@ describe("executeMcpActionCall sanitizing", () => {
         const listings = listed.mock.calls.length;
         expect(outcome).toEqual({
           status: "completed",
+          effect: "committed",
           value: nested,
           reportedError: false,
         });
@@ -1163,6 +1188,7 @@ describe("executeMcpActionCall sanitizing", () => {
         ),
       ).resolves.toEqual({
         status: "failed",
+        effect: "committed",
         stage: "result",
         message: "The result could not be checked for embed credentials.",
         errorCode: undefined,
@@ -1224,6 +1250,7 @@ describe("executeMcpActionCall sanitizing", () => {
     for (const name of ["message", "code"]) {
       await expect(execute(callable, name)).resolves.toEqual({
         status: "failed",
+        effect: "unknown",
         stage: "action",
         message: "The call failed, and its error could not be read.",
         errorCode: undefined,
