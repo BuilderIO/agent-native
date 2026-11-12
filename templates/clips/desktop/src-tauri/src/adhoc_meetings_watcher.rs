@@ -30,6 +30,12 @@ const POLL_SECS: u64 = 2;
 
 const MIC_DWELL: Duration = Duration::from_secs(3);
 
+/// A browser call site only becomes a call when the browser's microphone was
+/// seen off this recently before it turned on. The browser shares one
+/// microphone across all its tabs: a call in one tab must not turn another
+/// call-site tab brought to the front into a second call.
+const BROWSER_MIC_START_WINDOW: Duration = Duration::from_secs(3 * POLL_SECS + 1);
+
 const FRONT_DWELL: Duration = Duration::from_secs(9);
 
 const JOIN_GRACE: Duration = Duration::from_secs(20);
@@ -81,6 +87,8 @@ struct AdhocMeetingsWatcherInner {
     dismissed_until: HashMap<String, i64>,
     evidence: HashMap<String, CallEvidence>,
     browser_associations: HashMap<&'static str, BrowserCallAssociation>,
+    /// Last time each browser process was seen with its microphone off.
+    browser_mic_off_at: HashMap<BrowserProcessKey, Instant>,
     session_notified: HashMap<String, bool>,
     create_in_doubt_since: HashMap<String, i64>,
 }
@@ -336,6 +344,7 @@ impl AdhocMeetingsWatcherInner {
     fn clear_tracking(&mut self, now_ts: i64) {
         self.evidence.clear();
         self.browser_associations.clear();
+        self.browser_mic_off_at.clear();
         self.create_in_doubt_since.clear();
         let notified: Vec<String> = self.session_notified.drain().map(|(p, _)| p).collect();
         for platform in notified {
@@ -395,13 +404,37 @@ impl AdhocMeetingsWatcherInner {
         candidate: Option<BrowserCallCandidate>,
         mic_by_process: &HashMap<BrowserProcessKey, Option<bool>>,
     ) -> BrowserCallUpdates {
-        if let Some(candidate) = candidate.filter(|candidate| {
+        let mic_started_in_front = |candidate: &BrowserCallCandidate| {
+            self.browser_mic_off_at
+                .get(&(candidate.pid, candidate.bundle_id))
+                .is_some_and(|off_at| {
+                    now.saturating_duration_since(*off_at) <= BROWSER_MIC_START_WINDOW
+                })
+        };
+        let candidate = candidate.filter(|candidate| {
             mic_by_process
                 .get(&(candidate.pid, candidate.bundle_id))
                 .copied()
                 .flatten()
                 == Some(true)
-        }) {
+        });
+        // A call site whose association already exists keeps it; a new one
+        // needs the microphone to have turned on while it was in front.
+        let candidate = candidate.filter(|candidate| {
+            self.browser_associations
+                .get(candidate.platform)
+                .is_some_and(|association| {
+                    association.pid == candidate.pid
+                        && association.bundle_id == candidate.bundle_id
+                })
+                || mic_started_in_front(candidate)
+        });
+        for (key, mic) in mic_by_process {
+            if *mic == Some(false) {
+                self.browser_mic_off_at.insert(*key, now);
+            }
+        }
+        if let Some(candidate) = candidate {
             self.browser_associations.retain(|platform, association| {
                 *platform == candidate.platform
                     || association.pid != candidate.pid
@@ -989,6 +1022,13 @@ mod tests {
         HashMap::from([((pid, "com.google.chrome"), state)])
     }
 
+    /// The call-site tab was in front with the microphone off just before
+    /// `at`, as it is right before someone joins.
+    fn saw_mic_off(state: &mut AdhocMeetingsWatcherInner, pid: i32, at: Instant) {
+        let before = at.checked_sub(Duration::from_secs(POLL_SECS)).unwrap_or(at);
+        state.observe_browser_calls(before, None, &browser_mic(pid, Some(false)));
+    }
+
     #[test]
     fn a_browser_microphone_without_a_matched_meeting_host_is_not_associated() {
         let now = Instant::now();
@@ -1030,6 +1070,7 @@ mod tests {
         let own_mic = browser_mic(candidate.pid, Some(true));
         let mut state = AdhocMeetingsWatcherInner::default();
 
+        saw_mic_off(&mut state, candidate.pid, start);
         state.observe_browser_calls(start, Some(candidate), &own_mic);
         state.observe_browser_calls(start + Duration::from_secs(2), None, &own_mic);
         state.observe_browser_calls(start + Duration::from_secs(4), None, &own_mic);
@@ -1060,6 +1101,7 @@ mod tests {
         let mic = browser_mic(candidate.pid, Some(true));
         let mut state = AdhocMeetingsWatcherInner::default();
 
+        saw_mic_off(&mut state, candidate.pid, start);
         let first = state.observe_browser_calls(start, Some(candidate), &mic);
         assert!(first.live_platforms.is_empty());
         assert_eq!(state.browser_associations["meet"].pid, candidate.pid);
@@ -1092,7 +1134,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_provider_change_replaces_the_same_process_association() {
+    fn another_call_site_tab_during_a_call_keeps_the_original_call() {
         let start = Instant::now();
         let meet = BrowserCallCandidate {
             pid: 1234,
@@ -1106,14 +1148,52 @@ mod tests {
         let mic = browser_mic(meet.pid, Some(true));
         let mut state = AdhocMeetingsWatcherInner::default();
 
+        saw_mic_off(&mut state, meet.pid, start);
         state.observe_browser_calls(start, Some(meet), &mic);
-        state.observe_browser_calls(start + Duration::from_secs(1), Some(zoom), &mic);
+        state.observe_browser_calls(start + Duration::from_secs(10), Some(zoom), &mic);
 
-        assert!(!state.browser_associations.contains_key("meet"));
-        assert!(state.browser_associations.contains_key("zoom"));
+        assert!(state.browser_associations.contains_key("meet"));
+        assert!(!state.browser_associations.contains_key("zoom"));
 
-        let updates = state.observe_browser_calls(start + Duration::from_secs(5), None, &mic);
-        assert_eq!(updates.live_platforms, vec!["zoom"]);
+        let updates = state.observe_browser_calls(start + Duration::from_secs(12), None, &mic);
+        assert_eq!(updates.live_platforms, vec!["meet"]);
+    }
+
+    #[test]
+    fn a_call_site_tab_brought_to_the_front_while_the_mic_already_runs_is_not_a_call() {
+        let start = Instant::now();
+        let zoom = BrowserCallCandidate {
+            pid: 1234,
+            bundle_id: "com.google.chrome",
+            platform: "zoom",
+        };
+        let mic = browser_mic(zoom.pid, Some(true));
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        state.observe_browser_calls(start, None, &mic);
+        for secs in [2, 4, 20, 40] {
+            let updates =
+                state.observe_browser_calls(start + Duration::from_secs(secs), Some(zoom), &mic);
+            assert!(updates.live_platforms.is_empty(), "after {secs}s");
+        }
+        assert!(state.browser_associations.is_empty());
+    }
+
+    #[test]
+    fn an_old_microphone_off_reading_does_not_make_a_running_microphone_a_new_call() {
+        let start = Instant::now();
+        let zoom = BrowserCallCandidate {
+            pid: 1234,
+            bundle_id: "com.google.chrome",
+            platform: "zoom",
+        };
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        state.observe_browser_calls(start, None, &browser_mic(zoom.pid, Some(false)));
+        let later = start + BROWSER_MIC_START_WINDOW + Duration::from_secs(1);
+        state.observe_browser_calls(later, Some(zoom), &browser_mic(zoom.pid, Some(true)));
+
+        assert!(state.browser_associations.is_empty());
     }
 
     fn ago(now: Instant, secs: u64) -> Instant {
