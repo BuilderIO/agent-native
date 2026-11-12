@@ -41,8 +41,8 @@ export function AgentKitActionWidget({
 
   if (!tool) return <AgentWidgetView value={widget} threadId={threadId} />;
 
-  const resultJson = tool.output;
-  // The run's task group already shows these tasks and their status.
+  // The run's task group already shows its tasks, so the card keeps the rest.
+  let resultJson = tool.output;
   const teamTasks =
     widget.kind === ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER
       ? normalizeAgentTeamProgressResult(resultJson)?.tasks
@@ -58,7 +58,9 @@ export function AgentKitActionWidget({
           : [],
       ),
     );
-    if (teamTasks.every((task) => runTaskIds.has(task.taskId))) return null;
+    const untracked = teamTasks.filter((task) => !runTaskIds.has(task.taskId));
+    if (untracked.length === 0) return null;
+    if (untracked.length < teamTasks.length) resultJson = { tasks: untracked };
   }
   const messageId = thread.widgetMessageIds[widget.id];
   const attachedChangeWidgets =
@@ -106,11 +108,11 @@ export function AgentKitActionWidget({
     toolName: tool.name,
     args: asRecord(tool.input) ?? {},
     resultText:
-      typeof tool.output === "string"
-        ? tool.output
-        : tool.output === undefined
+      typeof resultJson === "string"
+        ? resultJson
+        : resultJson === undefined
           ? undefined
-          : JSON.stringify(tool.output),
+          : JSON.stringify(resultJson),
     resultJson,
     ...(relatedResults.length > 1 ? { relatedResults } : {}),
     widgetId: widget.id,

@@ -99,12 +99,22 @@ describe("AgentKitActionWidget", () => {
     const toolCall: AgentToolCall = {
       id: "team-1",
       name: "agent-teams",
-      input: { action: "status", taskId: "task-1" },
+      input: { action: "list" },
       output: {
-        taskId: "task-1",
-        threadId: "child-1",
-        name: "Pricing research",
-        status: "completed",
+        tasks: [
+          {
+            taskId: "task-1",
+            threadId: "child-1",
+            name: "Pricing research",
+            status: "completed",
+          },
+          {
+            taskId: "task-2",
+            threadId: "child-2",
+            name: "Hero copy",
+            status: "running",
+          },
+        ],
       },
       status: "completed",
       runId: "run-2",
@@ -114,12 +124,15 @@ describe("AgentKitActionWidget", () => {
       kind: ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
       data: { toolCallId: toolCall.id, toolName: toolCall.name },
     };
-    const render = async (taskRunId: string) => {
-      const task = {
-        id: "task-1",
-        title: "Pricing research",
-        status: "completed" as const,
-      };
+    const render = async (taskRunIds: Record<string, string>) => {
+      const tasks = [
+        {
+          id: "task-1",
+          title: "Pricing research",
+          status: "completed" as const,
+        },
+        { id: "task-2", title: "Hero copy", status: "running" as const },
+      ];
       const client = new AgentKitClient({
         transport: {
           async startRun() {
@@ -134,35 +147,62 @@ describe("AgentKitActionWidget", () => {
               updatedAt: "2026-09-26T00:00:00.000Z",
               messages: [],
               toolCalls: [toolCall],
-              tasks: [task],
-              events: [
-                {
-                  id: "task-event-1",
+              tasks,
+              events: tasks.map((task, index) => {
+                const runId = taskRunIds[task.id] ?? "run-1";
+                const sequence = tasks
+                  .slice(0, index + 1)
+                  .filter(
+                    (earlier) => (taskRunIds[earlier.id] ?? "run-1") === runId,
+                  ).length;
+                return {
+                  id: `task-event-${index}`,
                   threadId: "thread-1",
-                  runId: taskRunId,
-                  sequence: 1,
+                  runId,
+                  sequence,
                   occurredAt: "2026-09-26T00:00:01.000Z",
-                  type: "task.completed" as const,
+                  type: "task.updated" as const,
                   task,
-                },
-              ],
+                };
+              }),
             };
           },
         },
       });
       await client.loadThread("thread-1");
-      return renderToStaticMarkup(
-        <AgentNativeI18nProvider catalog={catalog}>
-          <AgentKitProvider controller={client} threadId="thread-1">
-            <AgentKitActionWidget value={widget} threadId="thread-1" />
-          </AgentKitProvider>
-        </AgentNativeI18nProvider>,
-      );
+      const container = document.createElement("div");
+      const root = createRoot(container);
+      try {
+        await act(async () => {
+          root.render(
+            <AgentNativeI18nProvider
+              catalog={catalog}
+              persistPreference={false}
+            >
+              <AgentKitProvider controller={client} threadId="thread-1">
+                <AgentKitActionWidget value={widget} threadId="thread-1" />
+              </AgentKitProvider>
+            </AgentNativeI18nProvider>,
+          );
+        });
+        // The progress card loads lazily.
+        await act(
+          async () => new Promise((resolve) => setTimeout(resolve, 50)),
+        );
+        return container.textContent ?? "";
+      } finally {
+        await act(async () => root.unmount());
+      }
     };
 
-    expect(await render("run-2")).toBe("");
-    // A task the thread tracks from an earlier run has no row in this run.
-    expect(await render("run-1")).not.toBe("");
+    expect(await render({ "task-1": "run-2", "task-2": "run-2" })).toBe("");
+    // A task tracked only in an earlier run has no row in this run.
+    const mixed = await render({ "task-1": "run-2" });
+    expect(mixed).toContain("Hero copy");
+    expect(mixed).not.toContain("Pricing research");
+    const earlier = await render({});
+    expect(earlier).toContain("Hero copy");
+    expect(earlier).toContain("Pricing research");
   });
 
   it("resolves the renderer with stored action args and structured result", async () => {
