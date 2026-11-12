@@ -288,6 +288,9 @@ describe("requireCreatedPageLinks", () => {
     ["an image", "![Notes](/page/abc123XYZ)"],
     ["a link left unclosed", "See [Notes](/page/abc123XYZ"],
     ["an anchor", "See [Notes](#abc123XYZ)."],
+    ["a path relative to the chat's URL", "See [Notes](page/abc123XYZ)."],
+    ["a dot-relative path", "See [Notes](./page/abc123XYZ)."],
+    ["a parent-relative path", "See [Notes](../page/abc123XYZ)."],
     ["another route", "See [settings](/settings?ref=abc123XYZ)."],
     [
       "an open link for another Page",

@@ -125,7 +125,9 @@ const RELATIVE_BASE = "https://relative.invalid";
 
 /**
  * Whether a link opens the Page: its route or its open link under this app's
- * base path, as a path or on this app's origin. A relative target must still
+ * base path, as a root-relative path or on this app's origin. A path like
+ * "page/<id>" is left out because the browser resolves it against the chat's
+ * own URL, which the check can't see. A root-relative target must still
  * resolve to the origin it was read against: "//host" and "/\host" both name
  * another host.
  */
@@ -134,10 +136,12 @@ function opensPage(
   origin: string | undefined,
   id: string,
 ): boolean {
+  const absolute = URL.canParse(target);
+  if (!absolute && !target.startsWith("/")) return false;
   const base = origin ?? RELATIVE_BASE;
   if (!URL.canParse(target, base)) return false;
   const url = new URL(target, base);
-  const expected = URL.canParse(target) ? origin : new URL(base).origin;
+  const expected = absolute ? origin : new URL(base).origin;
   if (url.origin !== expected) return false;
   const basePath = getConfiguredAppBasePath();
   const path = url.pathname.replace(/\/+$/, "");
