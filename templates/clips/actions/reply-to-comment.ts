@@ -31,8 +31,8 @@ export default defineAction({
       .describe("Organization members mentioned in the reply"),
     idempotencyKey: commentIdempotencyKeySchema,
   }),
-  run: async (args) => {
-    const saved = await saveRecordingReply(args);
+  run: async (args, ctx) => {
+    const saved = await saveRecordingReply(args, ctx?.requestHeaders);
     return {
       id: saved.id,
       threadId: saved.threadId,

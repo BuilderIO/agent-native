@@ -617,6 +617,41 @@ describe("AgentKit composer context submission", () => {
   );
 
   it.each(["immediate", "queued"] as const)(
+    "sends a custom agent mention as a run reference on %s submissions",
+    async (intent) => {
+      const runtime = transport();
+      if (intent === "queued") withActiveRun(runtime);
+      client = new AgentKitClient({ transport: runtime });
+      if (intent === "queued") await client.loadThread("thread-1");
+      await act(async () =>
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <AgentKitComposer autoFocus={false} />
+          </AgentKitProvider>,
+        ),
+      );
+      const researcher = {
+        type: "custom-agent" as const,
+        path: "agents/researcher.md",
+        name: "Researcher",
+        source: "agent:custom",
+        refType: "custom-agent",
+        refId: "researcher",
+      };
+      await act(async () => {
+        await capture.props!.onSubmit("Find sources", [], [researcher], {
+          intent,
+        });
+      });
+      const input =
+        intent === "queued"
+          ? runtime.queueMessage.mock.calls[0][0]
+          : runtime.startRun.mock.calls[0][0];
+      expect(input.references).toEqual([researcher]);
+    },
+  );
+
+  it.each(["immediate", "queued"] as const)(
     "includes mode instructions without context items in %s submissions",
     async (intent) => {
       const runtime = transport();

@@ -725,7 +725,7 @@ export function ToolCallDisplay({
       {children}
     </ToolActivityPresentation>
   );
-  if (!isError && toolKind === "bash") {
+  if (toolKind === "bash") {
     return wrapToolDisplay(
       <BashCell
         meta={
@@ -733,6 +733,7 @@ export function ToolCallDisplay({
         }
         output={result}
         isRunning={effectiveIsRunning}
+        isError={isError}
       />,
     );
   }

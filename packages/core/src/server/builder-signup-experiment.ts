@@ -19,9 +19,11 @@ import {
 import { z } from "zod";
 
 import { getAppConfig } from "../app-config/index.js";
+import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { getSetting, mutateSetting } from "../settings/store.js";
-import { track } from "../tracking/index.js";
+import { flushTracking, track } from "../tracking/index.js";
 import type { AuthSession } from "./auth.js";
+import { platformWaitUntil } from "./background-work.js";
 import {
   getAuthSecret,
   getBetterAuthInternalAdapter,
@@ -32,6 +34,12 @@ export const BUILDER_SIGNUP_EXPERIMENT = "design_builder_signup_v1";
 export const BUILDER_SIGNUP_POLICY = "builder-signup-2026-11-06";
 export const BUILDER_SIGNUP_COOKIE = "an_builder_signup";
 const TTL = 7 * 24 * 60 * 60;
+const existingSignupStatusSchema = z.enum([
+  "control",
+  "started",
+  "connected",
+  "fallback",
+]);
 const assignmentSchema = z.object({
   id: z.string().regex(/^[a-f0-9]{32}$/),
   variant: z.enum(["control", "automatic"]),
@@ -43,14 +51,67 @@ const assignmentSchema = z.object({
   policy: z.literal(BUILDER_SIGNUP_POLICY),
 });
 type Assignment = z.infer<typeof assignmentSchema>;
+const consentSchema = assignmentSchema.extend({
+  variant: z.literal("automatic"),
+  acceptedAt: z.number().int(),
+  attemptId: z.string().min(16).max(128),
+  userId: z.string().min(1),
+  email: z.string().email(),
+  method: z.enum(["password", "magic-link", "google"]),
+});
+
+function hasSignupConsentOwnership(
+  consent: z.infer<typeof consentSchema>,
+  original: Assignment | null,
+): boolean {
+  // Google and email-link bindings happen after ownership verification.
+  // Password binding happens before verification, so retain its browser binding.
+  if (consent.method !== "password") return true;
+  return (
+    original?.id === consent.id &&
+    original.attemptId === consent.attemptId &&
+    original.acceptedAt === consent.acceptedAt &&
+    original.method === "password"
+  );
+}
+
+/** Keep deployment identity distinct from its source template, as in manual connect. */
+export function getBuilderSignupTrackingIdentity() {
+  const { app } = getAppConfig();
+  const identity = trackingIdentityProperties();
+  const deployment = app.workspaceId ?? app.id ?? identity.agent_native_app;
+  const template =
+    app.template ??
+    app.sourceTemplate ??
+    app.slug ??
+    identity.agent_native_template;
+  return {
+    ...(deployment ? { agentNativeApp: deployment } : {}),
+    ...(template ? { agentNativeTemplate: template } : {}),
+  };
+}
+
+function experimentId(): string {
+  return getAppConfig().onboarding.builderSignupExperimentId;
+}
+
+export function builderSignupAssignmentCookieName(): string {
+  const id = experimentId();
+  // Preserve existing Design assignments; other experiments get distinct names
+  // even when apps share an origin under different base paths.
+  return id === BUILDER_SIGNUP_EXPERIMENT
+    ? BUILDER_SIGNUP_COOKIE
+    : `${BUILDER_SIGNUP_COOKIE}_${Buffer.from(id).toString("hex")}`;
+}
 
 function experimentProperties(
   assignment?: Assignment,
 ): Record<string, unknown> {
+  const identity = trackingIdentityProperties();
   return {
-    app_name: "design",
-    template_name: "design",
-    experiment_id: BUILDER_SIGNUP_EXPERIMENT,
+    ...(identity.app ? { app_name: identity.app } : {}),
+    ...(identity.template ? { template_name: identity.template } : {}),
+    experiment_id: experimentId(),
     ...(assignment
       ? { experiment_variant: assignment.variant, assignment_id: assignment.id }
       : {}),
@@ -59,7 +120,7 @@ function experimentProperties(
 
 function mac(body: string): Buffer {
   return createHmac("sha256", getAuthSecret())
-    .update(`${BUILDER_SIGNUP_EXPERIMENT}:${body}`)
+    .update(`${experimentId()}:${body}`)
     .digest();
 }
 
@@ -107,7 +168,7 @@ export function decodeBuilderSignupAssignment(
 function writeAssignment(event: H3Event, assignment: Assignment): void {
   setCookie(
     event,
-    BUILDER_SIGNUP_COOKIE,
+    builderSignupAssignmentCookieName(),
     encodeBuilderSignupAssignment(assignment),
     {
       httpOnly: true,
@@ -133,10 +194,10 @@ export async function bindBuilderSignupAttempt(
   attemptId: unknown,
   method: "password" | "magic-link" | "google",
   email: string,
-): Promise<boolean> {
+): Promise<{ userId: string } | false> {
   if (!isBuilderSignupExperimentEnabled()) return false;
   const assignment = decodeBuilderSignupAssignment(
-    getCookie(event, BUILDER_SIGNUP_COOKIE),
+    getCookie(event, builderSignupAssignmentCookieName()),
   );
   if (!assignment) return false;
   const normalizedEmail = email.trim().toLowerCase();
@@ -150,7 +211,8 @@ export async function bindBuilderSignupAttempt(
   if (
     !identity ||
     !Number.isFinite(createdAtMs) ||
-    createdAtMs < assignment.issuedAt
+    createdAtMs < assignment.issuedAt ||
+    (assignment.acceptedAt !== undefined && createdAtMs < assignment.acceptedAt)
   )
     return false;
   track(
@@ -159,7 +221,7 @@ export async function bindBuilderSignupAttempt(
     { authUserId: identity.user.id, userId: normalizedEmail },
   );
   if (assignment.variant === "control") {
-    const key = `${BUILDER_SIGNUP_EXPERIMENT}:${identity.user.id}`;
+    const key = `${experimentId()}:${identity.user.id}`;
     const record = await mutateSetting(
       key,
       (current) =>
@@ -191,13 +253,12 @@ export async function bindBuilderSignupAttempt(
     assignment.attemptId !== attemptId
   )
     return false;
-  const key = `${BUILDER_SIGNUP_EXPERIMENT}:attempt:${attemptId}`;
+  const key = `${experimentId()}:attempt:${attemptId}`;
   if (
     assignment.method !== method ||
     (assignment.email && assignment.email !== normalizedEmail)
   )
     return false;
-  if (createdAtMs < assignment.acceptedAt) return false;
   const bound = z
     .object({ id: z.string(), boundUserId: z.string() })
     .parse(
@@ -210,7 +271,7 @@ export async function bindBuilderSignupAttempt(
   if (bound.id !== assignment.id || bound.boundUserId !== identity.user.id)
     return false;
   await mutateSetting(
-    `${BUILDER_SIGNUP_EXPERIMENT}:consent:${identity.user.id}`,
+    `${experimentId()}:consent:${identity.user.id}`,
     (current) =>
       current ?? {
         ...assignment,
@@ -224,7 +285,7 @@ export async function bindBuilderSignupAttempt(
     maxAge: TTL,
     secure: getHeader(event, "host")?.includes("localhost") !== true,
   });
-  return true;
+  return { userId: identity.user.id };
 }
 
 export async function getBuilderSignupConnectError(
@@ -233,7 +294,7 @@ export async function getBuilderSignupConnectError(
   { code: "account_exists"; message: string; at: number } | undefined
 > {
   if (!userId || !isBuilderSignupExperimentEnabled()) return undefined;
-  const record = await getSetting(`${BUILDER_SIGNUP_EXPERIMENT}:${userId}`);
+  const record = await getSetting(`${experimentId()}:${userId}`);
   if (record?.status !== "fallback" || record.code !== "account_exists")
     return undefined;
   const error = z
@@ -255,67 +316,179 @@ async function finishSignupActivation(
     message?: string;
   },
 ) {
-  const committed = await mutateSetting(key, (current) => {
-    if (!current || current.attempt !== attempt)
-      throw new Error("Signup activation reservation ownership changed");
-    const status = z
-      .enum(["started", "connected", "fallback"])
-      .parse(current.status);
-    if (status !== "started") return current;
-    return {
-      ...current,
-      status: outcome.status,
-      code: outcome.code ?? null,
-      message: outcome.message ?? null,
-      completedAt: Date.now(),
-    };
-  });
-  return z
-    .object({
-      status: z.enum(["connected", "fallback"]),
-      code: z.string().nullable().optional(),
-    })
-    .parse(committed);
+  let changed = false;
+  const commit = () =>
+    mutateSetting(key, (current) => {
+      changed = false;
+      if (!current || current.attempt !== attempt)
+        throw new Error("Signup activation reservation ownership changed");
+      const status = z
+        .enum(["started", "connected", "fallback"])
+        .parse(current.status);
+      if (status !== "started") return current;
+      changed = true;
+      return {
+        ...current,
+        status: outcome.status,
+        code: outcome.code ?? null,
+        message: outcome.message ?? null,
+        completedAt: Date.now(),
+      };
+    });
+  // Retrying the owned terminal write is idempotent; the provider is never retried.
+  const retryCommit = async () => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return commit();
+  };
+  const committed = await commit().catch(retryCommit).catch(retryCommit);
+  return {
+    ...z
+      .object({
+        status: z.enum(["connected", "fallback"]),
+        code: z.string().nullable().optional(),
+      })
+      .parse(committed),
+    changed,
+  };
 }
 
-export function createBuilderSignupExperimentHandler(dependencies: {
+let verifiedSignupStarter:
+  | ((event: H3Event, session: AuthSession) => Promise<unknown>)
+  | undefined;
+
+export function setBuilderSignupVerifiedStarter(
+  starter: (event: H3Event, session: AuthSession) => Promise<unknown>,
+): void {
+  verifiedSignupStarter = starter;
+}
+
+/** Called only after the auth provider issued this verified signup's session. */
+export async function startBuilderSignupForVerifiedSession(
+  event: H3Event,
+  session: AuthSession,
+): Promise<void> {
+  if (
+    !isBuilderSignupExperimentEnabled() ||
+    !session.userId ||
+    !session.token ||
+    session.emailVerified !== true
+  )
+    return;
+  if (!verifiedSignupStarter)
+    throw new Error("Builder signup activation handler is unavailable");
+  await verifiedSignupStarter(event, session);
+}
+
+export function createBuilderSignupExperiment(dependencies: {
   getSession: (event: H3Event) => Promise<AuthSession | null>;
   sameOrigin: (event: H3Event) => boolean;
   activate: (
     event: H3Event,
     session: AuthSession,
+    owner: { experimentId: string; attempt: string },
   ) => Promise<{ ok: boolean; code?: string; message?: string }>;
+  reconcile?: (
+    event: H3Event,
+    session: AuthSession,
+    owner: { experimentId: string; attempt: string; startedAt: number },
+  ) => Promise<boolean>;
 }) {
-  return defineEventHandler(async (event) => {
+  const reconcile = async (
+    event: H3Event,
+    session: AuthSession,
+    key: string,
+    existing: Record<string, unknown>,
+    assignment: Assignment | null,
+  ) => {
+    const { attempt, startedAt } = existing;
+    if (
+      !session.userId ||
+      !dependencies.reconcile ||
+      typeof attempt !== "string" ||
+      typeof startedAt !== "number" ||
+      !Number.isFinite(startedAt) ||
+      Date.now() - startedAt < 60_000
+    )
+      return null;
+    if (
+      !(await dependencies.reconcile(event, session, {
+        experimentId: experimentId(),
+        attempt,
+        startedAt,
+      }))
+    )
+      return null;
+    const result = await finishSignupActivation(key, attempt, {
+      status: "connected",
+      code: "connection_reconciled",
+    });
+    if (result.changed) {
+      track(
+        "builder_signup_experiment_outcome",
+        {
+          ...experimentProperties(assignment ?? undefined),
+          status: result.status,
+          code: result.code ?? result.status,
+          replayed: false,
+          activation_duration_ms: Date.now() - startedAt,
+        },
+        { userId: session.email, authUserId: session.userId },
+      );
+      await flushTracking();
+    }
+    deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+    return {
+      status: result.status,
+      ...(result.code ? { code: result.code } : {}),
+    };
+  };
+  const handle = async (
+    event: H3Event,
+    verifiedSignupSession?: AuthSession,
+  ) => {
     setResponseHeader(event, "Cache-Control", "no-store");
     const refuse = (status: number, code: string) => {
-      setResponseStatus(event, status);
+      if (!verifiedSignupSession) setResponseStatus(event, status);
       return { status: "unavailable" as const, code };
     };
-    if (!isBuilderSignupExperimentEnabled())
+    if (!isBuilderSignupExperimentEnabled()) {
+      if (getCookie(event, "an_builder_signup_pending"))
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
       return { status: "disabled" as const };
-    const method = getMethod(event);
+    }
+    const method = verifiedSignupSession ? "POST" : getMethod(event);
     if (method !== "GET" && method !== "POST")
       return refuse(405, "method_not_allowed");
-    if (!dependencies.sameOrigin(event)) return refuse(403, "cross_origin");
-    const session = await dependencies.getSession(event);
+    if (!verifiedSignupSession && !dependencies.sameOrigin(event))
+      return refuse(403, "cross_origin");
+    const session =
+      verifiedSignupSession ?? (await dependencies.getSession(event));
     let assignment = decodeBuilderSignupAssignment(
-      getCookie(event, BUILDER_SIGNUP_COOKIE),
+      getCookie(event, builderSignupAssignmentCookieName()),
     );
     if (method === "GET") {
       if (session) return { status: "disabled" as const };
       if (!assignment) {
+        const { builderSignupAutomaticPercent } = getAppConfig().onboarding;
         assignment = {
           id: randomBytes(16).toString("hex"),
-          variant: randomInt(2) === 0 ? "control" : "automatic",
+          variant:
+            randomInt(100) < builderSignupAutomaticPercent
+              ? "automatic"
+              : "control",
           issuedAt: Date.now(),
           policy: BUILDER_SIGNUP_POLICY,
         };
         writeAssignment(event, assignment);
       }
-      return { status: "assigned" as const, ...assignment };
+      return {
+        status: "assigned" as const,
+        ...assignment,
+        experimentId: experimentId(),
+      };
     }
     if (
+      !verifiedSignupSession &&
       !/^application\/json\s*(;|$)/i.test(
         getHeader(event, "content-type") ?? "",
       )
@@ -323,14 +496,108 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       return refuse(415, "json_required");
     const body = z
       .object({
-        operation: z.enum(["accept", "activate"]),
+        operation: z.enum(["accept", "activate", "start", "status"]),
         assignmentId: z.string().optional(),
         attemptId: z.string().min(16).max(128).optional(),
         method: z.enum(["password", "magic-link", "google"]).optional(),
         email: z.string().email().max(320).optional(),
       })
-      .safeParse(await readBodyWithSizeLimit(event, 4096));
+      .safeParse(
+        verifiedSignupSession
+          ? { operation: "start" }
+          : await readBodyWithSizeLimit(event, 4096),
+      );
     if (!body.success) return refuse(400, "invalid_request");
+    const waitUntil =
+      body.data.operation === "start"
+        ? platformWaitUntil(event.req)
+        : undefined;
+    // Consent was bound to the newly created identity during signup. Browser
+    // cookies are transport hints; a callback or later visit can lose them.
+    const consent =
+      body.data.operation !== "accept" &&
+      session?.emailVerified &&
+      session.userId
+        ? await getSetting(`${experimentId()}:consent:${session.userId}`)
+        : null;
+    if (consent && session?.userId) {
+      const saved = consentSchema.safeParse(consent);
+      if (
+        !saved.success ||
+        saved.data.issuedAt > saved.data.acceptedAt ||
+        saved.data.acceptedAt > Date.now() ||
+        saved.data.userId !== session.userId ||
+        saved.data.email !== session.email.trim().toLowerCase()
+      ) {
+        track(
+          "builder_signup_experiment_activation_unavailable",
+          {
+            ...experimentProperties(assignment ?? undefined),
+            code: "consent_invalid",
+          },
+          { userId: session.email, authUserId: session.userId },
+        );
+        return refuse(409, "consent_invalid");
+      }
+      if (!hasSignupConsentOwnership(saved.data, assignment)) {
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        return {
+          status: "disabled" as const,
+          code: "password_acceptance_cookie_required",
+        };
+      }
+      assignment = saved.data;
+    }
+    // start is checked on every signed-in load, including when an unrelated
+    // anonymous assignment cookie survived. Only durable enrollment enters it.
+    if (body.data.operation === "start") {
+      if (!session?.emailVerified || !session.userId)
+        return refuse(401, "verified_session_required");
+      if (!consent) {
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        return { status: "disabled" as const, code: "not_enrolled" };
+      }
+    }
+    if (
+      body.data.operation === "status" ||
+      (body.data.operation === "start" && !waitUntil && !verifiedSignupSession)
+    ) {
+      if (!session?.emailVerified || !session.userId)
+        return refuse(401, "verified_session_required");
+      if (!consent) {
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        return { status: "disabled" as const, code: "not_enrolled" };
+      }
+      const existing = await getSetting(`${experimentId()}:${session.userId}`);
+      if (existing) {
+        const status = existingSignupStatusSchema.parse(existing.status);
+        if (status === "started") {
+          // Age cannot prove the provider has stopped. Keep the reservation
+          // until its owner records an outcome; the client offers bounded Retry.
+          return (
+            (await reconcile(
+              event,
+              session,
+              `${experimentId()}:${session.userId}`,
+              existing,
+              assignment ?? null,
+            )) ?? { status: "pending" as const }
+          );
+        }
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        return { status: "disabled" as const, code: "already_completed" };
+      }
+      return { status: "eligible" as const };
+    }
+    if (
+      !assignment &&
+      (body.data.operation === "activate" || body.data.operation === "start") &&
+      session?.emailVerified &&
+      session.userId
+    ) {
+      deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+      return { status: "disabled" as const, code: "not_enrolled" };
+    }
     if (!assignment) {
       deleteCookie(event, "an_builder_signup_pending", { path: "/" });
       if (body.data.operation === "activate") {
@@ -385,8 +652,8 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     const terminal = (
       status: "connected" | "fallback",
       code?: string,
-      replayed = false,
       durationMs?: number,
+      clearCookie = true,
     ) => {
       track(
         "builder_signup_experiment_outcome",
@@ -394,23 +661,21 @@ export function createBuilderSignupExperimentHandler(dependencies: {
           ...experimentProperties(assignment),
           status,
           code: code ?? status,
-          replayed,
+          replayed: false,
           ...(durationMs === undefined
             ? {}
             : { activation_duration_ms: durationMs }),
         },
         trackingSource,
       );
-      deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+      if (clearCookie)
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
       return { status, ...(code ? { code } : {}) };
     };
     if (assignment.variant !== "automatic")
       return terminal("fallback", "control");
     if (!assignment.acceptedAt || !assignment.attemptId)
       return terminal("fallback", "acceptance_missing");
-    const consent = await getSetting(
-      `${BUILDER_SIGNUP_EXPERIMENT}:consent:${session.userId}`,
-    );
     if (
       !consent ||
       consent.attemptId !== assignment.attemptId ||
@@ -443,18 +708,33 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       createdAtMs < assignment.acceptedAt
     )
       return terminal("fallback", "identity_ineligible");
-    const key = `${BUILDER_SIGNUP_EXPERIMENT}:${session.userId}`;
+    const key = `${experimentId()}:${session.userId}`;
     const existing = await getSetting(key);
     if (existing) {
-      const status = z
-        .enum(["started", "connected", "fallback"])
-        .parse(existing.status);
-      if (status !== "started")
-        return terminal(
-          status,
-          z.string().nullable().optional().parse(existing.code) ?? undefined,
-          true,
+      const status = existingSignupStatusSchema.parse(existing.status);
+      if (status === "control") {
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        return { status: "disabled" as const, code: "control" };
+      }
+      if (status !== "started" && body.data.operation === "start") {
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        return { status: "disabled" as const, code: "already_completed" };
+      }
+      if (status === "started") {
+        const recovered = await reconcile(
+          event,
+          session,
+          key,
+          existing,
+          assignment,
         );
+        if (recovered) return recovered;
+      }
+      if (status !== "started") {
+        deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        const code = z.string().nullable().optional().parse(existing.code);
+        return { status, ...(code ? { code } : {}) };
+      }
       return { status: "pending" as const };
     }
     const attempt = randomBytes(16).toString("hex");
@@ -477,23 +757,65 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       },
       { userId: session.email, authUserId: session.userId },
     );
-    let result: { ok: boolean; code?: string; message?: string };
-    try {
-      result = await dependencies.activate(event, session);
-    } catch {
-      result = { ok: false, code: "activation_interrupted" };
+    // Start and own the provider request in this first POST, rather than
+    // waiting for a second browser round trip. Netlify keeps it alive when
+    // a new user closes the page; the atomic reservation still permits one call.
+    const complete = async () => {
+      let result: { ok: boolean; code?: string; message?: string };
+      try {
+        result = await dependencies.activate(event, session, {
+          experimentId: experimentId(),
+          attempt,
+        });
+      } catch {
+        result = { ok: false, code: "activation_interrupted" };
+      }
+      try {
+        const committed = await finishSignupActivation(key, attempt, {
+          status: result.ok ? "connected" : "fallback",
+          ...(result.code ? { code: result.code } : {}),
+          ...(result.message ? { message: result.message } : {}),
+        });
+        const status = committed.status;
+        if (!committed.changed)
+          return {
+            status,
+            ...(committed.code ? { code: committed.code } : {}),
+          };
+        const outcome = terminal(
+          status,
+          committed.code ?? undefined,
+          Date.now() - z.number().parse(record.startedAt),
+          !waitUntil,
+        );
+        return outcome;
+      } catch {
+        track(
+          "builder_signup_experiment_activation_unavailable",
+          {
+            ...experimentProperties(assignment),
+            code: "outcome_write_failed",
+          },
+          trackingSource,
+        );
+        // Credentials may already be saved. Keep the result explicitly pending;
+        // neither claim provider failure nor call the provider a second time.
+        return { status: "pending" as const, code: "outcome_write_failed" };
+      } finally {
+        if (waitUntil) await flushTracking();
+      }
+    };
+    const completion = complete();
+    if (waitUntil) {
+      waitUntil(completion);
+      return { status: "pending" as const };
     }
-    const committed = await finishSignupActivation(key, attempt, {
-      status: result.ok ? "connected" : "fallback",
-      ...(result.code ? { code: result.code } : {}),
-      ...(result.message ? { message: result.message } : {}),
-    });
-    const status = committed.status;
-    return terminal(
-      status,
-      committed.code ?? undefined,
-      false,
-      Date.now() - z.number().parse(record.startedAt),
-    );
-  });
+    // Hosts without a durable background lifetime must await the write.
+    return completion;
+  };
+  return {
+    handler: defineEventHandler((event) => handle(event)),
+    startVerifiedSignup: (event: H3Event, session: AuthSession) =>
+      handle(event, session),
+  };
 }

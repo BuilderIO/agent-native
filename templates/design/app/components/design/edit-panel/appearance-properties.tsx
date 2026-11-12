@@ -476,7 +476,7 @@ function BlendModeMenu({
         side="left"
         align="start"
         sideOffset={8}
-        className="z-[100010] w-48 rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1 text-[13px] text-foreground shadow-2xl"
+        className="z-[100010] w-48 border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] text-foreground shadow-2xl"
       >
         {selected === MIXED_VALUE ? (
           <>
@@ -495,7 +495,7 @@ function BlendModeMenu({
         {BLEND_MENU_OPTIONS.map((option) => (
           <DropdownMenuItem
             key={option.value}
-            className="flex h-9 cursor-pointer items-center gap-3 rounded-md px-3 text-[13px] focus:bg-[var(--design-editor-control-bg)]"
+            className="flex cursor-pointer items-center focus:bg-[var(--design-editor-control-bg)]"
             onSelect={() => onSelect(option.value)}
           >
             <span className="flex size-4 shrink-0 items-center justify-center">

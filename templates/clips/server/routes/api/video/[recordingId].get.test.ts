@@ -21,6 +21,7 @@ const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockAnd = vi.hoisted(() => vi.fn());
 const mockEq = vi.hoisted(() => vi.fn());
 const mockNe = vi.hoisted(() => vi.fn());
+const mockResolveRecordingDownloadAccess = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -112,6 +113,12 @@ vi.mock("../../../db/index.js", () => ({
 
 vi.mock("../../../lib/s3-upload-provider.js", () => ({
   fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
+}));
+
+vi.mock("../../../lib/recording-download-link.js", () => ({
+  RECORDING_DOWNLOAD_ACCESS_PARAM: "download_access",
+  resolveRecordingDownloadAccess: (...args: unknown[]) =>
+    mockResolveRecordingDownloadAccess(...args),
 }));
 
 import {
@@ -616,6 +623,31 @@ describe("/api/video/:recordingId route", () => {
     ).not.toContain("/compressed");
   });
 
+  it.each(["private", "org"] as const)(
+    "serves %s media to an authorized viewer despite a stored password",
+    async (visibility) => {
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: {
+          visibility,
+          password: "encrypted-password",
+          expiresAt: null,
+          videoUrl: "https://cdn.example.com/clip.mp4",
+        },
+      });
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("media", { headers: { "content-type": "video/mp4" } }),
+      );
+      const event = makeEvent();
+      const result = await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      );
+      expect(result).toBeInstanceOf(Response);
+      expect(event.status).not.toBe(401);
+      expect(mockVerifyShortLivedToken).not.toHaveBeenCalled();
+    },
+  );
+
   it("accepts a protected media cookie when the query token is expired", async () => {
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
@@ -671,6 +703,37 @@ describe("/api/video/:recordingId route", () => {
       }),
     );
   });
+
+  it.each(["private", "org"] as const)(
+    "rejects a real media grant from dormant %s access after becoming public",
+    async (visibility) => {
+      const core =
+        await import("../../../../../../packages/core/src/server/short-lived-token.js");
+      const dormantToken = core.signShortLivedToken({
+        resourceId: `rec-1:password-scoped:visibility:${visibility}`,
+      });
+      mockVerifyShortLivedToken.mockImplementation(core.verifyShortLivedToken);
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: {
+          visibility: "public",
+          password: "encrypted-password",
+          expiresAt: null,
+          videoUrl: "https://cdn.example.com/clip.mp4",
+        },
+      });
+      const event = makeEvent();
+      event.query = { t: dormantToken };
+      const result = await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      );
+      expect(event.status).toBe(401);
+      expect(result).toEqual({
+        error: "Password required",
+        passwordRequired: true,
+      });
+    },
+  );
 
   it("rejects a protected media cookie minted before a password was added", async () => {
     mockResolveAccess.mockResolvedValue({
@@ -1114,6 +1177,153 @@ describe("/api/video/:recordingId route", () => {
         "https://cdn.example.com/footage.mp4",
         expect.any(Object),
       );
+    });
+  });
+
+  describe("download links", () => {
+    const videoUrl = "https://storage.example.com/clips/rec-1/clip.webm";
+    const privateRecording = {
+      id: "rec-1",
+      ownerEmail: "owner@example.com",
+      organizationId: "org-1",
+      visibility: "private",
+      password: "hashed-secret",
+      sharePasswordVersion: "initial",
+      expiresAt: "2000-01-01T00:00:00.000Z",
+      editsJson: null,
+      status: "ready",
+      storageMode: "hosted",
+      videoUrl,
+    };
+
+    it("serves a private, password-protected recording as its owner without a session", async () => {
+      mockGetSession.mockResolvedValue(null);
+      mockResolveRecordingDownloadAccess.mockResolvedValue({
+        ok: true,
+        recording: privateRecording,
+      });
+      mockGetDb.mockReturnValue(
+        createDbWithSelectResult([
+          { videoUrl, editsJson: null, storageMode: "hosted" },
+        ]),
+      );
+      mockFetchS3ObjectByUrl.mockResolvedValue(
+        new Response("owner media", {
+          status: 206,
+          headers: {
+            "content-type": "video/webm",
+            "content-range": "bytes 0-10/100",
+          },
+        }),
+      );
+
+      const event = makeEvent();
+      event.query = { download_access: "download-token" };
+      event.headers.set("range", "bytes=0-10");
+      const result = await handler(event as never);
+
+      expect(mockResolveRecordingDownloadAccess).toHaveBeenCalledWith(
+        "rec-1",
+        "download-token",
+      );
+      expect(mockResolveAccess).not.toHaveBeenCalled();
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(206);
+      expect(await (result as Response).text()).toBe("owner media");
+      expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+        videoUrl,
+        expect.objectContaining({
+          range: "bytes=0-10",
+          recordingId: "rec-1",
+          storageMode: "hosted",
+        }),
+      );
+      expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+        { userEmail: "owner@example.com", orgId: "org-1" },
+        expect.any(Function),
+      );
+      expect(event.setCookies).toEqual([]);
+    });
+
+    it.each([
+      [410, "link_expired"],
+      [403, "link_invalid"],
+      [409, "redaction_pending"],
+    ])(
+      "refuses with %i %s and never falls back to the session's access",
+      async (statusCode, errorCode) => {
+        mockGetSession.mockResolvedValue({ email: "owner@example.com" });
+        mockResolveRecordingDownloadAccess.mockResolvedValue({
+          ok: false,
+          errorCode,
+          statusCode,
+          message: "refused",
+        });
+
+        const event = makeEvent();
+        event.query = { download_access: "download-token" };
+        const result = await handler(event as never);
+
+        expect(event.status).toBe(statusCode);
+        expect(result).toEqual({ error: "refused", errorCode });
+        expect(event.headers.get("cache-control")).toBe(
+          "private, max-age=0, no-store",
+        );
+        expect(mockResolveAccess).not.toHaveBeenCalled();
+        expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+        expect(fetch).not.toHaveBeenCalled();
+      },
+    );
+
+    it("reads a file kept in local storage as the owner", async () => {
+      mockGetSession.mockResolvedValue(null);
+      mockResolveRecordingDownloadAccess.mockResolvedValue({
+        ok: true,
+        recording: { ...privateRecording, videoUrl: "/api/video/rec-1" },
+      });
+      let currentUser: string | undefined;
+      mockRunWithRequestContext.mockImplementation(
+        async (context: { userEmail?: string }, callback: () => unknown) => {
+          const previous = currentUser;
+          currentUser = context.userEmail;
+          try {
+            return await callback();
+          } finally {
+            currentUser = previous;
+          }
+        },
+      );
+      const readAs: Array<[string, string | undefined]> = [];
+      mockReadAppState.mockImplementation(async (key: string) => {
+        readAs.push([key, currentUser]);
+        return {
+          data: Buffer.from("local media").toString("base64"),
+          mimeType: "video/webm",
+        };
+      });
+
+      const event = makeEvent();
+      event.query = { download_access: "download-token" };
+      const result = await handler(event as never);
+
+      expect(readAs).toEqual([["recording-blob-rec-1", "owner@example.com"]]);
+      expect(Buffer.from(result as Uint8Array).toString()).toBe("local media");
+    });
+
+    it("ignores an empty download parameter", async () => {
+      const event = makeEvent();
+      event.query = { download_access: "" };
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("media", {
+          status: 200,
+          headers: { "content-type": "video/mp4" },
+        }),
+      );
+
+      await handler(event as never);
+
+      expect(mockResolveRecordingDownloadAccess).not.toHaveBeenCalled();
+      expect(mockResolveAccess).toHaveBeenCalledWith("recording", "rec-1");
     });
   });
 });

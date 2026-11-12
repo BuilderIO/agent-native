@@ -1051,7 +1051,6 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "この画面を読み込めませんでした。",
-    writeFailed: "変更を保存できませんでした。",
     selectionPublishFailed:
       "エージェントが最新の選択範囲を認識していない可能性があります。もう一度選択してください。",
     liveCollaboration: {
@@ -1645,32 +1644,18 @@ export default {
       editColor: "{{name}} のカラーを編集",
     },
     import: {
-      title: "インポート",
       description:
         "Figma のクリップボード HTML または単体 HTML を Design の画面として取り込みます。",
-      figmaUrlTitle: "Figma フレーム URL",
-      figmaUrlDescription:
-        "Figma リンクからフレームまたはファイルをインポートします。",
       figmaUrlLabel: "Figma フレームまたはファイル URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "Figma 接続を確認中…",
-      figmaConnected: "Figma 接続済み",
-      figmaConnectedWithSuffix: "Figma 接続済み · ••••{{suffix}}",
       figmaTokenLabel: "Figma アクセストークン",
       figmaTokenDocs: "トークンを取得",
       figmaTokenPlaceholder: "Figma 個人アクセストークンを貼り付け",
-      figmaTokenDescription:
-        "Figma インポートとエージェントチャット用に安全に保存されます。トークンはチャットに追加されません。",
-      importFigmaUrl: "Figma からインポート",
-      saveKeyAndImport: "キーを保存してインポート",
       figmaUrlSuccess: "Figma からインポートしました。",
       figmaImageFallbackWarning:
         "画像フォールバック: {{count}}。外観は保持されますが、これらのレイヤーは完全には編集できません。",
       figmaApproximationWarning:
         "近似レイヤー: {{count}}。HTML/CSS ではすべての Figma プロパティを正確に表現できません。",
-      figmaPasteTitle: "Figma から貼り付け",
-      figmaPasteDescription:
-        "Figma でフレームまたはレイヤーをコピーし、Design キャンバスに貼り付けます。Design は表示されているクリップボード HTML をインポートします。",
       figmaPasteTarget: "キャンバスに貼り付け",
       figmaPasteApiKeyHint:
         "正確なノードインポートのために Figma アクセストークンを接続してください。",
@@ -1679,11 +1664,10 @@ export default {
       figmaPasteMatchGuidance:
         "特定の Figma ノードと一致しませんでした。正確にインポートするにはフレームのリンクを貼り付けてください。",
       figmaPasteUnreadable:
-        "クリップボードにコピーされた Figma レイヤーがありません。Figma でフレームを選択し Cmd+C でコピーしてから貼り付け直すか、インポートパネルから Figma のリンクをインポートしてください。",
+        "クリップボードにコピーされた Figma レイヤーがありません。Figma でフレームを選択し Cmd+C でコピーしてから貼り付け直すか、チャットにフレームのリンクを貼り付けてください。",
       figmaPasteRestLabel: "Figma API 経由でインポート",
       figmaPasteHtmlLabel: "クリップボードプレビューからインポート",
-      figmaPasteLocalKiwiLabel:
-        "トークンなしでインポート — ジオメトリとテキストのみ",
+      figmaPasteLocalKiwiLabel: "Figma のクリップボードからインポートしました",
       figmaPasteImagesNeedToken:
         "{{count}} 枚の画像{{plural}}を読み込むには Figma へのアクセスが必要です。",
       figmaPasteImagesDontShowAgain: "今後は表示しない",
@@ -1715,77 +1699,30 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: ".fig をアップロード",
       figUploadDescription:
         "試験的機能：Figma の .fig 形式は独自仕様で、変更される可能性があります。対応レイヤーは編集可能な画面になりますが、一部の機能は異なる場合があります。最大 {{max}} MB。",
-      chooseFigFile: ".fig ファイルを選択",
       figUploadUploading: "アップロード中 {{progress}}%",
       figUploadProcessing: "変換中…",
-      figImportWarningTitle: "大規模な .fig のインポート",
-      figImportWarningDescription:
-        "このファイルには {{frames}} 個のフレームと {{nodes}} 個のレイヤーがあります。すべてをインポートするとエディターが遅くなる可能性があります。必要なページを選択してください。",
-      figImportFrameCount: "{{total}} 個中 {{selected}} 個のフレームを選択",
-      figImportSelectAll: "すべて選択",
-      figImportClearAll: "すべて解除",
-      figImportCancel: "キャンセル",
-      figImportSelected: "選択した {{count}} 個をインポート",
-      figImportAll: "すべてインポート",
       figImportAnalyzing: "分析中…",
       figImportSaving: "{{total}} 個中 {{saved}} 個のフレームを保存中",
-      figImportFrameLimit:
-        "フレームの合計が {{max}} 個以下になるようにページを選択してください。",
       figImportFramesSkippedWarning:
         "複雑すぎてインポートできない {{count}} 個のフレームをスキップしました：{{names}}",
-      figUploadLimits:
-        "最大 {{size}} GB · 1 回のインポートで {{frames}} フレームまで",
-      figUploadDescriptionShort:
-        "ローカルインポート — Figma API の割り当てを使用しません。対応する埋め込み画像が含まれます。",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "Design がこのインポートを一時停止しました",
-      quotaCooldownBody:
-        "クォータの上限に達したため、Design が Figma へのリクエストを調整しています。自動的にリセットされます。",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "HTML をインポート",
       htmlDescription:
         "単体 HTML を貼り付けるかアップロードします。Design はこのエディター UI に注入せず、新しい画面として保存します。",
-      htmlPlaceholder: "<main>単体 HTML をここに貼り付け...</main>",
-      importHtml: "HTML をインポート",
-      chooseHtmlFile: "HTML ファイルを選択",
       allSupportedFiles: "対応しているすべてのファイル",
-      githubTitle: "GitHub",
       githubDescription:
         "近日対応: リポジトリから画面とコンポーネントを直接インポートします。",
-      localTitle: "ローカル app",
       localDescription:
         "/visual-edit で任意の実行中ローカル app に接続します。",
-      visualEditGuidance:
-        "/visual-edit skill をインストールし、任意のローカル app を起動してから、その app repo でブリッジコマンドを実行し、エージェントが URL ベースの画面を追加できるようにします。",
-      comingSoon: "近日対応",
       warningsToast: "警告付きでインポートが完了しました",
       figmaSuccess: "Figma 貼り付けをインポートしました",
       htmlSuccess: "HTML をインポートしました",
       uploadSuccess: "ファイルをインポートしました",
-      lastImport: "前回のインポート",
       errors: {
         figmaTokenMustBeToken:
           "Figma ファイルのリンクではなく、Figma アクセストークンを貼り付けてください。",
-        figmaUrlRequired:
-          "Figma フレームまたはファイル URL を貼り付けてください。",
-        invalidFigmaUrl: "有効な figma.com URL を入力してください。",
         figmaImportFailed: "Figma からインポートできませんでした",
         notHtml: "インポートする有効な HTML を貼り付けるか選択してください。",
         importFailed: "インポートに失敗しました",
@@ -1794,9 +1731,11 @@ export default {
         invalidFigFile: ".fig で終わるファイルを選択してください。",
         unsupportedFileType: ".fig、.html、.htm ファイルを選択してください。",
         importBusy:
-          "別のインポートを実行中です。先に完了するかキャンセルしてください。",
+          "別のインポートを実行中です。完了してからもう一度お試しください。",
         figFileTooLarge:
-          "この .fig ファイルは大きすぎます。アップロードは {{max}} MB までです。Figma で目的のフレームだけを新しいファイルにコピーし、そのファイルを .fig として書き出すか、「Figma から貼り付け」をご利用ください。",
+          "このファイルは大きすぎるため、ここではインポートできません。代わりに Figma のページまたはフレームのリンクを貼り付けてください。",
+        figFileUnreadable:
+          "このファイルは .fig ファイルとして読み取れません。Figma で新しいローカルコピーを保存して、それをインポートしてください。",
       },
     },
     generationMayHaveStopped:
@@ -1856,9 +1795,12 @@ export default {
         "複製する前に、保留中のビジュアル編集を適用または破棄してください。",
       allDesigns: "すべてのデザイン",
       rename: "名前を変更",
+      builtFrom: "{{title}} から作成",
+      builtFromPage: "Content のページから作成",
       duplicate: "複製",
       versionHistory: "バージョン履歴",
       import: "インポート…",
+      connectLocalApp: "ローカルアプリを接続",
       delete: "削除",
       deleteError: "このデザインを削除できませんでした",
     },
@@ -2657,6 +2599,8 @@ export default {
     changesDiscarded:
       "ファイルが存在しないため、一部の変更を保存できず破棄しました。",
     offline: "オフライン",
+    unsaved: "未保存",
+    saveRetrying: "変更を保存できませんでした。自動的に再試行します。",
     saving: "保存中...",
     clearedAllAnnotations: "すべての注釈を消去しました",
     annotationsDiscardedOnViewChange:
@@ -2714,7 +2658,6 @@ export default {
     websiteReferenceMenu: "ウェブサイトを追加…",
     websiteUrlLabel: "ウェブサイトのURL",
     websiteUrl: "ウェブサイトのURLを貼り付け",
-    figmaUrlLabel: "Figmaリンク",
     invalidFigmaUrl:
       "有効なfigma.comのフレームまたはファイルのURLを入力してください。",
     tooMany: "参照は20件まで選択できます。",
@@ -2723,16 +2666,14 @@ export default {
     noSystems:
       "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",
     searchSystems: "デザインシステムを検索…",
-    searchFrames: "Figmaフレームを検索…",
     searchDesigns: "デザインを検索…",
     searchPresentations: "プレゼンテーションを検索…",
+    searchPages: "ページを検索…",
     searchDesign: "デザインを検索…",
     useDesignSystem: "デザインシステムを使用",
     notReady:
       "まだ送信できません。選択したコンテキストと接続を確認して、再試行してください。",
     search: "コンテキストを検索…",
-    figmaUrl: "Figmaリンクを貼り付け",
-    browse: "フレームを参照",
     loadFailed: "この参照を読み込めませんでした。",
     retry: "再試行",
     empty: "一致する参照がありません。",
@@ -2740,9 +2681,30 @@ export default {
     design: "デザインの参照",
     slides: "スライド",
     referenceDesign: "デザインを参照",
+    contentPage: "Content のページ",
     connectFigma: "Figma を接続",
-    figmaDisconnected: "デザインを探すには Figma を接続してください。",
-    figmaReference: "Figma デザイン",
+    figmaReference: "Figma デザイン…",
+    figmaDialogTitle: "Figma デザインを追加",
+    figmaDropTitle: ".fig ファイルをドロップ",
+    figmaChooseFile: "ファイルを選択",
+    figmaPasteHint:
+      "コピーしたフレームはプロンプトに直接貼り付けることもできます。",
+    figmaAddToPrompt: "プロンプトに追加",
+    figmaLinkNeedsConnection:
+      "リンクには Figma アカウントの接続が必要です。代わりに .fig ファイルをドロップするか、コピーしたフレームを貼り付けてください。",
+    figmaReferenceMore: "{{name}} ほか {{count}} 件",
+    figmaReferenceEmpty:
+      "フレームを取得できませんでした。Figma でフレームをコピーして、もう一度お試しください。",
+    figmaSelection: "Figma の選択範囲",
+    figmaFileTooLarge:
+      "このファイルは大きすぎてここでは読み込めません。代わりにページまたはフレームへのリンクを貼り付けてください。",
+    figmaSearch: "ページとフレームを検索",
+    figmaSelectedCount: "{{count}} 件を選択中",
+    figmaShowFrames: "{{name}} のフレームを表示",
+    figmaLinkNotFrame:
+      "Figma のページまたはフレームへのリンクを指定してください。",
+    figmaPageFrameCap:
+      "最初の {{limit}} 個のフレームを追加します。追加するフレームを選ぶには、フレームにチェックを入れてください。",
     referenceDeck: "プレゼンテーションを参照",
     quickSaas: "SaaS ランディングページを作成",
     quickDashboard: "ダッシュボードを作成",
@@ -2908,7 +2870,6 @@ export default {
     import: "インポート",
     importFromFigma: "Figma からインポート",
     figmaFile: "Figma ファイル (.fig)",
-    figmaFileMaxSize: "最大 {{max}} GB",
     openImport: "インポートを開く",
     importSelectedFile: "選択したファイルをインポート",
     starterSaasPrompt:

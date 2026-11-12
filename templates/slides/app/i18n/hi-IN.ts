@@ -424,6 +424,7 @@ const messages = {
     deckTitle: "डेक का शीर्षक",
     presentPresenterViewDescription: "प्रस्तुति के दौरान स्पीकर नोट्स देखें",
     presenterViewBlocked: "प्रस्तुतकर्ता दृश्य खोलने के लिए पॉप-अप की अनुमति दें।",
+    presenterViewUnsupported: "इस ब्राउज़र में प्रस्तुतकर्ता दृश्य समर्थित नहीं है।",
     export: "निर्यात",
     privacyPrivate: "निजी",
     privacyOrg: "संगठन के साथ साझा किया गया",
@@ -475,6 +476,11 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX फ़ाइल जनरेट नहीं हो सकी।",
     exportFailed: "निर्यात विफल",
+    exportFinishedWithWarnings: "चेतावनियों के साथ निर्यात किया गया",
+    imagesDropped:
+      "{{count}} छवि लोड नहीं हो सकीं और PowerPoint फ़ाइल में शामिल नहीं की गईं (स्लाइड {{slides}})।",
+    pdfSidecarSkipped:
+      "यह PDF संपादन योग्य स्रोत के बिना निर्यात किया गया है। इसे फिर से आयात करने पर स्लाइड पेज की सामग्री से दोबारा बनेंगी।",
     exporting: "निर्यात हो रहा है...",
     exportPptxError: "PPTX के रूप में निर्यात करते समय कुछ गलत हुआ।",
     googleSlidesDownloaded: "Google Slides के लिए डाउनलोड किया गया",
@@ -493,6 +499,9 @@ const messages = {
     exportPdf: "PDF के रूप में निर्यात करें",
     exportPptx: "PPTX के रूप में निर्यात करें",
     connectGoogle: "Google कनेक्ट करें",
+    disconnectGoogle: "Google कनेक्शन हटाएं",
+    googleDisconnectFailed: "Google Drive कनेक्शन हटाया नहीं जा सका।",
+    googleSlidesStatusUnknown: "स्थिति जाँची नहीं जा सकी",
     openInGoogleSlides: "Google Slides में खोलें",
     googleSlidesUnavailable: "अनुपलब्ध",
     googleSlidesOpenImporter: "Google Slides इंपोर्ट खोलें",
@@ -512,6 +521,7 @@ const messages = {
   share: {
     createFailed: "साझा लिंक नहीं बन सका",
     snapshotLinks: "स्नैपशॉट लिंक",
+    snapshotLinksLoadFailed: "स्नैपशॉट लिंक लोड नहीं हो सके",
     revokeLink: "रद्द करें",
     revokeFailed: "साझा लिंक रद्द नहीं किया जा सका",
     title: "प्रस्तुति साझा करें",

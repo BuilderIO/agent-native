@@ -5,14 +5,12 @@ import {
   GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
 } from "../agent/engine/credential-errors.js";
 import { getAppConfig } from "../app-config/index.js";
-import {
-  getDbExec,
-  isLocalDatabase,
-  isTransientDatabaseError,
-} from "../db/client.js";
+import { getDbExec, isLocalDatabase } from "../db/client.js";
+import { isTransientDatabaseError } from "../db/errors.js";
 import { AppSecretDecryptionError } from "../secrets/errors.js";
 import type { ReadSecretResult } from "../secrets/storage.js";
 import { getOrgSetting } from "../settings/org-settings.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { BUILDER_CREDENTIAL_KEYS } from "./builder-credential-keys.js";
 import {
   BuilderOAuthScopeError,
@@ -30,6 +28,7 @@ import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
 } from "./personal-provider-key-policy.js";
+import { PublicServerError } from "./public-server-error.js";
 export {
   isHostedWorkspaceRuntime,
   resolveVercelDeploymentProtectionHeaders,
@@ -138,11 +137,13 @@ export class FeatureNotConfiguredError extends Error {
 }
 
 /**
- * The credential store could not be read — which is NOT the same as the
- * credential being absent. Never render this as "not configured": the user has
- * nothing to configure, they have something to retry.
+ * A credential-store availability failure. Failed lookups are distinct from
+ * absent credentials; only availability failures should invite a timed retry.
  */
-export class CredentialStoreUnavailableError extends Error {
+export class CredentialStoreUnavailableError extends PublicServerError {
+  readonly statusCode = 503;
+  readonly headers = { "Retry-After": "5" };
+  readonly data = { code: CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE };
   readonly errorCode = CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE;
   readonly retryable = true;
 
@@ -155,17 +156,33 @@ export class CredentialStoreUnavailableError extends Error {
   }
 }
 
+export class CredentialStoreLookupError extends PublicServerError {
+  readonly statusCode = 500;
+  readonly errorCode = "credential_store_lookup_failed";
+  readonly data = { code: this.errorCode };
+  readonly retryable = false;
+
+  constructor(cause: unknown) {
+    super("Internal server error", { cause });
+    this.name = "CredentialStoreLookupError";
+  }
+}
+
 export function assertCredentialStoreReadable(result: {
   lookupFailed: boolean;
   cause?: unknown;
 }): void {
-  if (
-    result.lookupFailed &&
-    (isTransientDatabaseError(result.cause) ||
-      result.cause instanceof AppSecretDecryptionError ||
-      result.cause instanceof CredentialStoreUnavailableError)
-  ) {
-    throw new CredentialStoreUnavailableError(result.cause);
+  if (result.cause instanceof ForbiddenError) throw result.cause;
+  if (result.lookupFailed) {
+    if (
+      result.cause instanceof CredentialStoreUnavailableError ||
+      result.cause instanceof CredentialStoreLookupError
+    ) {
+      throw result.cause;
+    }
+    throw isTransientDatabaseError(result.cause, { source: "database" })
+      ? new CredentialStoreUnavailableError(result.cause)
+      : new CredentialStoreLookupError(result.cause);
   }
 }
 
@@ -521,6 +538,7 @@ async function resolveOrgIdForRequestEmail(
     const { resolveOrgIdForEmail } = await import("../org/context.js");
     return { orgId: await resolveOrgIdForEmail(email) };
   } catch (err) {
+    if (err instanceof ForbiddenError) throw err;
     return { orgId: null, cause: err };
   }
 }
@@ -839,6 +857,7 @@ async function resolveScopedBuilderCredential(
       );
     }
   } catch (err) {
+    if (err instanceof ForbiddenError) throw err;
     if (traceLookup) {
       console.log(
         `[builder-credential] key=${key} email=${email} scope=${scopeAttempted} error=${(err as Error)?.message ?? err}`,
@@ -1058,6 +1077,7 @@ async function resolveScopedBuilderCredentials(
       }
     }
   } catch (err) {
+    if (err instanceof ForbiddenError) throw err;
     if (traceLookup) {
       console.log(
         `[builder-credential] email=${email} scope=${scopeAttempted} credentials error=${(err as Error)?.message ?? err}`,
@@ -1541,6 +1561,7 @@ export async function resolveBuilderGatewayAuth(
         ? await hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
         : await hasBuilderOAuthSession(ownerEmail, orgId);
     } catch (error) {
+      if (error instanceof ForbiddenError) throw error;
       throw new BuilderCredentialLookupError(error);
     }
   }
@@ -1559,6 +1580,7 @@ export async function resolveBuilderGatewayAuth(
           }
         : null;
     } catch (error) {
+      if (error instanceof ForbiddenError) throw error;
       if (error instanceof BuilderOAuthScopeError) return null;
       throw new BuilderCredentialLookupError(error);
     }
@@ -1947,6 +1969,51 @@ export async function clearBuilderGatewayAuthFailure(creds: {
   });
 }
 
+function automaticSignupReceiptDescription(receipt: string): string {
+  return `Automatic Builder signup: ${receipt}`;
+}
+
+/** Recover only this provider attempt's completed authorized credential write. */
+export async function hasCompletedAutomaticBuilderSignup(
+  email: string,
+  receipt: string,
+  startedAt: number,
+  options?: { orgId?: string | null; role?: string | null },
+): Promise<boolean> {
+  const target = resolveCredentialWriteScope(
+    email,
+    options?.orgId ?? null,
+    options?.role ?? null,
+  );
+  const { readAppSecretMeta, readAppSecrets } =
+    await import("../secrets/storage.js");
+  const meta = await readAppSecretMeta({
+    key: "BUILDER_PRIVATE_KEY",
+    scope: target.scope,
+    scopeId: target.scopeId,
+  });
+  if (
+    !meta ||
+    !meta.last4 ||
+    meta.description !== automaticSignupReceiptDescription(receipt) ||
+    meta.updatedAt < startedAt
+  )
+    return false;
+  const keys = await readAppSecrets({
+    keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+    scope: target.scope,
+    scopeId: target.scopeId,
+  });
+  const privateKey = keys.get("BUILDER_PRIVATE_KEY");
+  const publicKey = keys.get("BUILDER_PUBLIC_KEY");
+  if (!privateKey || !publicKey || privateKey.updatedAt !== meta.updatedAt)
+    return false;
+  return !(await getBuilderCredentialAuthFailure({
+    privateKey: privateKey.value,
+    publicKey: publicKey.value,
+  }));
+}
+
 export async function writeBuilderCredentials(
   email: string,
   creds: {
@@ -1961,7 +2028,11 @@ export async function writeBuilderCredentials(
     isEnterprise?: boolean | null;
     isFreeAccount?: boolean | null;
   },
-  options?: { orgId?: string | null; role?: string | null },
+  options?: {
+    orgId?: string | null;
+    role?: string | null;
+    automaticSignupReceipt?: string;
+  },
 ): Promise<{ scope: "user" | "org"; scopeId: string }> {
   const privateKey = creds.privateKey.trim();
   const publicKey = creds.publicKey.trim();
@@ -2040,8 +2111,15 @@ export async function writeBuilderCredentials(
       value: String(creds.isFreeAccount),
     });
   }
-  await Promise.all(
-    entries.map(({ key, value }) =>
+  // For automatic signup, commit the private key last. Its atomic metadata
+  // receipt proves every other credential write finished before recovery
+  // releases the activation cover, even if the terminal settings write fails.
+  const receipt = options?.automaticSignupReceipt;
+  const firstEntries = receipt
+    ? entries.filter(({ key }) => key !== "BUILDER_PRIVATE_KEY")
+    : entries;
+  const writes = await Promise.allSettled(
+    firstEntries.map(({ key, value }) =>
       writeAppSecret({
         key,
         value,
@@ -2050,6 +2128,21 @@ export async function writeBuilderCredentials(
       }),
     ),
   );
+  const failedWrite = writes.find((result) => result.status === "rejected");
+  if (failedWrite?.status === "rejected") {
+    throw new Error("Could not persist Builder credentials", {
+      cause: failedWrite.reason,
+    });
+  }
+  if (receipt) {
+    await writeAppSecret({
+      key: "BUILDER_PRIVATE_KEY",
+      value: privateKey,
+      scope: target.scope,
+      scopeId: target.scopeId,
+      description: automaticSignupReceiptDescription(receipt),
+    });
+  }
   await clearBuilderCredentialAuthFailure({
     privateKey,
     publicKey,
@@ -2284,8 +2377,7 @@ export async function resolveSecretPairs(
       if (personalReadError) throw personalReadError;
       const environmentPair = readEnvironmentPairs();
       if (environmentPair) return environmentPair;
-      assertCredentialStoreReadable({ lookupFailed, cause });
-      return null;
+      throw cause;
     }
 
     const orgCredentialFirst =
@@ -2349,6 +2441,7 @@ export async function resolveSecretPairs(
       }
     }
   } catch (error) {
+    if (error instanceof ForbiddenError) throw error;
     lookupFailed = true;
     cause = error;
   }
@@ -2583,6 +2676,7 @@ export async function resolveSecretDetailed(
         }
       }
     } catch (err) {
+      if (err instanceof ForbiddenError) throw err;
       if (traceLookup) {
         console.log(
           `[resolve-secret] key=${key} email=${email} scope=error err=${(err as Error)?.message ?? err}`,

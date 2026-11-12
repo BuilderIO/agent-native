@@ -322,7 +322,7 @@ pnpm action db-check-scoping --require-org  # 還需要 org_id
 | OAuth 代幣（Google、GitHub） | `oauth_tokens` 透過 `saveOAuthTokens()` 儲存       |
 | 工作階段權杖                 | 自動（Better Auth 可以處理此問題）                 |
 
-每使用者/每組織憑證和保管庫使用 AES-256-GCM 進行靜態加密。共享工作區保管庫優先使用 `WORKSPACE_SECRETS_ENCRYPTION_KEY`，再使用由 `SECRETS_ENCRYPTION_KEY`、`A2A_SECRET` 和 `BETTER_AUTH_SECRET` 衍生的舊候選金鑰；輪替期間設定 `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`，讓讀取操作移轉資料列。要就地加密現有明文憑證資料列，請執行 `pnpm action db-migrate-encrypt-credentials`（冪等、非破壞性）。
+每使用者/每組織憑證和保管庫使用 AES-256-GCM 進行靜態加密。 Dispatch 保管庫不保留明文副本：`vault_secrets` 只保存名稱和中繼資料，每個值僅存在於 `app_secrets` 中。共享工作區保管庫優先使用 `WORKSPACE_SECRETS_ENCRYPTION_KEY`，再使用由 `SECRETS_ENCRYPTION_KEY`、`A2A_SECRET` 和 `BETTER_AUTH_SECRET` 衍生的舊候選金鑰；輪替期間設定 `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`，讓讀取操作移轉資料列。要就地加密現有明文憑證資料列，請執行 `pnpm action db-migrate-encrypt-credentials`（冪等、非破壞性）。
 
 切勿將機密儲存在 `settings`、`application_state`、來源程式碼或操作回應中。使用上面的憑證/保險庫 API - 它們處理加密和每使用者範圍。
 

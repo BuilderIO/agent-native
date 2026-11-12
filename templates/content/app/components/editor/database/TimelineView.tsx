@@ -172,7 +172,7 @@ export function DatabaseTimelineView({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                <DropdownMenuLabel className="text-muted-foreground">
                   {dbText("startDate")}
                 </DropdownMenuLabel>
                 {dateProperties.map((property) => {
@@ -216,7 +216,7 @@ export function DatabaseTimelineView({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                <DropdownMenuLabel className="text-muted-foreground">
                   {dbText("endDate")}
                 </DropdownMenuLabel>
                 <DropdownMenuItem

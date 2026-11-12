@@ -1,3 +1,15 @@
+## 0.6.3
+
+### Patch Changes
+
+- 25f588e: Redirect legacy `/agent` management URLs to the canonical settings routes and preserve app-owned settings tabs.
+
+## 0.6.2
+
+### Patch Changes
+
+- e177059: Restore the serverless Playwright fallback so production URL extraction can use packaged Chromium.
+
 ## 0.6.1
 
 ### Patch Changes

@@ -51,6 +51,8 @@ agent-native アプリは、`@react-router/fs-routes` の `flatRoutes()` によ�
 
 </Diagram>
 
+Chat ではホームパスの設定によって、`rootAuth: true` が React Router の `_index.tsx` より先に `/` でログインページを返します。この応答は認証プラグインで変更します。
+
 ## ファイルベース ルーティング {#file-based-routing}
 
 ### ファイル → URL のマッピング

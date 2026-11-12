@@ -14,7 +14,6 @@ import {
   IconEdit,
   IconKey,
   IconPlus,
-  IconRefresh,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
@@ -270,8 +269,8 @@ function EditSecretDialog({ secret }: { secret: any }) {
         <DialogHeader>
           <DialogTitle>Edit key</DialogTitle>
           <DialogDescription>
-            Update the stored key and metadata. Changes sync to the shared
-            credential store. Leave the value blank to keep the existing key.
+            Update the stored key and metadata. Leave the value blank to keep
+            the existing key.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -525,11 +524,6 @@ function SecretRow({
     onSuccess: () => toast.success("Grant revoked"),
     onError: (err) => toast.error(String(err)),
   });
-  const syncToApp = useActionMutation("sync-vault-to-app", {
-    onSuccess: (data: any) =>
-      toast.success(`Synced ${data.synced} key(s) to ${data.appId}`),
-    onError: (err) => toast.error(String(err)),
-  });
 
   const activeGrants = grants.filter((g) => g.status === "active");
   const allApps = accessMode !== "manual";
@@ -582,9 +576,20 @@ function SecretRow({
 
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Value:</span>
-            <code className="text-xs font-mono text-foreground">
-              {secret.last4}
-            </code>
+            {secret.valueStatus === "unreadable" ? (
+              <span className="text-xs text-destructive">
+                Saved, but this deployment cannot decrypt it. Save the key
+                again.
+              </span>
+            ) : secret.valueStatus === "missing" ? (
+              <span className="text-xs text-destructive">
+                Nothing stored. Save the key again.
+              </span>
+            ) : (
+              <code className="text-xs font-mono text-foreground">
+                {secret.last4}
+              </code>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -607,25 +612,10 @@ function SecretRow({
                     key={grant.id}
                     className="flex items-center justify-between rounded-lg border px-3 py-2"
                   >
-                    <div>
-                      <span className="text-sm font-medium text-foreground">
-                        {grant.appId}
-                      </span>
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {grant.syncedAt
-                          ? `synced ${new Date(grant.syncedAt).toLocaleString()}`
-                          : "not synced"}
-                      </span>
-                    </div>
+                    <span className="text-sm font-medium text-foreground">
+                      {grant.appId}
+                    </span>
                     <div className="flex gap-1.5">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => syncToApp.mutate({ appId: grant.appId })}
-                        disabled={syncToApp.isPending}
-                      >
-                        <IconRefresh size={14} />
-                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -665,8 +655,8 @@ function SecretRow({
                   <AlertDialogTitle>Delete this key?</AlertDialogTitle>
                   <AlertDialogDescription>
                     Removing “{secret.name}” revokes all of its grants. Apps
-                    that depended on this credential can lose access on the next
-                    sync. This cannot be undone.
+                    that depended on this credential lose access. This cannot be
+                    undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

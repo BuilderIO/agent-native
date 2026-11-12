@@ -1,3 +1,4 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   actionErrorMessage,
   useActionMutation,
@@ -249,6 +250,11 @@ function TemplateMenu({
           <ShareButton
             resourceType="design-template"
             resourceId={template.id}
+            shareUrl={
+              typeof window === "undefined"
+                ? undefined
+                : `${window.location.origin}${appPath(`/templates?templateId=${encodeURIComponent(template.id)}`)}`
+            }
             allowedRoles={["viewer", "editor", "admin"]}
             resourceTitle={template.title}
             trigger="label"

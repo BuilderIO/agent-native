@@ -1,5 +1,60 @@
 # @agent-native/dispatch
 
+## 0.42.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ef8ad16: Dispatch no longer keeps a plaintext copy of vault keys. A saved key is written only as the encrypted `app_secrets` row and `vault_secrets.value` stays empty; the masked preview is read from the encrypted copy. The `sync-vault-to-app` action and the "Sync" buttons are removed, since apps read vault keys from the credential store. `vault_secrets` is now refused by the agent SQL tools and extension SQL, and the new `guard:no-unsealed-secret-columns` flags a new secret-named column that is not marked sealed.
+- Updated dependencies [ade88da]
+- Updated dependencies [8656de2]
+- Updated dependencies [c8c081c]
+- Updated dependencies [da0d6d2]
+- Updated dependencies [353cb43]
+- Updated dependencies [40362af]
+- Updated dependencies [8656de2]
+- Updated dependencies [8175f2d]
+- Updated dependencies [54b3cc3]
+- Updated dependencies
+- Updated dependencies [8930066]
+- Updated dependencies [bea9322]
+- Updated dependencies [b6222c2]
+- Updated dependencies [78738f3]
+- Updated dependencies [bdefc2e]
+  - @agent-native/toolkit@0.228.0
+
+## 0.42.4
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- ec21102: Failed resource uploads, resource saves, and community app installs now use the shared write-failure toast, so the notice says why the save failed, such as being offline or lacking permission.
+- 36106a3: Show a saved integration access token as connected on its Settings page, refresh composer integrations when a key is saved, and register Dispatch's provider API runtime so its connected integrations appear. Composers can now claim a paste as app context (`onPasteContext`). A checkbox set to `"indeterminate"` now shows a filled dash instead of a check mark. When the saved token cannot be read, the integration page says so and offers Try again instead of showing no action.
+- a467c58: Show one shared toast when a save fails instead of failing silently. `useActionMutation` now announces a failed write that nothing else handles (`errorNotification: "auto" | "shared" | "caller"`, plus an `errorLabel` title), `@agent-native/core/client/write-failure` adds `reportWriteFailure` for writes that are not mutations, and `AppProviders` mounts the toast. A typed 4xx refusal shows its own message, offline, timeout and permission failures show translated text, and a 5xx stays generic. Background saves and mutations that render their own error opt out with `errorNotification: "caller"`.
+- 0f27dbe: Give a hosted workspace app its own session and its own route in the pane. A same-origin app now loads its own path instead of an embed session that could only read its document, and a deep app URL opens that route rather than the app home.
+- Updated dependencies [ba1a7d3]
+- Updated dependencies [48d9de3]
+- Updated dependencies [d1fa5c5]
+- Updated dependencies [6e8b91a]
+- Updated dependencies [cd176a0]
+- Updated dependencies [0f27dbe]
+- Updated dependencies [17bf02d]
+- Updated dependencies [4a3c8c7]
+- Updated dependencies [7f5db5c]
+- Updated dependencies [f94438c]
+- Updated dependencies [46ed84c]
+- Updated dependencies [3142f57]
+- Updated dependencies
+- Updated dependencies [ec21102]
+- Updated dependencies [36106a3]
+- Updated dependencies [ba1a7d3]
+- Updated dependencies [36074ef]
+- Updated dependencies [a467c58]
+- Updated dependencies [d4f3450]
+- Updated dependencies [6189d88]
+- Updated dependencies [7c7bf12]
+  - @agent-native/toolkit@0.227.0
+
 ## 0.42.3
 
 ### Patch Changes
@@ -1487,17 +1542,5 @@
 ### Patch Changes
 
 - a1d24db: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
-
-## 0.31.9
-
-### Patch Changes
-
-- 4ebc74f: Fix Clips, Forms, and Design apps sharing the same fallback icon in the Dispatch "Your apps" list.
-
-## 0.31.8
-
-### Patch Changes
-
-- 4e1ce88: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

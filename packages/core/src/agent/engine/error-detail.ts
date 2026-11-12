@@ -51,7 +51,12 @@ export function isProviderConnectionError(err: unknown): boolean {
   return isProviderConnectionErrorMessage(describeErrorWithCauses(err));
 }
 
+export function isProviderTokenRateLimitMessage(message: string): boolean {
+  return /\btokens? per minute\b|\(TPM\)/i.test(message);
+}
+
 export function isContextOverflowMessage(message: string): boolean {
+  if (isProviderTokenRateLimitMessage(message)) return false;
   const msg = message.toLowerCase();
   return (
     msg.includes("context_length_exceeded") ||

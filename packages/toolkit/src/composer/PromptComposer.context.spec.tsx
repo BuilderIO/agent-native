@@ -2473,7 +2473,7 @@ describe("controlled composer context", () => {
     await pressEnter();
     expect(onSubmit).not.toHaveBeenCalled();
     const contextRow = container.querySelector('[data-context-key="brief"]')!;
-    expect(contextRow.className).toContain("py-0.5");
+    expect(contextRow.className).toContain("h-5");
     expect(contextRow.querySelector("span")?.textContent).toBe("Brief");
     expect(contextRow.querySelectorAll("button")).toHaveLength(1);
     expect(
@@ -2537,7 +2537,7 @@ describe("controlled composer context", () => {
     expect(
       contextChip.querySelector('button[aria-label="Remove Brief context"]'),
     ).not.toBeNull();
-    expect(contextChip.className).toContain("py-0.5");
+    expect(contextChip.className).toContain("h-5");
     await act(async () => contextChip.click());
     expect(onInspectContextItem).not.toHaveBeenCalled();
   });

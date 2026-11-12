@@ -429,6 +429,7 @@ const messages = {
     deckTitle: "Deck title",
     presentPresenterViewDescription: "View speaker notes while presenting",
     presenterViewBlocked: "Allow pop-ups to open Presenter View.",
+    presenterViewUnsupported: "Presenter View isn't supported in this browser.",
     export: "Export",
     privacyPrivate: "Private",
     privacyOrg: "Shared with org",
@@ -482,6 +483,11 @@ const messages = {
   editorExport: {
     pptxFailed: "Could not generate PPTX file.",
     exportFailed: "Export failed",
+    exportFinishedWithWarnings: "Exported with warnings",
+    imagesDropped:
+      "{{count}} image(s) could not be loaded and were left out of the PowerPoint file (slides {{slides}}).",
+    pdfSidecarSkipped:
+      "This PDF was exported without its editable source. Re-importing it will rebuild slides from the page content.",
     exporting: "Exporting...",
     exportPptxError: "Something went wrong exporting as PPTX.",
     googleSlidesDownloaded: "Downloaded for Google Slides",
@@ -500,6 +506,9 @@ const messages = {
     exportPdf: "Export as PDF",
     exportPptx: "Export as PPTX",
     connectGoogle: "Connect Google",
+    disconnectGoogle: "Disconnect Google",
+    googleDisconnectFailed: "Could not disconnect Google Drive.",
+    googleSlidesStatusUnknown: "Couldn't check status",
     openInGoogleSlides: "Export to Google Slides",
     googleSlidesUnavailable: "Unavailable",
     googleSlidesOpenImporter: "Open Google Slides import",
@@ -521,6 +530,7 @@ const messages = {
   share: {
     createFailed: "Failed to create share link",
     snapshotLinks: "Snapshot links",
+    snapshotLinksLoadFailed: "Couldn't load snapshot links",
     revokeLink: "Revoke",
     revokeFailed: "Could not revoke share link",
     title: "Share Presentation",

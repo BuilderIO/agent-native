@@ -1,6 +1,21 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "承認済みオリジン",
+  "settingsApiKeys.originsHint":
+    "HTTPS オリジンを1行に1つ入力します。空欄では転送できません。ローカル HTTP は許可されます。",
+  "settingsApiKeys.invalidOrigins":
+    "HTTPS オリジンを1行に1つ正確に入力してください。",
+  "settingsApiKeys.editOrigins": "オリジンを編集",
+  "settingsApiKeys.originsSaved": "オリジンを保存しました",
+  "settingsApiKeys.originsCount_one": "承認済みオリジン {{count}} 件",
+  "settingsApiKeys.originsCount_other": "承認済みオリジン {{count}} 件",
+  "settingsApiKeys.noApprovedOrigins": "承認済みオリジンなし",
+  "extensions.cancel": "キャンセル",
+  "extensions.context": "コンテキスト",
+  "extensions.confirmAgentMessage":
+    "拡張機能のメッセージをエージェントに送信しますか？",
+  "extensions.sendToAgent": "エージェントに送信",
   "auth.logOutFailed": "ログアウトに失敗しました",
   "block.renderUnavailable": "このブロックは一時的に利用できません。",
   "block.loading": "ブロックを読み込み中です。",
@@ -34,10 +49,13 @@ const messages: ToolkitAgentChatTranslation = {
   "activity.groupLabel": "エージェントのアクティビティ",
   "activity.agents": "エージェントの連携",
   "activity.tasks": "エージェントのタスク",
+  "activity.tasksProgress": "{{total}}件中{{completed}}件完了",
   "agent.started": "作業を開始しました",
   "agent.resumed": "作業を再開しました",
   "agent.messaged": "メッセージを送信しました",
   "agent.delegated": "作業を委任しました",
+  "agent.working": "作業中",
+  "agent.workedFor": "{{duration}}作業しました",
   "agent.paused": "作業を一時停止しました",
   "agent.queued": "待機中",
   "agent.completed": "完了しました",
@@ -149,7 +167,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderCredits": "Builder.io 無料クレジットに含まれるもの",
   "onboarding.builderIncludedFreeWithAccount":
     "Builder.io アカウントに無料で含まれます",
-  "onboarding.builderMonthlyCredits": "月間 60 Agent Credits",
+  "onboarding.builderMonthlyCredits": "毎日 15 の無料クレジット（月 60 まで）",
   "onboarding.builderIncludedFree": "無料で利用可能",
   "onboarding.builderMoreServices": "+ 他 {{count}} 件のサービス",
   "onboarding.builderLlmCredits": "LLM クレジット",
@@ -183,9 +201,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "プライバシーポリシー",
   "onboarding.builderConsentAnd": "および",
   "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
-  "onboarding.creditsTitle": "毎月 60 の無料 Agent Credits で試してみましょう",
+  "onboarding.creditsTitle":
+    "毎日 15 の無料クレジット（月 60 まで）で試してみましょう",
   "onboarding.creditsTitleClips":
-    "無料のビデオストレージと毎月 60 の Agent Credits で試してみましょう",
+    "無料のビデオストレージと毎日 15 のクレジット（月 60 まで）で試してみましょう",
   "onboarding.creditsActivate": "無料クレジットを有効化",
   "onboarding.creditsFinePrint":
     "無料の Builder.io アカウントが作成されます。続行することで、当社の",
@@ -440,6 +459,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.attachmentTooLarge": "ファイルが 8 MB を超えています",
   "composer.attachmentNotUtf8": "ファイルが UTF-8 テキストではありません",
   "composer.scrollToBottom": "一番下までスクロール",
+  "composer.skipToMessageBox": "メッセージ入力欄へ移動",
   "composer.suggestedPrompts": "おすすめのプロンプト",
   "composer.stopResponse": "応答を停止",
   "composer.subAgentReadOnly":
@@ -612,6 +632,7 @@ const messages: ToolkitAgentChatTranslation = {
   "pastedText.remove": "貼り付けたテキストを削除",
   "pastedText.title": "貼り付けたテキスト",
   "voice.dictation.start": "音声入力（{{shortcut}}）",
+  "voice.dictation.startPlain": "音声入力",
   "voice.dictation.stopRecording": "録音を停止",
   "voice.dictation.transcribing": "文字起こし中…",
   "voiceMode.errors.channelDisconnected":
@@ -1637,6 +1658,31 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder クレジットの紹介",
   "featureFlags.builderCreditReferrals.description":
     "使用状況に接続済み Builder ワークスペースの紹介詳細を表示します。",
+  "featureFlags.scope.appliesTo": "適用範囲",
+  "featureFlags.scope.org": "この組織",
+  "featureFlags.scope.global": "すべての組織",
+  "featureFlags.scope.setForOrg": "この組織に設定",
+  "featureFlags.scope.setForGlobal": "すべての組織に設定",
+  "featureFlags.scope.overridesGlobal": "すべての組織のルールを上書き中",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "この組織独自のルールが、すべての組織のルールに代わって適用されます。すべての組織のルール：{{audience}}。",
+  "featureFlags.scope.unreadable": "読み取れません",
+  "featureFlags.scope.enableForMeOrg": "この組織のルールにあなたを追加します",
+  "featureFlags.scope.enableForMeGlobal":
+    "すべての組織のルールにあなたを追加します",
+  "featureFlags.scope.turnOffOrg": "この組織でオフにする",
+  "featureFlags.scope.turnOffGlobal": "すべての組織でオフにする",
+  "featureFlags.scope.turnOffOrgTitle":
+    "この組織で {{name}} をオフにしますか？",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "すべての組織で {{name}} をオフにしますか？",
+  "featureFlags.scope.turnOffOrgDescription":
+    "この組織のすべてのユーザーのアクセスがすぐに削除されます。新しいロールアウトは後で設定できます。",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "独自のルールを持たないすべての組織で、アクセスがすぐに削除されます。新しいロールアウトは後で設定できます。",
+  "featureFlags.scope.summaryOrg": "この組織：{{audience}}。",
+  "featureFlags.scope.summaryGlobal": "すべての組織：{{audience}}。",
+  "featureFlags.scope.orgKeepsOwnRule": "この組織は独自のルールを維持します。",
   "usage.inviteFriends": "友だちを招待",
   "usage.inviteCredits":
     "友だちが登録すると Builder クレジットを {{amount}} 獲得できます。",
@@ -2462,6 +2508,9 @@ const messages: ToolkitAgentChatTranslation = {
     "エージェントは追加されたアクセストークンを使うため、そのトークンで参照できるものを参照します。",
   "settingsShell.integrationDetail.accessToken": "アクセストークン",
   "settingsShell.integrationDetail.addAccessToken": "アクセストークンを追加",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "保存済みのアクセストークンを確認できませんでした。",
+  "settingsShell.integrationDetail.tokenCheckRetry": "再試行",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "管理者による設定が必要です",
   "settingsShell.integrationDetail.callout.adminNeededBody":
@@ -2868,6 +2917,64 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "スキルファイルをアップロード",
   "settingsResources.skills.describePlaceholder":
     "プルリクエストのセキュリティ問題をレビューするスキル",
+  "settingsResources.skills.personalHint": "あなただけが持っているスキルです。",
+  "settingsResources.skills.orgHint":
+    "{{org}} の全員と共有されています。スイッチの切り替えはあなたにだけ反映されます。",
+  "settingsResources.skills.orgAdminHint":
+    "{{org}} の全員と共有されています。管理者として、各スキルを他のメンバーにどう適用するかを選べます。",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch は、すべてのアプリで共有するスキルをワークスペースが保管する場所です。ここでオフにしても変わるのは {{app}} だけです。",
+  "settingsResources.skills.thisApp": "このアプリ",
+  "settingsResources.skills.forEveryone": "全員",
+  "settingsResources.skills.forYou": "あなた",
+  "settingsResources.skills.markRecommended": "推奨",
+  "settingsResources.skills.markRecommendedHint":
+    "誰かがオフにしない限りオンです。",
+  "settingsResources.skills.markOptional": "任意",
+  "settingsResources.skills.markOptionalHint":
+    "誰かがオンにしない限りオフです。",
+  "settingsResources.skills.markRequired": "必須",
+  "settingsResources.skills.markRequiredHint":
+    "全員に対してオンです。誰もオフにしたり、自分のバージョンを使ったりできません。",
+  "settingsResources.skills.recommendedBy": "{{org}} の推奨",
+  "settingsResources.skills.requiredBy": "{{org}} の必須スキル",
+  "settingsResources.skills.requiredHidesOwn":
+    "使用されていません: {{org}} は全員に共有版の使用を求めています",
+  "settingsResources.skills.optionalOff": "任意：オンにするまでオフです",
+  "settingsResources.skills.optionalOn": "任意：あなたがオンにしました",
+  "settingsResources.skills.switchedOffOn": "{{date}} にあなたがオフにしました",
+  "settingsResources.skills.alwaysOn": "常にオン",
+  "settingsResources.skills.requiredLockHint":
+    "{{org}} の必須スキルのため、常にオンです",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch にも {{name}} があります。エージェントはこちらを使い、Dispatch のものはスキップします。両方使うには、どちらかの名前を変更してください。",
+  "settingsResources.skills.dispatchClashRequired":
+    "Dispatch の {{name}} は必須なので、エージェントはそちらを使い、こちらはスキップします。両方使うには、どちらかの名前を変更してください。",
+  "settingsResources.skills.choicesLoadFailed":
+    "どのスキルがオンになっているかを読み込めなかったため、スイッチを非表示にしています。ページを再読み込みしてもう一度お試しください。",
+  "settingsResources.skills.requireChecking": "影響を受ける人を確認しています…",
+  "settingsResources.skills.requireCountsFailed":
+    "影響を受ける人を確認できませんでした。",
+  "settingsResources.skills.requireTitle": "{{name}} を必須にしますか？",
+  "settingsResources.skills.makeRequired": "必須にする",
+  "settingsResources.skills.switchFailed":
+    "{{name}} の選択を保存できませんでした。",
+  "settingsResources.skills.markFailed":
+    "{{name}} の適用方法を変更できませんでした。",
+  "settingsResources.skills.addForMe": "自分用に追加",
+  "settingsResources.skills.addForEveryone": "全員用に追加",
+  "settingsResources.skills.offFor_other": "{{count}} 人中 {{off}} 人がオフ",
+  "settingsResources.skills.onFor_other": "{{count}} 人中 {{on}} 人がオン",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}} 人が自分のバージョンを使用",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "オフにしていた {{count}} 人に対して再びオンになります。",
+  "settingsResources.skills.requireTurnsOn_other":
+    "オンにしていなかった {{count}} 人に対してオンになります。",
+  "settingsResources.skills.requireOwnVersions_other":
+    "自分のバージョンを持つ {{count}} 人には、代わりに {{org}} のテキストが使われます。各自のバージョンは保持され、後で変更すれば元に戻ります。",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "自分のバージョンを持つ {{count}} 人には、代わりに Dispatch のテキストが使われます。各自のバージョンは保持され、後で変更すれば元に戻ります。",
   "settingsResources.files.empty":
     "ファイルを追加して、エージェントにより多くのコンテキストを与えましょう。",
   "settingsResources.files.emptyTitle": "ファイルはまだありません",
@@ -3351,6 +3458,14 @@ const messages: ToolkitAgentChatTranslation = {
   "guided.other": "その他…",
   "guided.otherDescription": "伝えたい内容をエージェントに具体的に入力します。",
   "guided.recommended": "おすすめ",
+  "guided.question": "質問",
+  "guided.questionProgress": "{{current}}/{{total}}",
+  "guided.questionProgressLabel": "{{total}}問中{{current}}問目",
+  "guided.ownResponse": "または自分で回答を入力",
+  "guided.next": "次へ",
+  "guided.send": "送信",
+  "guided.dismiss": "質問を閉じる",
+  "guided.chooseFiles": "ファイルを選択…",
   "guided.typeAnswer": "回答を入力…",
   "guided.typeCustomAnswer": "独自の回答を入力…",
   "guided.dropFiles": "ここにファイルをドラッグするか、",
@@ -3388,6 +3503,10 @@ const messages: ToolkitAgentChatTranslation = {
   "toolCells.showMoreLines": "さらに {{count}} 行を表示",
   "toolCells.partial": "一部",
   "toolCells.timedOut": "タイムアウトしました",
+  "toolCells.exitCode": "終了コード {{code}}",
+  "toolCells.copyOutput": "出力をコピー",
+  "toolCells.lineAdded": "追加",
+  "toolCells.lineRemoved": "削除",
   "codeRequired.requestFailed": "リクエストに失敗しました ({{status}})",
   "chatFirst.chats": "チャット",
   "chatFirst.noChats": "まだチャットはありません。",
@@ -3505,6 +3624,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mentions.noCommands": "コマンドはありません",
   "mentions.noMatches": "一致する項目はありません",
   "queue.dragToReorder": "ドラッグして並べ替え",
+  "queue.attachedImage": "添付画像",
   "queue.moveUp": "上へ移動",
   "queue.moveDown": "下へ移動",
   "queue.movedToPosition": "{{count}} 件中 {{position}} 番目に移動しました",
@@ -3563,6 +3683,10 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.readPagesOther": "{{count}} 件のページを読み込み",
   "workSteps.fetchedOne": "1 件の URL を取得",
   "workSteps.fetchedOther": "{{count}} 件の URL を取得",
+  "workSteps.sourcesOne": "1 件のソースを使用",
+  "workSteps.sourcesOther": "{{count}} 件のソースを使用",
+  "workSteps.frameworkFrames": "フレームワークのフレーム {{count}} 件",
+  "workSteps.copyStackTrace": "スタックトレースをコピー",
   "workSteps.readFilesOne": "1 件のファイルを読み込み",
   "workSteps.readFilesOther": "{{count}} 件のファイルを読み込み",
   "workSteps.editedOne": "1 件のファイルを編集",

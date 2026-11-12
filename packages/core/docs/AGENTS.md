@@ -66,22 +66,22 @@ preserve public action, state, auth, and agent-chat runtime contracts.
 
 ## What To Read First
 
-| Task                                  | Start with                                                                                               |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Define or call app operations         | `content/actions.md`, `content/client.md`                                                                |
-| Add PostgreSQL data, schema, or access rules | `content/server-database.mdx`, `content/security.md`, `content/sharing.md`                         |
-| Keep the UI and agent in sync         | `content/context-awareness.md`, `content/client.md`                                                      |
-| Localize UI copy and language choices | `content/internationalization.md`, `content/client.md`                                                   |
-| Build headless or chat-first apps     | `content/pure-agent-apps.md`, `content/agent-surfaces.md`, `content/using-your-agent.md`                 |
-| Add automations or scheduled work     | `content/automations.md`, `content/recurring-jobs.md`                                                    |
-| Compose apps or call sibling agents   | `content/a2a-protocol.md`, `content/multi-app-workspace.md`, `content/agent-resources.mdx`               |
-| Expose tools to external agents       | `content/external-agents.md`, `content/mcp-protocol.md`, `content/mcp-apps.md`, `content/mcp-clients.md` |
-| Add integrations, setup, or secrets   | `content/onboarding.md`, `content/workspace-connections.md`, `content/security.md`                       |
-| Build extensions or custom widgets    | `content/extensions.md`, `content/agent-web-surfaces.md`                                                 |
-| Deploy or configure hosting           | `content/deployment.md`, `content/server-overview.md`                                                    |
-| Write agent instructions or skills    | `content/skills-guide.md`, `content/writing-agent-instructions.md`                                       |
-| Plan a breaking package API change    | `migrations/README.md`                                                                                  |
-| Migrate the Core chat API to AgentKit | `migrations/agentkit-chat.md`, `content/native-chat-ui.mdx`                                               |
+| Task                                         | Start with                                                                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Define or call app operations                | `content/actions-overview.mdx`, `content/client-overview.mdx`                                                |
+| Add PostgreSQL data, schema, or access rules | `content/server-database.mdx`, `content/security.mdx`, `content/sharing.mdx`                                 |
+| Keep the UI and agent in sync                | `content/context-awareness.mdx`, `content/client-overview.mdx`                                               |
+| Localize UI copy and language choices        | `content/internationalization.mdx`, `content/client-overview.mdx`                                            |
+| Build headless or chat-first apps            | `content/pure-agent-apps.mdx`, `content/agent-surfaces.mdx`, `content/using-your-agent.mdx`                  |
+| Add automations or scheduled work            | `content/automations.mdx`, `content/recurring-jobs.mdx`                                                      |
+| Compose apps or call sibling agents          | `content/a2a-protocol.mdx`, `content/multi-app-workspace.mdx`, `content/agent-resources.mdx`                 |
+| Expose tools to external agents              | `content/external-agents.mdx`, `content/mcp-protocol.mdx`, `content/mcp-apps.mdx`, `content/mcp-clients.mdx` |
+| Add integrations, setup, or secrets          | `content/onboarding.mdx`, `content/workspace-connections.mdx`, `content/security.mdx`                        |
+| Build extensions or custom widgets           | `content/extensions.mdx`, `content/agent-web-surfaces.mdx`                                                   |
+| Deploy or configure hosting                  | `content/deployment.mdx`, `content/server-overview.mdx`                                                      |
+| Write agent instructions or skills           | `content/skills-guide.mdx`, `content/writing-agent-instructions.mdx`                                         |
+| Plan a breaking package API change           | `migrations/README.md`                                                                                       |
+| Migrate the Core chat API to AgentKit        | `migrations/agentkit-chat.md`, `content/native-chat-ui.mdx`                                                  |
 
 ## Rules
 

@@ -1,5 +1,11 @@
 import { defineBlock } from "@agent-native/toolkit/app/blocks";
 import type { BlockReadProps } from "@agent-native/toolkit/app/blocks";
+import {
+  NumberedSteps,
+  NumberedStep,
+  NumberedStepTitle,
+  NumberedStepBody,
+} from "@agent-native/toolkit/ui/numbered-steps";
 
 import { stepsSchema, stepsMdx, type StepsData } from "./steps.config";
 
@@ -7,26 +13,20 @@ export type { StepsData };
 
 export function StepsBlock({ data, ctx }: BlockReadProps<StepsData>) {
   return (
-    <ol className="docs-steps" aria-label="Steps">
+    <NumberedSteps className="docs-steps" aria-label="Steps">
       {data.steps.map((step, i) => (
-        <li key={i} className="docs-step">
-          <div className="docs-step-aside" aria-hidden="true">
-            <span className="docs-step-number">{i + 1}</span>
-            {i < data.steps.length - 1 && (
-              <span className="docs-step-connector" />
-            )}
-          </div>
-          <div className="docs-step-content">
-            <p className="docs-step-title">{step.title}</p>
-            {step.body
-              ? (ctx.renderMarkdown?.(step.body) ?? (
-                  <div className="docs-step-body">{step.body}</div>
-                ))
-              : null}
-          </div>
-        </li>
+        <NumberedStep key={i} number={i + 1} last={i === data.steps.length - 1}>
+          <NumberedStepTitle asChild>
+            <p>{step.title}</p>
+          </NumberedStepTitle>
+          {step.body ? (
+            <NumberedStepBody>
+              {ctx.renderMarkdown?.(step.body) ?? step.body}
+            </NumberedStepBody>
+          ) : null}
+        </NumberedStep>
       ))}
-    </ol>
+    </NumberedSteps>
   );
 }
 

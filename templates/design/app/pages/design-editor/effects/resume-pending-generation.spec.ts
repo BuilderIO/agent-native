@@ -66,6 +66,7 @@ import {
   SYSTEM_CONTEXT_KEY,
   TEMPLATE_CONTEXT_KEY,
 } from "@/lib/composer-context";
+import { FIGMA_REFERENCE_GENERATION_DIRECTIVE } from "@/lib/figma-attachment";
 import { designGenerationDirectives } from "@/pages/design-editor/generation-prompt-directives";
 
 import { runStartRetryGeneration } from "../commands/start-retry-generation.js";
@@ -273,6 +274,53 @@ describe("runResumePendingGeneration", () => {
       }
     },
   );
+
+  it("tells a new design to use an attached Figma frame's HTML, not redraw it", async () => {
+    mocks.readPendingGeneration.mockReturnValue({
+      prompt: "Make me this Figma design",
+      files: [],
+      contextItems: [
+        {
+          key: "figma-reference:file:Test.fig:1:1",
+          title: "Test.fig",
+          context: "The user attached a Figma design as reference",
+          status: "ready",
+        },
+      ],
+      designSystemId: null,
+      skipQuestions: true,
+    });
+    const args = createArgs({
+      creativeContextLabLoading: false,
+      creativeContextEnabled: false,
+    });
+
+    runResumePendingGeneration(args);
+
+    await vi.waitFor(() => expect(args.agentSubmit).toHaveBeenCalledOnce());
+    const context = vi.mocked(args.agentSubmit).mock.calls[0]?.[1] ?? "";
+    expect(context).toContain(FIGMA_REFERENCE_GENERATION_DIRECTIVE);
+  });
+
+  it("adds no Figma directive without a Figma attachment", async () => {
+    mocks.readPendingGeneration.mockReturnValue({
+      prompt: "Keep the original brief",
+      files: [],
+      contextItems: frozenContext,
+      designSystemId: null,
+      skipQuestions: true,
+    });
+    const args = createArgs({
+      creativeContextLabLoading: false,
+      creativeContextEnabled: false,
+    });
+
+    runResumePendingGeneration(args);
+
+    await vi.waitFor(() => expect(args.agentSubmit).toHaveBeenCalledOnce());
+    const context = vi.mocked(args.agentSubmit).mock.calls[0]?.[1] ?? "";
+    expect(context).not.toContain(FIGMA_REFERENCE_GENERATION_DIRECTIVE);
+  });
 
   it("reports invalid canvas dimensions and does not start a retry run", async () => {
     const args = {
