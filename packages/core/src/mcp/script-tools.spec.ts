@@ -264,6 +264,40 @@ describe("the script catalog", () => {
     expect(Object.keys(catalog.actions)).toEqual(["list-documents"]);
   });
 
+  it("describes a bounded number of shared names in a search", () => {
+    const catalog = buildMcpScriptCatalog({
+      ...Object.fromEntries(
+        Array.from({ length: 14 }, (_, index) => [
+          [`get-item-${index}`, entry()],
+          [`get_item_${index}`, entry()],
+        ]).flat(),
+      ),
+      "get-x": entry(),
+      get_x: entry(),
+      "get--x": entry(),
+      "get.x": entry(),
+      "get x": entry(),
+    });
+    const found = searchMcpScriptActions(catalog, { names: ["getNothing"] });
+    const notes = found
+      .split("\n")
+      .filter((line) => line.includes("share that name"));
+    expect(notes).toHaveLength(10);
+    expect(found).toContain(
+      "// 5 more function names are shared by several actions, so those functions are not available either.",
+    );
+    const grouped = buildMcpScriptCatalog({
+      "get-x": entry(),
+      get_x: entry(),
+      "get--x": entry(),
+      "get.x": entry(),
+      "get x": entry(),
+    });
+    expect(searchMcpScriptActions(grouped, {})).toContain(
+      "// api.getX is not available: get x, get--x, get-x and 2 more actions share that name.",
+    );
+  });
+
   it("explains why a function a script asked for is refused", () => {
     const known = {
       "get-document": entry(),

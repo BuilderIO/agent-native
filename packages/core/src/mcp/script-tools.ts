@@ -828,6 +828,10 @@ const MAX_SEARCH_WORDS = 20;
 /** Characters of declarations one search returns, past the first; it names
  *  the functions it left out. */
 const MAX_SEARCH_REPLY_CHARS = 50_000;
+/** Shared function names one search describes, and the actions it names for
+ *  each; it counts the rest. */
+const MAX_SEARCH_COLLISION_NOTES = 10;
+const MAX_COLLISION_ACTIONS_NAMED = 3;
 
 /**
  * Declarations for the requested functions. Searches only what `run-script`
@@ -925,9 +929,18 @@ export function searchMcpScriptActions(
       `// Looked up the first ${MAX_SEARCH_NAMES} of ${named.length} names; ask for the rest in another search.`,
     );
   }
-  for (const [fn, actions] of catalog.collisions) {
+  const collisions = [...catalog.collisions];
+  for (const [fn, actions] of collisions.slice(0, MAX_SEARCH_COLLISION_NOTES)) {
+    const more = actions.length - MAX_COLLISION_ACTIONS_NAMED;
+    const sharing =
+      more > 0
+        ? `${actions.slice(0, MAX_COLLISION_ACTIONS_NAMED).join(", ")} and ${more} more actions`
+        : actions.join(" and ");
+    lines.push(`// api.${fn} is not available: ${sharing} share that name.`);
+  }
+  if (collisions.length > MAX_SEARCH_COLLISION_NOTES) {
     lines.push(
-      `// api.${fn} is not available: ${actions.join(" and ")} share that name.`,
+      `// ${collisions.length - MAX_SEARCH_COLLISION_NOTES} more function names are shared by several actions, so those functions are not available either.`,
     );
   }
   if (matched.length === 0) {

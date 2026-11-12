@@ -3777,9 +3777,10 @@ export async function createMCPServerForRequest(
       !MCP_SCRIPT_TOOL_NAMES.has(name) ||
       (name === MCP_SCRIPT_STATUS_TOOL && !scriptWrites)
     ) {
+      // The name is the caller's text; analytics get a fixed message.
       onFailure({
         errorType: "unknown_tool",
-        errorMessage: `Unknown tool: ${name}`,
+        errorMessage: "Unknown tool on the script catalog.",
       });
       return {
         content: [{ type: "text", text: `Unknown tool: ${name}` }],
@@ -3807,9 +3808,10 @@ export async function createMCPServerForRequest(
         runOwner,
       );
       if (result.isError) {
+        // The reply can repeat the run id the caller sent.
         onFailure({
           errorType: "script_run_status",
-          errorMessage: result.content[0]?.text ?? "",
+          errorMessage: "The script run could not be read.",
         });
       }
       return result;
@@ -3901,18 +3903,44 @@ export async function createMCPServerForRequest(
     return mcpScriptCallResult(payload);
   }
 
+  // The form of a run id, as `crypto.randomUUID` makes it.
+  const RUN_ID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   // A script's source can hold anything the model put in it, embed links
   // and data from earlier calls among them, and run-script ignores any other
-  // field, which could hold the same; analytics get only the script's length.
+  // field, which could hold the same; analytics get only the script's length,
+  // and for a search, the sizes of what it was given. A run's status keeps
+  // its run id, which the server made, and nothing else.
   const analyticsParameters = (
     toolName: unknown,
     args: unknown,
   ): Record<string, unknown> => {
     const parameters = (args ?? {}) as Record<string, unknown>;
+    const given = (key: string) =>
+      Object.hasOwn(parameters, key) ? parameters[key] : undefined;
+    if (toolName === MCP_SCRIPT_SEARCH_TOOL) {
+      // Names and a query can be copied from what an earlier call read.
+      const names = given("names");
+      const query = given("query");
+      return {
+        ...(Array.isArray(names) ? { names: `(${names.length} names)` } : {}),
+        ...(typeof query === "string"
+          ? { query: `(a query of ${query.length} characters)` }
+          : {}),
+      };
+    }
+    if (toolName === MCP_SCRIPT_STATUS_TOOL) {
+      const runId = given("runId");
+      return {
+        runId:
+          typeof runId === "string" && RUN_ID_PATTERN.test(runId)
+            ? runId
+            : "(not a run id)",
+      };
+    }
     if (toolName !== MCP_SCRIPT_RUN_TOOL) return parameters;
-    const code = Object.hasOwn(parameters, "code")
-      ? parameters.code
-      : undefined;
+    const code = given("code");
     return {
       code:
         typeof code === "string"
@@ -4095,7 +4123,12 @@ export async function createMCPServerForRequest(
       const toolName = request.params?.name;
       const calledEntry = actions[toolName];
       trackMcpToolCall(analyticsContext(request, ctx), {
-        toolName,
+        // The script catalog has only its own tools, so any other name is
+        // the caller's text, kept out as its error message is.
+        toolName:
+          scriptCatalog && !MCP_SCRIPT_TOOL_NAMES.has(toolName)
+            ? "(unknown tool)"
+            : toolName,
         ...(calledEntry?.tool.description
           ? { toolDescription: calledEntry.tool.description }
           : {}),
