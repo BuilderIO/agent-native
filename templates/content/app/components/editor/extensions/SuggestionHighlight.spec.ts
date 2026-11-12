@@ -1509,28 +1509,36 @@ describe("SuggestionHighlight", () => {
     expect(deletion.type.toDOM().textContent).toBe("·⇥");
   });
 
-  it("makes contextual marked newlines visible in widgets", () => {
-    const source = "`Ec<br>ho`";
-    const editorState = setSpecs(state(), [
-      {
-        suggestionId: "context-code-break",
-        kind: "insert",
-        from: 1,
-        to: 1,
-        insertedText: source,
-        insertedPresentation: {
-          source,
-          from: 0,
-          to: source.length,
+  it.each([
+    ["`Ec`<br>`ho`", ["Ec", "ho"], 1],
+    ["`Ec<br>ho`", ["Ec<br>ho"], 0],
+  ])(
+    "shows contextual code %j in widgets as the page reads it",
+    (source, codes, breaks) => {
+      const editorState = setSpecs(state(), [
+        {
+          suggestionId: "context-code-break",
+          kind: "insert",
+          from: 1,
+          to: 1,
+          insertedText: source,
+          insertedPresentation: {
+            source,
+            from: 0,
+            to: source.length,
+          },
         },
-      },
-    ]);
-    const widget = suggestionHighlightKey
-      .getState(editorState)!
-      .decorations.find()[0] as any;
-    const dom = widget.type.toDOM();
-    expect(dom.querySelector("code")?.textContent).toBe("Ec↵ho");
-  });
+      ]);
+      const widget = suggestionHighlightKey
+        .getState(editorState)!
+        .decorations.find()[0] as any;
+      const dom = widget.type.toDOM() as HTMLElement;
+      expect(
+        [...dom.querySelectorAll("code")].map((code) => code.textContent),
+      ).toEqual(codes);
+      expect(dom.querySelectorAll("br")).toHaveLength(breaks);
+    },
+  );
 
   it("makes structural indentation visible in a zero-width widget", () => {
     const source = "\tParagraph";

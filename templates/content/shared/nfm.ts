@@ -459,28 +459,49 @@ function serializeInlineTextNode(
   if (node.type !== "text") return null;
   const raw = node.text ?? "";
   const code = markOf(node, "code");
+  // Text between backticks is literal, so a typed <br> stays text. A line
+  // break in code is written as Shift+Enter there writes it: a <br> between
+  // two runs, each with all of the text's marks.
+  if (code && raw.includes("\n")) {
+    let source = "";
+    const textOffsets: number[] = [];
+    raw.split("\n").forEach((line, lineIndex) => {
+      if (lineIndex > 0) source += "<br>";
+      const part = line
+        ? serializeInlineTextNode(
+            { ...node, text: line },
+            true,
+            escapeUnderscore,
+            false,
+            startsLine && lineIndex === 0,
+          )!
+        : { source: "", textOffsets: [0] };
+      for (const offset of part.textOffsets!)
+        textOffsets.push(source.length + offset);
+      source += part.source;
+    });
+    return { source, textOffsets: collectOffsets ? textOffsets : null };
+  }
   let out: string;
   let textOffsets: number[] | null = collectOffsets ? [0] : null;
   if (code) {
-    const codeText = raw.replace(/\n/g, "<br>");
     // The reader strips padding only around code that is not all whitespace.
     const isAllSpaces = raw.trim() === "";
-    const delim = "`".repeat(longestRun(codeText, /`+/g) + 1);
+    const delim = "`".repeat(longestRun(raw, /`+/g) + 1);
     const needsPadding =
       !isAllSpaces &&
-      (codeText.startsWith("`") ||
-        codeText.endsWith("`") ||
-        codeText.startsWith(" ") ||
-        codeText.endsWith(" "));
-    const body = needsPadding ? ` ${codeText} ` : codeText;
+      (raw.startsWith("`") ||
+        raw.endsWith("`") ||
+        raw.startsWith(" ") ||
+        raw.endsWith(" "));
+    const body = needsPadding ? ` ${raw} ` : raw;
     out = delim + body + delim;
     if (textOffsets) {
-      let contentOffset = delim.length + (needsPadding ? 1 : 0);
-      textOffsets = [contentOffset];
-      for (let index = 0; index < raw.length; index += 1) {
-        contentOffset += raw[index] === "\n" ? "<br>".length : 1;
-        textOffsets.push(contentOffset);
-      }
+      const contentOffset = delim.length + (needsPadding ? 1 : 0);
+      textOffsets = Array.from(
+        { length: raw.length + 1 },
+        (_, index) => contentOffset + index,
+      );
     }
   } else {
     if (escapeUnderscore) contextualSpellings?.escapedUnderscores.add(node);
@@ -1058,7 +1079,7 @@ function parseInline(input: string, depth = 0): PMNode[] {
       const openRun = runEnd - at;
       const close = end - openRun;
       flush();
-      let codeText = input.slice(at + openRun, close).replace(/<br\/?>/g, "\n");
+      let codeText = input.slice(at + openRun, close);
       if (
         codeText.startsWith(" ") &&
         codeText.endsWith(" ") &&

@@ -420,6 +420,12 @@ Documents are **private by default**; use `share-resource` /
 
 Documents use **markdown** for content. The editor renders markdown in real time.
 
+### Inline code
+
+Text between backticks is literal, as in standard Markdown: `` `<br>` `` is the
+text `<br>`, not a line break. To break a line inside inline code, close the
+code first, as the editor writes it: `` `first`<br>`second` ``.
+
 ### Math
 
 Content renders LaTeX with KaTeX while preserving the source in NFM. Use the
