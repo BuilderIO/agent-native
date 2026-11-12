@@ -51,6 +51,15 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.228.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.228.1
+  - @agent-native/recap-cli@0.5.102
+
 ## 0.228.0
 
 ### Minor Changes
@@ -4692,11 +4701,5 @@
   that had an `an_embed_session` cookie failed to hydrate and hung on a spinner.
 - 3fa1b09: Allow organization members to queue Run now for Factory-domain jobs they can already load, without widening Mail or CRM automation edit rights.
 - 6f0392b: Prevent unconfigured LLM engine tests from reporting a false pass.
-
-## 0.172.5
-
-### Patch Changes
-
-- 5a6204c: Rework Calendar's docs into the new per-app format (Overview, Features, Talk to the Agent, Multi-App Workspace, Developer Guide), add a Comparison per-side accent color and a Cards calendar icon, and translate all five Calendar doc pages into every supported locale.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

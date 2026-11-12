@@ -1,5 +1,14 @@
 # @agent-native/dispatch
 
+## 0.42.6
+
+### Patch Changes
+
+- 33a7fca: Fix the app chat rail on `/dispatch/apps/<appId>` for mounted workspace apps. Dispatch now always declares inline MCP App support when it asks an app for an embed session, so apps no longer hide `create_embed_session` from it. When an app's chat still can't connect, its chat button now focuses the rail's Retry button instead of doing nothing.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.228.1
+
 ## 0.42.5
 
 ### Patch Changes
@@ -1536,11 +1545,5 @@
 - e5e6934: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
 - dd80d09: Keep the full workspace credential workflow reachable from the redesigned integrations catalog.
 - e5e6934: Refresh integration and Dispatch app surfaces with connected-first layouts and two-column cards.
-
-## 0.31.10
-
-### Patch Changes
-
-- a1d24db: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
