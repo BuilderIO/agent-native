@@ -399,7 +399,7 @@ export async function readFilesNavigationPage(
           expand.length
             ? { ...params, navigation: { ...params.navigation, expand } }
             : params,
-          { method: "GET", signal },
+          { method: "GET", ...(signal ? { signal } : {}) },
         ),
     );
     if ("available" in response) return response;
