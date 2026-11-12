@@ -2198,6 +2198,22 @@ export function ReviewCanvasPins({
     if (active) onCloseRef.current();
   }, [active, cancelDraft, hidden]);
 
+  // Another account's unsent pin isn't this one's to see or write to: it
+  // stays kept for the account it was written in and leaves the canvas, and
+  // the effect below brings back this account's. The session settling after
+  // the page loads isn't a change of account.
+  const draftAccountRef = useRef({ currentUserEmail, sessionOrgId });
+  useEffect(() => {
+    const previous = draftAccountRef.current;
+    draftAccountRef.current = { currentUserEmail, sessionOrgId };
+    const sameEmail = previous.currentUserEmail === currentUserEmail;
+    if (sameEmail && previous.sessionOrgId === sessionOrgId) return;
+    if (!previous.currentUserEmail) return;
+    if (sameEmail && previous.sessionOrgId === undefined) return;
+    leftDraftPinRef.current = draftPinRef.current;
+    cancelDraft();
+  }, [cancelDraft, currentUserEmail, sessionOrgId]);
+
   // In comment mode, a new comment kept on this screen comes back on its pin,
   // closed, as a pin left with text does. Leaving comment mode hides it and
   // keeps it. It runs after the resets above.

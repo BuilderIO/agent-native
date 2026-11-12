@@ -749,6 +749,26 @@ describe("review actions", () => {
     expect(edited.metadata).toEqual({ attachments: [stored, added] });
   });
 
+  it("refuses an edit with more images than a comment keeps, before checking any", () => {
+    const images = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        url: `https://cdn.builder.io/api/v1/image/${index}`,
+        name: `${index}.png`,
+      }));
+    const args = (count: number) => ({
+      resourceType: "doc",
+      resourceId: "public",
+      commentId: "comment-1",
+      attachments: images(count),
+    });
+    expect(updateReviewCommentAction.schema.safeParse(args(5)).success).toBe(
+      true,
+    );
+    expect(updateReviewCommentAction.schema.safeParse(args(6)).success).toBe(
+      false,
+    );
+  });
+
   it("moves a pin at the revision its mover read", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",

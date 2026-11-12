@@ -5,6 +5,7 @@ import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
 import {
   assertReviewCommentHasContent,
+  MAX_REVIEW_IMAGE_ATTACHMENTS,
   sanitizeReviewCommentAttachmentEdit,
 } from "../attachments.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
@@ -38,10 +39,15 @@ const schema = z
       .string()
       .optional()
       .describe("Inline Markdown; may be empty when the comment has an image"),
+    // As many as a comment keeps, so a longer list is refused before any of
+    // its URLs are checked, rather than cut short.
     attachments: z
       .array(attachmentSchema)
+      .max(MAX_REVIEW_IMAGE_ATTACHMENTS)
       .optional()
-      .describe("The comment's images, in place of the ones it has"),
+      .describe(
+        `The comment's images, in place of the ones it has; at most ${MAX_REVIEW_IMAGE_ATTACHMENTS}`,
+      ),
     anchor: z.unknown().optional(),
     anchorKind: z.string().min(1).nullable().optional(),
     anchorVersion: z.number().int().positive().nullable().optional(),

@@ -5393,6 +5393,43 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
       });
 
+      it("takes an account's unsent pin off the canvas when the account changes in place, and keeps it for that account", async () => {
+        const storedScopes = () =>
+          Object.keys(window.localStorage).filter(
+            (key) =>
+              key.startsWith("agent-native-review-drafts:") &&
+              Object.keys(
+                (
+                  JSON.parse(window.localStorage.getItem(key) ?? "{}") as {
+                    drafts?: Record<string, unknown>;
+                  }
+                ).drafts ?? {},
+              ).length > 0,
+          );
+        mocks.session = { email: "reviewer@example.com", orgId: "org-a" };
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click(),
+        );
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
+
+        // The organization switches with the canvas still open.
+        mocks.session = { email: "reviewer@example.com", orgId: "org-b" };
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(1);
+        expect(
+          document.querySelector("[data-review-test-textarea]"),
+        ).toBeNull();
+        expect(storedScopes()).toHaveLength(1);
+
+        mocks.session = { email: "reviewer@example.com", orgId: "org-a" };
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
+      });
+
       it("sends an edit's images only when they change, against the comment's revision", async () => {
         reviewComments = [
           {

@@ -1,7 +1,8 @@
 import { fail } from "../action.js";
 import { getActiveFileUploadProviderForRequest } from "../file-upload/registry.js";
 
-const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
+/** As many images as one comment keeps. */
+export const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
 
 interface ReviewAttachmentRecord {
   url: string;
