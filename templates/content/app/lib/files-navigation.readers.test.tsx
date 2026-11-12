@@ -149,6 +149,74 @@ describe("a Files read", () => {
     ).toBeDefined();
   });
 
+  it("stops a folder read under way once the top level is refused, so its late answer puts nothing back", async () => {
+    const folder = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: "folder",
+    });
+    const subfolder = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: "subfolder",
+    });
+    function FolderReader() {
+      useFilesNavigationPage(folder);
+      return null;
+    }
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <BreadcrumbReader />
+          <FolderReader />
+        </QueryClientProvider>,
+      );
+    });
+
+    let answerFolder: (page: unknown) => void = () => {};
+    callActionWithRetry.mockImplementation(
+      async (_action, params: typeof ROOT) =>
+        params.navigation.parentId === "folder"
+          ? new Promise((resolve) => {
+              answerFolder = resolve;
+            })
+          : Promise.reject(
+              Object.assign(new Error("Forbidden"), { status: 403 }),
+            ),
+    );
+    let folderRead: Promise<void> = Promise.resolve();
+    await act(async () => {
+      folderRead = queryClient.refetchQueries({
+        queryKey: filesNavigationQueryKey(folder),
+        exact: true,
+      });
+    });
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: filesNavigationQueryKey(ROOT),
+        exact: true,
+      });
+    });
+    await act(async () => {
+      answerFolder({
+        ...empty(),
+        items: [{ documentId: "child", type: "page" }],
+        branches: {
+          subfolder: {
+            ...empty(),
+            items: [{ documentId: "grandchild", type: "page" }],
+          },
+        },
+      });
+      await folderRead;
+    });
+
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(folder)),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(subfolder)),
+    ).toBeUndefined();
+  });
+
   it("isn't made while the app's API is off", async () => {
     setAgentNativeApiDisabled("builder shell canvas");
     await mountBreadcrumb();

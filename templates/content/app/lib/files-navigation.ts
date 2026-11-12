@@ -20,6 +20,7 @@ import {
   useQuery,
   useQueryClient,
   type QueryClient,
+  type QueryKey,
 } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
@@ -402,6 +403,9 @@ export async function readFilesNavigationPage(
           { method: "GET", ...(signal ? { signal } : {}) },
         ),
     );
+    // A read stopped after its answer arrived, as when the tree's top level
+    // was just refused, seeds nothing.
+    signal?.throwIfAborted();
     if ("available" in response) return response;
     // A folder left out of `branches`, whether the cap dropped it
     // (`branchesTruncated`) or it has no children to show, is not seeded as
@@ -438,7 +442,11 @@ export async function readFilesNavigationPage(
       params.navigation.parentId === null &&
       (status === 401 || status === 403 || status === 404)
     ) {
-      clearCachedFilesPages(queryClient, params.databaseId);
+      clearCachedFilesPages(
+        queryClient,
+        params.databaseId,
+        filesNavigationQueryKey(params),
+      );
     }
     throw error;
   } finally {
@@ -446,14 +454,24 @@ export async function readFilesNavigationPage(
   }
 }
 
-function clearCachedFilesPages(queryClient: QueryClient, databaseId: string) {
-  for (const query of queryClient
-    .getQueryCache()
-    .findAll({ queryKey: ["action", "query-content-database-items"] })) {
+function clearCachedFilesPages(
+  queryClient: QueryClient,
+  databaseId: string,
+  refusedKey: QueryKey,
+) {
+  const cache = queryClient.getQueryCache();
+  const refused = cache.find({ queryKey: refusedKey, exact: true });
+  for (const query of cache.findAll({
+    queryKey: ["action", "query-content-database-items"],
+  })) {
     const params = query.queryKey[2] as FilesNavigationPageParams | undefined;
-    if (params?.navigation && params.databaseId === databaseId) {
-      query.setState({ data: undefined, dataUpdatedAt: 0 });
+    if (!params?.navigation || params.databaseId !== databaseId) continue;
+    // A read still under way would put back what this clears once it
+    // answers, so it stops first. The refused read is the one ending here.
+    if (query !== refused && query.state.fetchStatus !== "idle") {
+      void query.cancel({ revert: true });
     }
+    query.setState({ data: undefined, dataUpdatedAt: 0 });
   }
 }
 
