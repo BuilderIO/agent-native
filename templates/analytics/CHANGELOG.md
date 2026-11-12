@@ -3,11 +3,35 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-10
+
+### Fixed
+
+- Grafana and Prometheus connections can reach private endpoints when an administrator explicitly trusts their origins in server configuration.
+
+### Security
+
+- Configured Grafana, Prometheus, and Gong endpoints now block private destinations by default and reject unsafe redirects.
+- Chart images now use unique filenames so one chart cannot replace another user's image.
+
 ## 2026-11-09
 
 ### Improved
 
+- Share controls use a consistent compact layout.
 - More save failures now say why, such as being offline or lacking permission.
+
+## 2026-11-08
+
+### Improved
+
+- Feature flag changes can apply to this organization or to every organization, and the panel shows when an organization's own rule overrides the rule for all organizations.
+
+## 2026-11-07
+
+### Fixed
+
+- Charts now give a row with no x value its own "No value" label, so later values stay on the right dates and categories.
 
 ## 2026-11-06
 
@@ -1500,60 +1524,5 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Dashboard email reports are more reliable and use cleaner header copy.
 - Fixed Ask composer spacing so the chat field has a comfortable side inset.
 - Session replays now render captured styling and keep the event timeline out of compact layouts.
-
-## 2026-06-29
-
-### Added
-
-- Agents can search and read connected GitHub repositories when auditing tracking events.
-- Dashboards can now include extension panels that embed a sandboxed extension inline instead of a SQL chart
-- Set up session replay storage from settings: use Builder.io or add S3-compatible storage
-
-### Improved
-
-- Analytics pages now sit closer under the header with tighter content padding.
-
-### Fixed
-
-- Analytics agents can now place new charts into requested dashboard rows.
-- Analytics queries now report failed source-query errors instead of falling back to a vague no-data message.
-- Charts can now be dropped between full dashboard rows to create wider rows.
-- Dashboard email reports include the full dashboard image without an extra image border.
-- The main dashboard surface border now reaches the top edge and keeps its rounded corners.
-- Session replay now records playable sessions in production and shows them to your whole workspace
-- Sessions and explorer dashboard layouts now adapt cleanly when the agent sidebar narrows the app.
-
-## 2026-06-28
-
-### Improved
-
-- Dashboard email reports now use cleaner light-mode snapshots with direct subscription settings links.
-- The left sidebar now collapses into an animated icon rail with quieter footer controls.
-
-### Fixed
-
-- The Ask tab now matches the darker background used across the rest of Analytics.
-- Sessions now show only signed-in recordings with playable replay events.
-- The Sessions page shows scoped recordings even when replay events are unavailable, with a cleaner setup snippet.
-
-## 2026-06-27
-
-### Added
-
-- Dashboards can now nest under a parent in the sidebar via a parentId field
-
-### Improved
-
-- Dashboard charts drag smoothly when rearranging panels.
-- Improved mobile navigation chrome and sidebar drawer motion.
-
-### Fixed
-
-- Anonymous replay recordings remain visible in session lists when signed-in replay is disabled.
-- Dashboard email reports still send when the live screenshot renderer fails.
-- Fixed dashboard edits so charts no longer briefly snap back to an old layout after agent updates or drag-and-drop.
-- Session replay lists now show only signed-in recordings with real activity and reliable durations.
-- Sidebar loading placeholders are visible in light mode.
-- Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
 
 For the full list of updates, see the [changelog folder](./changelog/).
