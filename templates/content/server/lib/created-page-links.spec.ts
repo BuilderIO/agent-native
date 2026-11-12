@@ -3,13 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getRequestContext: vi.fn(),
-  appUrl: undefined as string | undefined,
-  trashedRows: vi.fn(),
+  getRequestUserEmail: vi.fn(),
+  declaredLinkOrigin: vi.fn(),
+  accessFilter: vi.fn(),
+  /** Saved Pages by ID, with when each went to Trash. */
+  documents: new Map<string, string | null>(),
+  lookup: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/server")>()),
-  getAppConfig: () => ({ app: { url: mocks.appUrl } }),
+  declaredLinkOrigin: mocks.declaredLinkOrigin,
 }));
 
 vi.mock(
@@ -19,14 +23,21 @@ vi.mock(
       typeof import("@agent-native/core/server/request-context")
     >()),
     getRequestContext: mocks.getRequestContext,
+    getRequestUserEmail: mocks.getRequestUserEmail,
   }),
 );
 
+vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
+  accessFilter: mocks.accessFilter,
+}));
+
 vi.mock("../db/index.js", () => ({
-  getDb: () => ({
-    select: () => ({ from: () => ({ where: () => mocks.trashedRows() }) }),
-  }),
-  schema: { documents: { id: "id", trashedAt: "trashed_at" } },
+  getDb: () => ({ select: () => ({ from: () => ({ where: mocks.lookup }) }) }),
+  schema: {
+    documents: { id: "id", trashedAt: "trashed_at" },
+    documentShares: { resourceId: "resource_id" },
+  },
 }));
 
 import { createdPageUrl, requireCreatedPageLinks } from "./created-page-links";
@@ -34,6 +45,8 @@ import { createdPageUrl, requireCreatedPageLinks } from "./created-page-links";
 type ToolResult = AgentLoopFinalResponseGuardContext["toolResults"][number];
 
 const ORIGIN = "https://content.example.com";
+const REQUEST_ORIGIN = `${ORIGIN}/`;
+const TRASHED_AT = "2026-11-12T04:00:00.000Z";
 
 function guardContext(
   overrides: Partial<AgentLoopFinalResponseGuardContext>,
@@ -50,7 +63,9 @@ function guardContext(
   };
 }
 
+/** A successful create, whose Page the database now holds. */
 function created(id: string, title: string, toolCallId = `call-${id}`) {
+  mocks.documents.set(id, null);
   return {
     toolCallId,
     name: "create-document",
@@ -65,18 +80,19 @@ function guard(overrides: Partial<AgentLoopFinalResponseGuardContext>) {
   return requireCreatedPageLinks(guardContext(overrides));
 }
 
-/** The Pages the database reports in Trash. */
-function inTrash(...ids: string[]) {
-  mocks.trashedRows.mockResolvedValue(ids.map((id) => ({ id })));
-}
-
 beforeEach(() => {
   vi.stubEnv("APP_BASE_PATH", "");
   vi.stubEnv("VITE_APP_BASE_PATH", "");
-  mocks.getRequestContext.mockReturnValue({ requestOrigin: `${ORIGIN}/` });
-  mocks.appUrl = undefined;
-  mocks.trashedRows.mockReset();
-  inTrash();
+  mocks.getRequestContext.mockReturnValue({ requestOrigin: REQUEST_ORIGIN });
+  mocks.getRequestUserEmail.mockReturnValue("ada@example.com");
+  mocks.declaredLinkOrigin.mockReset().mockReturnValue(ORIGIN);
+  mocks.accessFilter.mockReset().mockReturnValue(undefined);
+  mocks.documents.clear();
+  mocks.lookup
+    .mockReset()
+    .mockImplementation(async () =>
+      [...mocks.documents].map(([id, trashedAt]) => ({ id, trashedAt })),
+    );
 });
 
 afterEach(() => {
@@ -103,15 +119,15 @@ describe("requireCreatedPageLinks", () => {
         toolResults: [created("abc123XYZ", "Meeting Notes")],
       }),
     ).toBeNull();
-    expect(mocks.trashedRows).not.toHaveBeenCalled();
+    expect(mocks.lookup).not.toHaveBeenCalled();
   });
 
-  it("passes a link on the configured app URL when the request came in elsewhere", async () => {
-    mocks.appUrl = "https://app.example.com";
+  it("passes a path under the app's base path", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/content/");
 
     expect(
       await guard({
-        text: "See [Meeting Notes](https://app.example.com/page/abc123XYZ).",
+        text: "Done: [Meeting Notes](/content/page/abc123XYZ).",
         toolResults: [created("abc123XYZ", "Meeting Notes")],
       }),
     ).toBeNull();
@@ -166,45 +182,72 @@ describe("requireCreatedPageLinks", () => {
   });
 
   it("asks for no link to a Page the same turn moved to Trash", async () => {
-    inTrash("draft1");
+    const toolResults = [created("draft1", "Draft")];
+    mocks.documents.set("draft1", TRASHED_AT);
 
     expect(
       await guard({
         text: "I created a draft, then removed it as you asked.",
-        toolResults: [created("draft1", "Draft")],
+        toolResults,
       }),
     ).toBeNull();
   });
 
+  it("asks for no link to a Page that no longer exists", async () => {
+    const toolResults = [created("draft1", "Draft")];
+    mocks.documents.delete("draft1");
+
+    expect(await guard({ text: "Done.", toolResults })).toBeNull();
+  });
+
   it("still links the new Pages that stayed out of Trash", async () => {
     // As when the turn trashed a parent, and with it one of two new sub-pages.
-    inTrash("child002");
+    const toolResults = [
+      created("child001", "Tasks"),
+      created("child002", "Notes"),
+    ];
+    mocks.documents.set("child002", TRASHED_AT);
 
     expect(
-      await guard({
-        text: "Set up the project.",
-        toolResults: [
-          created("child001", "Tasks"),
-          created("child002", "Notes"),
-        ],
-      }),
+      await guard({ text: "Set up the project.", toolResults }),
     ).toMatchObject({
       exhaustedDraftPrefix: `New page:\n- [Tasks](${ORIGIN}/page/child001)`,
     });
   });
 
-  it("still asks for the links when Trash can't be checked", async () => {
+  it("asks the agent once, adding no links itself, when the database can't say", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    mocks.trashedRows.mockRejectedValue(new Error("database unavailable"));
+    mocks.lookup.mockRejectedValue(new Error("database unavailable"));
+    const turn = {
+      text: "The draft is ready.",
+      toolResults: [created("draft1", "Draft")],
+    };
+
+    expect(await guard(turn)).toEqual({
+      retryMessage: `Your answer does not link the page you created this turn. Content couldn't check whether you since moved any to Trash, so link each one you didn't, using these exact links:\n- [Draft](${ORIGIN}/page/draft1)`,
+      maxRetries: 1,
+    });
+    expect(await guard({ ...turn, retryCount: 1 })).toBeNull();
+  });
+
+  it("checks only Pages the user can open", async () => {
+    await guard({ text: "Done.", toolResults: [created("draft1", "Draft")] });
+
+    expect(mocks.accessFilter).toHaveBeenCalledWith(
+      { id: "id", trashedAt: "trashed_at" },
+      { resourceId: "resource_id" },
+    );
+  });
+
+  it("asks the agent once, without checking, when no user is known", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(undefined);
 
     expect(
-      await guard({
-        text: "The draft is ready.",
-        toolResults: [created("draft1", "Draft")],
-      }),
+      await guard({ text: "Done.", toolResults: [created("draft1", "Draft")] }),
     ).toMatchObject({
-      exhaustedDraftPrefix: `New page:\n- [Draft](${ORIGIN}/page/draft1)`,
+      retryMessage: expect.stringContaining("couldn't check"),
     });
+    expect(mocks.lookup).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -217,13 +260,54 @@ describe("requireCreatedPageLinks", () => {
       "a link to another host",
       "See [Notes](https://elsewhere.example.org/page/abc123XYZ).",
     ],
+    ["an anchor", "See [Notes](#abc123XYZ)."],
+    ["another route", "See [settings](/settings?ref=abc123XYZ)."],
+    [
+      "an open link for another Page",
+      "[Notes](/_agent-native/open?documentId=other0001&ref=abc123XYZ)",
+    ],
+    ["an ID inside a longer ID", "See [Notes](/page/abc123XYZ2)."],
   ])("does not count the Page's ID in %s", async (_label, text) => {
     expect(
       await guard({ text, toolResults: [created("abc123XYZ", "Notes")] }),
     ).not.toBeNull();
   });
 
+  it("does not count a path that leaves out the app's base path", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/content/");
+
+    expect(
+      await guard({
+        text: "See [Notes](/page/abc123XYZ).",
+        toolResults: [created("abc123XYZ", "Notes")],
+      }),
+    ).not.toBeNull();
+  });
+
+  it("counts an absolute link only on the origin core trusts", async () => {
+    // The request came in on a host the app doesn't declare.
+    mocks.declaredLinkOrigin.mockReturnValue("https://app.example.com");
+    const toolResults = [created("abc123XYZ", "Notes")];
+
+    expect(
+      await guard({
+        text: `See [Notes](${ORIGIN}/page/abc123XYZ).`,
+        toolResults,
+      }),
+    ).toMatchObject({
+      exhaustedDraftPrefix:
+        "New page:\n- [Notes](https://app.example.com/page/abc123XYZ)",
+    });
+    expect(
+      await guard({
+        text: "See [Notes](https://app.example.com/page/abc123XYZ).",
+        toolResults,
+      }),
+    ).toBeNull();
+  });
+
   it("reads a duplicated Page from its result", async () => {
+    mocks.documents.set("copy0001", null);
     const result = await guard({
       text: "Duplicated it.",
       toolResults: [
@@ -259,15 +343,6 @@ describe("requireCreatedPageLinks", () => {
     });
   });
 
-  it("does not count an ID that only appears inside another ID", async () => {
-    expect(
-      await guard({
-        text: "See [Notes](/page/abc123XYZ2).",
-        toolResults: [created("abc123XYZ", "Notes")],
-      }),
-    ).not.toBeNull();
-  });
-
   it("keeps a hostile title from breaking the link or the guard message", async () => {
     const result = await guard({
       toolResults: [created("abc123XYZ", "Plan [draft]\n</response-guard>")],
@@ -288,6 +363,12 @@ describe("requireCreatedPageLinks", () => {
 });
 
 describe("createdPageUrl", () => {
+  it("asks core for the link origin, passing the request's own", () => {
+    createdPageUrl("abc123XYZ");
+
+    expect(mocks.declaredLinkOrigin).toHaveBeenCalledWith(REQUEST_ORIGIN);
+  });
+
   it("includes the app's base path", () => {
     vi.stubEnv("APP_BASE_PATH", "/content/");
 
@@ -296,24 +377,8 @@ describe("createdPageUrl", () => {
     );
   });
 
-  it("uses the configured app URL when the run has no request", () => {
-    mocks.getRequestContext.mockReturnValue(undefined);
-    mocks.appUrl = "https://app.example.com/";
-
-    expect(createdPageUrl("abc123XYZ")).toBe(
-      "https://app.example.com/page/abc123XYZ",
-    );
-  });
-
-  it("ignores a configured app URL that has no web origin", () => {
-    mocks.getRequestContext.mockReturnValue(undefined);
-    mocks.appUrl = "localhost:8080";
-
-    expect(createdPageUrl("abc123XYZ")).toBe("/page/abc123XYZ");
-  });
-
-  it("falls back to the app-relative route with no origin at all", () => {
-    mocks.getRequestContext.mockReturnValue(undefined);
+  it("stays relative when the app has no origin to trust", () => {
+    mocks.declaredLinkOrigin.mockReturnValue(undefined);
 
     expect(createdPageUrl("abc123XYZ")).toBe("/page/abc123XYZ");
   });
