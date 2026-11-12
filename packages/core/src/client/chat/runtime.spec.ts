@@ -5029,6 +5029,54 @@ describe("createAgentNativeChatRuntime", () => {
     ]);
   });
 
+  it("sends a delegated agent's held reply when the turn ends before the call does", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "start",
+          agentCallId: "call-1",
+        },
+        {
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-1",
+          text: "Partial answer",
+        },
+        { type: "error", error: "The run stopped." },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-cut",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession({ id: "thread-cut" })).startTurn({
+          prompt: "Ask the researcher",
+        })
+      ).events,
+    );
+
+    const messageIndex = events.findIndex(
+      (event) =>
+        event.type === "interaction" && event.interaction.kind === "messaged",
+    );
+    expect(events[messageIndex]).toMatchObject({
+      interaction: {
+        id: "call-1:message",
+        participantId: "call-1",
+        detail: "Partial answer",
+        source: { id: "Researcher" },
+      },
+    });
+    const errorIndex = events.findIndex((event) => event.type === "error");
+    expect(messageIndex).toBeGreaterThanOrEqual(0);
+    expect(messageIndex).toBeLessThan(errorIndex);
+  });
+
   it("sends a delegated agent's streamed reply as one message when the call ends", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
