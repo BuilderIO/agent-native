@@ -61,10 +61,14 @@ export const MCP_SCRIPT_LIMITS = Object.freeze({
   resultChars: 30_000,
   /** Scripts running at once in this process; another gets a busy error. */
   concurrentRuns: 4,
+  /** Of those, the scripts one caller may run at once. */
+  runsPerCaller: 2,
   /** Calls still running from scripts that stopped and gave their slot
    *  back; at this many, another script gets a busy error until some settle.
    *  A stopped run whose calls would pass it keeps its slot instead. */
   lingeringCalls: 32,
+  /** Of those, the calls one caller's stopped runs may leave running. */
+  lingeringCallsPerCaller: 16,
 });
 
 /**
@@ -269,7 +273,12 @@ const CONSTRAINT_KEYS = [
 interface TypeScope {
   root: unknown;
   refs: string[];
+  /** References expanded so far; a shared one expands wherever it appears. */
+  expanded: number;
 }
+
+/** References one type may expand, so shared ones can't multiply it. */
+const MAX_REF_EXPANSIONS = 256;
 
 function oneLine(text: unknown, max: number): string {
   const flat = (typeof text === "string" ? text : "")
@@ -397,6 +406,12 @@ function schemaType(
     if (scope.refs.includes(ref)) {
       throw new McpScriptTypeError(
         `refers to itself through ${JSON.stringify(ref)}`,
+      );
+    }
+    scope.expanded += 1;
+    if (scope.expanded > MAX_REF_EXPANSIONS) {
+      throw new McpScriptTypeError(
+        `expands its references more than ${MAX_REF_EXPANSIONS} times`,
       );
     }
     const target = resolveLocalRef(scope.root, ref);
@@ -546,7 +561,7 @@ function objectType(
  * refers to itself throws `McpScriptTypeError` instead of widening to `any`.
  */
 export function mcpScriptSchemaType(schema: unknown, indent = ""): string {
-  return schemaType(schema, { root: schema, refs: [] }, 0, indent);
+  return schemaType(schema, { root: schema, refs: [], expanded: 0 }, 0, indent);
 }
 
 function typeOrReason(
@@ -717,8 +732,8 @@ export function searchMcpScriptActions(
     ? input.names.filter((name): name is string => typeof name === "string")
     : [];
   const requested = named.slice(0, MAX_SEARCH_NAMES);
-  const typed = typeof input.query === "string" ? input.query.trim() : "";
-  const query = typed.slice(0, MAX_SEARCH_QUERY_CHARS).toLowerCase();
+  const typed = typeof input.query === "string" ? input.query : "";
+  const query = typed.slice(0, MAX_SEARCH_QUERY_CHARS).trim().toLowerCase();
   const queryWords = query.split(/\s+/).filter(Boolean);
   const words = queryWords.slice(0, MAX_SEARCH_WORDS);
   const matched: string[] = [];
@@ -862,11 +877,18 @@ export interface RunMcpScriptInput {
   signal?: AbortSignal;
   /** A shorter timeout than `MCP_SCRIPT_LIMITS.timeoutMs`; longer is ignored. */
   timeoutMs?: number;
+  /**
+   * Who runs it, for the per-caller limits, so one caller can't take every
+   * slot. Without one, only the process limits apply.
+   */
+  caller?: string;
 }
 
 let activeRuns = 0;
 /** Calls still running from runs that have given their slot back. */
 let lingeringCalls = 0;
+/** Each caller's share of those two, while it has one. */
+const callerUse = new Map<string, { runs: number; lingering: number }>();
 
 let runtime:
   | Promise<{ runner: Runner; RunError: typeof RunErrorClass }>
@@ -1111,7 +1133,26 @@ export async function runMcpScript(
       "Too many scripts are running on this server. Try again shortly, or call the tools directly.",
     );
   }
+  const caller = input.caller;
+  const use =
+    caller === undefined
+      ? undefined
+      : (callerUse.get(caller) ?? { runs: 0, lingering: 0 });
+  if (
+    use !== undefined &&
+    (use.runs >= MCP_SCRIPT_LIMITS.runsPerCaller ||
+      use.lingering >= MCP_SCRIPT_LIMITS.lingeringCallsPerCaller)
+  ) {
+    return fail(
+      "script_busy",
+      `You have ${MCP_SCRIPT_LIMITS.runsPerCaller} scripts, or calls they left running, on this server. Wait for one to finish, or call the tools directly.`,
+    );
+  }
   activeRuns += 1;
+  if (caller !== undefined && use !== undefined) {
+    use.runs += 1;
+    callerUse.set(caller, use);
+  }
   let stopped = false;
   let callCount = 0;
   let readBytes = 0;
@@ -1128,10 +1169,16 @@ export async function runMcpScript(
   let lingering = false;
   let warnedFull = false;
   let stuckTimer: ReturnType<typeof setTimeout> | undefined;
+  const forgetIdleCaller = () => {
+    if (caller === undefined || use === undefined) return;
+    if (use.runs === 0 && use.lingering === 0) callerUse.delete(caller);
+  };
   const giveSlotBack = () => {
     released = true;
     if (stuckTimer !== undefined) clearTimeout(stuckTimer);
     activeRuns -= 1;
+    if (use !== undefined) use.runs -= 1;
+    forgetIdleCaller();
   };
   const release = () => {
     if (released || !stopped) return;
@@ -1142,7 +1189,12 @@ export async function runMcpScript(
     if (stuckTimer !== undefined) return;
     stuckTimer = setTimeout(() => {
       if (released) return;
-      if (lingeringCalls + callsInFlight > MCP_SCRIPT_LIMITS.lingeringCalls) {
+      if (
+        lingeringCalls + callsInFlight > MCP_SCRIPT_LIMITS.lingeringCalls ||
+        (use !== undefined &&
+          use.lingering + callsInFlight >
+            MCP_SCRIPT_LIMITS.lingeringCallsPerCaller)
+      ) {
         if (!warnedFull) {
           warnedFull = true;
           console.warn(
@@ -1158,6 +1210,7 @@ export async function runMcpScript(
       );
       lingering = true;
       lingeringCalls += callsInFlight;
+      if (use !== undefined) use.lingering += callsInFlight;
       giveSlotBack();
     }, timeoutMs);
     (stuckTimer as { unref?: () => void }).unref?.();
@@ -1417,12 +1470,19 @@ export async function runMcpScript(
       __host: {
         call: async (rawName: unknown, rawArgs: unknown) => {
           callsInFlight += 1;
-          if (lingering) lingeringCalls += 1;
+          if (lingering) {
+            lingeringCalls += 1;
+            if (use !== undefined) use.lingering += 1;
+          }
           try {
             return await answerCall(rawName, rawArgs);
           } finally {
             callsInFlight -= 1;
-            if (lingering) lingeringCalls -= 1;
+            if (lingering) {
+              lingeringCalls -= 1;
+              if (use !== undefined) use.lingering -= 1;
+              forgetIdleCaller();
+            }
             release();
           }
         },
