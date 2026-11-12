@@ -396,7 +396,7 @@ When the user clicks the link in any browser or inline webview, `GET /_agent-nat
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -428,7 +428,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. Resolves the **browser** session via `getSession` (the auth guard bypasses the exact path `/_agent-native/open`).
 2. If unauthenticated, serves the configured login HTML **at the same URL**; the form's success handler reloads `window.location`, re-entering the route authenticated — no `?next=` plumbing.
 3. Writes the existing one-shot `navigate` application-state command (payload = every non-reserved query param + `view`) scoped to the browser session's email with `requestSource: "deep-link"`, and decodes a `compose` base64url draft into a `compose-<id>` key.
-4. 302-redirects to a safe same-origin relative path (`to=`, else `/<view>`, else a per-template `resolveOpenPath`), forwarding `f_*` filter params so lists/dashboards open pre-filtered before the `navigate` command is even drained.
+4. 302-redirects to a safe same-origin relative path (`to=`, else a per-template `resolveOpenPath`, else `/<view>`), forwarding `f_*` filter params so lists/dashboards open pre-filtered before the `navigate` command is even drained.
 
 Cross-origin, scheme-relative `//host`, and control-char redirects are rejected (open-redirect guard). The route can be disabled per app via `disableOpenRoute`.
 
