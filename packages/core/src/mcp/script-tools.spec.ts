@@ -592,37 +592,51 @@ describe("script types", () => {
     expect(found).toContain(", and 70 more; search by words to find them.");
   });
 
-  it("keeps a search's declarations within a size, and names what it left out", () => {
-    // Each function's declaration is longer than the whole budget.
-    const wide = () =>
-      entry({
-        tool: {
-          description: "Reads a wide thing",
-          parameters: {
-            type: "object",
-            properties: Object.fromEntries(
-              Array.from({ length: 4_000 }, (_, index) => [
-                `field${index}`,
-                { type: "string" },
-              ]),
-            ),
-          },
+  const wide = (fields: number) =>
+    entry({
+      tool: {
+        description: "Reads a wide thing",
+        parameters: {
+          type: "object",
+          properties: Object.fromEntries(
+            Array.from({ length: fields }, (_, index) => [
+              `field${index}`,
+              { type: "string" },
+            ]),
+          ),
         },
-      } as never);
+      },
+    } as never);
+
+  it("keeps a search's declarations within a size, and names what it left out", () => {
+    // Each declaration is under the type limit, and three pass the budget.
     const catalog = buildMcpScriptCatalog({
-      "get-first": wide(),
-      "get-second": wide(),
-      "get-third": wide(),
+      "get-first": wide(800),
+      "get-second": wide(800),
+      "get-third": wide(800),
     });
     const found = searchMcpScriptActions(catalog, {
       names: ["getFirst", "getSecond", "getThird"],
     });
-    // The first is always given, so no function is out of reach.
     expect(found).toContain("getFirst:");
-    expect(found).not.toContain("getSecond:");
+    expect(found).toContain("getSecond:");
+    expect(found).not.toContain("getThird:");
     expect(found).toContain(
-      "// Left out api.getSecond, api.getThird to keep this reply within 50000 characters; search for them on their own.",
+      "// Left out api.getThird to keep this reply within 50000 characters; search for them on their own.",
     );
+    expect(found.length).toBeLessThan(52_000);
+  });
+
+  it("falls back for a type too long to show, so one declaration fits", () => {
+    const catalog = buildMcpScriptCatalog({ "get-first": wide(4_000) });
+    const found = searchMcpScriptActions(catalog, { names: ["getFirst"] });
+    expect(found).toContain(
+      "// input types unavailable: the schema gives a type longer than 20000 characters",
+    );
+    expect(found).toContain(
+      "getFirst: (args: Record<string, unknown>) => Promise<unknown>;",
+    );
+    expect(found.length).toBeLessThan(2_000);
   });
 
   it("reads a bounded query, and says it cut the rest", () => {

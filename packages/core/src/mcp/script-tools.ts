@@ -300,6 +300,9 @@ export class McpScriptTypeError extends Error {
 const MAX_TYPE_DEPTH = 32;
 const PROPERTY_DESCRIPTION_CHARS = 200;
 const ACTION_DESCRIPTION_CHARS = 400;
+/** Characters of one input or result type a declaration shows; a longer one
+ *  falls back, with a note, so one declaration stays within a search's reply. */
+const MAX_DECLARED_TYPE_CHARS = 20_000;
 const INDEX_DESCRIPTION_CHARS = 110;
 
 const CONSTRAINT_KEYS = [
@@ -639,13 +642,23 @@ export function mcpScriptDeclaration(
   const parameters =
     semanticInputSchema(entry.agentInputSchema ?? entry.schema) ??
     entry.tool.parameters;
+  const shown = (
+    typed: ReturnType<typeof typeOrReason>,
+  ): ReturnType<typeof typeOrReason> =>
+    "type" in typed && typed.type.length > MAX_DECLARED_TYPE_CHARS
+      ? {
+          reason: `gives a type longer than ${MAX_DECLARED_TYPE_CHARS} characters`,
+        }
+      : typed;
   const input =
-    parameters === undefined ? { type: "{}" } : typeOrReason(parameters, "  ");
+    parameters === undefined
+      ? { type: "{}" }
+      : shown(typeOrReason(parameters, "  "));
   if ("reason" in input)
     notes.push(`input types unavailable: the schema ${input.reason}`);
   const semantic = entry.mcpOutputContract?.semantic;
   const output = semantic
-    ? typeOrReason(semantic, "  ")
+    ? shown(typeOrReason(semantic, "  "))
     : { reason: "" as const };
   if ("reason" in output && output.reason) {
     notes.push(`result type unavailable: the schema ${output.reason}`);
@@ -986,6 +999,8 @@ export interface McpScriptDenial {
   action: string | undefined;
   reason: McpScriptDenialReason;
   message: string;
+  /** The call's arguments without embed credentials, for a recorder that
+   *  keeps them; the audit log does not. */
   args: unknown;
 }
 
@@ -2280,7 +2295,9 @@ export async function recordMcpScriptDenial(
       summary: () =>
         `Refused ${denial.action ?? `api.${denial.functionName}`} in an MCP script: ${denial.message}`,
     },
-    args: denial.args,
+    // The arguments can hold what the script read, and a read that runs is
+    // not audited by default, so the refusal's row leaves them out.
+    args: undefined,
     ctx: {
       actionName: denial.action ?? `api.${denial.functionName}`,
       ...(context.userEmail ? { userEmail: context.userEmail } : {}),

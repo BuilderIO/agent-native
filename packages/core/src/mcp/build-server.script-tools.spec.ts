@@ -473,6 +473,8 @@ describe("the MCP script catalog", () => {
     ]);
     for (const input of audited) {
       expect(input.status).toBe("error");
+      // What the script passed can hold what it read.
+      expect(input.args).toBeUndefined();
       expect(input.error.statusCode).toBe(403);
       expect(input.ctx.userEmail).toBe("alice@example.com");
       expect(input.attribution).toMatchObject({
