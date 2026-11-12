@@ -18,6 +18,7 @@ import type {
 } from "../../shared/types.js";
 import { db, schema } from "../db/index.js";
 import { buildLabelCache, ensureGmailLabel } from "./automation-actions.js";
+import { GmailQuotaCooldownError } from "./gmail-quota.js";
 import { getClientsWithErrors, isConnected } from "./google-auth.js";
 import { readCachedLabels } from "./inbox-store.js";
 import { normalizeMailSettings } from "./mail-settings.js";
@@ -198,12 +199,19 @@ async function ensureAiTagLabelExists(
     return;
   }
 
-  await Promise.all(
-    clients.map(async (client) => {
-      const cache = await buildLabelCache(client.accessToken);
-      await ensureGmailLabel(client.accessToken, labelName, cache);
-    }),
-  );
+  try {
+    await Promise.all(
+      clients.map(async (client) => {
+        const cache = await buildLabelCache(client.accessToken);
+        await ensureGmailLabel(client.accessToken, labelName, cache);
+      }),
+    );
+  } catch (error) {
+    // Applying the rule creates the label too, so a Gmail cooldown must not
+    // stop the rule from being saved (first-run setup saves several at once).
+    if (error instanceof GmailQuotaCooldownError) return;
+    throw error;
+  }
 }
 
 function assertAiFilterActions(actions: AutomationAction[]): void {
