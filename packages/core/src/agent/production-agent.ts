@@ -390,6 +390,11 @@ import {
   normalizeMaxRunInputTokens,
   readAgentLoopSettings,
 } from "./loop-settings.js";
+import {
+  ModelAttemptMeasurement,
+  type ModelAttemptObserver,
+  type ModelAttemptStartObserver,
+} from "./model-attempt.js";
 import { getProviderDefaultEffort } from "./model-catalog.js";
 import {
   getContextWindowForModel,
@@ -7541,6 +7546,8 @@ export async function runAgentLoop(opts: {
   unknownOutcomes?: UnknownOutcomes;
   internalContinuation?: boolean;
   onModelInput?: ModelInputObserver;
+  onModelAttempt?: ModelAttemptObserver;
+  onModelAttemptStart?: ModelAttemptStartObserver;
   /**
    * The model and effort each model call uses. Either can change mid-run: a
    * rate limit falls back to another model, and an empty response steps effort
@@ -8584,6 +8591,14 @@ export async function runAgentLoop(opts: {
 
     for (let retry = 0; ; retry++) {
       const attemptStartedAt = Date.now();
+      const measurement = opts.onModelAttempt
+        ? new ModelAttemptMeasurement(
+            model,
+            iterations,
+            retry,
+            opts.onModelAttemptStart,
+          )
+        : undefined;
       assistantContent = undefined;
       streamedAssistantText = "";
       streamedAssistantToolCalls.length = 0;
@@ -8637,6 +8652,7 @@ export async function runAgentLoop(opts: {
             : effectiveReasoningEffort,
           beforeModelDispatch: opts.beforeModelDispatch,
           onModelDispatchStarted: () => {
+            measurement?.dispatched();
             usage.llmCalls = (usage.llmCalls ?? 0) + 1;
             try {
               opts.onModelDispatchStarted?.();
@@ -8648,6 +8664,7 @@ export async function runAgentLoop(opts: {
           providerOptions,
         };
 
+        measurement?.request(streamOpts);
         opts.onModelSettings?.(model, effectiveReasoningEffort);
         notifyModelInputObserver(opts.onModelInput, engineMessages);
         if (signal.aborted) {
@@ -8814,6 +8831,7 @@ export async function runAgentLoop(opts: {
               break;
             }
             const event = nextEvent.value;
+            measurement?.event(event);
             if (hasNoProgressStalled()) {
               checkpointNoProgress();
               break;
@@ -8966,6 +8984,7 @@ export async function runAgentLoop(opts: {
             terminalStopErrorCode ??= thrownCode;
           throw err;
         } finally {
+          measurement?.endStream();
           closeModelStreamBracket();
           if (!eventIteratorDone) {
             await requestEventIteratorReturn(
@@ -9006,6 +9025,7 @@ export async function runAgentLoop(opts: {
 
         break;
       } catch (err: unknown) {
+        measurement?.endStream();
         if (signal.aborted) throw err;
         if (completingFollowUpSuggestions) {
           failFollowUpCompletion("provider_error");
@@ -9042,7 +9062,12 @@ export async function runAgentLoop(opts: {
               label: `Model did not respond — retrying (${retry + 2}/${maxRetriesForError(err, engine) + 1})`,
             });
           }
-          await retryDelay(retry, signal, retryAfterMs);
+          const retryWaitStartedAt = Date.now();
+          try {
+            await retryDelay(retry, signal, retryAfterMs);
+          } finally {
+            measurement?.retryWait(Date.now() - retryWaitStartedAt);
+          }
           continue;
         }
         if (
@@ -9084,6 +9109,10 @@ export async function runAgentLoop(opts: {
           }
         }
         throw err;
+      } finally {
+        if (measurement && opts.onModelAttempt) {
+          measurement.finish(opts.onModelAttempt);
+        }
       }
     }
 
