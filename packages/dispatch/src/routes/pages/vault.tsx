@@ -581,10 +581,6 @@ function SecretRow({
                 Saved, but this deployment cannot decrypt it. Save the key
                 again.
               </span>
-            ) : secret.valueStatus === "missing" ? (
-              <span className="text-xs text-destructive">
-                Nothing stored. Save the key again.
-              </span>
             ) : (
               <code className="text-xs font-mono text-foreground">
                 {secret.last4}

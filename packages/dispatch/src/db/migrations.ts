@@ -366,4 +366,11 @@ export const dispatchMigrations: MigrationEntry[] = [
         ADD COLUMN IF NOT EXISTS browser_binding_hash TEXT;
     `,
   },
+  {
+    version: 10,
+    name: "vault-grants-credential-key",
+    sql: `
+      ALTER TABLE IF EXISTS vault_grants ADD COLUMN IF NOT EXISTS credential_key TEXT;
+    `,
+  },
 ];

@@ -84,7 +84,8 @@ describe("dispatch migrations", () => {
     const { rows } = await freshExec.execute(
       "SELECT MAX(version) as version FROM dispatch_migrations",
     );
-    expect(rows[0]?.version).toBe(9);
+    // oracle-change: migration 10 adds vault_grants.credential_key, so the highest version is now 10.
+    expect(rows[0]?.version).toBe(10);
     const { rows: identityRows } = await freshExec.execute({
       sql: `SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name = ?`,

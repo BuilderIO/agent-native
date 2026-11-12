@@ -4,10 +4,15 @@ import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   deleteAppSecret,
+  isVaultManagedSecret,
   listAppSecretsForScope,
-  readAppSecret,
+  listAppSecretSummaries,
+  readAppSecretMetaById,
+  updateAppSecretById,
   VAULT_SYNC_DESCRIPTION_PREFIX,
   writeAppSecret,
+  type AppSecretSummary,
+  type SecretMeta,
   type SecretScope,
 } from "@agent-native/core/secrets";
 import { readOrgMemberRole } from "@agent-native/core/server";
@@ -28,13 +33,6 @@ import {
 
 const VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
 
-/**
- * `vault_secrets.value` is NOT NULL and migrations can't drop columns, so it
- * stays as an always-empty column; the value lives only, encrypted, in
- * `app_secrets`. Treat "" as "no plaintext here", never as "no secret".
- */
-const SEALED_VAULT_VALUE = "";
-
 export type VaultAccessMode = "all-apps" | "manual";
 
 export interface VaultAccessSettings {
@@ -49,8 +47,10 @@ export interface VaultAccessSettings {
  * Every getSecret / updateSecret / deleteSecret / createGrant call must
  * pass the ctx of the *current request* so the row is scoped to that
  * caller's tenant. Looking up a vault secret by id alone is unsafe — UUIDs
- * are not authorization. A row matches the ctx if either the caller owns
- * it or it lives in the caller's active org.
+ * are not authorization. A key is found only in the credential-store scope
+ * the ctx maps to (see `credentialStoreScopeForVaultCtx`); a grant, request
+ * or audit row matches the ctx if either the caller owns it or it lives in
+ * the caller's active org.
  */
 export interface VaultCtx {
   ownerEmail: string;
@@ -89,10 +89,6 @@ function ctxForRow(row: {
   orgId: string | null;
 }): VaultCtx {
   return { ownerEmail: row.ownerEmail, orgId: row.orgId };
-}
-
-function ctxForSecretRow(row: VaultSecretRow, fallback: VaultCtx): VaultCtx {
-  return row.ownerEmail ? ctxForRow(row) : fallback;
 }
 
 function id() {
@@ -197,12 +193,23 @@ export async function setVaultAccessSettings(input: {
 export async function recordVaultAudit(input: {
   action: string;
   secretId?: string | null;
+  /** The key the event is about. Recorded in the metadata, which outlives the key's row. */
+  credentialKey?: string | null;
   appId?: string | null;
   summary: string;
-  metadata?: unknown;
+  metadata?: Record<string, unknown>;
   actor?: string;
 }) {
   const db = getDb();
+  const metadata =
+    input.credentialKey || input.metadata
+      ? {
+          ...(input.credentialKey
+            ? { credentialKey: input.credentialKey }
+            : {}),
+          ...input.metadata,
+        }
+      : null;
   await db.insert(schema.vaultAuditLog).values({
     id: id(),
     ownerEmail: currentOwnerEmail(),
@@ -212,7 +219,7 @@ export async function recordVaultAudit(input: {
     action: input.action,
     actor: input.actor || currentOwnerEmail(),
     summary: input.summary,
-    metadata: input.metadata ? safeJson(input.metadata) : null,
+    metadata: metadata ? safeJson(metadata) : null,
     createdAt: now(),
   });
 }
@@ -228,47 +235,162 @@ export async function listVaultAudit(limit = 50) {
     .limit(limit);
 }
 
-export async function listSecrets() {
-  await assertCanManageVault();
-  const db = getDb();
-  return db
-    .select()
-    .from(schema.vaultSecrets)
-    .where(scopedFilter(schema.vaultSecrets))
-    .orderBy(desc(schema.vaultSecrets.updatedAt));
+/**
+ * A key in the vault's credential-store scope: its `app_secrets` row without
+ * the value. `name` is the label, or the key itself for a row saved before
+ * labels existed.
+ */
+export interface VaultSecretRow {
+  id: string;
+  name: string;
+  credentialKey: string;
+  provider: string | null;
+  description: string | null;
+  createdBy: string | null;
+  createdAt: number;
+  updatedAt: number;
+  /**
+   * Created or edited through the Vault. Without it the key is one an app
+   * registered for itself in the same scope.
+   */
+  managed: boolean;
 }
 
+/**
+ * What the credential store holds for a key: a readable value, or one this
+ * deployment cannot decrypt (a rotated key, a copied database).
+ */
+export type VaultValueStatus = "stored" | "unreadable";
+
+export interface VaultSecretMetadata {
+  id: string;
+  name: string;
+  credentialKey: string;
+  last4: string;
+  valueStatus: VaultValueStatus;
+  provider: string | null;
+  description: string | null;
+  createdBy: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** A key an earlier release saved carries that release's marker in its description; it is not the user's text. */
+function visibleDescription(description: string | null): string | null {
+  return description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX)
+    ? null
+    : description;
+}
+
+function vaultSecretRow(row: AppSecretSummary): VaultSecretRow {
+  return {
+    id: row.id,
+    name: row.label || row.key,
+    credentialKey: row.key,
+    provider: row.provider,
+    description: visibleDescription(row.description),
+    createdBy: row.createdBy,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    managed: isVaultManagedSecret(row),
+  };
+}
+
+function vaultSecretMetadata(meta: SecretMeta): VaultSecretMetadata {
+  return {
+    id: meta.id,
+    name: meta.label || meta.key,
+    credentialKey: meta.key,
+    last4: meta.last4,
+    // The scope listing reports a value it cannot decrypt as an empty
+    // preview, and a stored value is never empty.
+    valueStatus: meta.last4 === "" ? "unreadable" : "stored",
+    provider: meta.provider,
+    description: visibleDescription(meta.description),
+    createdBy: meta.createdBy,
+    createdAt: meta.createdAt,
+    updatedAt: meta.updatedAt,
+  };
+}
+
+/**
+ * Where a vault's keys live in the credential store: the organization's scope,
+ * or the caller's own `solo:` scope when no organization is active. A key is
+ * its `app_secrets` row there, and its id is that row's id.
+ */
+export function credentialStoreScopeForVaultCtx(ctx: VaultCtx): {
+  scope: Extract<SecretScope, "org" | "workspace">;
+  scopeId: string;
+} {
+  if (ctx.orgId) return { scope: "org", scopeId: ctx.orgId };
+  return { scope: "workspace", scopeId: `solo:${ctx.ownerEmail}` };
+}
+
+async function listScopeSecrets(ctx: VaultCtx): Promise<VaultSecretRow[]> {
+  const target = credentialStoreScopeForVaultCtx(ctx);
+  const rows = await listAppSecretSummaries(target.scope, target.scopeId);
+  return rows.map(vaultSecretRow);
+}
+
+async function findSecret(
+  secretId: string,
+  ctx: VaultCtx,
+): Promise<VaultSecretRow | null> {
+  const rows = await listScopeSecrets(ctx);
+  return rows.find((row) => row.id === secretId) ?? null;
+}
+
+async function requireSecretMetadata(
+  secretId: string,
+  ctx: VaultCtx,
+): Promise<VaultSecretMetadata> {
+  const secret = await getSecret(secretId, ctx);
+  if (!secret) throw new Error("Secret not found");
+  return secret;
+}
+
+/** Every key in the vault's scope with a masked preview. Never returns a value. */
+export async function listSecrets(): Promise<VaultSecretMetadata[]> {
+  await assertCanManageVault();
+  const target = credentialStoreScopeForVaultCtx(requireVaultCtx());
+  const rows = await listAppSecretsForScope(target.scope, target.scopeId);
+  return rows.map(vaultSecretMetadata);
+}
+
+/**
+ * The keys the caller may pick from. Admins get everything in the vault's
+ * scope, as on the Vault page. Members get only keys the Vault manages, so an
+ * app's own organization keys stay out of reach of a picker any member can open.
+ */
 export async function listSecretOptions() {
-  const db = getDb();
-  return db
-    .select({
-      id: schema.vaultSecrets.id,
-      name: schema.vaultSecrets.name,
-      credentialKey: schema.vaultSecrets.credentialKey,
-      provider: schema.vaultSecrets.provider,
-      description: schema.vaultSecrets.description,
-    })
-    .from(schema.vaultSecrets)
-    .where(scopedFilter(schema.vaultSecrets))
-    .orderBy(desc(schema.vaultSecrets.updatedAt));
+  const rows = await listScopeSecrets(requireVaultCtx());
+  const visible = (await canManageVault())
+    ? rows
+    : rows.filter((row) => row.managed);
+  return visible.map(({ id, name, credentialKey, provider, description }) => ({
+    id,
+    name,
+    credentialKey,
+    provider,
+    description,
+  }));
 }
 
-export async function getSecret(secretId: string, ctx: VaultCtx) {
+export async function getSecret(
+  secretId: string,
+  ctx: VaultCtx = requireVaultCtx(),
+): Promise<VaultSecretMetadata | null> {
   await assertCanManageVault();
-  const db = getDb();
-  const [row] = await db
-    .select()
-    .from(schema.vaultSecrets)
-    .where(
-      and(
-        eq(schema.vaultSecrets.id, secretId),
-        ctxScope(schema.vaultSecrets, ctx),
-      ),
-    )
-    .limit(1);
-  return row ?? null;
+  const target = credentialStoreScopeForVaultCtx(ctx);
+  const meta = await readAppSecretMetaById({ id: secretId, ...target });
+  return meta ? vaultSecretMetadata(meta) : null;
 }
 
+/**
+ * Save a key. A key that already exists in the scope is updated, which is the
+ * caller asking for exactly that; nothing else here ever overwrites a row.
+ * The value goes straight into the encrypted column of its `app_secrets` row.
+ */
 export async function createSecret(
   input: {
     credentialKey: string;
@@ -278,89 +400,63 @@ export async function createSecret(
     description?: string | null | undefined;
   },
   ctx: VaultCtx = requireVaultCtx(),
-) {
+): Promise<VaultSecretMetadata> {
   await assertCanManageVault();
-  const db = getDb();
-  const timestamp = now();
   const credentialKey = normalizeCredentialKey(input.credentialKey);
   if (!credentialKey) throw new Error("Credential key is required");
   if (!input.value) throw new Error("Secret value is required");
-  const existing = await db
-    .select()
-    .from(schema.vaultSecrets)
-    .where(
-      and(
-        eq(schema.vaultSecrets.credentialKey, credentialKey),
-        ctxScope(schema.vaultSecrets, ctx),
-      ),
-    )
-    .orderBy(desc(schema.vaultSecrets.updatedAt))
-    .limit(1);
+  const target = credentialStoreScopeForVaultCtx(ctx);
+  const existing = (await listScopeSecrets(ctx)).find(
+    (row) => row.credentialKey === credentialKey,
+  );
 
-  if (existing[0]) {
-    const found = existing[0];
-    await db
-      .update(schema.vaultSecrets)
-      .set({
-        name: input.name,
-        credentialKey,
-        value: SEALED_VAULT_VALUE,
+  if (existing) {
+    const updated = await updateAppSecretById(
+      { id: existing.id, ...target },
+      {
+        value: input.value,
+        label: input.name,
         provider: input.provider || null,
         description: input.description || null,
-        updatedAt: timestamp,
-      })
-      .where(
-        and(
-          eq(schema.vaultSecrets.id, found.id),
-          ctxScope(schema.vaultSecrets, ctx),
-        ),
-      );
-    await storeSecretValue(
-      ctxForSecretRow(found, ctx),
-      { credentialKey, name: input.name },
-      input.value,
+        adoptedBy: ctx.ownerEmail,
+      },
     );
+    if (updated) {
+      await recordVaultAudit({
+        action: "secret.updated",
+        secretId: existing.id,
+        credentialKey,
+        summary: `Updated secret "${input.name}" (${credentialKey})`,
+        metadata: { provider: input.provider },
+      });
 
-    await recordVaultAudit({
-      action: "secret.updated",
-      secretId: found.id,
-      summary: `Updated secret "${input.name}" (${credentialKey})`,
-      metadata: { credentialKey, provider: input.provider },
-    });
+      await recordAudit({
+        action: "vault.secret.updated",
+        targetType: "vault-secret",
+        targetId: existing.id,
+        summary: `Updated vault secret "${input.name}" (${credentialKey})`,
+      });
 
-    await recordAudit({
-      action: "vault.secret.updated",
-      targetType: "vault-secret",
-      targetId: found.id,
-      summary: `Updated vault secret "${input.name}" (${credentialKey})`,
-    });
-
-    return getSecret(found.id, ctx);
+      return requireSecretMetadata(existing.id, ctx);
+    }
   }
 
-  const secretId = id();
-  const actor = ctx.ownerEmail;
-
-  await db.insert(schema.vaultSecrets).values({
-    id: secretId,
-    ownerEmail: actor,
-    orgId: ctx.orgId,
-    name: input.name,
-    credentialKey,
-    value: SEALED_VAULT_VALUE,
+  const secretId = await writeAppSecret({
+    key: credentialKey,
+    value: input.value,
+    ...target,
+    label: input.name,
     provider: input.provider || null,
-    description: input.description || null,
-    createdBy: actor,
-    createdAt: timestamp,
-    updatedAt: timestamp,
+    description: input.description || undefined,
+    createdBy: ctx.ownerEmail,
   });
-  await storeSecretValue(ctx, { credentialKey, name: input.name }, input.value);
 
   await recordVaultAudit({
     action: "secret.created",
     secretId,
+    credentialKey,
     summary: `Created secret "${input.name}" (${credentialKey})`,
-    metadata: { credentialKey, provider: input.provider },
+    metadata: { provider: input.provider },
   });
 
   await recordAudit({
@@ -370,7 +466,7 @@ export async function createSecret(
     summary: `Created vault secret "${input.name}" (${credentialKey})`,
   });
 
-  return getSecret(secretId, ctx);
+  return requireSecretMetadata(secretId, ctx);
 }
 
 export async function updateSecret(
@@ -385,10 +481,9 @@ export async function updateSecret(
         description?: string | null | undefined;
       },
   ctx: VaultCtx = requireVaultCtx(),
-) {
+): Promise<VaultSecretMetadata> {
   await assertCanManageVault();
-  const db = getDb();
-  const existing = await getSecret(secretId, ctx);
+  const existing = await findSecret(secretId, ctx);
   if (!existing) throw new Error("Secret not found");
   const patch = typeof input === "string" ? { value: input } : input;
   const credentialKey =
@@ -407,66 +502,46 @@ export async function updateSecret(
     patch.description !== undefined
       ? patch.description || null
       : existing.description;
+  const renamed = credentialKey !== existing.credentialKey;
 
-  if (credentialKey !== existing.credentialKey) {
-    const conflict = await db
-      .select({ id: schema.vaultSecrets.id })
-      .from(schema.vaultSecrets)
+  // One statement renames, rotates and relabels together, and refuses a key
+  // another row in the scope already holds. A rename moves the stored
+  // ciphertext with the row, so the value is never read or rewritten.
+  const stored = await updateAppSecretById(
+    { id: secretId, ...credentialStoreScopeForVaultCtx(ctx) },
+    {
+      ...(renamed ? { key: credentialKey } : {}),
+      ...(patch.value !== undefined ? { value: patch.value } : {}),
+      ...(patch.name !== undefined ? { label: name } : {}),
+      ...(patch.provider !== undefined ? { provider } : {}),
+      ...(patch.description !== undefined ? { description } : {}),
+      adoptedBy: ctx.ownerEmail,
+    },
+  );
+  if (!stored) throw new Error("Secret not found");
+
+  if (renamed) {
+    // Grants name their key, so they follow it. A failure here leaves them on
+    // the old key, which grants nothing: access fails closed.
+    await getDb()
+      .update(schema.vaultGrants)
+      .set({ credentialKey, secretId, updatedAt: now() })
       .where(
-        and(
-          eq(schema.vaultSecrets.credentialKey, credentialKey),
-          ctxScope(schema.vaultSecrets, ctx),
+        or(
+          eq(schema.vaultGrants.secretId, secretId),
+          and(
+            eq(schema.vaultGrants.credentialKey, existing.credentialKey),
+            tenantScope(schema.vaultGrants, ctx),
+          ),
         ),
-      )
-      .limit(1);
-    if (conflict[0] && conflict[0].id !== secretId) {
-      throw new Error(`Credential key "${credentialKey}" is already in use`);
-    }
-  }
-
-  const storeCtx = ctxForSecretRow(existing, ctx);
-  let valueForKey = patch.value;
-  if (!valueForKey && credentialKey !== existing.credentialKey) {
-    // A rename carries the stored value to the new key. A failed read throws;
-    // only a missing copy means there is nothing to move.
-    const current = await readAppSecret({
-      key: existing.credentialKey,
-      ...credentialStoreScopeForVaultCtx(storeCtx),
-    });
-    valueForKey = current?.value;
-  }
-
-  await db
-    .update(schema.vaultSecrets)
-    .set({
-      name,
-      credentialKey,
-      // Only a new value empties the row. A row that still holds an older
-      // plaintext value keeps it until it is cleared in bulk, so a label edit
-      // can never write that stale value over a newer one in the credential store.
-      ...(patch.value !== undefined ? { value: SEALED_VAULT_VALUE } : {}),
-      provider,
-      description,
-      updatedAt: now(),
-    })
-    .where(
-      and(
-        eq(schema.vaultSecrets.id, secretId),
-        ctxScope(schema.vaultSecrets, ctx),
-      ),
-    );
-  if (valueForKey) {
-    await storeSecretValue(storeCtx, { credentialKey, name }, valueForKey);
+      );
   }
 
   const auditMetadata = {
     name,
     previousName: name !== existing.name ? existing.name : undefined,
     credentialKey,
-    previousCredentialKey:
-      credentialKey !== existing.credentialKey
-        ? existing.credentialKey
-        : undefined,
+    previousCredentialKey: renamed ? existing.credentialKey : undefined,
     provider,
     previousProvider:
       provider !== existing.provider ? existing.provider : undefined,
@@ -479,6 +554,7 @@ export async function updateSecret(
   await recordVaultAudit({
     action: "secret.updated",
     secretId,
+    credentialKey,
     summary: `Updated secret "${name}" (${credentialKey})`,
     metadata: auditMetadata,
   });
@@ -491,15 +567,7 @@ export async function updateSecret(
     metadata: auditMetadata,
   });
 
-  const updated = await getSecret(secretId, ctx);
-  if (updated && credentialKey !== existing.credentialKey) {
-    await cleanupSyncedCredentialKeysIfUnused(ctxForRow(existing), [
-      existing.credentialKey,
-    ]);
-  } else if (updated && patch.credentialKey !== undefined) {
-    await cleanupSyncedCredentialKeysIfUnused(ctxForSecretRow(updated, ctx));
-  }
-  return updated;
+  return requireSecretMetadata(secretId, ctx);
 }
 
 export async function deleteSecret(
@@ -507,8 +575,7 @@ export async function deleteSecret(
   ctx: VaultCtx = requireVaultCtx(),
 ) {
   await assertCanManageVault();
-  const db = getDb();
-  const existing = await getSecret(secretId, ctx);
+  const existing = await findSecret(secretId, ctx);
   if (!existing) throw new Error("Secret not found");
 
   const grants = await listGrants({ secretId });
@@ -518,21 +585,15 @@ export async function deleteSecret(
     }
   }
 
-  await db
-    .delete(schema.vaultSecrets)
-    .where(
-      and(
-        eq(schema.vaultSecrets.id, secretId),
-        ctxScope(schema.vaultSecrets, ctx),
-      ),
-    );
-  await cleanupSyncedCredentialKeysIfUnused(ctxForRow(existing), [
-    existing.credentialKey,
-  ]);
+  await deleteAppSecret({
+    key: existing.credentialKey,
+    ...credentialStoreScopeForVaultCtx(ctx),
+  });
 
   await recordVaultAudit({
     action: "secret.deleted",
     secretId,
+    credentialKey: existing.credentialKey,
     summary: `Deleted secret "${existing.name}" (${existing.credentialKey})`,
   });
 
@@ -546,24 +607,57 @@ export async function deleteSecret(
   return existing;
 }
 
+/**
+ * A grant belongs to a key by its name. The id match covers a grant whose key
+ * column a rename has not reached yet; the name match covers grants backfilled
+ * from before the key column existed, whose `secretId` is stale.
+ */
+function grantsOfSecret(secret: VaultSecretRow, ctx: VaultCtx) {
+  return or(
+    eq(schema.vaultGrants.secretId, secret.id),
+    and(
+      eq(schema.vaultGrants.credentialKey, secret.credentialKey),
+      tenantScope(schema.vaultGrants, ctx),
+    ),
+  );
+}
+
+/** Report the grant against the key's current id, so callers can match it to a listed key. */
+function withCurrentSecretId<
+  T extends { secretId: string; credentialKey: string | null },
+>(grant: T, secrets: VaultSecretRow[]): T {
+  const secret = grant.credentialKey
+    ? secrets.find((row) => row.credentialKey === grant.credentialKey)
+    : undefined;
+  return secret ? { ...grant, secretId: secret.id } : grant;
+}
+
 export async function listGrants(filter?: {
   secretId?: string;
   appId?: string;
 }) {
   await assertCanManageVault();
+  const ctx = requireVaultCtx();
   const db = getDb();
+  const secrets = await listScopeSecrets(ctx);
   const conditions = [scopedFilter(schema.vaultGrants)];
   if (filter?.secretId) {
-    conditions.push(eq(schema.vaultGrants.secretId, filter.secretId) as any);
+    const secret = secrets.find((row) => row.id === filter.secretId);
+    conditions.push(
+      (secret
+        ? grantsOfSecret(secret, ctx)
+        : eq(schema.vaultGrants.secretId, filter.secretId)) as any,
+    );
   }
   if (filter?.appId) {
     conditions.push(eq(schema.vaultGrants.appId, filter.appId) as any);
   }
-  return db
+  const rows = await db
     .select()
     .from(schema.vaultGrants)
     .where(and(...conditions))
     .orderBy(desc(schema.vaultGrants.updatedAt));
+  return rows.map((grant) => withCurrentSecretId(grant, secrets));
 }
 
 export async function getGrant(
@@ -582,7 +676,7 @@ export async function getGrant(
       ),
     )
     .limit(1);
-  return row ?? null;
+  return row ? withCurrentSecretId(row, await listScopeSecrets(ctx)) : null;
 }
 
 export async function createGrant(
@@ -592,26 +686,27 @@ export async function createGrant(
 ) {
   await assertCanManageVault();
   const db = getDb();
-  const secret = await getSecret(secretId, ctx);
+  const secret = await findSecret(secretId, ctx);
   if (!secret) throw new Error("Secret not found");
 
   const timestamp = now();
   const actor = ctx.ownerEmail;
-  const [existing] = await db
+  const matches = await db
     .select()
     .from(schema.vaultGrants)
     .where(
       and(
-        eq(schema.vaultGrants.secretId, secretId),
         eq(schema.vaultGrants.appId, appId),
+        grantsOfSecret(secret, ctx),
         ctxScope(schema.vaultGrants, ctx),
       ),
     )
-    .orderBy(desc(schema.vaultGrants.updatedAt))
-    .limit(1);
+    .orderBy(desc(schema.vaultGrants.updatedAt));
+  const existing =
+    matches.find((grant) => grant.status === "active") ?? matches[0];
 
   if (existing?.status === "active") {
-    return existing;
+    return getGrant(existing.id, ctx);
   }
 
   if (existing) {
@@ -621,6 +716,8 @@ export async function createGrant(
         grantedBy: actor,
         status: "active",
         syncedAt: null,
+        secretId: secret.id,
+        credentialKey: secret.credentialKey,
         updatedAt: timestamp,
       })
       .where(
@@ -633,6 +730,7 @@ export async function createGrant(
     await recordVaultAudit({
       action: "grant.reinstated",
       secretId,
+      credentialKey: secret.credentialKey,
       appId,
       summary: `Reinstated "${secret.name}" (${secret.credentialKey}) for ${appId}`,
       metadata: { grantId: existing.id },
@@ -654,7 +752,8 @@ export async function createGrant(
     id: grantId,
     ownerEmail: actor,
     orgId: ctx.orgId,
-    secretId,
+    secretId: secret.id,
+    credentialKey: secret.credentialKey,
     appId,
     grantedBy: actor,
     status: "active",
@@ -666,6 +765,7 @@ export async function createGrant(
   await recordVaultAudit({
     action: "grant.created",
     secretId,
+    credentialKey: secret.credentialKey,
     appId,
     summary: `Granted "${secret.name}" (${secret.credentialKey}) to ${appId}`,
     metadata: { grantId },
@@ -678,7 +778,7 @@ export async function createGrant(
     summary: `Granted vault secret "${secret.name}" to ${appId}`,
   });
 
-  return getGrant(grantId);
+  return getGrant(grantId, ctx);
 }
 
 export async function grantSecretsToApp(
@@ -730,7 +830,8 @@ export async function revokeGrant(
   const grant = await getGrant(grantId, ctx);
   if (!grant) throw new Error("Grant not found");
 
-  const secret = await getSecret(grant.secretId, ctx);
+  const secret = await findSecret(grant.secretId, ctx);
+  const credentialKey = secret?.credentialKey ?? grant.credentialKey;
 
   await db
     .update(schema.vaultGrants)
@@ -745,8 +846,9 @@ export async function revokeGrant(
   await recordVaultAudit({
     action: "grant.revoked",
     secretId: grant.secretId,
+    credentialKey,
     appId: grant.appId,
-    summary: `Revoked ${secret?.credentialKey || grant.secretId} from ${grant.appId}`,
+    summary: `Revoked ${credentialKey || grant.secretId} from ${grant.appId}`,
     metadata: { grantId },
   });
 
@@ -758,175 +860,6 @@ export async function revokeGrant(
   });
 
   return getGrant(grantId, ctx);
-}
-
-type VaultSecretRow = typeof schema.vaultSecrets.$inferSelect;
-
-/**
- * What the credential store holds for a vault row: a readable value, nothing,
- * or a value this deployment cannot decrypt (a rotated key, a copied database).
- */
-export type VaultValueStatus = "stored" | "missing" | "unreadable";
-
-export interface VaultSecretMetadata {
-  id: string;
-  name: string;
-  credentialKey: string;
-  last4: string;
-  valueStatus: VaultValueStatus;
-  provider: string | null;
-  description: string | null;
-  createdBy: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-function vaultSecretMetadata(
-  secret: VaultSecretRow,
-  last4Value: string,
-  valueStatus: VaultValueStatus,
-): VaultSecretMetadata {
-  return {
-    id: secret.id,
-    name: secret.name,
-    credentialKey: secret.credentialKey,
-    last4: last4Value,
-    valueStatus,
-    provider: secret.provider,
-    description: secret.description,
-    createdBy: secret.createdBy,
-    createdAt: secret.createdAt,
-    updatedAt: secret.updatedAt,
-  };
-}
-
-export function credentialStoreScopeForVaultCtx(ctx: VaultCtx): {
-  scope: Extract<SecretScope, "org" | "workspace">;
-  scopeId: string;
-} {
-  if (ctx.orgId) return { scope: "org", scopeId: ctx.orgId };
-  return { scope: "workspace", scopeId: `solo:${ctx.ownerEmail}` };
-}
-
-/**
- * Masked metadata for a page of vault rows. The preview is read from the
- * encrypted copy in the credential store, one read per store scope, because
- * the vault row itself holds no value.
- */
-export async function listVaultSecretMetadata(
-  rows: VaultSecretRow[],
-  fallback: VaultCtx = requireVaultCtx(),
-): Promise<VaultSecretMetadata[]> {
-  const storeKey = (row: VaultSecretRow) => {
-    const target = credentialStoreScopeForVaultCtx(
-      ctxForSecretRow(row, fallback),
-    );
-    return { target, scopeKey: `${target.scope}\u0000${target.scopeId}` };
-  };
-  const scopes = new Map<string, ReturnType<typeof storeKey>["target"]>();
-  for (const row of rows) {
-    const { target, scopeKey } = storeKey(row);
-    scopes.set(scopeKey, target);
-  }
-  const previews = new Map<string, string>();
-  for (const [scopeKey, target] of scopes) {
-    for (const meta of await listAppSecretsForScope(
-      target.scope,
-      target.scopeId,
-    )) {
-      previews.set(`${scopeKey}\u0000${meta.key}`, meta.last4);
-    }
-  }
-  return rows.map((row) => {
-    const preview = previews.get(
-      `${storeKey(row).scopeKey}\u0000${row.credentialKey}`,
-    );
-    // The scope listing reports a copy it cannot decrypt as an empty preview,
-    // and a stored value is never empty, so empty here means unreadable.
-    if (preview === undefined) return vaultSecretMetadata(row, "", "missing");
-    return vaultSecretMetadata(
-      row,
-      preview,
-      preview === "" ? "unreadable" : "stored",
-    );
-  });
-}
-
-export async function getVaultSecretMetadata(
-  row: VaultSecretRow | null,
-  fallback: VaultCtx = requireVaultCtx(),
-): Promise<VaultSecretMetadata | null> {
-  if (!row) return null;
-  try {
-    const copy = await readAppSecret({
-      key: row.credentialKey,
-      ...credentialStoreScopeForVaultCtx(ctxForSecretRow(row, fallback)),
-    });
-    return copy
-      ? vaultSecretMetadata(row, copy.last4, "stored")
-      : vaultSecretMetadata(row, "", "missing");
-  } catch (error) {
-    if (!isUnreadableSecretError(error)) throw error;
-    return vaultSecretMetadata(row, "", "unreadable");
-  }
-}
-
-/** Core does not export `AppSecretDecryptionError`; it is recognised by its code. */
-function isUnreadableSecretError(error: unknown): boolean {
-  return (
-    (error as { errorCode?: unknown }).errorCode === "app_secret_unreadable"
-  );
-}
-
-/** Encrypt a vault secret's value into the credential store. */
-async function storeSecretValue(
-  ctx: VaultCtx,
-  secret: { credentialKey: string; name: string },
-  value: string,
-): Promise<void> {
-  const target = credentialStoreScopeForVaultCtx(ctx);
-  await writeAppSecret({
-    key: secret.credentialKey,
-    value,
-    scope: target.scope,
-    scopeId: target.scopeId,
-    description: `${VAULT_SYNC_DESCRIPTION_PREFIX} ${secret.name}`,
-  });
-}
-
-export async function cleanupSyncedCredentialKeysIfUnused(
-  ctx: VaultCtx,
-  candidateKeys?: string[],
-) {
-  const db = getDb();
-  const target = credentialStoreScopeForVaultCtx(ctx);
-  const keys = candidateKeys
-    ? candidateKeys
-    : (await listAppSecretsForScope(target.scope, target.scopeId))
-        .filter((secret) =>
-          secret.description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX),
-        )
-        .map((secret) => secret.key);
-
-  for (const key of new Set(keys.filter(Boolean))) {
-    const stillUsesKey = await db
-      .select({ id: schema.vaultSecrets.id })
-      .from(schema.vaultSecrets)
-      .where(
-        and(
-          eq(schema.vaultSecrets.credentialKey, key),
-          ctxScope(schema.vaultSecrets, ctx),
-        ),
-      )
-      .limit(1);
-    if (!stillUsesKey[0]) {
-      await deleteAppSecret({
-        key,
-        scope: target.scope,
-        scopeId: target.scopeId,
-      });
-    }
-  }
 }
 
 export async function listRequests(filter?: { status?: string }) {
@@ -1008,6 +941,7 @@ export async function createRequest(input: {
 
   await recordVaultAudit({
     action: "request.created",
+    credentialKey: input.credentialKey,
     appId: input.appId,
     summary: `${actor} requested ${input.credentialKey} for ${input.appId}`,
     metadata: { requestId, reason: input.reason },
@@ -1076,31 +1010,26 @@ export async function approveRequest(
   const requestCtx = ctxForRow(claimedRequest);
 
   try {
-    const existingSecrets = await db
-      .select()
-      .from(schema.vaultSecrets)
-      .where(
-        and(
-          eq(schema.vaultSecrets.credentialKey, claimedRequest.credentialKey),
-          ctxScope(schema.vaultSecrets, requestCtx),
-        ),
-      );
-    let secret = existingSecrets[0] ?? null;
+    // A key that already exists in the scope is only granted: the approver's
+    // value never overwrites a row, whether the Vault or an app wrote it.
+    let secretId = (await listScopeSecrets(requestCtx)).find(
+      (row) => row.credentialKey === claimedRequest.credentialKey,
+    )?.id;
 
-    if (!secret) {
-      secret = await createSecret(
-        {
-          credentialKey: claimedRequest.credentialKey,
-          value: secretValue,
-          name: secretName || claimedRequest.credentialKey,
-        },
-        requestCtx,
-      );
+    if (!secretId) {
+      secretId = (
+        await createSecret(
+          {
+            credentialKey: claimedRequest.credentialKey,
+            value: secretValue,
+            name: secretName || claimedRequest.credentialKey,
+          },
+          requestCtx,
+        )
+      ).id;
     }
 
-    if (secret) {
-      await createGrant(secret.id, claimedRequest.appId, requestCtx);
-    }
+    await createGrant(secretId, claimedRequest.appId, requestCtx);
   } catch (error) {
     await db
       .update(schema.vaultRequests)
@@ -1133,6 +1062,7 @@ export async function approveRequest(
 
   await recordVaultAudit({
     action: "request.approved",
+    credentialKey: claimedRequest.credentialKey,
     appId: claimedRequest.appId,
     summary: `Approved ${claimedRequest.credentialKey} for ${claimedRequest.appId} (requested by ${claimedRequest.requestedBy})`,
     metadata: { requestId, reviewer },
@@ -1179,6 +1109,7 @@ export async function denyRequest(
 
   await recordVaultAudit({
     action: "request.denied",
+    credentialKey: claimedRequest.credentialKey,
     appId: claimedRequest.appId,
     summary: `Denied ${claimedRequest.credentialKey} for ${claimedRequest.appId} (requested by ${claimedRequest.requestedBy})`,
     metadata: { requestId, reviewer, reason },
@@ -1301,7 +1232,10 @@ export async function listVaultOverview() {
     listRequests(),
     getVaultAccessSettings(),
   ]);
-  const manualGrantCount = grants.filter((g) => g.status === "active").length;
+  // A grant with no key (written before grants named their key) grants nothing.
+  const manualGrantCount = grants.filter(
+    (g) => g.status === "active" && g.credentialKey,
+  ).length;
 
   return {
     accessMode: access.mode,
