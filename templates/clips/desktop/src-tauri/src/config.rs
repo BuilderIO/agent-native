@@ -355,7 +355,10 @@ pub async fn get_feature_config(app: AppHandle) -> Result<FeatureConfig, String>
 }
 
 #[tauri::command]
-pub async fn set_feature_config(app: AppHandle, mut config: FeatureConfig) -> Result<(), String> {
+pub async fn set_feature_config(
+    app: AppHandle,
+    mut config: FeatureConfig,
+) -> Result<(), String> {
     config.config_version = FEATURE_CONFIG_VERSION;
     if !crate::whisper_model::is_supported_model_id(&config.whisper_model_id) {
         return Err(format!(
