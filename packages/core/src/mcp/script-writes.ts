@@ -14,6 +14,7 @@ import {
   actionCallIntent,
   preparedCallArguments,
   type ActionRunContext,
+  type PreparedActionCall,
   type McpScriptReceiptLocator,
   type McpScriptWriteContract,
 } from "../action.js";
@@ -74,6 +75,13 @@ export interface ScriptWriteCall {
 /** A write the gate let through, carried from `begin` to `settle`. */
 export interface ScriptWriteTicket {
   readonly call: ScriptWriteCall;
+  /**
+   * The call as the gate prepared it, which is the one that runs: its row
+   * bound and receipt were read from these arguments, so preparing them
+   * again (a generated default, a transform) can't run something else.
+   */
+  readonly prepared: PreparedActionCall;
+  /** A copy of the prepared arguments, as the ledger records them. */
   readonly args: unknown;
   readonly locator: McpScriptReceiptLocator;
   readonly reservedRows: number;
@@ -273,6 +281,7 @@ export function createScriptWriteGate(
         const collected: RecordActionAuditInput[] = [];
         const ticket: ScriptWriteTicket = {
           call,
+          prepared,
           args,
           locator,
           reservedRows,
@@ -356,10 +365,20 @@ export function effectOfOutcome(
 ): Exclude<ScriptWriteEffect, "pending"> {
   switch (outcome.status) {
     case "completed":
-    case "failed":
+      // The core takes an error reported in the value at its word, that the
+      // action did no work. A write may still have committed part of it, so
+      // only its receipt can say.
+      if (outcome.reportedError) return "unknown";
       return outcome.effect === "none"
         ? "not-applied"
-        : outcome.effect === "committed" && !isReportedFailure(outcome)
+        : outcome.effect === "committed"
+          ? "committed"
+          : "unknown";
+    case "failed":
+      // A failure past the run, in reading its result, undoes no commit.
+      return outcome.effect === "none"
+        ? "not-applied"
+        : outcome.effect === "committed" && outcome.stage === "result"
           ? "committed"
           : "unknown";
     case "unknown-tool":
@@ -370,15 +389,6 @@ export function effectOfOutcome(
       // Refused before the action was invoked.
       return "not-applied";
   }
-}
-
-// A value that reports failure may still have committed part of the call, so
-// only the receipt can say.
-function isReportedFailure(outcome: McpActionCallOutcome): boolean {
-  return (
-    (outcome.status === "completed" && outcome.reportedError) ||
-    (outcome.status === "failed" && outcome.stage !== "result")
-  );
 }
 
 /**

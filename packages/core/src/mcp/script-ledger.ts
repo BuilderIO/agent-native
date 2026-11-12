@@ -12,6 +12,7 @@ import { redactArgsToJson } from "../audit/redact.js";
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { redactEmbedCredentials } from "./execute-action-call.js";
 
 export const mcpScriptLedgerStore = defineStore({
   id: "mcp_script_ledger",
@@ -115,9 +116,19 @@ export interface ScriptRunOwner {
   orgId: string | null;
 }
 
-/** The arguments as the ledger keeps them: redacted, and capped. */
+/**
+ * The arguments as the ledger keeps them: embed credentials removed, as from
+ * a refused call's, then redacted and capped as audit inputs are.
+ */
 export function storedScriptArguments(args: unknown): string | null {
-  return redactArgsToJson(args ?? {}, STORED_ARGUMENT_LIMITS);
+  let readable: unknown;
+  try {
+    readable = redactEmbedCredentials(args ?? {});
+  } catch {
+    // coercion-ok: null is how run status shows arguments that aren't kept.
+    return null;
+  }
+  return redactArgsToJson(readable, STORED_ARGUMENT_LIMITS);
 }
 
 function normalizedEmail(email: string | null): string | null {
@@ -288,8 +299,11 @@ function stringOrNull(value: unknown): string | null {
 }
 
 /**
- * Unsettled writes of `appId` started before `startedBefore`, oldest first.
- * A newer one may still be running in the process that started it.
+ * Unsettled writes of `appId` started before `startedBefore`: those tried
+ * least first, then the oldest. A newer one may still be running in the
+ * process that started it. Rows nothing can settle (their action is gone,
+ * or their `reconcile` throws) move behind the rest as their attempts grow,
+ * so a batch of them can't keep recovery from every later write.
  */
 export async function listUnsettledScriptWrites(
   appId: string,
@@ -301,7 +315,7 @@ export async function listUnsettledScriptWrites(
     sql: `SELECT run_id, seq, app_id, owner_email, org_id, action_name, effect_status, receipt_scope, idempotency_key, payload_digest, call_arguments, recover_after, created_at
       FROM mcp_script_calls
       WHERE app_id = ? AND kind = 'write' AND effect_status IN ('pending', 'unknown') AND created_at < ?
-      ORDER BY created_at, run_id, seq
+      ORDER BY reconcile_attempts, created_at, run_id, seq
       LIMIT ?`,
     args: [appId, startedBefore, limit],
   });

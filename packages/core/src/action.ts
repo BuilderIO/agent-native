@@ -1069,17 +1069,19 @@ export function isMcpScriptWriteContract(
   );
 }
 
-// Copied, so the entry keeps what was checked even if the caller's object
-// changes later. Each function keeps the declaring object as `this`.
+// Copied, functions included, so the entry keeps what was checked even if
+// the caller's object changes later. Each function keeps the declaring
+// object as `this`.
 function frozenMcpScriptWriteContract(
   contract: McpScriptWriteContract,
 ): McpScriptWriteContract {
+  const { rowBound, receiptLocator, reconcile, destructive } = contract;
   return Object.freeze({
-    rowBound: (args: unknown) => contract.rowBound(args),
-    receiptLocator: (args: unknown) => contract.receiptLocator(args),
+    rowBound: (args: unknown) => rowBound.call(contract, args),
+    receiptLocator: (args: unknown) => receiptLocator.call(contract, args),
     reconcile: (locator: McpScriptReceiptLocator) =>
-      contract.reconcile(locator),
-    destructive: contract.destructive,
+      reconcile.call(contract, locator),
+    destructive,
   });
 }
 

@@ -4,7 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { currentInvocationEvidence } from "../action-frame.js";
-import { ActionContractError, defineAction } from "../action.js";
+import {
+  ActionContractError,
+  actionCallIntent,
+  defineAction,
+  preparedCallArguments,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import {
@@ -431,6 +436,45 @@ describe("executeMcpActionCall", () => {
     expect(ran).toEqual([1000]);
     expect(gate.length).toBeGreaterThan(0);
     expect(gate.every((time) => time === 1000)).toBe(true);
+  });
+
+  it("runs a call already prepared as it was prepared, without preparing it again", async () => {
+    // A script write's ledger names the rows and receipt of these
+    // arguments before it runs, so a second preparation must not run others.
+    let made = 0;
+    const ran: unknown[] = [];
+    const save = defineAction({
+      description: "Save with a generated key.",
+      schema: z.object({
+        key: z.string().default(() => `k${(made += 1)}`),
+        rows: z.number().transform((rows) => rows * 2),
+      }),
+      readOnly: false,
+      run: async (args) => {
+        ran.push(args);
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+    const prepared = await actionCallIntent(save, { rows: 1 });
+    if (!prepared.valid) throw new Error("expected a valid call");
+    const before = preparedCallArguments(prepared);
+    expect(before).toEqual({
+      key: expect.stringMatching(/^k[0-9]+$/),
+      rows: 2,
+    });
+    const madeWhenPrepared = made;
+    const outcome = await inRequest(() =>
+      executeMcpActionCall(context, {
+        name: "save",
+        args: { rows: 1 },
+        callable: { save },
+        prepared,
+      }),
+    );
+    expect(outcome).toMatchObject({ status: "completed" });
+    // The run gets the prepared arguments: no new key, no second transform.
+    expect(ran).toEqual([before]);
+    expect(made).toBe(madeWhenPrepared);
   });
 
   it("asks for approval and runs only on an approved resume of the same call", async () => {

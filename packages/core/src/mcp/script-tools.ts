@@ -922,12 +922,13 @@ export interface RunMcpScriptInput {
   known: Record<string, ActionEntry>;
   /**
    * Runs one action through `executeMcpActionCall` for this caller. A write
-   * passes what its ledger ticket adds to the action's run context.
+   * passes its ledger ticket, whose prepared call is the one that runs, and
+   * whose run context collects the write's audit.
    */
   callAction: (
     action: string,
     args: unknown,
-    runContext?: Partial<ActionRunContext>,
+    write?: ScriptWriteTicket,
   ) => Promise<McpActionCallOutcome>;
   /** Records a policy denial; a failure to record is logged, not thrown. */
   recordDenial: (denial: McpScriptDenial) => Promise<void>;
@@ -1427,6 +1428,21 @@ export async function runMcpScript(
           args,
         });
         if (begun.status === "refused") {
+          // Refused before it had a ledger row, so the refusal gets one, and
+          // the run's status lists it in order.
+          try {
+            await input.writes.recordDenial({
+              seq: slot,
+              functionName: fn,
+              action,
+              reason: begun.code,
+              args: deniedCallArguments(args),
+            });
+          } catch (error) {
+            console.error(
+              `[mcp] Could not record a refused script write in the ledger: ${describeThrownForLog(error)}`,
+            );
+          }
           return refuse(
             fn,
             action,
@@ -1542,7 +1558,7 @@ export async function runMcpScript(
         }
       };
       record({ function: fn, action, status: "unfinished", ms: 0 });
-      const outcome = await input.callAction(action, args, ticket?.runContext);
+      const outcome = await input.callAction(action, args, ticket);
       try {
         return await answer(outcome);
       } finally {

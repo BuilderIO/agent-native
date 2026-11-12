@@ -515,6 +515,12 @@ export interface McpActionCall {
   /** Adapter-specific facts to attach to the action's audit context. */
   actionRunContext?: Partial<ActionRunContext>;
   approval?: McpActionApprovalResponse;
+  /**
+   * The call as `actionCallIntent` already prepared it from `args` for this
+   * action, to run as it is rather than prepared again. A script write's
+   * ledger names the rows and receipt of these arguments before it runs.
+   */
+  prepared?: PreparedActionCall;
 }
 
 type McpActionCallRefusal<Approval, Review> =
@@ -695,7 +701,7 @@ export async function runMcpActionCallUnredacted(
   try {
     // One preparation: approval decides on, and the run executes, the
     // arguments the action runs with, defaults applied.
-    const prepared = await actionCallIntent(entry, callArgs);
+    const prepared = call.prepared ?? (await actionCallIntent(entry, callArgs));
     if (!prepared.valid) {
       // Recorded and reported as the action's own validation failure was,
       // with no path to its handler.

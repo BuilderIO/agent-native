@@ -3778,13 +3778,14 @@ export async function createMCPServerForRequest(
       runId,
       signal: ctx.mcpReq.signal,
       ...(writes ? { writes } : {}),
-      callAction: async (action, callArgs, runContext) => {
+      callAction: async (action, callArgs, write) => {
         const run = () =>
           executeMcpActionCall(actionCallContext, {
             name: action,
             args: callArgs,
             callable: catalog.actions,
-            actionRunContext: { ...attribution, runId, ...runContext },
+            actionRunContext: { ...attribution, runId, ...write?.runContext },
+            ...(write ? { prepared: write.prepared } : {}),
           });
         return callerContext
           ? runWithRequestContext(callerContext, run)

@@ -27,6 +27,7 @@ import {
   pruneScriptLedger,
   SCRIPT_LEDGER_RETENTION_MS,
   settleScriptWriteRow,
+  storedScriptArguments,
   type ScriptRunOwner,
 } from "./script-ledger.js";
 import {
@@ -223,10 +224,14 @@ describe("effectOfOutcome", () => {
     expect(effectOfOutcome(committed)).toBe("committed");
     expect(effectOfOutcome(ranNothing)).toBe("not-applied");
     expect(effectOfOutcome(unclear)).toBe("unknown");
-    // An error the action reported in its value may follow a partial commit.
+    // An error the action reported in its value may follow a partial commit,
+    // though the core, taking the report at its word, says it did nothing.
     expect(
-      effectOfOutcome({ ...committed, reportedError: true } as never),
+      effectOfOutcome({ ...committed, reportedError: true, effect: "none" }),
     ).toBe("unknown");
+    expect(effectOfOutcome({ ...committed, reportedError: true })).toBe(
+      "unknown",
+    );
     // A commit followed by a failure to format the result is still a commit.
     expect(
       effectOfOutcome({
@@ -240,6 +245,20 @@ describe("effectOfOutcome", () => {
     expect(effectOfOutcome({ status: "unknown-tool" } as never)).toBe(
       "not-applied",
     );
+  });
+});
+
+describe("storedScriptArguments", () => {
+  it("removes embed credentials before it keeps a write's arguments", () => {
+    const stored = storedScriptArguments({
+      id: "doc_1",
+      link: "https://mail.agent-native.com/_agent-native/embed/start?ticket=secret-ticket",
+    });
+    expect(stored).not.toContain("secret-ticket");
+    expect(JSON.parse(stored!)).toEqual({
+      id: "doc_1",
+      link: "[hidden embed URL]",
+    });
   });
 });
 
@@ -433,6 +452,31 @@ describe("createScriptWriteGate", () => {
       expect.objectContaining({ effect_status: "committed" }),
     );
     expect(audits.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks the receipt of a write that reported an error, and keeps its rows", async () => {
+    const reported: McpActionCallOutcome = {
+      status: "completed",
+      value: { isError: true },
+      reportedError: true,
+      effect: "none",
+    };
+    const writes = gate({ rowBudget: 2 });
+    const first = await writes.begin(call(0, { key: "a", rows: 1 }));
+    const second = await writes.begin(call(1, { key: "b", rows: 1 }));
+    if (first.status !== "go" || second.status !== "go") {
+      throw new Error("expected go");
+    }
+    receipts.add("a");
+    await writes.settle(first.ticket, reported, { status: "failed" });
+    await writes.settle(second.ticket, reported, { status: "failed" });
+    expect((await rows()).map((row) => row.effect_status)).toEqual([
+      "committed",
+      "unknown",
+    ]);
+    // Neither gives its row back: one committed, one may still.
+    const third = await writes.begin(call(2, { key: "c", rows: 1 }));
+    expect(third).toMatchObject({ status: "refused", code: "write_budget" });
   });
 
   it("delivers the audit row and change marker of a committed write once", async () => {
@@ -630,6 +674,28 @@ describe("recoverScriptWrites", () => {
       now: T0 + 3 * 60_000,
     });
     expect(seen).toEqual(["ada@example.com"]);
+  });
+
+  it("reaches a write it can settle behind a batch it never can", async () => {
+    const writes = gate();
+    for (let seq = 0; seq < 50; seq += 1) {
+      const begun = await writes.begin({
+        ...call(seq, { key: `gone-${seq}`, rows: 1 }),
+        action: "gone-thing",
+      });
+      if (begun.status !== "go") throw new Error("expected go");
+    }
+    await leavePending(50, "a");
+    receipts.add("a");
+    const sweep = () =>
+      recoverScriptWrites({ appId: "app-a", actions, now: T0 + 3 * 60_000 });
+    // The first batch is the 50 older writes whose action is gone; the next
+    // takes the write tried least first.
+    await expect(sweep()).resolves.toEqual({ settled: 0, unsettled: 50 });
+    await expect(sweep()).resolves.toEqual({ settled: 1, unsettled: 49 });
+    expect((await rows()).at(-1)).toEqual(
+      expect.objectContaining({ seq: 50, effect_status: "committed" }),
+    );
   });
 
   it("keeps a write whose action is gone unknown, and never guesses", async () => {

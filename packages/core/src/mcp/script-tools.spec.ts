@@ -1384,11 +1384,15 @@ describe("script writes", () => {
       ...fields,
     } as never);
 
+  // The prepared call a fake gate hands on, which the run must pass through.
+  const PREPARED = Object.freeze({ valid: true }) as never;
+
   function fakeGate(
     begin: ScriptWriteGate["begin"] = async (call) => ({
       status: "go",
       ticket: {
         call,
+        prepared: PREPARED,
         args: call.args,
         locator: { scope: "docs", idempotencyKey: "k", payloadDigest: "d" },
         reservedRows: 1,
@@ -1438,20 +1442,22 @@ describe("script writes", () => {
   ) {
     const catalog = buildMcpScriptCatalog(actions, { writes: true });
     const contexts: unknown[] = [];
+    const prepared: unknown[] = [];
     const run = (code: string, extra: { timeoutMs?: number } = {}) =>
       runMcpScript({
         code,
         catalog,
         known: actions,
         ...extra,
-        callAction: async (_action, _args, runContext) => {
-          contexts.push(runContext);
+        callAction: async (_action, _args, write) => {
+          contexts.push(write?.runContext);
+          prepared.push(write?.prepared);
           return callAction();
         },
         recordDenial: async () => {},
         ...(writes ? { writes } : {}),
       });
-    return { catalog, contexts, run };
+    return { catalog, contexts, prepared, run };
   }
 
   it("allows a declared write only where writes are on and its contract is whole", () => {
@@ -1493,9 +1499,13 @@ describe("script writes", () => {
     });
     expect(action.mcpScript).toBe("write");
     expect(Object.isFrozen(action.mcpScriptWrite)).toBe(true);
-    // Changing the declared object afterward changes nothing.
+    // Changing the declared object afterward changes nothing, its functions
+    // included.
+    const rows = action.mcpScriptWrite!.rowBound({ id: "doc_1" });
     declared.destructive = false;
+    declared.rowBound = () => 999;
     expect(action.mcpScriptWrite?.destructive).toBe(true);
+    expect(action.mcpScriptWrite!.rowBound({ id: "doc_1" })).toBe(rows);
     expect(() =>
       defineAction({
         description: "Save a doc",
@@ -1563,7 +1573,10 @@ describe("script writes", () => {
 
   it("runs a write through the gate and settles it with what the script saw", async () => {
     const { writes, settled } = fakeGate();
-    const { run, contexts } = writeRunner({ "save-doc": writeEntry() }, writes);
+    const { run, contexts, prepared } = writeRunner(
+      { "save-doc": writeEntry() },
+      writes,
+    );
     const payload = await run(`return await api.saveDoc({ id: "doc_1" });`);
     expect(payload).toMatchObject({ ok: true, result: { ok: true } });
     expect(writes.begin).toHaveBeenCalledWith(
@@ -1574,15 +1587,17 @@ describe("script writes", () => {
         args: { id: "doc_1" },
       }),
     );
-    // The action runs with the ticket's context, so its audit is deferred.
+    // The action runs with the ticket's context, so its audit is deferred,
+    // and runs the call the gate prepared rather than preparing it again.
     expect(contexts).toEqual([{ deferAudit: expect.any(Function) }]);
+    expect(prepared).toEqual([PREPARED]);
     expect(settled).toEqual([
       { seq: 0, effect: "committed", response: { status: "completed" } },
     ]);
   });
 
   it("refuses a write the gate refuses, without running it", async () => {
-    const { writes, settled } = fakeGate(async () => ({
+    const { writes, settled, ledgerDenials } = fakeGate(async () => ({
       status: "refused",
       code: "write_budget",
       message: "Over budget.",
@@ -1596,6 +1611,8 @@ describe("script writes", () => {
     expect(payload.result).toBe("write_budget");
     expect(contexts).toEqual([]);
     expect(settled).toEqual([]);
+    // It had no ledger row, so the refusal gets one, for the run's status.
+    expect(ledgerDenials).toEqual([{ seq: 0, reason: "write_budget" }]);
   });
 
   it("refuses a write where the server has no gate for the run", async () => {
@@ -1707,6 +1724,7 @@ describe("script writes", () => {
             status: "go",
             ticket: {
               call,
+              prepared: PREPARED,
               args: call.args,
               locator: {
                 scope: "docs",
