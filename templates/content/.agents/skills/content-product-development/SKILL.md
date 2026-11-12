@@ -72,59 +72,20 @@ require a permission slip for every useful bug fix.
 Load the domain skill for the work, especially `actions`, `security`, `sharing`,
 `storing-data`, `portability`, `real-time-collab`, or `real-time-sync`.
 
-## Declare pull-request impact
+## Check pull-request impact locally
 
-During the advisory conformance pilot, add exactly one fenced YAML declaration
-to the pull-request body when a change directly affects Content or when a shared
-framework change has specific Content impact:
+The advisory Content product conformance workflow has been retired. The
+standalone validator can still check a fenced `content_product_impact` YAML
+block in a pull request body. To run it from the repo root, set
+`GITHUB_EVENT_PATH` to a JSON file containing the `pull_request` object,
+including its `body`, `base.sha`, and `head.sha`. Set `CONTENT_IMPACT_BASE_SHA`
+and `CONTENT_IMPACT_HEAD_SHA` to those same revisions and fetch both commits
+locally. Then run `pnpm content-product-impact`.
 
-```yaml
-content_product_impact:
-  lane: contract_repair
-  features:
-    - content.feature.example
-  capabilities:
-    - content.example.capability
-  record_change: none
-  proof:
-    - pnpm --filter content test
-  rationale: The change repairs the declared Capability without changing its contract.
-```
+The validator snapshots the product catalog and skill. Links to files outside
+that snapshot can make the run fail during catalog validation.
 
-Use stable IDs from `templates/content/docs/product/`. Valid lanes are
-`contract_repair`, `contract_fulfillment`, `local_refinement`, and
-`product_decision_candidate`. Set `record_change` to `included` when the PR
-changes a Feature or Capability record, or `decision_pending` when the product
-record must wait for an explicit product decision.
-
-A change with no product behavior needs no declaration, such as unit tests,
-`vitest.config.ts`, CI workflows, or formatting. A test that a Capability lists
-under `evidence` still counts, as do E2E, parity, and conformance suites,
-because they are the product's proof. If the advisory check warns on a change
-with no product impact, leave the declaration out and say so in the PR rather
-than writing one to silence it.
-
-The lane meanings are the same as the classification table above. A contract
-repair does not require roadmap churn when the accepted record remains true.
-Repairs, fulfillment, and local refinement must name at least one real Feature
-or Capability. A product-decision candidate may omit IDs only with
-`decision_pending`, or while the same PR includes the proposed new record; do
-not invent an ID to make the declaration look complete.
-
-Run the focused declaration and workflow-policy tests with:
-
-```sh
-pnpm test:content-product-impact
-```
-
-To repair a warning, copy the block above into the PR body, replace the example
-IDs with exact catalog IDs, align `record_change` with any changed product
-records, and name the focused proof you actually ran.
-
-The check is intentionally advisory while its deterministic rules calibrate.
-It never edits the roadmap, assigns or tags a reviewer, and never turns an LLM
-opinion into a merge gate. Shared framework changes with no direct Content
-evidence should remain quiet.
+Run `pnpm test:content-product-impact` to test the validator.
 
 ## Prove and record the result
 

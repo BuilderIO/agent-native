@@ -166,12 +166,7 @@ describe("Content impact applicability", () => {
       directContentEvidence("scripts/validate-content-product-impact.ts"),
       undefined,
     );
-    assert.equal(
-      directContentEvidence(
-        ".github/workflows/content-product-conformance.yml",
-      ),
-      undefined,
-    );
+    assert.equal(directContentEvidence(".github/workflows/ci.yml"), undefined);
   });
 
   it("ignores unit tests and test-runner config but keeps proof suites", () => {
