@@ -2142,8 +2142,13 @@ describe("resolveSecret (generic)", () => {
     );
     expect(mockGetDbExec().execute).toHaveBeenCalledWith(
       expect.objectContaining({
+        sql: expect.stringMatching(/\bcredential_key = \?/),
         args: ["dispatch-vault", "factory", "HUBSPOT_MCP_CLIENT_SECRET"],
       }),
+    );
+    // The grant names its key itself, so no other table is read for it.
+    expect(vi.mocked(mockGetDbExec().execute).mock.calls[0]?.[0]).toMatchObject(
+      { sql: expect.not.stringContaining("vault_secrets") },
     );
   });
 
