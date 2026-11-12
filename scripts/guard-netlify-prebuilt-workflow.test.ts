@@ -4234,20 +4234,15 @@ describe("production Netlify site concurrency guard", () => {
     const deploy = jobs.deploy;
     const ownership = jobs["pause-netlify-builds"];
     assert.deepEqual(deploy?.needs, [
-      "verify-stable-release",
       "docs-source-freshness",
       "pause-netlify-builds",
       "migrate",
     ]);
     assert.deepEqual(jobs.migrate.needs, [
-      "verify-stable-release",
       "docs-source-freshness",
       "pause-netlify-builds",
     ]);
-    assert.deepEqual(ownership.needs, [
-      "verify-stable-release",
-      "docs-source-freshness",
-    ]);
+    assert.deepEqual(ownership.needs, ["docs-source-freshness"]);
     assert.match(String(deploy?.if), /always\(\)/);
     assert.match(String(deploy?.if), /needs\.migrate\.result == 'success'/);
     assert.equal((jobs.migrate.with as Workflow).migration_only, true);
@@ -4282,7 +4277,6 @@ describe("production Netlify site concurrency guard", () => {
     );
     const restore = jobs["restore-netlify-builds"];
     assert.deepEqual(restore?.needs, [
-      "verify-stable-release",
       "pause-netlify-builds",
       "migrate",
       "deploy",
@@ -4300,6 +4294,180 @@ describe("production Netlify site concurrency guard", () => {
     assert(restoreStep);
     assert.match(String(restoreStep.if), /cutover_acquired/);
     assert.match(String(restoreStep.run), /stop_builds: false/);
+  });
+
+  it("posts to Slack only when docs production starts failing or deploys again", async () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-docs-production.yml",
+    );
+    const report = (workflow.jobs as Record<string, Workflow>).report!;
+    assert.deepEqual(report.needs, [
+      "docs-source-freshness",
+      "pause-netlify-builds",
+      "migrate",
+      "deploy",
+      "restore-netlify-builds",
+    ]);
+    assert.equal(
+      report.if,
+      "${{ !cancelled() && github.event_name == 'push' }}",
+    );
+    const [change, post] = report.steps as Workflow[];
+    const script = String((change!.with as Workflow).script);
+    const postWith = post!.with as Workflow;
+    assert.equal(
+      post!.uses,
+      "slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d",
+    );
+    assert.equal(post!.if, "${{ steps.change.outputs.text != '' }}");
+    assert.equal(postWith.token, "${{ secrets.QA_SLACK_BOT_TOKEN }}");
+    // #dev-agent-native-alerts, without the group mention that pages.
+    assert.match(String(postWith.payload), /^channel: C0C7A1Y2EF6$/m);
+    assert.doesNotMatch(
+      `${script}\n${String(postWith.payload)}`,
+      /<!subteam|<!here>|<!channel>/,
+    );
+
+    type EarlierRun = {
+      id: number;
+      conclusion: string;
+      jobs: Array<{ name: string; conclusion: string }>;
+    };
+    const decide = async (
+      needs: Record<string, { result: string }>,
+      earlier: EarlierRun[],
+    ) => {
+      const outputs: Record<string, string> = {};
+      let listed = 0;
+      const github = {
+        rest: {
+          actions: {
+            listWorkflowRuns: async (options: Workflow) => {
+              listed += 1;
+              assert.deepEqual(options, {
+                owner: "BuilderIO",
+                repo: "agent-native",
+                workflow_id: "deploy-docs-production.yml",
+                branch: "main",
+                event: "push",
+                status: "completed",
+                per_page: 100,
+              });
+              return {
+                data: {
+                  workflow_runs: earlier.map(({ id, conclusion }) => ({
+                    id,
+                    conclusion,
+                  })),
+                },
+              };
+            },
+            listJobsForWorkflowRun: async ({ run_id }: { run_id: number }) => ({
+              data: { jobs: earlier.find((run) => run.id === run_id)!.jobs },
+            }),
+          },
+        },
+      };
+      const run = new Function(
+        "github",
+        "context",
+        "core",
+        "process",
+        `return (async () => {\n${script}\n})();`,
+      ) as (...args: unknown[]) => Promise<void>;
+      await run(
+        github,
+        {
+          repo: { owner: "BuilderIO", repo: "agent-native" },
+          runId: 100,
+          sha: "a".repeat(40),
+          serverUrl: "https://github.com",
+        },
+        {
+          setOutput: (name: string, value: string) => {
+            outputs[name] = value;
+          },
+        },
+        { env: { DOCS_JOB_RESULTS: JSON.stringify(needs) } },
+      );
+      return { text: outputs.text, listed };
+    };
+    const result = (state: string) => ({ result: state });
+    const published = {
+      "docs-source-freshness": result("success"),
+      "pause-netlify-builds": result("success"),
+      migrate: result("success"),
+      deploy: result("success"),
+      "restore-netlify-builds": result("success"),
+    };
+    const deployFailed = { ...published, deploy: result("failure") };
+    const handedOver = {
+      ...published,
+      "pause-netlify-builds": result("skipped"),
+      migrate: result("skipped"),
+      deploy: result("skipped"),
+    };
+    const publishedRun = (id: number): EarlierRun => ({
+      id,
+      conclusion: "success",
+      jobs: [
+        {
+          name: "docs production prebuilt deploy / production fw prebuilt deploy",
+          conclusion: "success",
+        },
+      ],
+    });
+    const handedOverRun = (id: number): EarlierRun => ({
+      id,
+      conclusion: "success",
+      jobs: [
+        { name: "docs production prebuilt deploy", conclusion: "skipped" },
+      ],
+    });
+    const failedRun = (id: number): EarlierRun => ({
+      id,
+      conclusion: "failure",
+      jobs: [],
+    });
+
+    const startsFailing = await decide(deployFailed, [
+      handedOverRun(99),
+      publishedRun(98),
+    ]);
+    assert.equal(
+      startsFailing.text,
+      ":warning: Docs production did not deploy aaaaaaaaaa: deploy failed. www.agent-native.com keeps its last published build. Run: https://github.com/BuilderIO/agent-native/actions/runs/100. Re-run its failed jobs once the cause is fixed; the next docs change to main deploys too. This posts again only after docs deploy.",
+    );
+    const stillFailing = await decide(deployFailed, [
+      handedOverRun(99),
+      failedRun(98),
+      publishedRun(97),
+    ]);
+    assert.equal(stillFailing.text, "");
+    const deploysAgain = await decide(published, [failedRun(99)]);
+    assert.equal(
+      deploysAgain.text,
+      ":white_check_mark: Docs production deploys again: aaaaaaaaaa is live. Run: https://github.com/BuilderIO/agent-native/actions/runs/100",
+    );
+    const keepsDeploying = await decide(published, [publishedRun(99)]);
+    assert.equal(keepsDeploying.text, "");
+    // A run a newer docs change took over says nothing and reads nothing.
+    const skipped = await decide(handedOver, [failedRun(99)]);
+    assert.equal(skipped.text, "");
+    assert.equal(skipped.listed, 0);
+    // A newer or cancelled run is not this run's predecessor, and with no
+    // earlier deploy or failure in sight a failure still posts.
+    const noHistory = await decide(deployFailed, [
+      failedRun(101),
+      { id: 99, conclusion: "cancelled", jobs: [] },
+      handedOverRun(98),
+    ]);
+    assert.match(noHistory.text, /^:warning: Docs production did not deploy/);
+    const startCheckFailed = await decide(
+      { ...handedOver, "docs-source-freshness": result("failure") },
+      [publishedRun(99)],
+    );
+    assert.match(startCheckFailed.text, /: docs-source-freshness failed\./);
   });
 
   it("keeps the fleet caller queue distinct from the shared site queues", () => {

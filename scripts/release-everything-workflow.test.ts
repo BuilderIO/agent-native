@@ -430,8 +430,7 @@ describe("release everything workflow", () => {
     const fanout = source.slice(fanoutStart, fanoutEnd);
     assert.equal((fanout.match(/dispatchAndWait\(/g) ?? []).length, 1);
     assert.equal((fanout.match(/publishStagedBuild\(/g) ?? []).length, 2);
-    assert.match(fanout, /waitForReleaseDocs\(releaseSha, releaseBaseSha\)/);
-    assert(source.indexOf("async function waitForReleaseDocs(") < fanoutStart);
+    assert.doesNotMatch(fanout, /docs/i);
 
     const helperStart = source.indexOf("async function dispatchAndWait(");
     const helperEnd = source.indexOf(
@@ -582,94 +581,12 @@ describe("release everything workflow", () => {
     );
   });
 
-  it("follows the release's docs run while sibling releases are still running", async () => {
-    const source = String((coordinator.with as Workflow).script);
-    const fanoutStart = source.indexOf(
-      "const downstream = await Promise.allSettled([",
-    );
-    const fanoutEnd = source.indexOf("]);", fanoutStart);
-    assert(fanoutStart >= 0 && fanoutEnd > fanoutStart);
-    // The coordinator no longer deploys docs; push-to-main runs do.
-    assert.doesNotMatch(
-      source,
-      /deploy-docs-production\.yml",\s*siteWorkflowRef/,
-    );
-    const AsyncFunction = Object.getPrototypeOf(
-      async function () {},
-    ).constructor;
-    const createFanout = new AsyncFunction(
-      "dispatchAndWait",
-      "waitForReleaseDocs",
-      "siteWorkflowRef",
-      "releaseSha",
-      "releaseBaseSha",
-      "productionSites",
-      "publishStagedBuild",
-      "desktopStage",
-      "clipsStage",
-      `${source.slice(fanoutStart, fanoutEnd + "]);".length)}
-return downstream;`,
-    ) as (...args: unknown[]) => Promise<PromiseSettledResult<Workflow>[]>;
-
-    const docsRun = {
-      id: 42,
-      html_url: "https://github.com/BuilderIO/agent-native/actions/runs/42",
-    };
-    const siblingWorkflows: string[] = [];
-    const releaseSiblingWaits: (() => void)[] = [];
-    let siblingsFinished = false;
-    let docsWaitArgs: unknown[] = [];
-    let siblingsFinishedWhenDocsStarted = true;
-    const dispatchSibling = async (workflow: string) => {
-      const siblingId = siblingWorkflows.length + 1;
-      siblingWorkflows.push(workflow);
-      return new Promise<Workflow>((resolve) => {
-        releaseSiblingWaits.push(() =>
-          resolve({ run: { id: siblingId }, error: null }),
-        );
-      });
-    };
-    const fanoutPromise = createFanout(
-      dispatchSibling,
-      async (...args: unknown[]) => {
-        docsWaitArgs = args;
-        siblingsFinishedWhenDocsStarted = siblingsFinished;
-        return { run: docsRun, error: null };
-      },
-      "main",
-      "release-sha",
-      "release-base-sha",
-      ["chat", "design"],
-      (staged: { workflow: string }) => dispatchSibling(staged.workflow),
-      { workflow: "desktop-release.yml" },
-      { workflow: "clips-desktop-release.yml" },
-    );
-    await new Promise((resolve) => setImmediate(resolve));
-    siblingsFinished = true;
-    for (const release of releaseSiblingWaits) release();
-    const downstream = await fanoutPromise;
-
-    assert.deepEqual(siblingWorkflows, [
-      "desktop-release.yml",
-      "clips-desktop-release.yml",
-      "deploy-production-sites-prebuilt.yml",
-    ]);
-    assert.deepEqual(docsWaitArgs, ["release-sha", "release-base-sha"]);
-    assert.equal(siblingsFinishedWhenDocsStarted, false);
-    assert.equal(downstream.length, 4);
-    assert.deepEqual(downstream[3], {
-      status: "fulfilled",
-      value: { run: docsRun, error: null },
-    });
-  });
-
   it("adds correlation inputs and run titles to coordinated child workflows", () => {
     for (const child of [
       autoPublishWorkflow,
       desktopWorkflow,
       clipsWorkflow,
       productionWorkflow,
-      docsWorkflow,
     ]) {
       const childDispatch = (child.on as Workflow)
         .workflow_dispatch as Workflow;
@@ -825,7 +742,7 @@ return downstream;`,
     assert.match(source, /desktop-release\.yml/);
     assert.match(source, /clips-desktop-release\.yml/);
     assert.match(source, /deploy-production-sites-prebuilt\.yml/);
-    assert.match(source, /deploy-docs-production\.yml/);
+    assert.doesNotMatch(source, /"deploy-docs-production\.yml"/);
     assert.match(source, /channel: "production"/);
     assert.match(
       source,
@@ -1186,7 +1103,9 @@ return removeSupersededReservations;`,
     assert.equal(failing.remainingTags.has("v1.2.1"), false);
   });
 
-  it("uses the docs publisher for www instead of the app-site fleet", () => {
+  it("leaves www to the docs workflow, which deploys every docs change including the release", () => {
+    // oracle-change: Release everything no longer deploys or waits for docs,
+    // and the docs workflow no longer skips the release commit's own run.
     const source = String((coordinator.with as Workflow).script);
     const docsDispatch = (docsWorkflow.on as Workflow)
       .workflow_dispatch as Workflow;
@@ -1197,43 +1116,25 @@ return removeSupersededReservations;`,
     const freshnessActionScript = String(
       (freshnessActionSteps[0].with as Workflow).script,
     );
-    const verifyStableRelease = docsJobs["verify-stable-release"] as Workflow;
     const docsSourceFreshness = docsJobs["docs-source-freshness"] as Workflow;
     const migrateDocs = docsJobs.migrate as Workflow;
     const deployDocs = docsJobs.deploy as Workflow;
     const pauseDocsBuilds = docsJobs["pause-netlify-builds"] as Workflow;
     const restoreDocsBuilds = docsJobs["restore-netlify-builds"] as Workflow;
-    const verifyStep = (verifyStableRelease.steps as Workflow[])[0];
-    const verifySource = String((verifyStep.with as Workflow).script);
-    const AsyncFunction = Object.getPrototypeOf(
-      async function () {},
-    ).constructor;
 
-    assert.match(source, /const docsSite = sitesManifest\.fw/);
-    assert.match(source, /docsSite\?\.host !== "www\.agent-native\.com"/);
     assert.match(source, /name !== "fw"/);
-    assert.match(
-      source,
-      /async function waitForReleaseDocs\(releaseSha, releaseBaseSha\)/,
-    );
-    assert.match(source, /isDocsJob\(job, "docs production prebuilt deploy"\)/);
-    const readPaths = (text: string, declaration: string) => {
-      const start = text.indexOf(`const ${declaration} = [`);
-      const arrayStart = text.indexOf("[", start);
-      const arrayEnd = text.indexOf("];", arrayStart) + 1;
-      assert(start >= 0 && arrayEnd > arrayStart);
-      return new Function(
-        `return ${text.slice(arrayStart, arrayEnd)};`,
-      )() as string[];
-    };
-    assert.deepEqual(
-      readPaths(source, "docsDeploymentPaths"),
-      readPaths(freshnessActionScript, "docsPaths"),
-    );
-    const docsDeploymentPaths = readPaths(source, "docsDeploymentPaths");
+    assert.doesNotMatch(source, /"deploy-docs-production\.yml"/);
+    assert.doesNotMatch(source, /docsSite|Docs site/);
+    const docsPathsStart = freshnessActionScript.indexOf("const docsPaths = [");
+    const arrayStart = freshnessActionScript.indexOf("[", docsPathsStart);
+    const arrayEnd = freshnessActionScript.indexOf("];", arrayStart) + 1;
+    assert(docsPathsStart >= 0 && arrayEnd > arrayStart);
+    const docsPaths = new Function(
+      `return ${freshnessActionScript.slice(arrayStart, arrayEnd)};`,
+    )() as string[];
     assert.deepEqual(
       ((docsWorkflow.on as Workflow).push as Workflow).paths,
-      docsDeploymentPaths,
+      docsPaths,
     );
     assert.ok(
       [
@@ -1242,15 +1143,7 @@ return removeSupersededReservations;`,
         "scripts/check-function-size-baseline.mjs",
         "scripts/ssr-boot-smoke.mjs",
         "scripts/check-production-cache-contract.mjs",
-      ].every((file) => docsDeploymentPaths.includes(file)),
-    );
-    assert.doesNotMatch(
-      source,
-      /dispatchAndWait\(\s*"deploy-docs-production\.yml"/,
-    );
-    assert.match(
-      source,
-      /\["Docs site", `\$\{outcomes\[3\]\}: \$\{docsSite\.host\}`\]/,
+      ].every((file) => docsPaths.includes(file)),
     );
     assert.deepEqual(docsWorkflow.permissions, {
       contents: "read",
@@ -1261,50 +1154,16 @@ return removeSupersededReservations;`,
       "cancel-in-progress": false,
       queue: "max",
     });
-    assert.match(
-      String(verifyStableRelease.if),
-      /github\.event_name == 'push'.*contains\(github\.event\.head_commit\.message, '\[stable-release\]'\)/,
-    );
-    assert.deepEqual(verifyStableRelease.permissions, {
-      contents: "read",
-      "pull-requests": "read",
-    });
-    assert.doesNotThrow(() => new AsyncFunction(verifySource));
-    assert.match(
-      verifySource,
-      /context\.actor !== "builder-io-integration\[bot\]"/,
-    );
-    assert.match(verifySource, /commits\/\{commit_sha\}\/pulls/);
-    assert.match(verifySource, /pullRequest\.base\?\.ref === "main"/);
-    assert.match(
-      verifySource,
-      /pullRequest\.head\?\.ref === "changeset-release\/main"/,
-    );
-    assert.match(
-      verifySource,
-      /pullRequest\.merge_commit_sha === context\.sha/,
-    );
-    assert.match(
-      verifySource,
-      /pullRequest\.title\.includes\("\[stable-release\]"\)/,
-    );
-    assert.match(String(pauseDocsBuilds.needs), /verify-stable-release/);
-    assert.match(
-      String(pauseDocsBuilds.if),
-      /!cancelled\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'/,
-    );
-    assert.deepEqual(docsSourceFreshness.needs, ["verify-stable-release"]);
-    assert.deepEqual(pauseDocsBuilds.needs, [
-      "verify-stable-release",
-      "docs-source-freshness",
-    ]);
+    assert.equal(docsWorkflow["run-name"], undefined);
+    assert.equal(docsJobs["verify-stable-release"], undefined);
+    assert.equal(docsSourceFreshness.needs, undefined);
+    assert.equal(docsSourceFreshness.if, undefined);
+    assert.deepEqual(pauseDocsBuilds.needs, ["docs-source-freshness"]);
     assert.deepEqual(migrateDocs.needs, [
-      "verify-stable-release",
       "docs-source-freshness",
       "pause-netlify-builds",
     ]);
     assert.deepEqual(deployDocs.needs, [
-      "verify-stable-release",
       "docs-source-freshness",
       "pause-netlify-builds",
       "migrate",
@@ -1321,16 +1180,18 @@ return removeSupersededReservations;`,
     }
     assert.match(
       String(migrateDocs.if),
-      /always\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'.*needs\.pause-netlify-builds\.result == 'success'/,
+      /always\(\).*needs\.pause-netlify-builds\.result == 'success'/,
     );
     assert.match(
       String(deployDocs.if),
-      /always\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'.*needs\.pause-netlify-builds\.result == 'success'.*needs\.migrate\.result == 'success'/,
+      /always\(\).*needs\.pause-netlify-builds\.result == 'success'.*needs\.migrate\.result == 'success'/,
     );
-    assert.match(
-      String(restoreDocsBuilds.if),
-      /!cancelled\(\).*needs\.verify-stable-release\.result == 'skipped'.*needs\.verify-stable-release\.result == 'success'.*needs\.verify-stable-release\.outputs\.verified == 'false'/,
-    );
+    assert.deepEqual(restoreDocsBuilds.needs, [
+      "pause-netlify-builds",
+      "migrate",
+      "deploy",
+    ]);
+    assert.match(String(restoreDocsBuilds.if), /!cancelled\(\)/);
     assert.deepEqual(docsInputs, {
       source_ref: {
         description: "Optional exact commit SHA; blank uses the selected ref",
@@ -1344,345 +1205,7 @@ return removeSupersededReservations;`,
         type: "boolean",
         default: true,
       },
-      coordinator_run_id: {
-        description:
-          "Release coordinator ID used to reconcile a transient dispatch failure",
-        required: false,
-        type: "string",
-        default: "",
-      },
     });
-  });
-
-  it("follows the docs run that carries the release, and fails as soon as one cannot deploy it", async () => {
-    // oracle-change: the coordinator no longer deploys docs or reconciles a
-    // failed docs deploy against current main; it follows the push-to-main
-    // docs runs that contain the release commit.
-    const source = String((coordinator.with as Workflow).script);
-    const slice = (from: string, to: string) => {
-      const start = source.indexOf(from);
-      const end = source.indexOf(to, start);
-      assert(start >= 0 && end > start);
-      return source.slice(start, end);
-    };
-    const AsyncFunction = Object.getPrototypeOf(
-      async function () {},
-    ).constructor;
-    const createWait = new AsyncFunction(
-      "github",
-      "owner",
-      "repo",
-      "core",
-      "phaseDeadline",
-      "sleep",
-      "pollIntervalMs",
-      "maxFailedRunReads",
-      `${slice(
-        "function isTransientDispatchFailure(error)",
-        "\n\nasync function findDispatchedRun",
-      )}
-${slice(
-  "const docsDeploymentPaths = [",
-  '\n\nif (process.env.RELEASE_PHASE === "prepare")',
-)}
-return waitForReleaseDocs;`,
-    ) as (
-      ...args: unknown[]
-    ) => Promise<
-      (releaseSha: string, releaseBaseSha: string) => Promise<Workflow>
-    >;
-
-    const releaseSha = "a".repeat(40);
-    const releaseBaseSha = "0".repeat(40);
-    type Run = {
-      id: number;
-      head_sha: string;
-      status: string;
-      conclusion: string | null;
-      html_url: string;
-    };
-    const run = (
-      id: number,
-      head_sha: string,
-      status: "queued" | "in_progress" | "completed",
-      conclusion: string | null = status === "completed" ? "success" : null,
-    ): Run => ({
-      id,
-      head_sha,
-      status,
-      conclusion,
-      html_url: `https://github.com/BuilderIO/agent-native/actions/runs/${id}`,
-    });
-    const migrate = "Migrate docs production schema";
-    const deploy = "docs production prebuilt deploy";
-    const reusable = (name: string) =>
-      `${name} / production fw prebuilt deploy`;
-    const published = [
-      { name: reusable(migrate), conclusion: "success" },
-      { name: reusable(deploy), conclusion: "success" },
-    ];
-    // A run that a newer docs change took over from before it built.
-    const handedOver = [
-      { name: migrate, conclusion: "skipped" },
-      { name: deploy, conclusion: "skipped" },
-    ];
-    const httpError = (status: number, message: string) =>
-      Object.assign(new Error(message), { status });
-
-    const follow = async ({
-      polls,
-      jobs = {},
-      releaseFiles = ["packages/core/package.json"],
-      carries = () => true,
-      readFailures = [],
-    }: {
-      polls: Run[][];
-      jobs?: Record<number, { name: string; conclusion: string }[]>;
-      releaseFiles?: string[];
-      carries?: (sha: string) => boolean;
-      readFailures?: (Error | undefined)[];
-    }) => {
-      let now = 0;
-      let reads = 0;
-      const warnings: string[] = [];
-      const waitForReleaseDocs = await createWait(
-        {
-          rest: {
-            actions: {
-              listWorkflowRuns: async (options: Workflow) => {
-                assert.deepEqual(options, {
-                  owner: "BuilderIO",
-                  repo: "agent-native",
-                  workflow_id: "deploy-docs-production.yml",
-                  branch: "main",
-                  event: "push",
-                  per_page: 100,
-                });
-                const failure = readFailures[reads];
-                const runs = polls[Math.min(reads, polls.length - 1)];
-                reads += 1;
-                if (failure) throw failure;
-                return { data: { workflow_runs: runs } };
-              },
-              listJobsForWorkflowRun: async ({
-                run_id,
-              }: {
-                run_id: number;
-              }) => ({
-                data: { jobs: jobs[run_id] },
-              }),
-            },
-            repos: {
-              compareCommits: async ({
-                base,
-                head,
-              }: {
-                base: string;
-                head: string;
-              }) => {
-                if (base === releaseBaseSha) {
-                  return {
-                    data: {
-                      files: releaseFiles.map((filename) => ({ filename })),
-                    },
-                  };
-                }
-                assert.equal(base, releaseSha);
-                if (head === releaseSha)
-                  return { data: { status: "identical" } };
-                return {
-                  data: { status: carries(head) ? "ahead" : "diverged" },
-                };
-              },
-            },
-          },
-        },
-        "BuilderIO",
-        "agent-native",
-        { warning: (message: string) => warnings.push(message) },
-        (timeoutMs: number) => Date.now() + timeoutMs,
-        async (ms: number) => {
-          now += ms;
-        },
-        15_000,
-        20,
-      );
-      const realNow = Date.now;
-      Date.now = () => now;
-      try {
-        const result = await waitForReleaseDocs(releaseSha, releaseBaseSha);
-        return { result, reads, waitedMs: now, warnings };
-      } finally {
-        Date.now = realNow;
-      }
-    };
-    const releaseRun = (
-      status: "queued" | "in_progress" | "completed",
-      conclusion?: string | null,
-    ) => run(10, releaseSha, status, conclusion);
-    // Listings are newest first.
-    const olderBuild = run(9, "9".repeat(40), "in_progress");
-
-    // The release's own run publishes; an older run still building does not
-    // hold it up.
-    const direct = await follow({
-      polls: [[releaseRun("completed"), olderBuild]],
-      jobs: { 10: published },
-    });
-    assert.deepEqual(direct.result, {
-      run: releaseRun("completed"),
-      error: null,
-    });
-    assert.equal(direct.reads, 1);
-    assert.equal(direct.waitedMs, 0);
-
-    // A newer docs change took over before the release's run built, so the
-    // newer run decides.
-    const newer = run(11, "b".repeat(40), "in_progress");
-    const handedOff = await follow({
-      polls: [
-        [newer, releaseRun("completed")],
-        [run(11, "b".repeat(40), "completed"), releaseRun("completed")],
-      ],
-      jobs: { 10: handedOver, 11: published },
-    });
-    assert.equal(handedOff.result.error, null);
-    assert.equal((handedOff.result.run as Run).id, 11);
-    assert.equal(handedOff.reads, 2);
-    assert.equal(handedOff.waitedMs, 15_000);
-
-    // The first run that tries to deploy decides, even while a newer one runs.
-    const deployFailed = await follow({
-      polls: [[newer, releaseRun("completed", "failure")]],
-      jobs: {
-        10: [
-          { name: reusable(migrate), conclusion: "success" },
-          { name: reusable(deploy), conclusion: "failure" },
-        ],
-      },
-    });
-    assert.equal((deployFailed.result.run as Run).id, 10);
-    assert.equal(
-      String(deployFailed.result.error),
-      "Error: docs production prebuilt deploy / production fw prebuilt deploy ended failure in https://github.com/BuilderIO/agent-native/actions/runs/10. Re-run its failed jobs once the cause is fixed; any later docs change also carries the release.",
-    );
-    assert.equal(deployFailed.reads, 1);
-
-    const migrationFailed = await follow({
-      polls: [[releaseRun("completed", "failure")]],
-      jobs: {
-        10: [
-          { name: reusable(migrate), conclusion: "failure" },
-          { name: deploy, conclusion: "skipped" },
-        ],
-      },
-    });
-    assert.match(
-      String(migrationFailed.result.error),
-      /^Error: Migrate docs production schema \/ production fw prebuilt deploy ended failure in /,
-    );
-
-    // The newest run stopped before deploying, and nothing newer is coming.
-    const stoppedEarly = await follow({
-      polls: [[releaseRun("completed", "failure")]],
-      jobs: { 10: handedOver },
-    });
-    assert.equal(
-      String(stoppedEarly.result.error),
-      "Error: Docs production run https://github.com/BuilderIO/agent-native/actions/runs/10 ended failure before it deployed.",
-    );
-
-    // Skipped for a newer change whose run GitHub has not listed yet.
-    const notListedYet = await follow({
-      polls: [
-        [releaseRun("completed")],
-        [run(11, "b".repeat(40), "completed"), releaseRun("completed")],
-      ],
-      jobs: { 10: handedOver, 11: published },
-    });
-    assert.equal((notListedYet.result.run as Run).id, 11);
-    assert.equal(notListedYet.reads, 2);
-
-    // A run for a commit without the release is not followed.
-    const unrelated = run(11, "c".repeat(40), "in_progress");
-    const skipsUnrelated = await follow({
-      polls: [
-        [unrelated, releaseRun("completed")],
-        [
-          run(12, "d".repeat(40), "completed"),
-          unrelated,
-          releaseRun("completed"),
-        ],
-      ],
-      jobs: { 10: handedOver, 12: published },
-      carries: (sha) => sha !== "c".repeat(40),
-    });
-    assert.equal((skipsUnrelated.result.run as Run).id, 12);
-
-    const stuck = await follow({ polls: [[releaseRun("in_progress")]] });
-    assert.equal(
-      String(stuck.result.error),
-      `Error: Docs production had not published release commit ${releaseSha} after 35 minutes; https://github.com/BuilderIO/agent-native/actions/runs/10 has not finished.`,
-    );
-    assert.equal((stuck.result.run as Run).id, 10);
-    assert.equal(stuck.waitedMs, 35 * 60_000);
-
-    // A release that touches no docs input starts no docs run.
-    const unchanged = await follow({
-      polls: [[olderBuild]],
-      releaseFiles: ["packages/dispatch/package.json", "README.md"],
-    });
-    assert.deepEqual(unchanged.result, {
-      run: null,
-      error: null,
-      skipped: true,
-      skipReason: "the release changed no docs inputs",
-    });
-    for (const releaseFiles of [
-      ["packages/core/package.json"],
-      // GitHub lists at most 300 files, so a longer list is not proof.
-      Array.from(
-        { length: 300 },
-        (_, index) => `packages/dispatch/${index}.ts`,
-      ),
-    ]) {
-      const missing = await follow({ polls: [[olderBuild]], releaseFiles });
-      assert.equal(
-        String(missing.result.error),
-        `Error: No docs production run started for release commit ${releaseSha}, which changes docs inputs.`,
-      );
-    }
-
-    // A brief GitHub error does not end the wait; others do.
-    const recovered = await follow({
-      polls: [[releaseRun("completed")]],
-      jobs: { 10: published },
-      readFailures: [httpError(502, "Bad Gateway")],
-    });
-    assert.equal((recovered.result.run as Run).id, 10);
-    assert.deepEqual(recovered.warnings, [
-      "Docs production: could not read its runs (HTTP 502: Bad Gateway); retrying.",
-    ]);
-    const denied = await follow({
-      polls: [[releaseRun("completed")]],
-      readFailures: [httpError(403, "Resource not accessible by integration")],
-    });
-    assert.equal(
-      String(denied.result.error),
-      "Error: Could not follow docs production runs: HTTP 403: Resource not accessible by integration",
-    );
-    assert.equal(denied.reads, 1);
-    const outage = await follow({
-      polls: [[releaseRun("completed")]],
-      readFailures: Array.from({ length: 20 }, () =>
-        httpError(503, "Service Unavailable"),
-      ),
-    });
-    assert.equal(
-      String(outage.result.error),
-      "Error: Could not follow docs production runs: HTTP 503: Service Unavailable",
-    );
-    assert.equal(outage.reads, 20);
   });
 
   it("waits through the observed stable release review and CI delay", async () => {
@@ -1851,7 +1374,7 @@ return waitForReleaseMerge;`,
       "async function waitForStablePackagePublish",
     );
     const stablePublishEnd = source.indexOf(
-      "\n\nconst docsDeploymentPaths",
+      '\n\nif (process.env.RELEASE_PHASE === "prepare")',
       stablePublishStart,
     );
     const publicationStart = source.indexOf(
@@ -2005,11 +1528,9 @@ return { publicationError, publicationStatusUnknownError, publicationUnavailable
     const releaseDownstream = new AsyncFunction(
       "publicationUnavailable",
       "releaseSha",
-      "releaseBaseSha",
       "siteWorkflowRef",
       "productionSites",
       "dispatchAndWait",
-      "waitForReleaseDocs",
       "desktopStage",
       "clipsStage",
       `${source.slice(publishStart, publishEnd)}
@@ -2038,14 +1559,12 @@ return downstream;`,
       const downstream = (await releaseDownstream(
         publication.publicationUnavailable,
         mergeSha,
-        "release-base-sha",
         publication.siteWorkflowRef,
         ["design"],
         async (workflow: string, ref: string, inputs: Workflow) => {
           dispatches.push({ workflow, ref, mode: inputs.mode });
           return { run: { id: dispatches.length }, error: null };
         },
-        async () => ({ run: { id: 4 }, error: null }),
         stagedBuild("desktop-release.yml", "v1.2.3"),
         stagedBuild("clips-desktop-release.yml", "clips-v1.2.3"),
       )) as PromiseSettledResult<Workflow>[];

@@ -967,190 +967,6 @@ jobs:
               );
             }
 
-            const docsDeploymentPaths = [
-              ".nvmrc",
-              "package.json",
-              "pnpm-lock.yaml",
-              "pnpm-workspace.yaml",
-              "packages/agentkit/**",
-              "packages/core/**",
-              "packages/core-corpus/**",
-              "packages/docs/**",
-              "packages/recap-cli/**",
-              "packages/toolkit/**",
-              "scripts/netlify-prebuilt-target.ts",
-              "scripts/netlify-prebuilt-build.ts",
-              "scripts/netlify-migration-url.ts",
-              "scripts/netlify-api-error.ts",
-              "scripts/netlify-api-request.ts",
-              "scripts/netlify-production-sites.json",
-              "scripts/check-function-size-baseline.mjs",
-              "scripts/ssr-boot-smoke.mjs",
-              "scripts/check-production-cache-contract.mjs",
-              ".github/actions/docs-source-freshness/action.yml",
-              ".github/workflows/deploy-docs-production.yml",
-              ".github/workflows/deploy-netlify-prebuilt.yml",
-            ];
-            function matchesDocsDeploymentPath(path) {
-              if (typeof path !== "string") return false;
-              return docsDeploymentPaths.some((pattern) => {
-                if (!pattern.endsWith("/**")) return path === pattern;
-                const directory = pattern.slice(0, -3);
-                return path === directory || path.startsWith(`${directory}/`);
-              });
-            }
-
-            async function releaseChangesDocsInputs(releaseSha, releaseBaseSha) {
-              const { files } = (await github.rest.repos.compareCommits({
-                owner,
-                repo,
-                base: releaseBaseSha,
-                head: releaseSha,
-                per_page: 1,
-              })).data;
-              // GitHub lists at most 300 files; past that, assume docs changed.
-              if (!Array.isArray(files) || files.length >= 300) return true;
-              return files.some((file) =>
-                [file.filename, file.previous_filename].some(matchesDocsDeploymentPath),
-              );
-            }
-
-            // A skipped reusable-workflow job is listed without its " / <job>" suffix.
-            function isDocsJob(job, name) {
-              return job.name === name || job.name.startsWith(`${name} / `);
-            }
-
-            // Docs production deploys every docs change on main, in order, so
-            // the release waits for the run that carries its commit instead of
-            // deploying it again. The first such run that tries to deploy
-            // decides. One that skips because a newer change reached the queue
-            // hands over to that change's run.
-            const docsReleaseWaitMs = 35 * 60_000;
-
-            async function readReleaseDocs(releaseSha, releaseBaseSha, containsRelease) {
-              const runs = (await github.rest.actions.listWorkflowRuns({
-                owner,
-                repo,
-                workflow_id: "deploy-docs-production.yml",
-                branch: "main",
-                event: "push",
-                per_page: 100,
-              })).data?.workflow_runs;
-              if (!Array.isArray(runs)) {
-                throw new Error("GitHub returned no docs production runs.");
-              }
-              const releaseRun = runs.find((run) => run.head_sha === releaseSha);
-              if (!releaseRun) {
-                if (!(await releaseChangesDocsInputs(releaseSha, releaseBaseSha))) {
-                  return { outcome: { run: null, error: null, skipped: true, skipReason: "the release changed no docs inputs" } };
-                }
-                return {
-                  outcome: {
-                    run: null,
-                    error: new Error(`No docs production run started for release commit ${releaseSha}, which changes docs inputs.`),
-                  },
-                };
-              }
-
-              const carriers = [];
-              for (const run of [...runs].sort((a, b) => a.id - b.id)) {
-                if (run.id < releaseRun.id) continue;
-                if (!containsRelease.has(run.head_sha)) {
-                  const { status } = (await github.rest.repos.compareCommits({
-                    owner,
-                    repo,
-                    base: releaseSha,
-                    head: run.head_sha,
-                    per_page: 1,
-                  })).data;
-                  containsRelease.set(run.head_sha, status === "ahead" || status === "identical");
-                }
-                if (containsRelease.get(run.head_sha)) carriers.push(run);
-              }
-
-              let waitingOn = null;
-              for (const [index, run] of carriers.entries()) {
-                if (run.status !== "completed") {
-                  waitingOn = run;
-                  break;
-                }
-                const jobs = (await github.rest.actions.listJobsForWorkflowRun({
-                  owner,
-                  repo,
-                  run_id: run.id,
-                  filter: "latest",
-                  per_page: 100,
-                })).data?.jobs;
-                if (!Array.isArray(jobs)) {
-                  throw new Error(`GitHub returned no jobs for docs production run ${run.html_url}.`);
-                }
-                const failed = jobs.find(
-                  (job) =>
-                    (isDocsJob(job, "Migrate docs production schema") ||
-                      isDocsJob(job, "docs production prebuilt deploy")) &&
-                    job.conclusion !== "success" &&
-                    job.conclusion !== "skipped",
-                );
-                if (failed) {
-                  return {
-                    outcome: {
-                      run,
-                      error: new Error(
-                        `${failed.name} ended ${failed.conclusion} in ${run.html_url}. Re-run its failed jobs once the cause is fixed; any later docs change also carries the release.`,
-                      ),
-                    },
-                  };
-                }
-                if (jobs.some((job) => isDocsJob(job, "docs production prebuilt deploy") && job.conclusion === "success")) {
-                  return { outcome: { run, error: null } };
-                }
-                if (index === carriers.length - 1 && run.conclusion !== "success") {
-                  return {
-                    outcome: {
-                      run,
-                      error: new Error(`Docs production run ${run.html_url} ended ${run.conclusion} before it deployed.`),
-                    },
-                  };
-                }
-              }
-              return { outcome: null, waitingOn };
-            }
-
-            async function waitForReleaseDocs(releaseSha, releaseBaseSha) {
-              const deadline = phaseDeadline(docsReleaseWaitMs);
-              const containsRelease = new Map();
-              let waitingOn = null;
-              let failedReads = 0;
-              while (true) {
-                try {
-                  const read = await readReleaseDocs(releaseSha, releaseBaseSha, containsRelease);
-                  if (read.outcome) return read.outcome;
-                  waitingOn = read.waitingOn;
-                  failedReads = 0;
-                } catch (error) {
-                  failedReads += 1;
-                  const message = describeRequestFailure(error);
-                  if (!isTransientDispatchFailure(error) || failedReads >= maxFailedRunReads) {
-                    return {
-                      run: waitingOn,
-                      error: new Error(`Could not follow docs production runs: ${message}`, { cause: error }),
-                    };
-                  }
-                  core.warning(`Docs production: could not read its runs (${message}); retrying.`);
-                }
-                const remaining = deadline - Date.now();
-                if (remaining <= 0) {
-                  return {
-                    run: waitingOn,
-                    error: new Error(
-                      `Docs production had not published release commit ${releaseSha} after ${docsReleaseWaitMs / 60_000} minutes${waitingOn ? `; ${waitingOn.html_url} has not finished` : ""}.`,
-                    ),
-                  };
-                }
-                await sleep(Math.min(pollIntervalMs, remaining));
-              }
-            }
-
             if (process.env.RELEASE_PHASE === "prepare") {
               const previousReleaseNumbers = new Set(
                 (await listReleasePullRequests())
@@ -1238,12 +1054,10 @@ jobs:
               releaseSha,
               "scripts/netlify-production-sites.json",
             );
-            const docsSite = sitesManifest.fw;
-            if (docsSite?.host !== "www.agent-native.com") {
-              throw new Error("The production docs site is not configured for www.agent-native.com.");
-            }
             const productionSites = Object.entries(sitesManifest)
               .filter(([name, site]) =>
+                // fw, the docs site, deploys from deploy-docs-production.yml on
+                // every docs change to main, not from releases.
                 name !== "fw" &&
                 typeof site?.host === "string" &&
                 site.host.endsWith(".agent-native.com"),
@@ -1393,7 +1207,6 @@ jobs:
                 "Production site fleet",
                 120 * 60_000,
               ),
-              waitForReleaseDocs(releaseSha, releaseBaseSha),
             ]);
             const failures = [];
             if (publicationError) failures.push(publicationError.message);
@@ -1406,7 +1219,6 @@ jobs:
               "Agent-Native desktop stable release",
               "Clips desktop stable release",
               "Production site fleet",
-              "Agent-Native docs production site",
             ];
             const childResults = downstream.map((result, index) => {
               if (result.status === "rejected") {
@@ -1418,14 +1230,7 @@ jobs:
               }
               const stageRun = result.value.stageRun ?? null;
               if (result.value.skipped) {
-                return {
-                  run: null,
-                  stageRun,
-                  error: null,
-                  dispatchFailed: false,
-                  skipped: true,
-                  skipReason: result.value.skipReason,
-                };
+                return { run: null, stageRun, error: null, dispatchFailed: false, skipped: true };
               }
               if (result.value.error) {
                 const error = result.value.error instanceof Error
@@ -1436,10 +1241,9 @@ jobs:
               }
               return { run: result.value.run, stageRun, error: null, dispatchFailed: false, skipped: false };
             });
-            const [desktop, clips, production, docs] = childResults;
+            const [desktop, clips, production] = childResults;
             const outcomes = childResults.map((result) => {
               if (result.skipped) {
-                if (result.skipReason) return `skipped: ${result.skipReason}`;
                 return publicationError
                   ? "skipped: stable npm publication failed"
                   : "skipped: stable npm publication status unknown";
@@ -1487,7 +1291,6 @@ jobs:
                 ["Clips desktop", clips.skipped ? outcomes[1] : `${outcomes[1]}: stable v${clipsVersion}`],
                 ["Superseded stable reservations", reservationCleanup],
                 ["Production sites", `${outcomes[2]}: ${productionSites.length} *.agent-native.com apps`],
-                ["Docs site", `${outcomes[3]}: ${docsSite.host}`],
                 ["Source commit", releaseSha],
               ])
               .addLink("Package release PR", releasePr.html_url);
@@ -1497,7 +1300,6 @@ jobs:
               ["Clips build run", clips.stageRun],
               ["Clips release run", clips.run],
               ["Production fleet run", production.run],
-              ["Docs production run", docs.run],
             ]) {
               if (run) summary.addBreak().addLink(label, run.url);
             }
