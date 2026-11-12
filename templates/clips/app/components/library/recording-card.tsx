@@ -160,6 +160,7 @@ export function RecordingCard({
   const [recoveryCheckFailed, setRecoveryCheckFailed] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const pendingTrashRef = useRef(false);
+  const pendingShareRef = useRef(false);
 
   const duration = useMemo(
     () => formatDuration(recording.effectiveDurationMs),
@@ -576,6 +577,12 @@ export function RecordingCard({
                     align="end"
                     onClick={(e) => e.stopPropagation()}
                     onCloseAutoFocus={(event) => {
+                      if (pendingShareRef.current) {
+                        event.preventDefault();
+                        pendingShareRef.current = false;
+                        setTimeout(() => onShare?.(recording), 0);
+                        return;
+                      }
                       if (!pendingTrashRef.current) return;
                       event.preventDefault();
                       pendingTrashRef.current = false;
@@ -583,7 +590,13 @@ export function RecordingCard({
                     }}
                   >
                     {onShare && (
-                      <DropdownMenuItem onSelect={() => onShare(recording)}>
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          pendingShareRef.current = true;
+                          setMenuOpen(false);
+                        }}
+                      >
                         {t("recordingPage.share")}
                       </DropdownMenuItem>
                     )}
@@ -727,7 +740,14 @@ export function RecordingCard({
           </div>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuContent
+        onCloseAutoFocus={(event) => {
+          if (!pendingShareRef.current) return;
+          event.preventDefault();
+          pendingShareRef.current = false;
+          setTimeout(() => onShare?.(recording), 0);
+        }}
+      >
         <ContextMenuItem asChild>
           <Link to={recordingPath}>{t("clipsFinalRaw.view")}</Link>
         </ContextMenuItem>
@@ -743,7 +763,11 @@ export function RecordingCard({
           </ContextMenuItem>
         ) : null}
         {onShare && (
-          <ContextMenuItem onSelect={() => onShare(recording)}>
+          <ContextMenuItem
+            onSelect={() => {
+              pendingShareRef.current = true;
+            }}
+          >
             {t("recordingPage.share")}
           </ContextMenuItem>
         )}

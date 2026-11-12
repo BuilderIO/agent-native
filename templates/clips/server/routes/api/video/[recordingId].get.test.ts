@@ -623,6 +623,31 @@ describe("/api/video/:recordingId route", () => {
     ).not.toContain("/compressed");
   });
 
+  it.each(["private", "org"] as const)(
+    "serves %s media to an authorized viewer despite a stored password",
+    async (visibility) => {
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: {
+          visibility,
+          password: "encrypted-password",
+          expiresAt: null,
+          videoUrl: "https://cdn.example.com/clip.mp4",
+        },
+      });
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("media", { headers: { "content-type": "video/mp4" } }),
+      );
+      const event = makeEvent();
+      const result = await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      );
+      expect(result).toBeInstanceOf(Response);
+      expect(event.status).not.toBe(401);
+      expect(mockVerifyShortLivedToken).not.toHaveBeenCalled();
+    },
+  );
+
   it("accepts a protected media cookie when the query token is expired", async () => {
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
@@ -678,6 +703,37 @@ describe("/api/video/:recordingId route", () => {
       }),
     );
   });
+
+  it.each(["private", "org"] as const)(
+    "rejects a real media grant from dormant %s access after becoming public",
+    async (visibility) => {
+      const core =
+        await import("../../../../../../packages/core/src/server/short-lived-token.js");
+      const dormantToken = core.signShortLivedToken({
+        resourceId: `rec-1:password-scoped:visibility:${visibility}`,
+      });
+      mockVerifyShortLivedToken.mockImplementation(core.verifyShortLivedToken);
+      mockResolveAccess.mockResolvedValue({
+        role: "viewer",
+        resource: {
+          visibility: "public",
+          password: "encrypted-password",
+          expiresAt: null,
+          videoUrl: "https://cdn.example.com/clip.mp4",
+        },
+      });
+      const event = makeEvent();
+      event.query = { t: dormantToken };
+      const result = await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      );
+      expect(event.status).toBe(401);
+      expect(result).toEqual({
+        error: "Password required",
+        passwordRequired: true,
+      });
+    },
+  );
 
   it("rejects a protected media cookie minted before a password was added", async () => {
     mockResolveAccess.mockResolvedValue({

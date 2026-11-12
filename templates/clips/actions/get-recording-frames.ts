@@ -26,7 +26,10 @@ import {
   type PublicAgentAccess,
   type PublicAgentRecording,
 } from "../server/lib/public-agent-context.js";
-import { isRecordingExpiredForViewer } from "../server/lib/recording-page-access.js";
+import {
+  isRecordingExpiredForViewer,
+  recordingUsesSharePassword,
+} from "../server/lib/recording-page-access.js";
 import { numberListParam } from "./lib/cli-params.js";
 
 const MAX_FRAMES_PER_CALL = 4;
@@ -136,7 +139,11 @@ async function resolveFramesAccess(
       "access",
     );
   }
-  if (recording.password && !viewerIsOwner) {
+  if (
+    recordingUsesSharePassword(recording.visibility) &&
+    recording.password &&
+    !viewerIsOwner
+  ) {
     const failure = describeAgentAccessFailure({
       status: 401,
       body: { error: "Password required", passwordRequired: true },

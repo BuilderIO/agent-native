@@ -1082,11 +1082,13 @@ interface DefineActionWithSchema<
    *  characters. */
   searchHints?: readonly string[];
   eagerInputStreaming?: boolean;
-  /** An empty list on this action sets an option and erases nothing saved, so
-   *  a call that pads unused fields with `null` and `[]` can run as sent. Leave
-   *  this off for any action that stores a list: there, `[]` beside a padded
-   *  `null` might be a real clear or padding, so the call is refused rather
-   *  than guessed at. */
+  /** An empty list on this action erases nothing saved, so a call that pads
+   *  unused fields with `null` and `[]` can run as sent. The action must then
+   *  read every `[]` as if the field were left out: a padding model sends it
+   *  for each list it isn't using, so `[]` can't also mean "none" (give that
+   *  its own `true`-only switch). Leave this off for any action that stores a
+   *  list: there, `[]` beside a padded `null` might be a real clear or
+   *  padding, so the call is refused rather than guessed at. */
   emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
   grounding?: boolean;

@@ -28,6 +28,7 @@ export default defineAction({
       .select({
         id: schema.recordings.id,
         password: schema.recordings.password,
+        visibility: schema.recordings.visibility,
         sharePasswordVersion: schema.recordings.sharePasswordVersion,
         expiresAt: schema.recordings.expiresAt,
         trashedAt: schema.recordings.trashedAt,
@@ -68,11 +69,16 @@ export default defineAction({
         statusCode: 409,
       });
     }
-    if (recording.password && access.role !== "owner") {
+    if (
+      recording.visibility === "public" &&
+      recording.password &&
+      access.role !== "owner"
+    ) {
       const scopeId = getRecordingAccessTokenResourceId(
         recordingId,
         recording.password,
         recording.sharePasswordVersion,
+        recording.visibility,
       );
       if (!accessToken || !verifyShortLivedToken(accessToken, scopeId).ok) {
         fail("Password required.", {

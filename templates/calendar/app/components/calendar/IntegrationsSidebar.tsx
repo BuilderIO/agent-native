@@ -411,7 +411,7 @@ function IntegrationRow({
             >
               <DropdownMenuItem
                 onClick={onConfigure}
-                className="text-[12px] text-foreground/70"
+                className="text-foreground/70"
               >
                 {t("integrations.updateKey")}
               </DropdownMenuItem>
