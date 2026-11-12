@@ -22,6 +22,7 @@ import {
   type DatabaseBoardGroup,
   type DatabaseFilter,
 } from "./DatabaseView";
+import { databaseItemHasRowMenu } from "./row-access";
 import { databaseRowOpenTarget } from "./row-open-target";
 
 export function DatabaseGalleryView({
@@ -304,11 +305,12 @@ function DatabaseGalleryCard({
           </span>
         ) : null}
       </div>
-      {canEdit ? (
+      {databaseItemHasRowMenu(item, canEdit) ? (
         <div className="flex justify-end border-t border-border/70 px-2 py-1">
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={canReorder}
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}

@@ -46,6 +46,7 @@ import {
   startOfMonth,
   type DatabaseFilter,
 } from "./DatabaseView";
+import { databaseItemHasRowMenu } from "./row-access";
 import { databaseRowOpenTarget } from "./row-open-target";
 
 export function DatabaseTimelineView({
@@ -533,10 +534,11 @@ function DatabaseTimelineCard({
             </span>
           ) : null}
         </div>
-        {canEdit ? (
+        {databaseItemHasRowMenu(item, canEdit) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}

@@ -392,6 +392,7 @@ import {
 import {
   databaseItemCanDuplicate,
   databaseItemCanRemoveFromDatabase,
+  databaseItemHasRowMenu,
   databaseItemHasViewerAccess,
   databaseItemIsSourceBacked,
 } from "./row-access";
@@ -13470,10 +13471,11 @@ function DatabaseCalendarCard({
             </span>
           ) : null}
         </div>
-        {canEdit ? (
+        {databaseItemHasRowMenu(item, canEdit) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}
@@ -14189,10 +14191,11 @@ function DatabaseBoardCard({
             </span>
           ) : null}
         </div>
-        {canEdit ? (
+        {databaseItemHasRowMenu(item, canEdit) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}
@@ -20077,10 +20080,11 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
         );
       })}
       actions={
-        canEdit ? (
+        databaseItemHasRowMenu(item, canEdit) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={canReorder}
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}
@@ -20097,12 +20101,14 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
 export function RowActionsCell({
   item,
   databaseDocumentId,
+  canEdit,
   onPreviewItem,
   onDeletedPreviewItem,
   onOpenPage,
 }: {
   item: ContentDatabaseItem;
   databaseDocumentId: string;
+  canEdit: boolean;
   canReorder: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -20132,7 +20138,7 @@ export function RowActionsCell({
   const isWorkspaceCatalog =
     contentSpaces.data?.catalogDocumentId === databaseDocumentId;
   const canDeleteWorkspace =
-    isWorkspaceCatalog && workspaceSpace?.kind === "user";
+    canEdit && isWorkspaceCatalog && workspaceSpace?.kind === "user";
   const databaseData = isContentDatabaseUnavailable(databaseQuery.data)
     ? undefined
     : databaseQuery.data;
@@ -20140,17 +20146,20 @@ export function RowActionsCell({
     databaseData?.sources,
     databaseData?.source ?? null,
   );
-  const canRemoveFromDatabase = removesFavoriteMembership
-    ? databaseDocument?.canEdit === true
-    : databaseData !== undefined &&
-      databaseItemCanRemoveFromDatabase({
-        item,
-        databaseCanManage: databaseDocument?.canManage === true,
-        databaseSystemRole: databaseData.database.systemRole,
-        isWorkspaceCatalog,
-        sources: databaseSources,
-      });
-  const canDuplicateRow = databaseItemCanDuplicate(item, isWorkspaceCatalog);
+  const canRemoveFromDatabase =
+    canEdit &&
+    (removesFavoriteMembership
+      ? databaseDocument?.canEdit === true
+      : databaseData !== undefined &&
+        databaseItemCanRemoveFromDatabase({
+          item,
+          databaseCanManage: databaseDocument?.canManage === true,
+          databaseSystemRole: databaseData.database.systemRole,
+          isWorkspaceCatalog,
+          sources: databaseSources,
+        }));
+  const canDuplicateRow =
+    canEdit && databaseItemCanDuplicate(item, isWorkspaceCatalog);
   // A workspace's row opens the workspace, so a link or comment to its Page
   // would land somewhere Open page doesn't.
   const opensAsPage = !isWorkspaceCatalog;

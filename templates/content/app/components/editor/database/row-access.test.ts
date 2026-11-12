@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   databaseItemCanDuplicate,
   databaseItemCanRemoveFromDatabase,
+  databaseItemHasRowMenu,
   databaseItemHasViewerAccess,
   databaseItemIsSourceBacked,
 } from "./row-access";
@@ -83,6 +84,19 @@ describe("database row access", () => {
       ),
     ).toBe(true);
     expect(databaseItemHasViewerAccess(item())).toBe(false);
+  });
+
+  it("gives a reader a row menu only on rows whose page they can open", () => {
+    const visibleItem = item({
+      document: {
+        id: "document-1",
+        canView: true,
+      } as ContentDatabaseItem["document"],
+    });
+
+    expect(databaseItemHasRowMenu(visibleItem, false)).toBe(true);
+    expect(databaseItemHasRowMenu(item(), false)).toBe(false);
+    expect(databaseItemHasRowMenu(item(), true)).toBe(true);
   });
 
   it("offers duplication only for visible non-workspace pages", () => {

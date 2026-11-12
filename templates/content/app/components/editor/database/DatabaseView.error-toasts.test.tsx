@@ -568,7 +568,7 @@ describe("DatabaseView UI regressions", () => {
     ).IS_REACT_ACT_ENVIRONMENT = false;
   });
 
-  async function renderDatabaseView(viewId?: string) {
+  async function renderDatabaseView(viewId?: string, canEdit = true) {
     const { QueryClientProvider } = await import("@tanstack/react-query");
     act(() => {
       root.render(
@@ -580,6 +580,7 @@ describe("DatabaseView UI regressions", () => {
                 <DatabaseView
                   databaseId="database-1"
                   databaseDocumentId="document-1"
+                  canEdit={canEdit}
                   viewId={viewId}
                 />
               </TooltipProvider>
@@ -2017,6 +2018,48 @@ describe("DatabaseView UI regressions", () => {
       "editor.toolbar.couldNotCopyLink",
       { description: "editor.toolbar.clipboardAccessUnavailable" },
     );
+  });
+
+  it.each([
+    {
+      reader: "someone who can't edit the collection",
+      canEdit: false,
+      items: ["Open page", "sidebar.copyLink", "editor.comment"],
+    },
+    {
+      reader: "an editor",
+      canEdit: true,
+      items: [
+        "Open page",
+        "sidebar.copyLink",
+        "editor.comment",
+        "Duplicate row",
+        "Remove from collection",
+      ],
+    },
+  ])("gives $reader the row menu items they can use", async (role) => {
+    const open = commentableRow("a", "Alpha", true);
+    const closed = commentableRow("b", "Beta", false);
+    databaseResponse.items = [
+      { ...open, document: { ...open.document, canView: true } },
+      { ...closed, document: { ...closed.document, canView: false } },
+    ];
+    await renderDatabaseView(undefined, role.canEdit);
+
+    // A row whose page the reader can't open has nothing for them to do.
+    expect(
+      container.querySelector('[aria-label="Row actions for Beta"]') !== null,
+    ).toBe(role.canEdit);
+    const trigger = container.querySelector(
+      '[aria-label="Row actions for Alpha"]',
+    );
+    if (!trigger) throw new Error("Alpha has no row menu.");
+    await mousePointerDown(trigger);
+    expect(
+      [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].map(
+        (item) => item.textContent.trim(),
+      ),
+    ).toEqual(role.items);
   });
 
   it("keeps the preview a row's menu opened for a comment", async () => {
