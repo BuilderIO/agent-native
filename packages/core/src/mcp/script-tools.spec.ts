@@ -636,14 +636,18 @@ describe("runMcpScript", () => {
     );
     const start =
       "https://docs.example/_agent-native/embed/start?ticket=leaked-ticket-0123456789abcdef";
-    await run(`
+    const payload = await run(`
       try { await api.notAvailable({ link: ${JSON.stringify(start)} }); } catch {}
       try { await api.getDocument({ id: "doc_1", link: ${JSON.stringify(start)} }); } catch {}
+      try { await api[${JSON.stringify(start)}]({}); } catch {}
     `);
     expect(denials.map((denial) => denial.args)).toEqual([
       { link: "[hidden embed URL]" },
       { id: "doc_1", link: "[hidden embed URL]" },
+      {},
     ]);
+    expect(denials[2]!.functionName).toBe("[hidden embed URL]");
+    expect(JSON.stringify(payload)).not.toContain("leaked-ticket");
     expect(JSON.stringify(denials)).not.toContain("leaked-ticket");
   });
 
@@ -741,7 +745,7 @@ describe("runMcpScript", () => {
     );
     const stopped = await Promise.all(
       Array.from({ length: MCP_SCRIPT_LIMITS.concurrentRuns }, () =>
-        run(`return await api.getDocument({});`, { timeoutMs: 200 }),
+        run(`return await api.getDocument({});`, { timeoutMs: 500 }),
       ),
     );
     expect(stopped.map((payload) => payload.error?.code)).toEqual(
@@ -756,6 +760,62 @@ describe("runMcpScript", () => {
     await vi.waitFor(() =>
       expect(settled).toBe(MCP_SCRIPT_LIMITS.concurrentRuns),
     );
+    await vi.waitFor(async () =>
+      expect((await run(`return 2;`)).result).toBe(2),
+    );
+  });
+
+  it("gives a stopped run's slot back when a call never settles", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { run } = runner(
+        { "get-document": entry() },
+        { callAction: () => new Promise<McpActionCallOutcome>(() => {}) },
+      );
+      await Promise.all(
+        Array.from({ length: MCP_SCRIPT_LIMITS.concurrentRuns }, () =>
+          run(`return await api.getDocument({});`, { timeoutMs: 500 }),
+        ),
+      );
+      expect((await run(`return 1;`)).error?.code).toBe("script_busy");
+      // After as long again as the run's timeout.
+      await vi.waitFor(
+        async () => expect((await run(`return 2;`)).result).toBe(2),
+        { timeout: 5_000 },
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("giving its slot back"),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("holds a stopped run's slot while a refusal is still being recorded", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const catalog = buildMcpScriptCatalog({ "get-document": entry() });
+    const run = (code: string) =>
+      runMcpScript({
+        code,
+        catalog,
+        known: {},
+        callAction: async () => completed("done"),
+        recordDenial: () => gate,
+        timeoutMs: 500,
+      });
+    const stopped = await Promise.all(
+      Array.from({ length: MCP_SCRIPT_LIMITS.concurrentRuns }, () =>
+        run(`return await api.notAvailable({});`),
+      ),
+    );
+    expect(
+      stopped.every((payload) => payload.error?.code === "script_timeout"),
+    ).toBe(true);
+    expect((await run(`return 1;`)).error?.code).toBe("script_busy");
+    release();
     await vi.waitFor(async () =>
       expect((await run(`return 2;`)).result).toBe(2),
     );

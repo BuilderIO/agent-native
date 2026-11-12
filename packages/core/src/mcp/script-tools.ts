@@ -4,7 +4,7 @@ import { isMcpReadOnlyTool } from "../action-call-classification.js";
 import { runOutsideActionInvocation } from "../action-frame.js";
 import { type ActionRunContext, semanticInputSchema } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import { describeThrownForLog } from "./embed-redaction.js";
+import { describeThrownForLog, redactEmbedText } from "./embed-redaction.js";
 import {
   type McpActionCallOutcome,
   redactEmbedCredentials,
@@ -1072,15 +1072,34 @@ export async function runMcpScript(
   let stopped = false;
   let callCount = 0;
   let readBytes = 0;
-  // The sandbox can't cancel an action it started, so a run that stops with
-  // calls in flight keeps its slot until they settle. Otherwise runs that
-  // time out could pile up work past the process limit.
+  // The sandbox can't cancel a call it started, so a run that stops with
+  // calls in flight (an action, or the audit write for a refusal) keeps its
+  // slot until they settle. Otherwise runs that time out could pile up work
+  // past the process limit. A call that never settles gives the slot back
+  // after as long again as the run's timeout, with a warning.
   let callsInFlight = 0;
   let released = false;
-  const release = () => {
-    if (released || !stopped || callsInFlight > 0) return;
+  let stuckTimer: ReturnType<typeof setTimeout> | undefined;
+  const giveSlotBack = () => {
     released = true;
+    if (stuckTimer !== undefined) clearTimeout(stuckTimer);
     activeRuns -= 1;
+  };
+  const release = () => {
+    if (released || !stopped) return;
+    if (callsInFlight === 0) {
+      giveSlotBack();
+      return;
+    }
+    if (stuckTimer !== undefined) return;
+    stuckTimer = setTimeout(() => {
+      if (released) return;
+      console.warn(
+        `[mcp] Script run ${runId} stopped with ${callsInFlight} call(s) still running after ${timeoutMs} ms; giving its slot back.`,
+      );
+      giveSlotBack();
+    }, timeoutMs);
+    (stuckTimer as { unref?: () => void }).unref?.();
   };
   try {
     let loaded: Awaited<ReturnType<typeof loadRuntime>>;
@@ -1097,242 +1116,245 @@ export async function runMcpScript(
     }
     const { runner, RunError } = loaded;
 
-    const hostFunctions: HostFunctions = {
-      __host: {
-        call: async (rawName: unknown, rawArgs: unknown) => {
-          const startedAt = Date.now();
-          // The guest's `api` names every call with a string. Anything else
-          // is not turned into text, which for a nested array the sandbox
-          // sent once and pointed to again would spell out every copy.
-          const fn =
-            typeof rawName === "string"
-              ? oneLine(rawName.replace(/^api\./, ""), 120)
-              : "(unnamed)";
-          // A call is listed when it starts, so a script that stops while
-          // waiting on one still shows it, as unfinished.
-          const slot = stopped
-            ? -1
-            : calls.push({ function: fn, status: "unfinished", ms: 0 }) - 1;
-          const record = (call: McpScriptCallRecord) => {
-            if (!stopped && slot >= 0) calls[slot] = call;
-          };
-          const refuse = (
-            functionName: string,
-            action: string | undefined,
-            status: "denied" | "refused" | "failed",
-            replyCode: string,
-            message: string,
-            callStartedAt: number,
-          ) => {
-            record({
-              function: functionName,
-              ...(action ? { action } : {}),
-              status,
-              ms: Date.now() - callStartedAt,
-              code: replyCode,
-              message: oneLine(message, 300),
-            });
-            return { ok: false, code: replyCode, message };
-          };
-          if (stopped || input.signal?.aborted) {
-            return refuse(
-              fn,
-              undefined,
-              "refused",
-              "script_stopped",
-              "The script stopped before this call started.",
-              startedAt,
-            );
-          }
-          callCount += 1;
-          if (callCount > MCP_SCRIPT_LIMITS.calls) {
-            return refuse(
-              fn,
-              undefined,
-              "refused",
-              "call_limit",
-              `A script may make at most ${MCP_SCRIPT_LIMITS.calls} calls.`,
-              startedAt,
-            );
-          }
-          // Measured before anything copies them, the audit log included: the
-          // sandbox sends a part the arguments repeat once, and a copy spells
-          // out every repeat.
-          let args: unknown;
-          let argumentProblem: string | undefined;
-          try {
-            plainResultValue(
-              rawArgs,
-              MCP_SCRIPT_LIMITS.argumentChars,
-              "refuse",
-            );
-            args = toJsonData(rawArgs === undefined ? {} : rawArgs);
-            if (!isSchemaObject(args)) throw new TypeError("not an object");
-          } catch (error) {
-            argumentProblem =
-              error instanceof McpScriptValueTooLargeError
-                ? `api.${fn} takes at most ${MCP_SCRIPT_LIMITS.argumentChars} characters of arguments.`
-                : error instanceof McpScriptValueTooDeepError
-                  ? `api.${fn} takes arguments nested at most ${MAX_RESULT_DEPTH} levels deep.`
-                  : `api.${fn} takes one object of JSON data.`;
-          }
-          const action = input.catalog.byFunction.get(fn);
-          const entry =
-            action === undefined
-              ? undefined
-              : scriptCatalogEntry(input.catalog, action);
-          // The catalog holds only what the policy allows; asking again at
-          // the call keeps it in force if an entry has changed since.
-          const policy =
-            action === undefined || entry === undefined
-              ? undefined
-              : mcpScriptCallPolicy(action, entry);
-          if (action === undefined || policy?.allowed !== true) {
-            const denial =
-              policy?.allowed === false
-                ? { action, reason: policy.reason }
-                : explainMcpScriptDenial(fn, input.catalog, input.known);
-            const message = `api.${fn} ${DENIAL_MESSAGES[denial.reason]}.`;
-            try {
-              await input.recordDenial({
-                runId,
-                functionName: fn,
-                action: denial.action,
-                reason: denial.reason,
-                message,
-                // Arguments past the limits, or not JSON, are left out.
-                args:
-                  argumentProblem === undefined
-                    ? deniedCallArguments(args)
-                    : undefined,
-              });
-            } catch (error) {
-              console.error(
-                `[mcp] Could not record a script call denial: ${describeThrownForLog(error)}`,
-              );
-            }
-            return refuse(
-              fn,
-              denial.action,
-              "denied",
-              denial.reason,
-              message,
-              startedAt,
-            );
-          }
-          if (argumentProblem !== undefined) {
+    // One call from the script's `api`, answered as the guest's `__call`
+    // reads it.
+    const answerCall = async (rawName: unknown, rawArgs: unknown) => {
+      const startedAt = Date.now();
+      // The guest's `api` names every call with a string. Anything else
+      // is not turned into text, which for a nested array the sandbox
+      // sent once and pointed to again would spell out every copy.
+      // A name that carries an embed URL is hidden before the audit log
+      // or the call list can keep it.
+      const fn =
+        typeof rawName === "string"
+          ? redactEmbedText(oneLine(rawName.replace(/^api\./, ""), 120))
+          : "(unnamed)";
+      // A call is listed when it starts, so a script that stops while
+      // waiting on one still shows it, as unfinished.
+      const slot = stopped
+        ? -1
+        : calls.push({ function: fn, status: "unfinished", ms: 0 }) - 1;
+      const record = (call: McpScriptCallRecord) => {
+        if (!stopped && slot >= 0) calls[slot] = call;
+      };
+      const refuse = (
+        functionName: string,
+        action: string | undefined,
+        status: "denied" | "refused" | "failed",
+        replyCode: string,
+        message: string,
+        callStartedAt: number,
+      ) => {
+        record({
+          function: functionName,
+          ...(action ? { action } : {}),
+          status,
+          ms: Date.now() - callStartedAt,
+          code: replyCode,
+          message: oneLine(message, 300),
+        });
+        return { ok: false, code: replyCode, message };
+      };
+      if (stopped || input.signal?.aborted) {
+        return refuse(
+          fn,
+          undefined,
+          "refused",
+          "script_stopped",
+          "The script stopped before this call started.",
+          startedAt,
+        );
+      }
+      callCount += 1;
+      if (callCount > MCP_SCRIPT_LIMITS.calls) {
+        return refuse(
+          fn,
+          undefined,
+          "refused",
+          "call_limit",
+          `A script may make at most ${MCP_SCRIPT_LIMITS.calls} calls.`,
+          startedAt,
+        );
+      }
+      // Measured before anything copies them, the audit log included: the
+      // sandbox sends a part the arguments repeat once, and a copy spells
+      // out every repeat.
+      let args: unknown;
+      let argumentProblem: string | undefined;
+      try {
+        plainResultValue(rawArgs, MCP_SCRIPT_LIMITS.argumentChars, "refuse");
+        args = toJsonData(rawArgs === undefined ? {} : rawArgs);
+        if (!isSchemaObject(args)) throw new TypeError("not an object");
+      } catch (error) {
+        argumentProblem =
+          error instanceof McpScriptValueTooLargeError
+            ? `api.${fn} takes at most ${MCP_SCRIPT_LIMITS.argumentChars} characters of arguments.`
+            : error instanceof McpScriptValueTooDeepError
+              ? `api.${fn} takes arguments nested at most ${MAX_RESULT_DEPTH} levels deep.`
+              : `api.${fn} takes one object of JSON data.`;
+      }
+      const action = input.catalog.byFunction.get(fn);
+      const entry =
+        action === undefined
+          ? undefined
+          : scriptCatalogEntry(input.catalog, action);
+      // The catalog holds only what the policy allows; asking again at
+      // the call keeps it in force if an entry has changed since.
+      const policy =
+        action === undefined || entry === undefined
+          ? undefined
+          : mcpScriptCallPolicy(action, entry);
+      if (action === undefined || policy?.allowed !== true) {
+        const denial =
+          policy?.allowed === false
+            ? { action, reason: policy.reason }
+            : explainMcpScriptDenial(fn, input.catalog, input.known);
+        const message = `api.${fn} ${DENIAL_MESSAGES[denial.reason]}.`;
+        try {
+          await input.recordDenial({
+            runId,
+            functionName: fn,
+            action: denial.action,
+            reason: denial.reason,
+            message,
+            // Arguments past the limits, or not JSON, are left out.
+            args:
+              argumentProblem === undefined
+                ? deniedCallArguments(args)
+                : undefined,
+          });
+        } catch (error) {
+          console.error(
+            `[mcp] Could not record a script call denial: ${describeThrownForLog(error)}`,
+          );
+        }
+        return refuse(
+          fn,
+          denial.action,
+          "denied",
+          denial.reason,
+          message,
+          startedAt,
+        );
+      }
+      if (argumentProblem !== undefined) {
+        return refuse(
+          fn,
+          action,
+          "failed",
+          "invalid_arguments",
+          argumentProblem,
+          startedAt,
+        );
+      }
+      record({ function: fn, action, status: "unfinished", ms: 0 });
+      const outcome = await input.callAction(action, args);
+      switch (outcome.status) {
+        case "completed": {
+          if (outcome.reportedError) {
             return refuse(
               fn,
               action,
               "failed",
-              "invalid_arguments",
-              argumentProblem,
+              "action_reported_error",
+              `api.${fn} reported an error: ${oneLine(jsonText(outcome.value), 500)}`,
               startedAt,
             );
           }
-          record({ function: fn, action, status: "unfinished", ms: 0 });
-          let outcome: McpActionCallOutcome;
+          const json = jsonText(outcome.value);
+          const bytes = utf8Bytes(json);
+          if (bytes > MCP_SCRIPT_LIMITS.callResultBytes) {
+            return refuse(
+              fn,
+              action,
+              "refused",
+              "result_too_large",
+              `api.${fn} returned ${bytes} bytes, more than the ${MCP_SCRIPT_LIMITS.callResultBytes} a script can receive from one call. Ask for less with its paging or filter arguments.`,
+              startedAt,
+            );
+          }
+          if (readBytes + bytes > MCP_SCRIPT_LIMITS.readBytes) {
+            return refuse(
+              fn,
+              action,
+              "refused",
+              "read_limit",
+              `This call would take the script past ${MCP_SCRIPT_LIMITS.readBytes} bytes of results. Ask for less data per call.`,
+              startedAt,
+            );
+          }
+          readBytes += bytes;
+          record({
+            function: fn,
+            action,
+            status: "completed",
+            ms: Date.now() - startedAt,
+          });
+          return { ok: true, value: outcome.value };
+        }
+        case "failed":
+          return refuse(
+            fn,
+            action,
+            outcome.stage === "authorization" ? "denied" : "failed",
+            outcome.errorCode ??
+              (outcome.stage === "authorization"
+                ? "forbidden"
+                : "action_failed"),
+            outcome.message,
+            startedAt,
+          );
+        case "unknown-tool":
+        case "forbidden-scope": {
+          const message = `api.${fn} ${DENIAL_MESSAGES["out-of-scope"]}.`;
+          try {
+            await input.recordDenial({
+              runId,
+              functionName: fn,
+              action,
+              reason: "out-of-scope",
+              message,
+              args: deniedCallArguments(args),
+            });
+          } catch (error) {
+            console.error(
+              `[mcp] Could not record a script call denial: ${describeThrownForLog(error)}`,
+            );
+          }
+          return refuse(
+            fn,
+            action,
+            "denied",
+            "out-of-scope",
+            message,
+            startedAt,
+          );
+        }
+        case "approval-required":
+        case "approval-pending":
+        case "approval-denied":
+          // Scriptable actions ask for no approval, so this is a bug in
+          // policy, refused rather than left waiting.
+          return refuse(
+            fn,
+            action,
+            "denied",
+            "needs-approval",
+            `api.${fn} ${DENIAL_MESSAGES["needs-approval"]}.`,
+            startedAt,
+          );
+      }
+    };
+
+    const hostFunctions: HostFunctions = {
+      __host: {
+        call: async (rawName: unknown, rawArgs: unknown) => {
           callsInFlight += 1;
           try {
-            outcome = await input.callAction(action, args);
+            return await answerCall(rawName, rawArgs);
           } finally {
             callsInFlight -= 1;
             release();
-          }
-          switch (outcome.status) {
-            case "completed": {
-              if (outcome.reportedError) {
-                return refuse(
-                  fn,
-                  action,
-                  "failed",
-                  "action_reported_error",
-                  `api.${fn} reported an error: ${oneLine(jsonText(outcome.value), 500)}`,
-                  startedAt,
-                );
-              }
-              const json = jsonText(outcome.value);
-              const bytes = utf8Bytes(json);
-              if (bytes > MCP_SCRIPT_LIMITS.callResultBytes) {
-                return refuse(
-                  fn,
-                  action,
-                  "refused",
-                  "result_too_large",
-                  `api.${fn} returned ${bytes} bytes, more than the ${MCP_SCRIPT_LIMITS.callResultBytes} a script can receive from one call. Ask for less with its paging or filter arguments.`,
-                  startedAt,
-                );
-              }
-              if (readBytes + bytes > MCP_SCRIPT_LIMITS.readBytes) {
-                return refuse(
-                  fn,
-                  action,
-                  "refused",
-                  "read_limit",
-                  `This call would take the script past ${MCP_SCRIPT_LIMITS.readBytes} bytes of results. Ask for less data per call.`,
-                  startedAt,
-                );
-              }
-              readBytes += bytes;
-              record({
-                function: fn,
-                action,
-                status: "completed",
-                ms: Date.now() - startedAt,
-              });
-              return { ok: true, value: outcome.value };
-            }
-            case "failed":
-              return refuse(
-                fn,
-                action,
-                outcome.stage === "authorization" ? "denied" : "failed",
-                outcome.errorCode ??
-                  (outcome.stage === "authorization"
-                    ? "forbidden"
-                    : "action_failed"),
-                outcome.message,
-                startedAt,
-              );
-            case "unknown-tool":
-            case "forbidden-scope": {
-              const message = `api.${fn} ${DENIAL_MESSAGES["out-of-scope"]}.`;
-              try {
-                await input.recordDenial({
-                  runId,
-                  functionName: fn,
-                  action,
-                  reason: "out-of-scope",
-                  message,
-                  args: deniedCallArguments(args),
-                });
-              } catch (error) {
-                console.error(
-                  `[mcp] Could not record a script call denial: ${describeThrownForLog(error)}`,
-                );
-              }
-              return refuse(
-                fn,
-                action,
-                "denied",
-                "out-of-scope",
-                message,
-                startedAt,
-              );
-            }
-            case "approval-required":
-            case "approval-pending":
-            case "approval-denied":
-              // Scriptable actions ask for no approval, so this is a bug in
-              // policy, refused rather than left waiting.
-              return refuse(
-                fn,
-                action,
-                "denied",
-                "needs-approval",
-                `api.${fn} ${DENIAL_MESSAGES["needs-approval"]}.`,
-                startedAt,
-              );
           }
         },
       },
