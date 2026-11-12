@@ -110,6 +110,10 @@ describe("requireCreatedPageLinks", () => {
     ["its absolute URL", `Opened ${ORIGIN}/page/abc123XYZ for you.`],
     ["its URL at the end of a sentence", `It's at ${ORIGIN}/page/abc123XYZ.`],
     [
+      "the link this check supplies, brackets in the title included",
+      `- [Plan \\[draft\\]](${ORIGIN}/page/abc123XYZ)`,
+    ],
+    [
       "its open link",
       "[Meeting Notes](/_agent-native/open?app=content&view=editor&documentId=abc123XYZ)",
     ],
@@ -270,6 +274,10 @@ describe("requireCreatedPageLinks", () => {
     [
       "a path that URL parsing reads as another host",
       "See [Notes](/\\elsewhere.example.org/page/abc123XYZ).",
+    ],
+    [
+      "a link's label",
+      `See [${ORIGIN}/page/abc123XYZ](https://elsewhere.example.org/notes).`,
     ],
     ["an anchor", "See [Notes](#abc123XYZ)."],
     ["another route", "See [settings](/settings?ref=abc123XYZ)."],

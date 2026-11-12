@@ -94,17 +94,22 @@ export function createdPages(
 // taken out first.
 const CODE = /(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g;
 const MARKDOWN_LINK_TARGETS = /\]\(\s*<?([^)\s>]+)/g;
+// A whole Markdown link, label included: escaped brackets and one level of
+// nested brackets in the label.
+const MARKDOWN_LINKS = /\[(?:\\.|[^\\[\]]|\[(?:\\.|[^\\[\]])*\])*\]\([^)]*\)/g;
 const BARE_URLS = /https?:\/\/[^\s<>()[\]]+/g;
 // Punctuation that ends a sentence, not the URL before it.
 const TRAILING_PUNCTUATION = /[.,;:!?'"]+$/;
 
 function linkTargets(text: string): string[] {
   const prose = text.replace(CODE, " ");
+  // A URL in a link's label is only its text; the target is what opens.
+  const unlinkedProse = prose.replace(MARKDOWN_LINKS, " ");
   return [
     ...[...prose.matchAll(MARKDOWN_LINK_TARGETS)].flatMap((match) =>
       match[1] ? [match[1]] : [],
     ),
-    ...[...prose.matchAll(BARE_URLS)].map((match) =>
+    ...[...unlinkedProse.matchAll(BARE_URLS)].map((match) =>
       match[0].replace(TRAILING_PUNCTUATION, ""),
     ),
   ];
