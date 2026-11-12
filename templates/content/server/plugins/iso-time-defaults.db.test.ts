@@ -14,7 +14,7 @@ const TEST_DB_PATH = join(
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 type Schema = typeof import("../db/schema.js");
-let getDb: () => any;
+let getDb: typeof import("../db/index.js").getDb;
 let schema: Schema;
 let isoTimeDefaultsSql: typeof import("./db.js").isoTimeDefaultsSql;
 
@@ -25,7 +25,7 @@ beforeAll(async () => {
   schema = dbModule.schema;
   const plugin = await import("./db.js");
   isoTimeDefaultsSql = plugin.isoTimeDefaultsSql;
-  await plugin.default(undefined as any);
+  await plugin.default(undefined as never);
 }, 60000);
 
 afterAll(() => {
@@ -33,6 +33,7 @@ afterAll(() => {
 });
 
 async function runStatements(sql: string) {
+  // raw-sql-ok: runs the migration's own statements unchanged; it builds no SQL.
   for (const statement of sql.split(";\n")) {
     await getDbExec().execute(statement);
   }
@@ -90,11 +91,11 @@ describe("times the database stamps itself", () => {
       )
       .orderBy(desc(schema.documents.updatedAt), schema.documents.id);
 
-    expect(recent.map((row: { id: string }) => row.id)).toEqual([
+    expect(recent.map((row) => row.id)).toEqual([
       "doc_database_stamped",
       "doc_app_stamped",
     ]);
-    expect(recent[0].updatedAt).toMatch(ISO_TIME);
+    expect(recent[0]?.updatedAt).toMatch(ISO_TIME);
   });
 
   it("rewrites times the old default wrote and leaves everything else as it was", async () => {
@@ -129,12 +130,7 @@ describe("times the database stamps itself", () => {
         ),
       );
     const byId = new Map(
-      stored.map(
-        (row: { id: string; createdAt: string; updatedAt: string }) => [
-          row.id,
-          [row.createdAt, row.updatedAt],
-        ],
-      ),
+      stored.map((row) => [row.id, [row.createdAt, row.updatedAt]] as const),
     );
     expect(byId.get("doc_postgres_utc")).toEqual([
       "2026-11-11T21:52:00.123Z",

@@ -75,6 +75,7 @@ export function isoTimeDefaultsSql(
 ): string {
   const toIso = (column: string) =>
     `to_char(${column}::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+  // raw-sql-ok: migration DDL; table and column names come from the constant list above, never from input.
   return Object.entries(columnsByTable)
     .flatMap(([table, columns]) => [
       `ALTER TABLE ${table} ${columns
