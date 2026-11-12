@@ -109,6 +109,11 @@ describe("requireCreatedPageLinks", () => {
     ["its path", "Done: [Meeting Notes](/page/abc123XYZ)."],
     ["its absolute URL", `Opened ${ORIGIN}/page/abc123XYZ for you.`],
     ["its URL at the end of a sentence", `It's at ${ORIGIN}/page/abc123XYZ.`],
+    ["an autolink", `Open <${ORIGIN}/page/abc123XYZ> to read it.`],
+    [
+      "a reference link",
+      "See [Meeting Notes][notes].\n\n[notes]: /page/abc123XYZ",
+    ],
     [
       "the link this check supplies, brackets in the title included",
       `- [Plan \\[draft\\]](${ORIGIN}/page/abc123XYZ)`,
@@ -279,6 +284,9 @@ describe("requireCreatedPageLinks", () => {
       "a link's label",
       `See [${ORIGIN}/page/abc123XYZ](https://elsewhere.example.org/notes).`,
     ],
+    ["escaped link brackets", "See [Notes\\](/page/abc123XYZ)."],
+    ["an image", "![Notes](/page/abc123XYZ)"],
+    ["a link left unclosed", "See [Notes](/page/abc123XYZ"],
     ["an anchor", "See [Notes](#abc123XYZ)."],
     ["another route", "See [settings](/settings?ref=abc123XYZ)."],
     [

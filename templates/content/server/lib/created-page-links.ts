@@ -11,6 +11,10 @@ import {
 } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, inArray } from "drizzle-orm";
+import type { Nodes } from "mdast";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -89,30 +93,31 @@ export function createdPages(
   return [...pages.values()];
 }
 
-// Markdown link targets and bare web URLs, the two forms chat renders as
-// clickable links. Code spans and fenced blocks render as text, so they're
-// taken out first.
-const CODE = /(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g;
-const MARKDOWN_LINK_TARGETS = /\]\(\s*<?([^)\s>]+)/g;
-// A whole Markdown link, label included: escaped brackets and one level of
-// nested brackets in the label.
-const MARKDOWN_LINKS = /\[(?:\\.|[^\\[\]]|\[(?:\\.|[^\\[\]])*\])*\]\([^)]*\)/g;
-const BARE_URLS = /https?:\/\/[^\s<>()[\]]+/g;
-// Punctuation that ends a sentence, not the URL before it.
-const TRAILING_PUNCTUATION = /[.,;:!?'"]+$/;
+// Chat renders replies as GitHub-flavored Markdown, so a reply is parsed the
+// same way: a link counts only where the reader sees one. Code, images, and
+// escaped or unclosed brackets stay text, and a bare URL leaves out the
+// punctuation that ends its sentence.
+const markdown = unified().use(remarkParse).use(remarkGfm);
 
+/** Where the reply's links go: inline, reference, autolink and bare URL. */
 function linkTargets(text: string): string[] {
-  const prose = text.replace(CODE, " ");
-  // A URL in a link's label is only its text; the target is what opens.
-  const unlinkedProse = prose.replace(MARKDOWN_LINKS, " ");
-  return [
-    ...[...prose.matchAll(MARKDOWN_LINK_TARGETS)].flatMap((match) =>
-      match[1] ? [match[1]] : [],
-    ),
-    ...[...unlinkedProse.matchAll(BARE_URLS)].map((match) =>
-      match[0].replace(TRAILING_PUNCTUATION, ""),
-    ),
-  ];
+  const targets: string[] = [];
+  const references: string[] = [];
+  const definitions = new Map<string, string>();
+  const visit = (node: Nodes) => {
+    if (node.type === "link") targets.push(node.url);
+    if (node.type === "linkReference") references.push(node.identifier);
+    if (node.type === "definition") {
+      definitions.set(node.identifier, node.url);
+    }
+    if ("children" in node) node.children.forEach(visit);
+  };
+  visit(markdown.parse(text));
+  for (const identifier of references) {
+    const url = definitions.get(identifier);
+    if (url) targets.push(url);
+  }
+  return targets;
 }
 
 // A root-relative link resolves against this only so its path can be read.
@@ -207,9 +212,11 @@ function pageLink(page: CreatedPage): string {
 export const requireCreatedPageLinks: AgentLoopFinalResponseGuard = async (
   context,
 ) => {
+  const pages = createdPages(context);
+  if (pages.length === 0) return null;
   const targets = linkTargets(context.text);
   const origin = linkOrigin();
-  const unlinked = createdPages(context).filter(
+  const unlinked = pages.filter(
     (page) => !targets.some((target) => opensPage(target, origin, page.id)),
   );
   if (unlinked.length === 0) return null;
