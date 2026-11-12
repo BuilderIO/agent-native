@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   appId: "agent-native-clips" as string | undefined,
   enabled: true,
   automaticPercent: 50,
+  assignmentRoll: 0,
   experimentId: "design_builder_signup_v1",
   failTerminalWrites: 0,
   waitUntil: undefined as ((work: Promise<unknown>) => void) | undefined,
@@ -12,6 +13,10 @@ const mocks = vi.hoisted(() => ({
   identity: { user: { id: "new-user", createdAt: new Date() } },
   settings: new Map<string, Record<string, unknown>>(),
   track: vi.fn(),
+}));
+vi.mock("node:crypto", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:crypto")>()),
+  randomInt: () => mocks.assignmentRoll,
 }));
 vi.mock("../app-config/index.js", () => ({
   getAppConfig: () => ({
@@ -146,6 +151,7 @@ beforeEach(() => {
   mocks.appId = "agent-native-clips";
   mocks.enabled = true;
   mocks.automaticPercent = 50;
+  mocks.assignmentRoll = 0;
   mocks.experimentId = "design_builder_signup_v1";
   mocks.failTerminalWrites = 0;
   mocks.waitUntil = undefined;
@@ -165,9 +171,21 @@ beforeEach(() => {
 });
 
 describe("pre-signup Builder experiment", () => {
+  it.each([
+    [49, "automatic"],
+    [50, "control"],
+  ])(
+    "assigns a roll of %s to %s at the default allocation",
+    async (roll, variant) => {
+      mocks.assignmentRoll = roll;
+      expect(await (await request()).json()).toMatchObject({ variant });
+    },
+  );
+
   it("assigns new Clips visitors to automatic and honors existing control assignments", async () => {
     mocks.experimentId = "clips_builder_signup_v1";
     mocks.automaticPercent = 100;
+    mocks.assignmentRoll = 99;
 
     expect(await (await request()).json()).toMatchObject({
       experimentId: "clips_builder_signup_v1",
