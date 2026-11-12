@@ -622,14 +622,20 @@ jobs:
               status: "completed",
               per_page: 100,
             });
+            // Earlier runs are judged by the same jobs, not by the run's
+            // conclusion, which a failed restore or report also sets. A
+            // skipped reusable-workflow job is listed without its " / <job>".
+            const isJob = (job, name) => job.name === name || job.name.startsWith(`${name} / `);
+            const deployPathJobs = [
+              "Verify docs source before production side effects",
+              "Pause docs site's Git-connected Netlify builds",
+              "Migrate docs production schema",
+              "docs production prebuilt deploy",
+            ];
             let previous = null;
             for (const run of data.workflow_runs
               .filter((run) => run.id < context.runId && run.conclusion !== "cancelled")
               .sort((a, b) => b.id - a.id)) {
-              if (run.conclusion === "failure") {
-                previous = "failed";
-                break;
-              }
               const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
                 owner,
                 repo,
@@ -637,14 +643,16 @@ jobs:
                 filter: "latest",
                 per_page: 100,
               });
+              if (jobs.jobs.some((job) => isJob(job, "docs production prebuilt deploy") && job.conclusion === "success")) {
+                previous = "published";
+                break;
+              }
               if (
                 jobs.jobs.some(
-                  (job) =>
-                    job.name.startsWith("docs production prebuilt deploy / ") &&
-                    job.conclusion === "success",
+                  (job) => job.conclusion === "failure" && deployPathJobs.some((name) => isJob(job, name)),
                 )
               ) {
-                previous = "published";
+                previous = "failed";
                 break;
               }
             }

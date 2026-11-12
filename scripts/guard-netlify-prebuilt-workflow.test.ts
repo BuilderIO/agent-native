@@ -4427,7 +4427,12 @@ describe("production Netlify site concurrency guard", () => {
     const failedRun = (id: number): EarlierRun => ({
       id,
       conclusion: "failure",
-      jobs: [],
+      jobs: [
+        {
+          name: "docs production prebuilt deploy / production fw prebuilt deploy",
+          conclusion: "failure",
+        },
+      ],
     });
 
     const startsFailing = await decide(deployFailed, [
@@ -4468,6 +4473,51 @@ describe("production Netlify site concurrency guard", () => {
       [publishedRun(99)],
     );
     assert.match(startCheckFailed.text, /: docs-source-freshness failed\./);
+    // An earlier run that deployed and then failed to restore or to post was
+    // still a deploy.
+    const deployedThenFailed = (id: number, failedJob: string): EarlierRun => ({
+      ...publishedRun(id),
+      conclusion: "failure",
+      jobs: [
+        ...publishedRun(id).jobs,
+        { name: failedJob, conclusion: "failure" },
+      ],
+    });
+    for (const failedJob of [
+      "Restore docs site's Git-connected Netlify builds",
+      "Report to #dev-agent-native-alerts",
+    ]) {
+      assert.equal(
+        (await decide(published, [deployedThenFailed(99, failedJob)])).text,
+        "",
+      );
+      assert.match(
+        (await decide(deployFailed, [deployedThenFailed(99, failedJob)])).text,
+        /^:warning: Docs production did not deploy/,
+      );
+    }
+    // Each failed step before the deploy marks an earlier run as failed.
+    const jobNames = Object.fromEntries(
+      Object.entries(workflow.jobs as Record<string, Workflow>).map(
+        ([id, job]) => [id, String(job.name)],
+      ),
+    );
+    for (const id of [
+      "docs-source-freshness",
+      "pause-netlify-builds",
+      "migrate",
+      "deploy",
+    ]) {
+      const stepFailed: EarlierRun = {
+        id: 99,
+        conclusion: "failure",
+        jobs: [{ name: jobNames[id]!, conclusion: "failure" }],
+      };
+      assert.match(
+        (await decide(published, [stepFailed])).text,
+        /^:white_check_mark: Docs production deploys again/,
+      );
+    }
     // Restoring the Git build setting after a deploy does not undo it.
     const restoreFailed = {
       ...published,
