@@ -331,6 +331,20 @@ describe("the MCP script catalog", () => {
     expect(JSON.stringify(reported)).not.toContain("read Plan");
   });
 
+  it("gives analytics a script's length, not its source", async () => {
+    const client = await clientFor(user);
+    const code = `return "https://docs.example/_agent-native/embed/start?ticket=${TICKET}";`;
+    await runScript(client, code);
+    const reported = trackMcpToolCallMock.mock.calls.map(([, args]) => args);
+    expect(reported).toEqual([
+      expect.objectContaining({
+        toolName: "run-script",
+        parameters: { code: `(a script of ${code.length} characters)` },
+      }),
+    ]);
+    expect(JSON.stringify(reported)).not.toContain(TICKET);
+  });
+
   it("refuses bridge calls outside the policy and records each in the audit log", async () => {
     const client = await clientFor(user, {
       scriptCatalog: true,
@@ -357,7 +371,7 @@ describe("the MCP script catalog", () => {
     const audited = recordActionAuditMock.mock.calls.map(([input]) => input);
     expect(audited.map((input) => input.ctx.actionName)).toEqual([
       "delete-document",
-      "api.runCode",
+      "api.(unknown)",
       "plain-read",
     ]);
     for (const input of audited) {

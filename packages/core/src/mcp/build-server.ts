@@ -146,6 +146,7 @@ import {
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
 import {
+  MCP_SCRIPT_RUN_TOOL,
   MCP_SCRIPT_SEARCH_TOOL,
   MCP_SCRIPT_TOOL_NAMES,
   buildMcpScriptCatalog,
@@ -3764,6 +3765,25 @@ export async function createMCPServerForRequest(
     return mcpScriptCallResult(payload);
   }
 
+  // A script's source can hold anything the model put in it, embed links
+  // and data from earlier calls among them; analytics get only its length.
+  const analyticsParameters = (
+    toolName: unknown,
+    args: unknown,
+  ): Record<string, unknown> => {
+    const parameters = (args ?? {}) as Record<string, unknown>;
+    if (toolName !== MCP_SCRIPT_RUN_TOOL || !Object.hasOwn(parameters, "code"))
+      return parameters;
+    const { code, ...rest } = parameters;
+    return {
+      ...rest,
+      code:
+        typeof code === "string"
+          ? `(a script of ${code.length} characters)`
+          : "(not a script)",
+    };
+  };
+
   server.setRequestHandler(
     "tools/call",
     async (request: any, ctx: ServerContext) => {
@@ -3945,10 +3965,7 @@ export async function createMCPServerForRequest(
         ...(calledEntry
           ? { toolCategory: calledEntry.readOnly === true ? "read" : "write" }
           : {}),
-        parameters: (request.params?.arguments ?? {}) as Record<
-          string,
-          unknown
-        >,
+        parameters: analyticsParameters(toolName, request.params?.arguments),
         durationMs: Date.now() - startedAt,
         isError: (result as { isError?: boolean }).isError === true,
         ...(failure ?? {}),
