@@ -76,7 +76,8 @@ export const MCP_SCRIPT_LIMITS = Object.freeze({
   /** Scripts running at once in this process; another gets a busy error. */
   concurrentRuns: 4,
   /** Calls still running from scripts that stopped and gave their slot
-   *  back; at this many, another script gets a busy error until some settle. */
+   *  back; at this many, another script gets a busy error until some settle.
+   *  A stopped run whose calls would pass it keeps its slot instead. */
   lingeringCalls: 32,
 });
 
@@ -1204,10 +1205,12 @@ export async function runMcpScript(
   // past the process limit. A call that never settles gives the slot back
   // after as long again as the run's timeout, with a warning, and counts
   // against `lingeringCalls` until it settles, so those can't pile up
-  // past a limit either.
+  // past a limit either. A run whose calls don't fit under that limit keeps
+  // its slot, and looks again after as long again.
   let callsInFlight = 0;
   let released = false;
   let lingering = false;
+  let warnedFull = false;
   let stuckTimer: ReturnType<typeof setTimeout> | undefined;
   const giveSlotBack = () => {
     released = true;
@@ -1223,6 +1226,17 @@ export async function runMcpScript(
     if (stuckTimer !== undefined) return;
     stuckTimer = setTimeout(() => {
       if (released) return;
+      if (lingeringCalls + callsInFlight > MCP_SCRIPT_LIMITS.lingeringCalls) {
+        if (!warnedFull) {
+          warnedFull = true;
+          console.warn(
+            `[mcp] Script run ${runId} stopped with ${callsInFlight} call(s) still running after ${timeoutMs} ms, more than stopped runs have room for; keeping its slot.`,
+          );
+        }
+        stuckTimer = undefined;
+        release();
+        return;
+      }
       console.warn(
         `[mcp] Script run ${runId} stopped with ${callsInFlight} call(s) still running after ${timeoutMs} ms; giving its slot back.`,
       );
