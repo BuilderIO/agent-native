@@ -27,6 +27,7 @@ import {
   ReviewThreadCardFrame,
   ReviewThreadMenu,
   MAX_REVIEW_COMMENT_IMAGES,
+  reviewCommentEditAttachments,
   reviewCommentHiddenAttachments,
   reviewCommentImageMetadata,
   reviewCommentImages,
@@ -1548,16 +1549,21 @@ export function ReviewCanvasPins({
     const body = editDraft.trim();
     if (!comment || (!body && !editImages.length) || updateComment.isPending)
       return;
-    // Images go only when they changed, and then with the attachments the
-    // card doesn't show, so an edit never drops those.
+    // Once the author has been told the comment changed, the save goes
+    // against the comment as it is now, as soon as the list has it.
+    const latest =
+      editRevision?.comment === comment
+        ? comments.data?.comments.find((item) => item.id === comment.id)
+        : undefined;
+    const base =
+      latest && latest.revision === editRevision?.revision ? latest : comment;
+    // Images go only when they changed. The edit's changes then apply to the
+    // comment's images as they are now, so it never drops ones the card
+    // doesn't show or ones changed since it opened.
     const imagesChanged =
       JSON.stringify(editImages) !==
       JSON.stringify(reviewCommentImages(comment));
     const sentDraft = editDraftState;
-    const expectedRevision =
-      editRevision?.comment === comment
-        ? editRevision.revision
-        : comment.revision;
     updateComment.mutate(
       {
         resourceType,
@@ -1567,14 +1573,17 @@ export function ReviewCanvasPins({
         mentions: editMentions,
         ...(imagesChanged
           ? {
-              attachments: [
-                ...editHiddenAttachments,
-                ...reviewCommentImageMetadata(editImages),
-              ],
+              attachments: reviewCommentEditAttachments(
+                comment,
+                base,
+                editImages,
+              ),
             }
           : {}),
         // The edit is of the comment as it was opened, so a newer one refuses it.
-        ...(expectedRevision !== undefined ? { expectedRevision } : {}),
+        ...(base.revision !== undefined
+          ? { expectedRevision: base.revision }
+          : {}),
       },
       {
         onSuccess: () => {
@@ -1595,10 +1604,10 @@ export function ReviewCanvasPins({
       },
     );
   }, [
+    comments.data?.comments,
     editCandidate,
     editDraft,
     editDraftState,
-    editHiddenAttachments,
     editImages,
     editMentions,
     editRevision,

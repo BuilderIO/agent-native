@@ -5446,13 +5446,16 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       it("keeps an edit's text when the comment changed meanwhile, and saves it against the comment as it is now", async () => {
         reviewComments = [{ ...comment, revision: 3 }];
         mocks.updateMutate.mockImplementationOnce(
-          (_input, options?: { onError?: (error: unknown) => void }) =>
+          (_input, options?: { onError?: (error: unknown) => void }) => {
+            // The list then loads the comment as it is now.
+            reviewComments = [{ ...comment, revision: 4 }];
             options?.onError?.(
               Object.assign(new Error("Comment changed since it was read"), {
                 errorCode: "revision_conflict",
                 details: { commentId: "comment-1", currentRevision: 4 },
               }),
-            ),
+            );
+          },
         );
         await renderPins(signedIn);
         await openFirstThread();
@@ -5475,6 +5478,67 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         await act(async () => submit(editing()!)?.click());
         expect(mocks.updateMutate.mock.calls[1]?.[0]).toMatchObject({
           body: "Keep this open",
+          expectedRevision: 4,
+        });
+      });
+
+      it("saves an edit's image changes onto the comment's images as they are now, once it changed", async () => {
+        const old = {
+          url: "https://cdn.builder.io/api/v1/image/old",
+          name: "old.png",
+          contentType: "image/png",
+        };
+        const elsewhere = {
+          url: "https://cdn.builder.io/api/v1/image/elsewhere",
+          name: "elsewhere.png",
+          contentType: "image/png",
+        };
+        const opened = {
+          ...comment,
+          revision: 3,
+          metadata: { attachments: [old] },
+        };
+        reviewComments = [opened];
+        mocks.updateMutate.mockImplementationOnce(
+          (_input, options?: { onError?: (error: unknown) => void }) => {
+            // Another tab added an image meanwhile.
+            reviewComments = [
+              {
+                ...opened,
+                revision: 4,
+                metadata: { attachments: [old, elsewhere] },
+              },
+            ];
+            options?.onError?.(
+              Object.assign(new Error("Comment changed since it was read"), {
+                errorCode: "revision_conflict",
+                details: { commentId: "comment-1", currentRevision: 4 },
+              }),
+            );
+          },
+        );
+        await renderPins(signedIn);
+        await openFirstThread();
+        await openCommentMenu("comment-1");
+        await act(async () => menuItem("review.editComment")?.click());
+        const editing = () =>
+          document.querySelector<HTMLElement>("[data-review-comment-editing]");
+        await act(async () =>
+          editing()
+            ?.querySelector<HTMLButtonElement>(
+              '[aria-label="review.removeImage: old.png"]',
+            )
+            ?.click(),
+        );
+        await act(async () => submit(editing()!)?.click());
+        expect(mocks.updateMutate.mock.calls[0]?.[0]).toMatchObject({
+          attachments: [],
+          expectedRevision: 3,
+        });
+
+        await act(async () => submit(editing()!)?.click());
+        expect(mocks.updateMutate.mock.calls[1]?.[0]).toMatchObject({
+          attachments: [elsewhere],
           expectedRevision: 4,
         });
       });

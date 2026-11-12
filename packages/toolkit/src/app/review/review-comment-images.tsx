@@ -102,6 +102,39 @@ export function reviewCommentHiddenAttachments(
   });
 }
 
+/**
+ * The attachments an edit saves: the comment's own as `current` has them, less
+ * the shown images the edit took out, plus the ones it added. So an edit
+ * opened on `opened` and saved once the comment changed keeps what changed
+ * meanwhile, including attachments the card doesn't show.
+ */
+export function reviewCommentEditAttachments(
+  opened: Pick<ReviewComment, "metadata">,
+  current: Pick<ReviewComment, "metadata">,
+  images: readonly ReviewCommentImage[],
+): Record<string, unknown>[] {
+  const openedUrls = new Set(reviewCommentImages(opened).map(({ url }) => url));
+  const keptUrls = new Set(images.map(({ url }) => url));
+  const raw = current.metadata?.attachments;
+  const kept = (Array.isArray(raw) ? raw : []).flatMap(
+    (value): Record<string, unknown>[] => {
+      if (!value || typeof value !== "object") return [];
+      const attachment = value as Record<string, unknown>;
+      const url = typeof attachment.url === "string" ? attachment.url : null;
+      return url && openedUrls.has(url) && !keptUrls.has(url)
+        ? []
+        : [attachment];
+    },
+  );
+  const present = new Set(
+    kept.flatMap(({ url }) => (typeof url === "string" ? [url] : [])),
+  );
+  const added = images.filter(
+    ({ url }) => !openedUrls.has(url) && !present.has(url),
+  );
+  return [...kept, ...reviewCommentImageMetadata(added)];
+}
+
 /** The `attachments` a comment's metadata keeps for its images. */
 export function reviewCommentImageMetadata(
   images: readonly ReviewCommentImage[],
