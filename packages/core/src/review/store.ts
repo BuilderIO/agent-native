@@ -9,6 +9,7 @@ import { defineStore } from "../db/store-registry.js";
 import type { Visibility } from "../sharing/schema.js";
 import {
   ReviewAnchorError,
+  ReviewCommentEmptyError,
   ReviewCommentLinkConflictError,
   ReviewCommentRevisionConflictError,
   ReviewCursorError,
@@ -85,6 +86,12 @@ export interface ReviewCommentWriteOptions {
    * is written and a `ReviewCommentRevisionConflictError` is thrown.
    */
   expectedRevision?: number | undefined;
+  /**
+   * Refuse, with a `ReviewCommentEmptyError`, a change that leaves the comment
+   * with no text and no image. Checked against the locked row, so a change
+   * made since the caller read the comment counts.
+   */
+  requireContent?: boolean | undefined;
   /** Who made the change, for the resource's write hook. */
   actorEmail?: string | null | undefined;
 }
@@ -1640,6 +1647,16 @@ async function writeReviewCommentChange(
     options.expectedRevision !== revision
   ) {
     throw new ReviewCommentRevisionConflictError(id, revision);
+  }
+  if (options.requireContent) {
+    const body = input.body ?? current.body;
+    const attachments = input.attachments ?? current.metadata?.attachments;
+    if (
+      !body.trim() &&
+      !(Array.isArray(attachments) && attachments.length > 0)
+    ) {
+      throw new ReviewCommentEmptyError(id);
+    }
   }
   const assignments: SqlFragment[] = [];
   if (input.body !== undefined) {

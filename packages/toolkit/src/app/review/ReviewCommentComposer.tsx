@@ -101,6 +101,11 @@ export interface ReviewCommentComposerProps {
   uploadImage?: ReviewCommentImageUpload | undefined;
   /** Hears an image that couldn't upload; a toast says so unless given. */
   onImageUploadError?: ((error: unknown) => void) | undefined;
+  /**
+   * At most this many images, up to five; less when the comment keeps other
+   * attachments the server counts toward its five.
+   */
+  maxImages?: number | undefined;
   attachImageLabel?: string | undefined;
   removeImageLabel?: string | undefined;
   imageUploadFailedLabel?: string | undefined;
@@ -162,6 +167,7 @@ export function ReviewCommentComposer({
   onImagesChange,
   uploadImage,
   onImageUploadError,
+  maxImages,
   attachImageLabel = "Attach image",
   removeImageLabel = "Remove image",
   imageUploadFailedLabel = "Couldn't upload the image",
@@ -200,6 +206,7 @@ export function ReviewCommentComposer({
     onUploadError:
       onImageUploadError ?? (() => toast.error(imageUploadFailedLabel)),
     disabled,
+    maxImages,
   });
   const imageInputRef = useRef<HTMLInputElement>(null);
   // An image is a comment on its own, once it's uploaded.

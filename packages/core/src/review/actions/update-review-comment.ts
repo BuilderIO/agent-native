@@ -129,6 +129,8 @@ export default defineAction({
               attachments: args.attachments,
             }),
           );
+    // Checked here for a quick answer, and again by the store against the
+    // locked row, so a change made meanwhile can't empty the comment.
     if (changesContent) {
       assertReviewCommentHasContent(
         args.body ?? comment.body,
@@ -159,6 +161,7 @@ export default defineAction({
       { resourceType: args.resourceType, resourceId: args.resourceId },
       {
         expectedRevision: args.expectedRevision,
+        requireContent: changesContent,
         actorEmail: actionCtx?.userEmail ?? null,
       },
     );

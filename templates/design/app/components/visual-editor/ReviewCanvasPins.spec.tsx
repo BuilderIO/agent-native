@@ -225,6 +225,7 @@ function MockReviewCommentComposer(props: {
   attachments?: React.ReactNode;
   images?: readonly ReviewCommentImage[];
   onImagesChange?: (images: ReviewCommentImage[]) => void;
+  maxImages?: number;
   attachImageLabel?: string;
   removeImageLabel?: string;
   variant?: "expanded" | "reply";
@@ -244,6 +245,7 @@ function MockReviewCommentComposer(props: {
     images: props.images ?? [],
     onImagesChange: props.onImagesChange,
     disabled: props.disabled,
+    maxImages: props.maxImages,
   });
   const imageInputRef = useRef<HTMLInputElement>(null);
   const canSubmit =
@@ -255,7 +257,10 @@ function MockReviewCommentComposer(props: {
     props.onSubmit(target);
   };
   return (
-    <div data-review-test-composer={props.variant ?? "expanded"}>
+    <div
+      data-review-test-composer={props.variant ?? "expanded"}
+      data-review-test-images-left={imageUpload.remaining}
+    >
       {props.contextLabel ? <span>{props.contextLabel}</span> : null}
       <textarea
         {...props.textareaProps}
@@ -5435,6 +5440,57 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         expect(mocks.updateMutate.mock.calls[1]?.[0]).toMatchObject({
           body: "Keep this open",
           attachments: [],
+        });
+      });
+
+      it("keeps the attachments a card doesn't show when an edit changes its images", async () => {
+        const stored = {
+          url: "https://uploads.s3.amazonaws.com/review/stored.png",
+          name: "stored.png",
+          contentType: "image/png",
+          provider: "s3",
+        };
+        reviewComments = [
+          {
+            ...comment,
+            metadata: {
+              attachments: [
+                stored,
+                {
+                  url: "https://cdn.builder.io/api/v1/image/old",
+                  name: "old.png",
+                  contentType: "image/png",
+                },
+              ],
+            },
+          },
+        ];
+        await renderPins(signedIn);
+        await openFirstThread();
+        await openCommentMenu("comment-1");
+        await act(async () => menuItem("review.editComment")?.click());
+        const editing = () =>
+          document.querySelector<HTMLElement>("[data-review-comment-editing]");
+        expect(
+          editing()?.querySelectorAll("[data-review-composer-image]"),
+        ).toHaveLength(1);
+        // The stored image counts toward the five the server keeps.
+        expect(
+          editing()
+            ?.querySelector("[data-review-test-composer]")
+            ?.getAttribute("data-review-test-images-left"),
+        ).toBe("3");
+
+        await act(async () =>
+          editing()
+            ?.querySelector<HTMLButtonElement>(
+              '[aria-label="review.removeImage: old.png"]',
+            )
+            ?.click(),
+        );
+        await act(async () => submit(editing()!)?.click());
+        expect(mocks.updateMutate.mock.calls[0]?.[0]).toMatchObject({
+          attachments: [stored],
         });
       });
     });

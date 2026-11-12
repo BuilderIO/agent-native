@@ -26,6 +26,8 @@ import {
   ReviewCommentMenu,
   ReviewThreadCardFrame,
   ReviewThreadMenu,
+  MAX_REVIEW_COMMENT_IMAGES,
+  reviewCommentHiddenAttachments,
   reviewCommentImageMetadata,
   reviewCommentImages,
   useReviewCommentDraft,
@@ -1171,6 +1173,12 @@ export function ReviewCanvasPins({
     mentions: editMentions,
     images: editImages,
   } = editDraftState.draft;
+  // Attachments the card doesn't show still count toward the server's five,
+  // so an edit keeps them and leaves room only for the rest.
+  const editHiddenAttachments = useMemo(
+    () => (editCandidate ? reviewCommentHiddenAttachments(editCandidate) : []),
+    [editCandidate],
+  );
   const newDraftState = useReviewCommentDraft(
     draftScope,
     `new:${JSON.stringify([targetId, screenAnchorId])}`,
@@ -1521,8 +1529,8 @@ export function ReviewCanvasPins({
     const body = editDraft.trim();
     if (!comment || (!body && !editImages.length) || updateComment.isPending)
       return;
-    // Images go only when they changed, so an edit to the text alone leaves
-    // any the card doesn't show in place.
+    // Images go only when they changed, and then with the attachments the
+    // card doesn't show, so an edit never drops those.
     const imagesChanged =
       JSON.stringify(editImages) !==
       JSON.stringify(reviewCommentImages(comment));
@@ -1535,7 +1543,12 @@ export function ReviewCanvasPins({
         body,
         mentions: editMentions,
         ...(imagesChanged
-          ? { attachments: reviewCommentImageMetadata(editImages) }
+          ? {
+              attachments: [
+                ...editHiddenAttachments,
+                ...reviewCommentImageMetadata(editImages),
+              ],
+            }
           : {}),
         // The edit is of the comment as it was opened, so a newer one refuses it.
         ...(comment.revision !== undefined
@@ -1555,6 +1568,7 @@ export function ReviewCanvasPins({
     editCandidate,
     editDraft,
     editDraftState,
+    editHiddenAttachments,
     editImages,
     editMentions,
     resourceId,
@@ -3168,6 +3182,10 @@ export function ReviewCanvasPins({
                   onEditDraftChange={editDraftState.setText}
                   onEditMentionsChange={editDraftState.setMentions}
                   editImages={editImages}
+                  editMaxImages={Math.max(
+                    0,
+                    MAX_REVIEW_COMMENT_IMAGES - editHiddenAttachments.length,
+                  )}
                   onEditImagesChange={editDraftState.setImages}
                   onEditCancel={() => {
                     editDraftState.clear();
@@ -3954,6 +3972,7 @@ function ReviewThreadPopover({
   editDraft,
   editMentions,
   editImages,
+  editMaxImages,
   onEditImagesChange,
   updating,
   onEdit,
@@ -4002,6 +4021,7 @@ function ReviewThreadPopover({
   editDraft: string;
   editMentions: readonly ReviewMention[];
   editImages: readonly ReviewCommentImage[];
+  editMaxImages: number;
   onEditImagesChange: (images: ReviewCommentImage[]) => void;
   updating: boolean;
   onEdit: (comment: ReviewComment) => void;
@@ -4127,6 +4147,7 @@ function ReviewThreadPopover({
             noMentionsLabel={t("review.noMentions")}
             formatLabels={reviewFormatLabels(t)}
             images={editImages}
+            maxImages={editMaxImages}
             onImagesChange={onEditImagesChange}
             {...reviewImageLabels(t)}
             textareaProps={{ "aria-label": t("review.editComment") }}

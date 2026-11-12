@@ -1602,6 +1602,34 @@ describe("review writes on a client without transactions", () => {
       await getReviewCommentById(comment.id, {}, { bypassScope: true }),
     ).toMatchObject({ body: "Review", revision: 2 });
   });
+
+  it("refuses an edit that would empty a comment, judged on the comment as it is now", async () => {
+    const image = {
+      url: "https://cdn.builder.io/api/v1/image/shot",
+      name: "shot.png",
+      contentType: "image/png",
+    };
+    const comment = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "doc-1",
+      body: "Review",
+      metadata: { attachments: [image] },
+    });
+    // Another edit takes the text out, which the image still allows.
+    await updateReviewComment(comment.id, { body: "" }, undefined, {
+      requireContent: true,
+    });
+
+    // An edit read before that one, taking the image out, would empty it.
+    await expect(
+      updateReviewComment(comment.id, { attachments: [] }, undefined, {
+        requireContent: true,
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, errorCode: "empty_comment" });
+    expect(
+      await getReviewCommentById(comment.id, {}, { bypassScope: true }),
+    ).toMatchObject({ body: "", metadata: { attachments: [image] } });
+  });
 });
 
 describe("comment write times", () => {

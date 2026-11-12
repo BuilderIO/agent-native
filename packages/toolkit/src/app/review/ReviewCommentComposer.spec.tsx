@@ -590,6 +590,44 @@ describe("ReviewCommentComposer", () => {
       expect(sendButton().disabled).toBe(false);
     });
 
+    it("keeps both batches when they finish before the box renders again", async () => {
+      const finishers = new Map<string, () => void>();
+      const uploadImage = vi.fn(
+        (file: File) =>
+          new Promise<ReviewCommentImage>((resolve) => {
+            finishers.set(file.name, () => resolve(uploaded(file)));
+          }),
+      );
+      await render(<ImageHarness uploadImage={uploadImage} />);
+      pick([imageFile("first.png")]);
+      paste([imageFile("second.png")]);
+      await act(async () => {
+        finishers.get("first.png")?.();
+        finishers.get("second.png")?.();
+        // Both batches land before React renders the first one's images.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(shownImages()).toEqual(["first.png", "second.png"]);
+    });
+
+    it("takes no more images than maxImages leaves room for", async () => {
+      const uploadImage = vi.fn(async (file: File) => uploaded(file));
+      await render(<ImageHarness uploadImage={uploadImage} maxImages={2} />);
+      pick([
+        imageFile("one.png"),
+        imageFile("two.png"),
+        imageFile("three.png"),
+      ]);
+      await act(async () => {});
+      expect(shownImages()).toEqual(["one.png", "two.png"]);
+      expect(uploadImage).toHaveBeenCalledTimes(2);
+      expect(
+        container.querySelector<HTMLButtonElement>(
+          "[data-review-image-button]",
+        )!.disabled,
+      ).toBe(true);
+    });
+
     it("removes an image, and adds the ones that uploaded when one fails", async () => {
       const failure = new Error("storage is full");
       const uploadImage = vi.fn(async (file: File) => {

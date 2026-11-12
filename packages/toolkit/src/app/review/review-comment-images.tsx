@@ -82,6 +82,26 @@ export function reviewCommentImages(
     .slice(0, MAX_REVIEW_COMMENT_IMAGES);
 }
 
+/**
+ * The attachments a comment keeps that its card doesn't show, such as images
+ * on a storage provider's own host. An edit that changes the shown images
+ * sends these along, so it never drops them.
+ */
+export function reviewCommentHiddenAttachments(
+  comment: Pick<ReviewComment, "metadata">,
+): Record<string, unknown>[] {
+  const raw = comment.metadata?.attachments;
+  if (!Array.isArray(raw)) return [];
+  const shown = new Set(reviewCommentImages(comment).map(({ url }) => url));
+  return raw.flatMap((value): Record<string, unknown>[] => {
+    if (!value || typeof value !== "object") return [];
+    const attachment = value as Record<string, unknown>;
+    return typeof attachment.url === "string" && shown.has(attachment.url)
+      ? []
+      : [attachment];
+  });
+}
+
 /** The `attachments` a comment's metadata keeps for its images. */
 export function reviewCommentImageMetadata(
   images: readonly ReviewCommentImage[],
@@ -135,18 +155,24 @@ export function useReviewCommentImageUpload({
   upload = uploadReviewCommentImage,
   onUploadError,
   disabled = false,
+  maxImages = MAX_REVIEW_COMMENT_IMAGES,
 }: {
   images: readonly ReviewCommentImage[];
   onImagesChange: ((images: ReviewCommentImage[]) => void) | undefined;
   upload?: ReviewCommentImageUpload | undefined;
   onUploadError?: ((error: unknown) => void) | undefined;
   disabled?: boolean | undefined;
+  /** At most this many images, up to five. */
+  maxImages?: number | undefined;
 }): ReviewCommentImageUploadState {
   const [pending, setPending] = useState(0);
+  const limit = Math.max(0, Math.min(MAX_REVIEW_COMMENT_IMAGES, maxImages));
+  // The images as of the last change, which a batch finishing before the
+  // next render adds to, so two batches never overwrite each other.
   const imagesRef = useRef(images);
   imagesRef.current = images;
-  const latest = useRef({ onImagesChange, upload, onUploadError });
-  latest.current = { onImagesChange, upload, onUploadError };
+  const latest = useRef({ onImagesChange, upload, onUploadError, limit });
+  latest.current = { onImagesChange, upload, onUploadError, limit };
   // Files still uploading, so a second batch doesn't take their places.
   const pendingRef = useRef(0);
   const mountedRef = useRef(true);
@@ -157,15 +183,11 @@ export function useReviewCommentImageUpload({
     };
   }, []);
 
-  const remaining = Math.max(
-    0,
-    MAX_REVIEW_COMMENT_IMAGES - images.length - pending,
-  );
+  const remaining = Math.max(0, limit - images.length - pending);
 
   const addFiles = (files: readonly File[]): boolean => {
     if (disabled || !latest.current.onImagesChange) return false;
-    const room =
-      MAX_REVIEW_COMMENT_IMAGES - imagesRef.current.length - pendingRef.current;
+    const room = limit - imagesRef.current.length - pendingRef.current;
     const selected = files
       .filter((file) => file.type.startsWith("image/"))
       .slice(0, Math.max(0, room));
@@ -184,12 +206,12 @@ export function useReviewCommentImageUpload({
         result.status === "fulfilled" ? [result.value] : [],
       );
       if (uploaded.length) {
-        latest.current.onImagesChange?.(
-          [...imagesRef.current, ...uploaded].slice(
-            0,
-            MAX_REVIEW_COMMENT_IMAGES,
-          ),
+        const next = [...imagesRef.current, ...uploaded].slice(
+          0,
+          latest.current.limit,
         );
+        imagesRef.current = next;
+        latest.current.onImagesChange?.(next);
       }
       const failed = results.find(
         (result): result is PromiseRejectedResult =>

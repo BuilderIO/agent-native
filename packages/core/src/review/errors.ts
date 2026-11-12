@@ -46,6 +46,16 @@ export class ReviewCommentRevisionConflictError extends ReviewStorageError {
   }
 }
 
+/** An edit that would leave a comment with no text and no image. */
+export class ReviewCommentEmptyError extends ReviewStorageError {
+  constructor(commentId: string) {
+    super("A comment needs text or an image.", "empty_comment", 400, {
+      commentId,
+    });
+    this.name = "ReviewCommentEmptyError";
+  }
+}
+
 /** An outside ID already linked to another comment. */
 export class ReviewCommentLinkConflictError extends ReviewStorageError {
   constructor(provider: string, externalKind: string, externalId: string) {
