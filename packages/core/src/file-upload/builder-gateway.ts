@@ -54,6 +54,9 @@ interface GatewayStepPolicy {
 
 const BACKOFF_FACTOR = 3;
 
+// The signed-URL and session-start requests are tiny and answer in well under
+// a second, so their 15 s cap lets every attempt fit inside one serverless
+// request; a slow answer is retried instead of waited on.
 const GATEWAY_POLICIES: Record<BuilderGatewayStep, GatewayStepPolicy> = {
   signed_url: {
     label: "Builder.io signed-URL request failed",

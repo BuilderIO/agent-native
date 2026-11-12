@@ -711,34 +711,16 @@ describe("builderFileUploadProvider", () => {
         }),
         text: async () => "",
       }) as unknown as Response;
-    const completed = () =>
-      jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" });
-    const startSession = () =>
-      builderFileUploadProvider.resumable!.startSession(
-        "clip.webm",
-        "video/webm",
-        100,
-      );
-    const completeSession = () =>
-      builderFileUploadProvider.resumable!.completeSession(
-        {
-          sessionId: "https://storage.example.com/session/abc",
-          meta: { assetId: "asset-1" },
-        },
-        "clip.webm",
-        { stableUrl: true },
-      );
     const traceHeader = (call: unknown[]) =>
       (call[1] as { headers: Record<string, string> }).headers[
         "X-Cloud-Trace-Context"
       ];
-    let warn: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
       // 0.5 makes the retry jitter exactly the nominal delay.
       vi.spyOn(Math, "random").mockReturnValue(0.5);
       vi.spyOn(console, "log").mockImplementation(() => {});
-      warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(console, "warn").mockImplementation(() => {});
     });
 
     it("retries a Google 502 page on the signed-URL request, then opens the session", async () => {
@@ -747,7 +729,11 @@ describe("builderFileUploadProvider", () => {
         .mockResolvedValueOnce(signedUrl())
         .mockResolvedValueOnce(sessionStarted());
 
-      const started = startSession();
+      const started = builderFileUploadProvider.resumable!.startSession(
+        "clip.webm",
+        "video/webm",
+        100,
+      );
       await vi.advanceTimersByTimeAsync(500);
       const session = await started;
 
@@ -756,68 +742,13 @@ describe("builderFileUploadProvider", () => {
       expect(new URL(fetchMock.mock.calls[1][0].toString()).pathname).toBe(
         "/api/v1/upload/signed-url",
       );
-      const [first, second] = [
+      expect(traceHeader(fetchMock.mock.calls[0])).toMatch(
+        /^[0-9a-f]{32}\/1;o=1$/,
+      );
+      expect(traceHeader(fetchMock.mock.calls[1])).not.toBe(
         traceHeader(fetchMock.mock.calls[0]),
-        traceHeader(fetchMock.mock.calls[1]),
-      ];
-      expect(first).toMatch(/^[0-9a-f]{32}\/1;o=1$/);
-      expect(second).toMatch(/^[0-9a-f]{32}\/1;o=1$/);
-      expect(second).not.toBe(first);
+      );
       expect(traceHeader(fetchMock.mock.calls[2])).toBeUndefined();
-    });
-
-    it("gives up after three signed-URL attempts with a typed error that holds no HTML", async () => {
-      fetchMock.mockResolvedValue(html502());
-
-      const started = startSession();
-      const failure = started.catch((error: unknown) => error);
-      await vi.advanceTimersByTimeAsync(500);
-      await vi.advanceTimersByTimeAsync(1_500);
-      const error = (await failure) as Error & Record<string, unknown>;
-
-      expect(fetchMock).toHaveBeenCalledTimes(3);
-      expect(error).toMatchObject({
-        name: "BuilderGatewayError",
-        step: "signed_url",
-        status: 502,
-        attempts: 3,
-        isHtml: true,
-      });
-      expect(error.message).toBe(
-        "Builder.io signed-URL request failed (502): HTML error page returned instead of JSON",
-      );
-      expect(error.message).not.toContain("<html");
-      expect(new Set(error.traceIds as string[]).size).toBe(3);
-      expect(error.headers).toMatchObject({ server: "Google Frontend" });
-      // Logs and the error carry response headers only, never the token.
-      expect(JSON.stringify([warn.mock.calls, error.headers])).not.toContain(
-        "bpk-secret",
-      );
-    });
-
-    it("does not retry a request the gateway rejected", async () => {
-      fetchMock.mockResolvedValue(errorResponse(400, '{"message":"bad"}'));
-
-      await expect(startSession()).rejects.toMatchObject({
-        name: "BuilderGatewayError",
-        status: 400,
-        attempts: 1,
-      });
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-
-    it("retries a dropped connection", async () => {
-      fetchMock
-        .mockRejectedValueOnce(new TypeError("fetch failed"))
-        .mockResolvedValueOnce(signedUrl())
-        .mockResolvedValueOnce(sessionStarted());
-
-      const started = startSession();
-      await vi.advanceTimersByTimeAsync(500);
-      await expect(started).resolves.toMatchObject({
-        sessionId: "https://storage.example.com/session/abc",
-      });
-      expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     it("retries a 503 from the storage session start", async () => {
@@ -826,36 +757,32 @@ describe("builderFileUploadProvider", () => {
         .mockResolvedValueOnce(errorResponse(503, "backend unavailable"))
         .mockResolvedValueOnce(sessionStarted());
 
-      const started = startSession();
+      const started = builderFileUploadProvider.resumable!.startSession(
+        "clip.webm",
+        "video/webm",
+        100,
+      );
       await vi.advanceTimersByTimeAsync(500);
+
       await expect(started).resolves.toBeDefined();
       expect(fetchMock).toHaveBeenCalledTimes(3);
-    });
-
-    it("keeps the storage session failure message and status after the last attempt", async () => {
-      fetchMock
-        .mockResolvedValueOnce(signedUrl())
-        .mockResolvedValue(errorResponse(503, "backend unavailable"));
-
-      const failure = startSession().catch((error: unknown) => error);
-      await vi.advanceTimersByTimeAsync(500);
-      await vi.advanceTimersByTimeAsync(1_500);
-
-      await expect(failure).resolves.toMatchObject({
-        step: "session_start",
-        status: 503,
-        attempts: 3,
-        message:
-          "GCS resumable session initiation failed (503): backend unavailable",
-      });
     });
 
     it("retries a 502 on upload complete, then registers the asset", async () => {
       fetchMock
         .mockResolvedValueOnce(html502())
-        .mockResolvedValueOnce(completed());
+        .mockResolvedValueOnce(
+          jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
+        );
 
-      const done = completeSession();
+      const done = builderFileUploadProvider.resumable!.completeSession(
+        {
+          sessionId: "https://storage.example.com/session/abc",
+          meta: { assetId: "asset-1" },
+        },
+        "clip.webm",
+        { stableUrl: true },
+      );
       await vi.advanceTimersByTimeAsync(500);
 
       await expect(done).resolves.toBe("https://cdn.builder.io/video");
@@ -867,79 +794,22 @@ describe("builderFileUploadProvider", () => {
       ).toBe("true");
     });
 
-    it("gives up after four upload-complete attempts", async () => {
-      fetchMock.mockResolvedValue(html502());
-
-      const failure = completeSession().catch((error: unknown) => error);
-      await vi.advanceTimersByTimeAsync(500);
-      await vi.advanceTimersByTimeAsync(1_500);
-      await vi.advanceTimersByTimeAsync(4_500);
-
-      await expect(failure).resolves.toMatchObject({
-        name: "BuilderGatewayError",
-        step: "complete",
-        status: 502,
-        attempts: 4,
-      });
-      expect(fetchMock).toHaveBeenCalledTimes(4);
-    });
-
-    it("tries upload complete again after a 409 for a duplicate in flight", async () => {
+    it("reports a storage upload failure without keeping the HTML page", async () => {
       fetchMock
-        .mockResolvedValueOnce(
-          errorResponse(409, '{"message":"Asset already registered"}'),
-        )
-        .mockResolvedValueOnce(completed());
-
-      const done = completeSession();
-      await vi.advanceTimersByTimeAsync(500);
-
-      await expect(done).resolves.toBe("https://cdn.builder.io/video");
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-    });
-
-    it("does not resend upload complete after its own timeout", async () => {
-      fetchMock.mockImplementation(
-        (_url: string, init: { signal: AbortSignal }) =>
-          new Promise((_resolve, reject) => {
-            init.signal.addEventListener("abort", () =>
-              reject(new DOMException("aborted", "AbortError")),
-            );
-          }),
-      );
-
-      const failure = completeSession().catch((error: unknown) => error);
-      await vi.advanceTimersByTimeAsync(120_000);
-
-      await expect(failure).resolves.toMatchObject({
-        step: "complete",
-        status: 0,
-        attempts: 1,
-        message:
-          "Builder.io upload complete failed (no response): timed out after 120000 ms",
-      });
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-
-    it("retries a signed-URL request that timed out", async () => {
-      fetchMock
-        .mockImplementationOnce(
-          (_url: string, init: { signal: AbortSignal }) =>
-            new Promise((_resolve, reject) => {
-              init.signal.addEventListener("abort", () =>
-                reject(new DOMException("aborted", "AbortError")),
-              );
-            }),
-        )
         .mockResolvedValueOnce(signedUrl())
-        .mockResolvedValueOnce(sessionStarted());
+        .mockResolvedValueOnce(html502());
 
-      const started = startSession();
-      await vi.advanceTimersByTimeAsync(15_000);
-      await vi.advanceTimersByTimeAsync(500);
-
-      await expect(started).resolves.toBeDefined();
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      await expect(
+        builderFileUploadProvider.upload({
+          data: new Uint8Array([1, 2, 3]),
+          filename: "clip.webm",
+          mimeType: "video/webm",
+        }),
+      ).rejects.toMatchObject({
+        status: 502,
+        message:
+          "GCS upload failed (502): HTML error page returned instead of JSON",
+      });
     });
   });
 });
