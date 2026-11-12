@@ -53,7 +53,10 @@ function runner(
   const catalog = buildMcpScriptCatalog(actions);
   const denials: McpScriptDenial[] = [];
   const calls: Array<{ action: string; args: unknown }> = [];
-  const run = (code: string, extra: { timeoutMs?: number } = {}) =>
+  const run = (
+    code: string,
+    extra: { timeoutMs?: number; caller?: string } = {},
+  ) =>
     runMcpScript({
       code,
       catalog,
@@ -546,6 +549,34 @@ describe("script types", () => {
     expect(byQuery).not.toContain("getDocument:");
   });
 
+  it("gives up on a type whose shared references would multiply it", () => {
+    // Each level refers to the next twice, so expanding every reference
+    // inline would write 2^10 copies of the last, within the depth limit.
+    const defs: Record<string, unknown> = { l10: { type: "string" } };
+    for (let level = 9; level >= 0; level -= 1) {
+      defs[`l${level}`] = {
+        type: "object",
+        properties: {
+          a: { $ref: `#/$defs/l${level + 1}` },
+          b: { $ref: `#/$defs/l${level + 1}` },
+        },
+      };
+    }
+    const schema = { $ref: "#/$defs/l0", $defs: defs };
+    expect(() => mcpScriptSchemaType(schema)).toThrow(McpScriptTypeError);
+    expect(() => mcpScriptSchemaType(schema)).toThrow(
+      "expands its references more than 256 times",
+    );
+    // A shared reference within the budget still expands.
+    expect(
+      mcpScriptSchemaType({
+        type: "object",
+        properties: { a: { $ref: "#/$defs/s" }, b: { $ref: "#/$defs/s" } },
+        $defs: { s: { type: "string" } },
+      }).replace(/\s+/g, " "),
+    ).toContain("a?: string; b?: string;");
+  });
+
   it("reads a bounded query, and says it cut the rest", () => {
     const catalog = buildMcpScriptCatalog({ "get-document": entry() });
     const found = searchMcpScriptActions(catalog, {
@@ -827,6 +858,83 @@ describe("runMcpScript", () => {
     expect(results.every((payload) => payload.ok)).toBe(true);
     expect((await run(`return 2;`)).result).toBe(2);
   });
+
+  it("keeps one caller to their share of the slots, and lets another in", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { run } = runner(
+      { "get-document": entry() },
+      {
+        callAction: async () => {
+          await gate;
+          return completed("done");
+        },
+      },
+    );
+    const ada = Array.from({ length: MCP_SCRIPT_LIMITS.runsPerCaller }, () =>
+      run(`return await api.getDocument({});`, { caller: "ada" }),
+    );
+    expect((await run(`return 1;`, { caller: "ada" })).error?.code).toBe(
+      "script_busy",
+    );
+    expect((await run(`return 2;`, { caller: "bo" })).result).toBe(2);
+    release();
+    expect((await Promise.all(ada)).every((payload) => payload.ok)).toBe(true);
+    expect((await run(`return 3;`, { caller: "ada" })).result).toBe(3);
+  });
+
+  it("keeps one caller's stopped runs to their share of lingering calls", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      const { run } = runner(
+        { "get-document": entry() },
+        {
+          callAction: async () => {
+            await gate;
+            return completed("done");
+          },
+        },
+      );
+      const perRun =
+        MCP_SCRIPT_LIMITS.lingeringCallsPerCaller /
+        MCP_SCRIPT_LIMITS.runsPerCaller;
+      expect(perRun).toBeLessThanOrEqual(MCP_SCRIPT_LIMITS.inFlightCalls);
+      const stopped = await Promise.all(
+        Array.from({ length: MCP_SCRIPT_LIMITS.runsPerCaller }, () =>
+          run(
+            `await Promise.all(Array.from({ length: ${perRun} }, () => api.getDocument({}))); return 1;`,
+            { timeoutMs: STOPPED_RUN_TIMEOUT_MS, caller: "ada" },
+          ),
+        ),
+      );
+      expect(
+        stopped.every((payload) => payload.error?.code === "script_timeout"),
+      ).toBe(true);
+      await vi.waitFor(
+        () =>
+          expect(warn).toHaveBeenCalledTimes(MCP_SCRIPT_LIMITS.runsPerCaller),
+        { timeout: 10_000 },
+      );
+      // Ada's slots are free, but her calls fill her share.
+      expect((await run(`return 1;`, { caller: "ada" })).error?.code).toBe(
+        "script_busy",
+      );
+      expect((await run(`return 2;`, { caller: "bo" })).result).toBe(2);
+      release();
+      await vi.waitFor(async () =>
+        expect((await run(`return 3;`, { caller: "ada" })).result).toBe(3),
+      );
+    } finally {
+      release();
+      warn.mockRestore();
+    }
+  }, 20_000);
 
   it("holds a stopped run's slot until the calls it started settle", async () => {
     let release!: () => void;

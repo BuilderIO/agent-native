@@ -3771,9 +3771,16 @@ export async function createMCPServerForRequest(
           writesEnabled: () => getAppConfig().mcp.scriptWrites === true,
         })
       : undefined;
+    // Who runs it, for each caller's share of the script slots.
+    const caller = effectiveIdentity?.userEmail
+      ? `user:${effectiveIdentity.userEmail.toLowerCase()}`
+      : effectiveIdentity?.oauthClientId
+        ? `oauth:${effectiveIdentity.oauthClientId}`
+        : undefined;
     const payload = await runMcpScript({
       code: metadataObject(args).code,
       catalog,
+      ...(caller ? { caller } : {}),
       // A hidden action is refused as unknown, as a direct call refuses it.
       known: reachable,
       runId,
