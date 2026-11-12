@@ -1,3 +1,9 @@
+## 0.31.9
+
+### Patch Changes
+
+- 4ebc74f: Fix Clips, Forms, and Design apps sharing the same fallback icon in the Dispatch "Your apps" list.
+
 ## 0.31.8
 
 ### Patch Changes

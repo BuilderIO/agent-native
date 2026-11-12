@@ -1,5 +1,12 @@
 # @agent-native/recap-cli
 
+## 0.5.101
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- bea9322: Require verified organization identity, scope background reads to the current organization, restrict shared MCP identity hints and recap agent tools, protect logout from cross-origin requests, confirm extension-submitted agent turns in the host UI, and let users approve exact outbound origins for custom keys without replacing their values.
+
 ## 0.5.100
 
 ### Patch Changes
@@ -657,11 +664,5 @@
   worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
   25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
   config merges it in.
-
-## 0.5.1
-
-### Patch Changes
-
-- 03a043e: Retry transient recap document-load timeouts and only embed screenshot previews when both light and dark themes are available.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
