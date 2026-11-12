@@ -3,6 +3,7 @@
 import { execFileSync, execSync, spawn } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -350,6 +351,26 @@ function extractNodeInspectFlag(args: string[]): {
   return { inspectFlag, rest };
 }
 
+/**
+ * The exit status the CLI reports for a finished child (57526).
+ *
+ * `code ?? 0` made a child killed by a signal look successful, so a SIGKILLed `tsc` passed a preflight that then shipped. A signal exit is 128 plus the
+ * signal's number, the shell convention: nonzero for a caller that only asks "did it fail", and still the signal for a caller that asks which.
+ */
+export function childExitCode(
+  code: number | null,
+  signal: NodeJS.Signals | string | null,
+): number {
+  if (signal) {
+    const number =
+      typeof signal === "string"
+        ? (os.constants.signals as Record<string, number>)[signal]
+        : undefined;
+    return typeof number === "number" ? 128 + number : 1;
+  }
+  return code ?? 1;
+}
+
 function run(
   cmd: string,
   cmdArgs: string[],
@@ -360,7 +381,7 @@ function run(
   },
 ) {
   const child = spawn(cmd, cmdArgs, cliSpawnOptions(opts));
-  child.on("exit", (code) => process.exit(code ?? 0));
+  child.on("exit", (code, signal) => process.exit(childExitCode(code, signal)));
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => {
       child.kill(sig);
