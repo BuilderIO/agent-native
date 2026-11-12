@@ -7,6 +7,7 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import { describeThrownForLog } from "./embed-redaction.js";
 import {
   type McpActionCallOutcome,
+  redactEmbedCredentials,
   toJsonData,
 } from "./execute-action-call.js";
 
@@ -196,8 +197,9 @@ export function buildMcpScriptCatalog(
 
 /**
  * Why a script's call to `functionName` is refused. `known` is every action
- * the request has, so a refusal can say "not available to scripts" rather
- * than "unknown" for an action that exists but is not scriptable.
+ * the caller could call directly, so a refusal can say "not available to
+ * scripts" rather than "unknown" for an action the caller can already see
+ * but not script. Any other name is unknown, as it would be to a direct call.
  */
 export function explainMcpScriptDenial(
   functionName: string,
@@ -809,7 +811,10 @@ export interface McpScriptDenial {
 export interface RunMcpScriptInput {
   code: unknown;
   catalog: McpScriptCatalog;
-  /** Every action the request has, to name a refused call's reason. */
+  /**
+   * Every action the caller could call directly, to name a refused call's
+   * reason. A call to any other action is refused as unknown.
+   */
   known: Record<string, ActionEntry>;
   /** Runs one action through `executeMcpActionCall` for this caller. */
   callAction: (action: string, args: unknown) => Promise<McpActionCallOutcome>;
@@ -980,8 +985,43 @@ function ownPosition(stack: string, offset: number, codeLines: number): string {
   return "";
 }
 
-function utf8Bytes(text: string): number {
-  return new TextEncoder().encode(text).length;
+/**
+ * The length of `text` in UTF-8, counted rather than encoded, so measuring a
+ * call's result makes no copy of it. A lone surrogate counts as the three
+ * bytes of the U+FFFD that `TextEncoder` writes for it.
+ */
+export function utf8Bytes(text: string): number {
+  let bytes = text.length;
+  for (let index = 0; index < text.length; index += 1) {
+    const unit = text.charCodeAt(index);
+    if (unit < 0x80) continue;
+    if (unit < 0x800) {
+      bytes += 1;
+      continue;
+    }
+    const next = text.charCodeAt(index + 1);
+    if (unit <= 0xdbff && unit >= 0xd800 && next >= 0xdc00 && next <= 0xdfff) {
+      // A surrogate pair is two units and four bytes.
+      bytes += 2;
+      index += 1;
+      continue;
+    }
+    bytes += 2;
+  }
+  return bytes;
+}
+
+/**
+ * Arguments of a refused call as the audit log may keep them: without embed
+ * credentials, which the audit redactor does not know to look for, or not
+ * at all when they can't be read for credentials.
+ */
+function deniedCallArguments(args: unknown): unknown {
+  try {
+    return redactEmbedCredentials(args);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -1031,6 +1071,16 @@ export async function runMcpScript(
   let stopped = false;
   let callCount = 0;
   let readBytes = 0;
+  // The sandbox can't cancel an action it started, so a run that stops with
+  // calls in flight keeps its slot until they settle. Otherwise runs that
+  // time out could pile up work past the process limit.
+  let callsInFlight = 0;
+  let released = false;
+  const release = () => {
+    if (released || !stopped || callsInFlight > 0) return;
+    released = true;
+    activeRuns -= 1;
+  };
   try {
     let loaded: Awaited<ReturnType<typeof loadRuntime>>;
     try {
@@ -1150,7 +1200,10 @@ export async function runMcpScript(
                 reason: denial.reason,
                 message,
                 // Arguments past the limits, or not JSON, are left out.
-                args: argumentProblem === undefined ? args : undefined,
+                args:
+                  argumentProblem === undefined
+                    ? deniedCallArguments(args)
+                    : undefined,
               });
             } catch (error) {
               console.error(
@@ -1177,7 +1230,14 @@ export async function runMcpScript(
             );
           }
           record({ function: fn, action, status: "unfinished", ms: 0 });
-          const outcome = await input.callAction(action, args);
+          let outcome: McpActionCallOutcome;
+          callsInFlight += 1;
+          try {
+            outcome = await input.callAction(action, args);
+          } finally {
+            callsInFlight -= 1;
+            release();
+          }
           switch (outcome.status) {
             case "completed": {
               if (outcome.reportedError) {
@@ -1243,7 +1303,7 @@ export async function runMcpScript(
                   action,
                   reason: "out-of-scope",
                   message,
-                  args,
+                  args: deniedCallArguments(args),
                 });
               } catch (error) {
                 console.error(
@@ -1411,7 +1471,7 @@ export async function runMcpScript(
     };
   } finally {
     stopped = true;
-    activeRuns -= 1;
+    release();
   }
 }
 

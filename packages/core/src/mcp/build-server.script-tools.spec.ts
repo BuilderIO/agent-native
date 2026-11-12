@@ -109,6 +109,7 @@ function config(): MCPConfig {
       // reads the real classification.
       "delete-document": action("delete-document", {
         readOnly: false,
+        mcpTool: true,
         mcpScript: "read",
       }),
       // Declares the opt-in, but runs other code, so it is refused by name.
@@ -355,7 +356,7 @@ describe("the MCP script catalog", () => {
       return codes;
     `;
     const { payload } = await runScript(await clientFor(user), script);
-    expect(payload.result).toEqual(["out-of-scope", "out-of-scope"]);
+    expect(payload.result).toEqual(["unknown-function", "unknown-function"]);
     expect(runs).toEqual([]);
 
     // The full catalog reaches every action, but never the raw query.
@@ -365,7 +366,7 @@ describe("the MCP script catalog", () => {
     });
     expect((await runScript(full, script)).payload.result).toEqual([
       "ran",
-      "out-of-scope",
+      "unknown-function",
     ]);
     expect(runs.map((run) => run.name)).toEqual(["list-archived"]);
   });
@@ -404,7 +405,7 @@ describe("the MCP script catalog", () => {
         return { count: list.length, refused };
       `,
     );
-    expect(payload.result).toEqual({ count: 2, refused: "out-of-scope" });
+    expect(payload.result).toEqual({ count: 2, refused: "unknown-function" });
     expect(runs.map((run) => run.name)).toEqual(["list-documents"]);
 
     // A grant that leaves out run-script offers no script tools at all.

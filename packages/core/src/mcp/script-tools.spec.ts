@@ -21,6 +21,7 @@ import {
   plainResultValue,
   runMcpScript,
   searchMcpScriptActions,
+  utf8Bytes,
 } from "./script-tools.js";
 
 function entry(fields: Partial<ActionEntry> & Record<string, unknown> = {}) {
@@ -623,6 +624,29 @@ describe("runMcpScript", () => {
     expect(denials).toHaveLength(1);
   });
 
+  it("keeps embed credentials out of a refused call's recorded arguments", async () => {
+    const { run, denials } = runner(
+      { "get-document": entry() },
+      {
+        callAction: async () => ({
+          status: "forbidden-scope",
+          message: "OAuth scope does not allow get-document",
+        }),
+      },
+    );
+    const start =
+      "https://docs.example/_agent-native/embed/start?ticket=leaked-ticket-0123456789abcdef";
+    await run(`
+      try { await api.notAvailable({ link: ${JSON.stringify(start)} }); } catch {}
+      try { await api.getDocument({ id: "doc_1", link: ${JSON.stringify(start)} }); } catch {}
+    `);
+    expect(denials.map((denial) => denial.args)).toEqual([
+      { link: "[hidden embed URL]" },
+      { id: "doc_1", link: "[hidden embed URL]" },
+    ]);
+    expect(JSON.stringify(denials)).not.toContain("leaked-ticket");
+  });
+
   it("stops calls past the call limit", async () => {
     const { run, calls } = runner({ "get-document": entry() });
     const payload = await run(`
@@ -697,6 +721,44 @@ describe("runMcpScript", () => {
     const results = await Promise.all(running);
     expect(results.every((payload) => payload.ok)).toBe(true);
     expect((await run(`return 2;`)).result).toBe(2);
+  });
+
+  it("holds a stopped run's slot until the calls it started settle", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let settled = 0;
+    const { run } = runner(
+      { "get-document": entry() },
+      {
+        callAction: async () => {
+          await gate;
+          settled += 1;
+          return completed("done");
+        },
+      },
+    );
+    const stopped = await Promise.all(
+      Array.from({ length: MCP_SCRIPT_LIMITS.concurrentRuns }, () =>
+        run(`return await api.getDocument({});`, { timeoutMs: 200 }),
+      ),
+    );
+    expect(stopped.map((payload) => payload.error?.code)).toEqual(
+      Array.from(
+        { length: MCP_SCRIPT_LIMITS.concurrentRuns },
+        () => "script_timeout",
+      ),
+    );
+    // Their calls are still running, so no new run may start.
+    expect((await run(`return 1;`)).error?.code).toBe("script_busy");
+    release();
+    await vi.waitFor(() =>
+      expect(settled).toBe(MCP_SCRIPT_LIMITS.concurrentRuns),
+    );
+    await vi.waitFor(async () =>
+      expect((await run(`return 2;`)).result).toBe(2),
+    );
   });
 
   it("stops a script that runs too long", async () => {
@@ -1070,5 +1132,26 @@ describe("plainResultValue", () => {
       map: [[1, "one"]],
       error: { name: "RangeError", message: "too far" },
     });
+  });
+});
+
+describe("utf8Bytes", () => {
+  it("counts what TextEncoder would write, without encoding", () => {
+    const encoder = new TextEncoder();
+    for (const text of [
+      "",
+      "plain ascii",
+      "café",
+      "日本語",
+      "emoji 😀 and 👩🏽‍💻",
+      // Lone surrogates, which TextEncoder writes as U+FFFD.
+      "\ud800",
+      "a\udc00b",
+      "\ud83d😀",
+    ]) {
+      expect(utf8Bytes(text), JSON.stringify(text)).toBe(
+        encoder.encode(text).length,
+      );
+    }
   });
 });

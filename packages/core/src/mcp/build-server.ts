@@ -3649,18 +3649,22 @@ export async function createMCPServerForRequest(
   // full catalog) whose input MCP may carry, within the OAuth scope,
   // discovery rules and operator deny list (`visibleActions`) and the
   // service grant.
-  function scriptCatalogFor(allowedActions: string[] | null) {
+  function directlyReachable(
+    allowedActions: string[] | null,
+  ): Record<string, ActionEntry> {
     const directlyCallable = fullCatalogRequested ? actions : advertisedActions;
-    return buildMcpScriptCatalog(
-      Object.fromEntries(
-        Object.entries(visibleActions).filter(
-          ([name]) =>
-            Object.hasOwn(directlyCallable, name) &&
-            isAdvertisable(name) &&
-            isActionGranted(allowedActions, name),
-        ),
+    return Object.fromEntries(
+      Object.entries(visibleActions).filter(
+        ([name]) =>
+          Object.hasOwn(directlyCallable, name) &&
+          isAdvertisable(name) &&
+          isActionGranted(allowedActions, name),
       ),
     );
+  }
+
+  function scriptCatalogFor(allowedActions: string[] | null) {
+    return buildMcpScriptCatalog(directlyReachable(allowedActions));
   }
 
   /**
@@ -3699,7 +3703,8 @@ export async function createMCPServerForRequest(
         isError: true,
       };
     }
-    const catalog = scriptCatalogFor(allowedActions);
+    const reachable = directlyReachable(allowedActions);
+    const catalog = buildMcpScriptCatalog(reachable);
     if (name === MCP_SCRIPT_SEARCH_TOOL) {
       return {
         content: [
@@ -3717,7 +3722,8 @@ export async function createMCPServerForRequest(
     const payload = await runMcpScript({
       code: metadataObject(args).code,
       catalog,
-      known: actions,
+      // A hidden action is refused as unknown, as a direct call refuses it.
+      known: reachable,
       runId,
       signal: ctx.mcpReq.signal,
       callAction: async (action, callArgs) => {
