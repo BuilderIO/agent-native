@@ -215,7 +215,7 @@ export function buildActionAuditEvent(
   const meta: AuditCallMeta = {
     status,
     caller,
-    userEmail: ctx.userEmail,
+    ...(ctx.userEmail === undefined ? {} : { userEmail: ctx.userEmail }),
     orgId: ctx.orgId ?? null,
   };
 

@@ -2155,13 +2155,13 @@ function wrapRunWithAudit(
       ]);
       const omitFromPersistedHistory =
         actionIsPrivate || ctx?.omitFromPersistedHistory === true;
+      const {
+        target: _omittedTarget,
+        summary: _omittedSummary,
+        ...kept
+      } = auditConfig ?? {};
       const effectiveAuditConfig = omitFromPersistedHistory
-        ? {
-            ...(auditConfig ?? {}),
-            recordInputs: false,
-            target: undefined,
-            summary: undefined,
-          }
+        ? { ...kept, recordInputs: false }
         : auditConfig;
       const call = {
         config: effectiveAuditConfig,
