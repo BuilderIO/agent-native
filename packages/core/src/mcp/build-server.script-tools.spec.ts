@@ -306,7 +306,10 @@ describe("the MCP script catalog", () => {
   });
 
   it("refuses bridge calls outside the policy and records each in the audit log", async () => {
-    const client = await clientFor(user);
+    const client = await clientFor(user, {
+      scriptCatalog: true,
+      clientName: "ScriptClient/1.0",
+    });
     const { payload } = await runScript(
       client,
       `
@@ -339,6 +342,8 @@ describe("the MCP script catalog", () => {
         caller: "mcp",
         runId: payload.runId,
       });
+      // The User-Agent, as a direct call records it.
+      expect(JSON.stringify(input.attribution)).toContain("ScriptClient/1.0");
     }
   });
 
