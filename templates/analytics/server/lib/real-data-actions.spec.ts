@@ -2372,6 +2372,8 @@ describe("incomplete evidence detection", () => {
       "Do not save, create, edit or duplicate any dashboard, analysis, or panel. Return every result row verbatim.",
       "Without saving or creating a dashboard, count signups by week for October.",
       "Never edit DevRel Leaderboard v3 or any dashboard Jason or Steve own. Count signups by source.",
+      "You don't have to create a dashboard; just tell me which sources are connected.",
+      "Do not use a dashboard template; just list the connected sources.",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(false);
     }
@@ -2385,6 +2387,10 @@ describe("incomplete evidence detection", () => {
       "Without changing the layout, build a copy of the Revenue dashboard for EMEA",
       "Build a signups dashboard without editing the existing Growth dashboard",
       "Create a dashboard for signups and don't include test accounts",
+      "Don't touch the existing one: build a new Sales dashboard for EMEA",
+      "Avoid duplicating the Revenue dashboard — create a new Sales dashboard",
+      "Avoid duplicating the Revenue dashboard - create a new Sales dashboard",
+      "Don't build it from scratch, use the Revenue dashboard as a template",
     ]) {
       expect(looksLikeDashboardConstructionRequest(request)).toBe(true);
     }

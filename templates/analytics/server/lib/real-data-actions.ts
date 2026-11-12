@@ -148,19 +148,19 @@ const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;
 
 const WRITE_VERB =
-  "(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|save|delete|remove|add|write|touch|publish|archive|building|creating|making|replicating|cloning|copying|duplicating|adapting|updating|editing|changing|modifying|renaming|adjusting|refreshing|simplifying|switching|saving|deleting|removing|adding|writing|touching|publishing|archiving)\\b";
+  "(?:build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|save|delete|remove|add|write|touch|publish|archive|use|building|creating|making|replicating|cloning|copying|duplicating|adapting|updating|editing|changing|modifying|renaming|adjusting|refreshing|simplifying|switching|saving|deleting|removing|adding|writing|touching|publishing|archiving|using)\\b";
 
 // An instruction that rules a write out asks for none of it: "Read-only. Don't
 // save, create or edit any dashboard" keeps a question read-only, and read as a
 // build it swapped the answer for the template-clone reply. The ruled-out span
-// runs from the verbs to the clause's end, a contrast ("just", "instead") or a
-// new instruction (", add a panel", "and build one"), so a build stated beside
-// it still counts.
+// runs from the verbs to the clause's end (a sentence break, semicolon, colon or
+// dash), a contrast ("just", "instead") or a new instruction (", add a panel",
+// "and build one"), so a build stated beside it still counts.
 const NEGATED_WRITE_INSTRUCTION_TERMS = new RegExp(
   `\\b(?:do\\s+not|don['’]?t|never|without|not\\s+to|no\\s+need\\s+to|avoid|must\\s+not|mustn['’]?t|should\\s+not|shouldn['’]?t)\\s+` +
-    `(?:(?:actually|accidentally|ever|yet|try\\s+to|attempt\\s+to|need\\s+to)\\s+)*` +
+    `(?:(?:actually|accidentally|ever|yet|try\\s+to|attempt\\s+to|need\\s+to|have\\s+to)\\s+)*` +
     `${WRITE_VERB}(?:\\s*,\\s*(?:(?:or|and|nor)\\s+)?${WRITE_VERB}|\\s+(?:or|and|nor)\\s+${WRITE_VERB})*` +
-    `(?:(?!,\\s*(?:(?:and|or|then)\\s+)?(?:please\\s+)?${WRITE_VERB}|\\s+and\\s+(?:then\\s+)?(?:please\\s+)?${WRITE_VERB}|,?\\s*\\b(?:but|instead|rather|just|only|then|so)\\b)[^.!?;\\n])*`,
+    `(?:(?!,\\s*(?:(?:and|or|then)\\s+)?(?:please\\s+)?${WRITE_VERB}|\\s+and\\s+(?:then\\s+)?(?:please\\s+)?${WRITE_VERB}|,?\\s*\\b(?:but|instead|rather|just|only|then|so)\\b|\\s+-\\s)[^.!?;:\\n—–])*`,
   "gi",
 );
 
