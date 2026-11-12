@@ -57,15 +57,21 @@ describe("markDevServerReady", () => {
 
 describe("cli process launch options", () => {
   it("allows real Windows executable paths to bypass cmd.exe", () => {
-    expect(cliSpawnOptions({ shell: false }, "win32").shell).toBe(false);
+    expect(
+      cliSpawnOptions("C:\\tools\\vite.exe", { shell: false }, "win32").shell,
+    ).toBe(false);
+  });
+
+  it("starts this Node without cmd.exe, which splits C:\\Program Files", () => {
+    expect(cliSpawnOptions(process.execPath, {}, "win32").shell).toBe(false);
   });
 
   it("keeps Windows shell support for command-name shims", () => {
-    expect(cliSpawnOptions({}, "win32").shell).toBe(true);
+    expect(cliSpawnOptions("pnpm", {}, "win32").shell).toBe(true);
   });
 
   it("does not enable a shell on Unix", () => {
-    expect(cliSpawnOptions({}, "darwin").shell).toBe(false);
+    expect(cliSpawnOptions("pnpm", {}, "darwin").shell).toBe(false);
   });
 
   it("restarts only after the recovery exit code and keeps signal listeners bounded", async () => {

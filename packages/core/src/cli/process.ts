@@ -26,12 +26,16 @@ export function markDevServerReady(env: NodeJS.ProcessEnv = process.env): void {
 }
 
 export function cliSpawnOptions(
+  command: string,
   options: Pick<SpawnOptions, "env" | "shell" | "stdio"> = {},
   platform: NodeJS.Platform = process.platform,
 ): Pick<SpawnOptions, "env" | "shell" | "stdio"> {
   return {
     stdio: options.stdio ?? "inherit",
-    shell: options.shell ?? platform === "win32",
+    // cmd.exe is only for command-name shims like pnpm. It splits an unquoted
+    // path at its spaces, and Node installs to C:\Program Files by default.
+    shell:
+      options.shell ?? (platform === "win32" && command !== process.execPath),
     env: options.env ?? process.env,
   };
 }
@@ -74,7 +78,7 @@ export function runDevServer(
     child = spawnProcess(
       command,
       args,
-      cliSpawnOptions({
+      cliSpawnOptions(command, {
         env,
         shell: options.shell,
         stdio: options.stdio,

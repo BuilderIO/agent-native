@@ -359,7 +359,7 @@ function run(
     shell?: boolean;
   },
 ) {
-  const child = spawn(cmd, cmdArgs, cliSpawnOptions(opts));
+  const child = spawn(cmd, cmdArgs, cliSpawnOptions(cmd, opts));
   child.on("exit", (code) => process.exit(code ?? 0));
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => {
@@ -513,7 +513,6 @@ switch (command) {
       ["--import", preload, viteJsEntry, ...rest],
       {
         env,
-        shell: false,
       },
     );
     break;
