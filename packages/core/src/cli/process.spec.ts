@@ -56,7 +56,7 @@ describe("markDevServerReady", () => {
 });
 
 describe("cli process launch options", () => {
-  it("allows real Windows executable paths to bypass cmd.exe", () => {
+  it("lets a caller keep another Windows executable out of cmd.exe", () => {
     expect(
       cliSpawnOptions("C:\\tools\\vite.exe", { shell: false }, "win32").shell,
     ).toBe(false);
