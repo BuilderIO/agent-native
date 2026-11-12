@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   appId: "agent-native-clips" as string | undefined,
   enabled: true,
+  automaticPercent: 50,
   experimentId: "design_builder_signup_v1",
   failTerminalWrites: 0,
   waitUntil: undefined as ((work: Promise<unknown>) => void) | undefined,
@@ -17,6 +18,7 @@ vi.mock("../app-config/index.js", () => ({
     app: { id: mocks.appId, slug: "clips" },
     onboarding: {
       builderSignupExperiment: mocks.enabled,
+      builderSignupAutomaticPercent: mocks.automaticPercent,
       builderSignupExperimentId: mocks.experimentId,
       builderSignupExperimentOverride: mocks.override,
     },
@@ -143,6 +145,7 @@ beforeEach(() => {
   testTime = Date.now();
   mocks.appId = "agent-native-clips";
   mocks.enabled = true;
+  mocks.automaticPercent = 50;
   mocks.experimentId = "design_builder_signup_v1";
   mocks.failTerminalWrites = 0;
   mocks.waitUntil = undefined;
@@ -162,6 +165,28 @@ beforeEach(() => {
 });
 
 describe("pre-signup Builder experiment", () => {
+  it("assigns new Clips visitors to automatic and honors existing control assignments", async () => {
+    mocks.experimentId = "clips_builder_signup_v1";
+    mocks.automaticPercent = 100;
+
+    expect(await (await request()).json()).toMatchObject({
+      experimentId: "clips_builder_signup_v1",
+      variant: "automatic",
+    });
+
+    const control = {
+      id: "b".repeat(32),
+      variant: "control" as const,
+      issuedAt: testTime,
+      policy: BUILDER_SIGNUP_POLICY,
+    };
+    const response = await request(
+      undefined,
+      encodeBuilderSignupAssignment(control),
+    );
+    expect(await response.json()).toMatchObject(control);
+  });
+
   it("keeps assignment cookie names independent across same-origin apps", async () => {
     const names = new Set<string>();
     for (const app of ["design", "clips", "slides"]) {

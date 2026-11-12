@@ -469,9 +469,13 @@ export function createBuilderSignupExperiment(dependencies: {
     if (method === "GET") {
       if (session) return { status: "disabled" as const };
       if (!assignment) {
+        const { builderSignupAutomaticPercent } = getAppConfig().onboarding;
         assignment = {
           id: randomBytes(16).toString("hex"),
-          variant: randomInt(2) === 0 ? "control" : "automatic",
+          variant:
+            randomInt(100) < builderSignupAutomaticPercent
+              ? "automatic"
+              : "control",
           issuedAt: Date.now(),
           policy: BUILDER_SIGNUP_POLICY,
         };
