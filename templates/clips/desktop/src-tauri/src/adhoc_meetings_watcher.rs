@@ -89,6 +89,9 @@ struct AdhocMeetingsWatcherInner {
     browser_associations: HashMap<&'static str, BrowserCallAssociation>,
     /// Last time each browser process was seen with its microphone off.
     browser_mic_off_at: HashMap<BrowserProcessKey, Instant>,
+    /// For each browser process whose microphone is on: the call site that was
+    /// in front when it turned on, if the turn-on was seen in front at all.
+    browser_mic_started_on: HashMap<BrowserProcessKey, Option<&'static str>>,
     session_notified: HashMap<String, bool>,
     create_in_doubt_since: HashMap<String, i64>,
 }
@@ -345,6 +348,7 @@ impl AdhocMeetingsWatcherInner {
         self.evidence.clear();
         self.browser_associations.clear();
         self.browser_mic_off_at.clear();
+        self.browser_mic_started_on.clear();
         self.create_in_doubt_since.clear();
         let notified: Vec<String> = self.session_notified.drain().map(|(p, _)| p).collect();
         for platform in notified {
@@ -404,13 +408,6 @@ impl AdhocMeetingsWatcherInner {
         candidate: Option<BrowserCallCandidate>,
         mic_by_process: &HashMap<BrowserProcessKey, Option<bool>>,
     ) -> BrowserCallUpdates {
-        let mic_started_in_front = |candidate: &BrowserCallCandidate| {
-            self.browser_mic_off_at
-                .get(&(candidate.pid, candidate.bundle_id))
-                .is_some_and(|off_at| {
-                    now.saturating_duration_since(*off_at) <= BROWSER_MIC_START_WINDOW
-                })
-        };
         let candidate = candidate.filter(|candidate| {
             mic_by_process
                 .get(&(candidate.pid, candidate.bundle_id))
@@ -418,22 +415,41 @@ impl AdhocMeetingsWatcherInner {
                 .flatten()
                 == Some(true)
         });
+        for (key, mic) in mic_by_process {
+            match mic {
+                Some(false) => {
+                    self.browser_mic_off_at.insert(*key, now);
+                    self.browser_mic_started_on.remove(key);
+                }
+                Some(true) if !self.browser_mic_started_on.contains_key(key) => {
+                    // Only a turn-on seen right after an off reading has a known
+                    // origin: the call site in front at that moment, if any.
+                    let seen_turning_on = self.browser_mic_off_at.get(key).is_some_and(|off_at| {
+                        now.saturating_duration_since(*off_at) <= BROWSER_MIC_START_WINDOW
+                    });
+                    let origin = candidate
+                        .filter(|candidate| {
+                            seen_turning_on && (candidate.pid, candidate.bundle_id) == *key
+                        })
+                        .map(|candidate| candidate.platform);
+                    self.browser_mic_started_on.insert(*key, origin);
+                }
+                _ => {}
+            }
+        }
         // A call site whose association already exists keeps it; a new one
-        // needs the microphone to have turned on while it was in front.
+        // needs the microphone to have turned on while that site was in front.
         let candidate = candidate.filter(|candidate| {
             self.browser_associations
                 .get(candidate.platform)
                 .is_some_and(|association| {
-                    association.pid == candidate.pid
-                        && association.bundle_id == candidate.bundle_id
+                    association.pid == candidate.pid && association.bundle_id == candidate.bundle_id
                 })
-                || mic_started_in_front(candidate)
+                || self
+                    .browser_mic_started_on
+                    .get(&(candidate.pid, candidate.bundle_id))
+                    == Some(&Some(candidate.platform))
         });
-        for (key, mic) in mic_by_process {
-            if *mic == Some(false) {
-                self.browser_mic_off_at.insert(*key, now);
-            }
-        }
         if let Some(candidate) = candidate {
             self.browser_associations.retain(|platform, association| {
                 *platform == candidate.platform
@@ -1174,6 +1190,31 @@ mod tests {
         for secs in [2, 4, 20, 40] {
             let updates =
                 state.observe_browser_calls(start + Duration::from_secs(secs), Some(zoom), &mic);
+            assert!(updates.live_platforms.is_empty(), "after {secs}s");
+        }
+        assert!(state.browser_associations.is_empty());
+    }
+
+    #[test]
+    fn a_call_site_tab_fronted_after_another_tab_took_the_mic_is_not_a_call() {
+        let start = Instant::now();
+        let candidate = BrowserCallCandidate {
+            pid: 1234,
+            bundle_id: "com.google.chrome",
+            platform: "zoom",
+        };
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        state.observe_browser_calls(start, None, &browser_mic(candidate.pid, Some(false)));
+        // Another tab takes the microphone; then the call site comes to the front.
+        let mic = browser_mic(candidate.pid, Some(true));
+        state.observe_browser_calls(start + Duration::from_secs(2), None, &mic);
+        for secs in [4, 6, 20, 40] {
+            let updates = state.observe_browser_calls(
+                start + Duration::from_secs(secs),
+                Some(candidate),
+                &mic,
+            );
             assert!(updates.live_platforms.is_empty(), "after {secs}s");
         }
         assert!(state.browser_associations.is_empty());

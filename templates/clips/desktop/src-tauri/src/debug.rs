@@ -1,4 +1,3 @@
-
 use std::sync::OnceLock;
 
 pub fn debug_enabled() -> bool {
