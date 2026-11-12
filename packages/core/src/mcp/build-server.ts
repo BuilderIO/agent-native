@@ -123,16 +123,20 @@ import {
   describeThrownForLog,
   HIDDEN_EMBED_URL,
   isEmbedStartUrl,
+  redactEmbedText,
 } from "./embed-redaction.js";
 import {
   MCP_ACTION_APPROVAL_TTL_SECONDS,
   type EmbedCredentialGuard,
   type McpActionApprovalState,
   type McpActionCallContext,
+  type McpActionCallEffect,
+  type McpActionCallOutcome,
   type McpApprovalReview,
   canonicalJson,
   executeMcpActionCall,
   isActionVisibleForOAuthScope,
+  mcpActionErrorCode,
   redactEmbedCredentials,
   sha256Base64Url,
   UnreadableResultError,
@@ -145,6 +149,10 @@ import {
   parseMcpOAuthOrgIdClaim,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import {
+  mcpResponseOutputCheck,
+  type McpResponseOutputCheck,
+} from "./output-contract.js";
 import {
   MCP_SCRIPT_RUN_TOOL,
   MCP_SCRIPT_SEARCH_TOOL,
@@ -2617,6 +2625,72 @@ export function mcpResponseStructuredContent(
 }
 
 /**
+ * Holds a script's call to the MCP output contract a direct call holds the
+ * action to. The core has already checked the value against the action's
+ * `outputSchema`; this checks the form a direct call would send, so a script
+ * never reads a result a direct call would refuse. The check compiles before
+ * the action runs, as a direct call's does, so a contract that can't be
+ * enforced refuses the call while nothing has run.
+ */
+export function scriptOutputContract(
+  action: string,
+  entry: ActionEntry | undefined,
+):
+  | { refused: McpActionCallOutcome }
+  | { hold: (outcome: McpActionCallOutcome) => McpActionCallOutcome } {
+  const contract = entry?.mcpOutputContract;
+  if (contract === undefined) return { hold: (outcome) => outcome };
+  const failed = (
+    stage: "action" | "result",
+    error: unknown,
+    effect: McpActionCallEffect,
+  ): McpActionCallOutcome =>
+    Object.freeze({
+      status: "failed" as const,
+      stage,
+      message: redactEmbedText(
+        error instanceof Error
+          ? error.message
+          : "The action's output contract could not be checked.",
+      ),
+      errorCode: mcpActionErrorCode(error),
+      effect,
+    });
+  let check: McpResponseOutputCheck;
+  try {
+    check = mcpResponseOutputCheck(contract);
+  } catch (error) {
+    return { refused: failed("action", error, "none") };
+  }
+  return {
+    hold: (outcome) => {
+      // A result the action reported as an error is not held to it, as a
+      // direct call's is not.
+      if (outcome.status !== "completed" || outcome.reportedError) {
+        return outcome;
+      }
+      try {
+        check(
+          () =>
+            mcpResponseStructuredContent(outcome.value, undefined, {
+              contracted: true,
+            }),
+          // The error keeps the call's effect, so a write that may have
+          // committed is not retried as one that changed nothing.
+          {
+            actionName: action,
+            effect: outcome.effect === "none" ? "none" : "committed",
+          },
+        );
+        return outcome;
+      } catch (error) {
+        return failed("result", error, outcome.effect);
+      }
+    },
+  };
+}
+
+/**
  * The `_meta` keys a direct call may send an embed credential in: the start
  * URL a widget or an app-only tool's view starts its embed session from, and
  * the source ticket a directory widget renews that session with. Only an
@@ -3788,6 +3862,13 @@ export async function createMCPServerForRequest(
       signal: ctx.mcpReq.signal,
       ...(writes ? { writes } : {}),
       callAction: async (action, callArgs, write) => {
+        const contract = scriptOutputContract(
+          action,
+          Object.hasOwn(catalog.actions, action)
+            ? catalog.actions[action]
+            : undefined,
+        );
+        if ("refused" in contract) return contract.refused;
         const run = () =>
           executeMcpActionCall(actionCallContext, {
             name: action,
@@ -3796,9 +3877,11 @@ export async function createMCPServerForRequest(
             actionRunContext: { ...attribution, runId, ...write?.runContext },
             ...(write ? { prepared: write.prepared } : {}),
           });
-        return callerContext
-          ? runWithRequestContext(callerContext, run)
-          : run();
+        return contract.hold(
+          await (callerContext
+            ? runWithRequestContext(callerContext, run)
+            : run()),
+        );
       },
       recordDenial: (denial) =>
         recordMcpScriptDenial(denial, {
@@ -3819,17 +3902,18 @@ export async function createMCPServerForRequest(
   }
 
   // A script's source can hold anything the model put in it, embed links
-  // and data from earlier calls among them; analytics get only its length.
+  // and data from earlier calls among them, and run-script ignores any other
+  // field, which could hold the same; analytics get only the script's length.
   const analyticsParameters = (
     toolName: unknown,
     args: unknown,
   ): Record<string, unknown> => {
     const parameters = (args ?? {}) as Record<string, unknown>;
-    if (toolName !== MCP_SCRIPT_RUN_TOOL || !Object.hasOwn(parameters, "code"))
-      return parameters;
-    const { code, ...rest } = parameters;
+    if (toolName !== MCP_SCRIPT_RUN_TOOL) return parameters;
+    const code = Object.hasOwn(parameters, "code")
+      ? parameters.code
+      : undefined;
     return {
-      ...rest,
       code:
         typeof code === "string"
           ? `(a script of ${code.length} characters)`
