@@ -400,6 +400,8 @@ Quand cela ne marche pas :
 
 5. Trouvez votre bot dans Telegram (recherchez le nom d'utilisateur que BotFather vous a donné) et envoyez-lui un message.
 
+Une photo, un document ou un message vocal parvient à l'agent sous la forme de sa légende et d'une référence au fichier : le nom du fichier, ou le `file_id` Telegram s'il n'a pas de nom, et le type de fichier. L'agent ne peut pas lire le fichier lui-même, car l'adaptateur ne le télécharge pas.
+
 ## Configurer la messagerie {#email}
 
 La messagerie électronique constitue l'intégration la plus puissante : votre agent obtient sa propre adresse, répond dans le fil de discussion, peut être mis en copie des conversations et utilise l'adresse électronique de l'expéditeur comme identité. Aucune commande `/link` n'est nécessaire.
