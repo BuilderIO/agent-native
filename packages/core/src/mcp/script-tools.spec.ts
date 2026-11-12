@@ -939,6 +939,22 @@ describe("runMcpScript", () => {
     expect(denials).toHaveLength(MCP_SCRIPT_LIMITS.recordedDenials + 2);
   });
 
+  it("measures a call's arguments in UTF-8 bytes", async () => {
+    const { run, calls } = runner({ "get-document": entry() });
+    // 200,000 characters and 600,000 bytes, sent once and copied twice.
+    const payload = await run(`
+      const part = { text: "\u20ac".repeat(200000) };
+      try { await api.getDocument({ a: part, b: part }); } catch (error) {
+        return [error.code, error.message];
+      }
+    `);
+    expect(payload.result).toEqual([
+      "invalid_arguments",
+      `api.getDocument takes at most ${MCP_SCRIPT_LIMITS.argumentBytes} bytes of arguments.`,
+    ]);
+    expect(calls).toEqual([]);
+  });
+
   it("stops calls past the call limit", async () => {
     const { run, calls } = runner({ "get-document": entry() });
     const payload = await run(`
@@ -1393,7 +1409,7 @@ describe("runMcpScript", () => {
     `);
     expect(args.result).toEqual([
       "invalid_arguments",
-      `api.getDocument takes at most ${MCP_SCRIPT_LIMITS.argumentChars} characters of arguments.`,
+      `api.getDocument takes at most ${MCP_SCRIPT_LIMITS.argumentBytes} bytes of arguments.`,
     ]);
     expect(calls).toEqual([]);
   });

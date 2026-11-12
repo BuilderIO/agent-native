@@ -3916,6 +3916,13 @@ export async function createMCPServerForRequest(
     toolName: unknown,
     args: unknown,
   ): Record<string, unknown> => {
+    // A tool the script catalog doesn't have gets no parameters at all.
+    if (
+      scriptCatalog &&
+      (typeof toolName !== "string" || !MCP_SCRIPT_TOOL_NAMES.has(toolName))
+    ) {
+      return {};
+    }
     const parameters = (args ?? {}) as Record<string, unknown>;
     const given = (key: string) =>
       Object.hasOwn(parameters, key) ? parameters[key] : undefined;
@@ -3983,6 +3990,18 @@ export async function createMCPServerForRequest(
             content: [{ type: "text", text: `Unknown tool: ${name}` }],
             isError: true,
           };
+        }
+
+        // The script catalog has only its own tools. Any other name is the
+        // caller's text, refused as unknown before the service grant is read,
+        // so it reaches neither a grant refusal's message nor its audit row.
+        if (scriptCatalog && !MCP_SCRIPT_TOOL_NAMES.has(name)) {
+          return callScriptTool(
+            { name, args, allowedActions: null, request, ctx },
+            (error) => {
+              failure = error;
+            },
+          );
         }
 
         let allowedActions: string[] | null = null;

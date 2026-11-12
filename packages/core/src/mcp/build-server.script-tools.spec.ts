@@ -337,6 +337,38 @@ describe("the MCP script catalog", () => {
     expect(JSON.stringify(reported)).not.toContain(TICKET);
   });
 
+  it("keeps an unknown tool's name and arguments out of analytics and audit", async () => {
+    // A service principal's grant refuses names by name; an unknown one is
+    // refused as unknown first.
+    evaluateServicePrincipalMock.mockResolvedValue({
+      status: "active",
+      policy: {
+        lifecycle: "active",
+        allowedActions: ["run-script", "search-actions"],
+      },
+    });
+    const client = await clientFor(service);
+    const named = `https://docs.example/_agent-native/embed/start?ticket=${TICKET}`;
+    const result: any = await client.callTool({
+      name: named,
+      arguments: { note: TICKET },
+    });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(`Unknown tool: ${named}`);
+    const reported = trackMcpToolCallMock.mock.calls.map(([, args]) => args);
+    expect(reported).toEqual([
+      expect.objectContaining({
+        toolName: "(unknown tool)",
+        parameters: {},
+        errorType: "unknown_tool",
+      }),
+    ]);
+    expect(JSON.stringify(reported)).not.toContain(TICKET);
+    expect(JSON.stringify(recordActionAuditMock.mock.calls)).not.toContain(
+      TICKET,
+    );
+  });
+
   it("gives analytics the sizes of a search's inputs, not the inputs", async () => {
     const client = await clientFor(user);
     const start = `https://docs.example/_agent-native/embed/start?ticket=${TICKET}`;
