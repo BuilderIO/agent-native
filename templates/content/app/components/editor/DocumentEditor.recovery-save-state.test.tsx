@@ -6,7 +6,7 @@ import { setTimeout as realDelay } from "node:timers/promises";
 
 import type { Document, DocumentPropertiesResponse } from "@shared/api";
 import { legacyBlocksFieldIdentity } from "@shared/blocks-field-identity";
-import { docToNfm, nfmToDoc } from "@shared/nfm";
+import { docToNfm, nfmToDoc, type PMDoc } from "@shared/nfm";
 import {
   QueryClient,
   QueryClientProvider,
@@ -2082,7 +2082,7 @@ describe("closing a page this tab never edited", () => {
       content: { type: "doc", content: [{ type: "paragraph" }] },
     });
     writer.commands.setContent(nfmToDoc(written));
-    const held = docToNfm(writer.getJSON());
+    const held = docToNfm(writer.getJSON() as PMDoc);
     writer.destroy();
     writerDoc.destroy();
     writerMount.remove();
