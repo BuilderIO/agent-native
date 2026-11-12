@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { ALL_TAB_ID } from "./inbox-threads";
-import { resolveMailOpenPath } from "./mail-routes";
+import { openThreadPath, resolveMailOpenPath } from "./mail-routes";
+import { mailSettingsRoute } from "./settings-navigation";
 
 describe("Mail open paths", () => {
   it("opens the linked thread in its view", () => {
@@ -18,11 +19,29 @@ describe("Mail open paths", () => {
 
   it("opens a thread linked from a view without thread routes in the inbox", () => {
     expect(
-      resolveMailOpenPath({ view: "settings", params: { threadId: "abc" } }),
+      resolveMailOpenPath({ view: "unknown", params: { threadId: "abc" } }),
     ).toBe("/inbox/abc");
     expect(resolveMailOpenPath({ params: { threadId: "abc" } })).toBe(
       "/inbox/abc",
     );
+  });
+
+  it("checks in the order InboxPage acts on the navigate command", () => {
+    expect(
+      resolveMailOpenPath({ view: "settings", params: { threadId: "abc" } }),
+    ).toBe(mailSettingsRoute("general"));
+    expect(
+      resolveMailOpenPath({
+        view: "settings",
+        params: { settingsSection: "ai-filter" },
+      }),
+    ).toBe(mailSettingsRoute("ai-filter"));
+    expect(
+      resolveMailOpenPath({
+        view: "inbox",
+        params: { tab: "important", threadId: "abc" },
+      }),
+    ).toBe("/inbox?tab=important");
   });
 
   it("carries the queued draft, inbox tab, saved filter, and search", () => {
@@ -52,5 +71,11 @@ describe("Mail open paths", () => {
       resolveMailOpenPath({ view: "sent", params: { messageId: "m1" } }),
     ).toBeNull();
     expect(resolveMailOpenPath({ view: "draft-queue", params: {} })).toBeNull();
+  });
+
+  it("builds the same encoded thread URL for the navigate command", () => {
+    expect(openThreadPath("sent", "t/1 2")).toBe("/sent/t%2F1%202");
+    expect(openThreadPath("settings", "abc")).toBe("/inbox/abc");
+    expect(openThreadPath(undefined, "abc")).toBe("/inbox/abc");
   });
 });

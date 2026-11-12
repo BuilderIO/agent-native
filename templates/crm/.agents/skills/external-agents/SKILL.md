@@ -419,9 +419,7 @@ link in any browser or inline webview, `GET /_agent-native/open`
    into a `compose-<id>` key.
 4. 302-redirects to a safe same-origin relative path (`to=`, else
    `resolveOpenPath`, else `/<view>`), forwarding `f_*` filter params and
-   `agentNativeTab=<tabId>`, which the page adopts as its tab ID. Map a
-   record id to its route in `resolveOpenPath`, so the link lands on the
-   record without waiting for the page to act on the command.
+   `agentNativeTab=<tabId>`, which the page adopts as its tab ID.
 
 Cross-origin, scheme-relative `//host`, and control-char redirects are rejected
 (open-redirect guard). **Identity rule:** the link carries no privileged
