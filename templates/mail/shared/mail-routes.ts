@@ -44,7 +44,7 @@ export function resolveMailOpenPath({
       : null;
   }
   if (view === "settings") {
-    return mailSettingsRoute(params.settingsSection ?? "general");
+    return mailSettingsRoute(params.settingsSection || "general");
   }
   if (params.tab) return inboxTabHref(params.tab);
   if (params.filter) {
