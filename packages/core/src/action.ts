@@ -1828,6 +1828,11 @@ export function defineAction(options: any) {
         'mcpScript: "write" is for an action that changes data; a read-only action declares mcpScript: "read".',
       );
     }
+    if (mode === "read" && mcpAnnotations?.destructiveHint === true) {
+      throw new TypeError(
+        'mcpScript: "read" cannot be set on an action annotated destructiveHint: true.',
+      );
+    }
     if (
       (options.needsApproval !== undefined &&
         options.needsApproval !== false) ||

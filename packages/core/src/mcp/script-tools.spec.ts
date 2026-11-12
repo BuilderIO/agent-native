@@ -115,6 +115,13 @@ describe("mcpScriptCallPolicy", () => {
       { readOnly: undefined },
       { planMode: { effect: "write" } },
       { mcpAnnotations: { readOnlyHint: false } },
+      {
+        mcpAnnotations: {
+          readOnlyHint: true,
+          destructiveHint: true,
+          openWorldHint: false,
+        },
+      },
     ]) {
       expect(
         mcpScriptCallPolicy("get-doc", entry(fields as never)),
@@ -209,6 +216,20 @@ describe("mcpScript on defineAction", () => {
         run: async () => ({}),
       } as never),
     ).toThrow(/requires a read-only action/);
+    expect(() =>
+      defineAction({
+        description: "Hinted as destructive",
+        schema: z.object({}),
+        readOnly: true,
+        mcpAnnotations: {
+          readOnlyHint: true,
+          destructiveHint: true,
+          openWorldHint: false,
+        },
+        mcpScript: "read",
+        run: async () => ({}),
+      } as never),
+    ).toThrow(/destructiveHint: true/);
   });
 
   it("throws on approval, consequential actions, and any other value", () => {
@@ -340,6 +361,46 @@ describe("the script catalog", () => {
     expect(run!.description).toContain("- api.getDocument: Read one document");
     expect(search!.name).toBe("search-actions");
     expect(search!.annotations.readOnlyHint).toBe(true);
+  });
+
+  it("lists a bounded number of functions in run-script's description", () => {
+    const listed = (names: string[]) => {
+      const [run] = mcpScriptToolDescriptors(
+        buildMcpScriptCatalog(
+          Object.fromEntries(names.map((name) => [name, entry()])),
+        ),
+      );
+      const description = run!.description;
+      return {
+        description,
+        lines: description
+          .split("\n")
+          .filter((line) => line.startsWith("- api.")),
+      };
+    };
+    const many = listed(
+      Array.from({ length: 150 }, (_, index) => `get-thing-${index}`),
+    );
+    expect(many.lines).toHaveLength(100);
+    expect(many.description).toContain(
+      "(50 more functions: call search-actions with a query to find them.)",
+    );
+    // Long names fill the character budget first.
+    const long = listed(
+      Array.from(
+        { length: 40 },
+        (_, index) => `get-${index}-${"x".repeat(1_000)}`,
+      ),
+    );
+    expect(long.lines.length).toBeLessThan(40);
+    expect(long.lines.join("\n").length).toBeLessThanOrEqual(16_000);
+    expect(long.description).toContain(
+      `(${40 - long.lines.length} more functions: call search-actions with a query to find them.)`,
+    );
+    // A catalog that fits gets no note.
+    expect(listed(["get-document"]).description).not.toContain(
+      "more functions",
+    );
   });
 
   it("says run-script reaches the open world when an action it can call does", () => {
@@ -1870,6 +1931,20 @@ describe("script writes", () => {
     });
     expect(
       mcpScriptCallPolicy("save-doc", writeEntry(), { writes: true }),
+    ).toEqual({ allowed: true });
+    // Only a read must not be destructive; a write may be.
+    expect(
+      mcpScriptCallPolicy(
+        "save-doc",
+        writeEntry({
+          mcpAnnotations: {
+            readOnlyHint: false,
+            destructiveHint: true,
+            openWorldHint: false,
+          },
+        }),
+        { writes: true },
+      ),
     ).toEqual({ allowed: true });
     expect(
       mcpScriptCallPolicy(

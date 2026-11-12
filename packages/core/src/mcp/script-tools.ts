@@ -32,10 +32,11 @@ import type { ScriptWriteGate, ScriptWriteTicket } from "./script-writes.js";
  * scope, service-grant, approval and redaction steps as a direct `tools/call`,
  * and the guest receives that call's full redacted value. What a script may
  * call is decided here, independently of what the connection's catalog lists:
- * an action must declare `mcpScript: "read"` and be read-only by
- * `isMcpReadOnlyTool`, or declare `mcpScript: "write"` with its write
- * contract where writes are on; ask for no approval; and not run other code or
- * agents. A write passes through the script ledger (`script-writes.ts`).
+ * an action must declare `mcpScript: "read"`, be read-only by
+ * `isMcpReadOnlyTool` and not annotated destructive, or declare
+ * `mcpScript: "write"` with its write contract where writes are on; ask for
+ * no approval; and not run other code or agents. A write passes through the
+ * script ledger (`script-writes.ts`).
  */
 
 export const MCP_SCRIPT_RUN_TOOL = "run-script";
@@ -164,7 +165,10 @@ export function mcpScriptCallPolicy(
     }
   } else if (entry.mcpScript !== "read") {
     return { allowed: false, reason: "not-opted-in" };
-  } else if (!isMcpReadOnlyTool(entry)) {
+  } else if (
+    !isMcpReadOnlyTool(entry) ||
+    entry.mcpAnnotations?.destructiveHint === true
+  ) {
     return { allowed: false, reason: "mutating" };
   }
   if (
@@ -305,6 +309,10 @@ const ACTION_DESCRIPTION_CHARS = 400;
  *  falls back, with a note, so one declaration stays within a search's reply. */
 const MAX_DECLARED_TYPE_CHARS = 20_000;
 const INDEX_DESCRIPTION_CHARS = 110;
+/** Functions, and characters, run-script's description lists; search-actions
+ *  finds the rest. */
+const MAX_INDEX_FUNCTIONS = 100;
+const MAX_INDEX_CHARS = 16_000;
 
 const CONSTRAINT_KEYS = [
   "minimum",
@@ -719,12 +727,26 @@ export function mcpScriptToolDescriptors(catalog: McpScriptCatalog): Array<{
   inputSchema: Record<string, unknown>;
   annotations: Record<string, unknown>;
 }> {
-  const index = [...catalog.byFunction]
-    .map(
-      ([fn, action]) =>
-        `- api.${fn}: ${oneLine(catalog.actions[action]?.tool.description, INDEX_DESCRIPTION_CHARS)}`,
-    )
-    .join("\n");
+  const lines: string[] = [];
+  let indexChars = 0;
+  for (const [fn, action] of catalog.byFunction) {
+    const line = `- api.${fn}: ${oneLine(catalog.actions[action]?.tool.description, INDEX_DESCRIPTION_CHARS)}`;
+    if (
+      lines.length === MAX_INDEX_FUNCTIONS ||
+      indexChars + line.length + 1 > MAX_INDEX_CHARS
+    ) {
+      break;
+    }
+    lines.push(line);
+    indexChars += line.length + 1;
+  }
+  const unlisted = catalog.byFunction.size - lines.length;
+  if (unlisted > 0) {
+    lines.push(
+      `(${unlisted} more functions: call ${MCP_SCRIPT_SEARCH_TOOL} with a query to find them.)`,
+    );
+  }
+  const index = lines.join("\n");
   const limits = MCP_SCRIPT_LIMITS;
   const writes = [...catalog.byFunction.values()].some((action) => {
     const entry = scriptCatalogEntry(catalog, action);
