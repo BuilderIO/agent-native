@@ -3752,6 +3752,7 @@ export async function createMCPServerForRequest(
       request,
       envelope: ctx.mcpReq.envelope,
       oauthClientId: effectiveIdentity?.oauthClientId,
+      userAgent: requestMeta?.clientName,
     });
     const runId = crypto.randomUUID();
     const mcpSettings = getAppConfig().mcp;
