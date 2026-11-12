@@ -1,7 +1,30 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const takeDesignScreenshotRun = vi.hoisted(() => vi.fn());
 const getScreenshotPngData = vi.hoisted(() => vi.fn());
+const { mockGetDb, mockLimit } = vi.hoisted(() => {
+  const limit = vi.fn();
+  const chain: Record<string, ReturnType<typeof vi.fn>> = {};
+  chain.select = vi.fn(() => chain);
+  chain.from = vi.fn(() => chain);
+  chain.innerJoin = vi.fn(() => chain);
+  chain.where = vi.fn(() => chain);
+  chain.limit = limit;
+  return { mockGetDb: vi.fn(() => chain), mockLimit: limit };
+});
+
+vi.mock("@agent-native/core/sharing", () => ({
+  accessFilter: vi.fn(() => ({ kind: "access-filter" })),
+  registerShareableResource: vi.fn(),
+}));
+vi.mock("../server/db/index.js", () => ({
+  getDb: mockGetDb,
+  schema: {
+    designFiles: { id: "id", designId: "design_id", filename: "filename" },
+    designs: { id: "design_id", data: "data" },
+    designShares: {},
+  },
+}));
 
 vi.mock("./take-design-screenshot.js", () => ({
   default: { run: takeDesignScreenshotRun },
@@ -9,6 +32,35 @@ vi.mock("./take-design-screenshot.js", () => ({
 }));
 
 import action from "./export-png.js";
+
+function screenWithData(data: string, fileId = "file_1") {
+  mockLimit.mockResolvedValue([{ fileId, data }]);
+}
+
+function mockRenderedScreen(widthPx: number) {
+  takeDesignScreenshotRun.mockResolvedValueOnce({
+    ok: true,
+    designId: "design_1",
+    fileId: "file_1",
+    filename: "index.html",
+    capturedAt: "2026-09-09T00:00:00.000Z",
+    screenshots: [
+      {
+        viewport: { label: `width-${widthPx}`, widthPx, heightPx: 900 },
+        url: "https://files.example.test/index.png",
+        persisted: true,
+        bytes: 10,
+        diagnostics: {},
+      },
+    ],
+  });
+}
+
+beforeEach(() => {
+  mockGetDb.mockClear();
+  takeDesignScreenshotRun.mockClear();
+  screenWithData("{}");
+});
 
 describe("export-png", () => {
   it("is marked as a mutation because it uploads the rendered image", () => {
@@ -268,5 +320,136 @@ describe("export-png", () => {
     ).rejects.toMatchObject({
       errorCode: "file_upload_failed",
     });
+  });
+});
+
+describe("export-png width", () => {
+  const mobileFrames = JSON.stringify({
+    canvasFrames: { file_1: { x: 0, y: 0, width: 390, height: 844 } },
+  });
+
+  it("exports a mobile screen at its authored frame width when width is omitted", async () => {
+    screenWithData(mobileFrames);
+    mockRenderedScreen(390);
+
+    await action.run({ fileId: "file_1", filename: "index.html" });
+
+    expect(takeDesignScreenshotRun).toHaveBeenCalledWith(
+      { fileId: "file_1", filename: "index.html", widths: [390] },
+      undefined,
+    );
+  });
+
+  it("finds the frame of the screen selected by designId and filename", async () => {
+    screenWithData(mobileFrames);
+    mockRenderedScreen(390);
+
+    await action.run({ designId: "design_1", filename: "index.html" });
+
+    expect(takeDesignScreenshotRun).toHaveBeenCalledWith(
+      { designId: "design_1", filename: "index.html", widths: [390] },
+      undefined,
+    );
+  });
+
+  it("lets an explicit width win over the authored frame without reading it", async () => {
+    screenWithData(mobileFrames);
+    mockRenderedScreen(900);
+
+    await action.run({ fileId: "file_1", filename: "index.html", width: 900 });
+
+    expect(mockGetDb).not.toHaveBeenCalled();
+    expect(takeDesignScreenshotRun).toHaveBeenCalledWith(
+      { fileId: "file_1", filename: "index.html", widths: [900] },
+      undefined,
+    );
+  });
+
+  it("falls back to 1440 when the design stores no frame for the screen", async () => {
+    screenWithData(
+      JSON.stringify({
+        canvasFrames: { other_file: { x: 0, y: 0, width: 390, height: 844 } },
+      }),
+    );
+    mockRenderedScreen(1440);
+
+    await action.run({ fileId: "file_1", filename: "index.html" });
+
+    expect(takeDesignScreenshotRun).toHaveBeenCalledWith(
+      { fileId: "file_1", filename: "index.html", widths: [1440] },
+      undefined,
+    );
+  });
+
+  it("falls back to 1440 when a frame stores no usable width", async () => {
+    screenWithData(
+      JSON.stringify({ canvasFrames: { file_1: { x: 0, y: 0, width: 0 } } }),
+    );
+    mockRenderedScreen(1440);
+
+    await action.run({ fileId: "file_1", filename: "index.html" });
+
+    expect(takeDesignScreenshotRun).toHaveBeenCalledWith(
+      { fileId: "file_1", filename: "index.html", widths: [1440] },
+      undefined,
+    );
+  });
+
+  it("keeps an authored width inside the action's width bounds", async () => {
+    screenWithData(
+      JSON.stringify({ canvasFrames: { file_1: { width: 5000 } } }),
+    );
+    mockRenderedScreen(3840);
+    await action.run({ fileId: "file_1", filename: "index.html" });
+    expect(takeDesignScreenshotRun).toHaveBeenLastCalledWith(
+      expect.objectContaining({ widths: [3840] }),
+      undefined,
+    );
+
+    screenWithData(
+      JSON.stringify({ canvasFrames: { file_1: { width: 160 } } }),
+    );
+    mockRenderedScreen(200);
+    await action.run({ fileId: "file_1", filename: "index.html" });
+    expect(takeDesignScreenshotRun).toHaveBeenLastCalledWith(
+      expect.objectContaining({ widths: [200] }),
+      undefined,
+    );
+  });
+
+  it("leaves a screen the caller cannot read to the screenshot's not-found error", async () => {
+    mockLimit.mockResolvedValue([]);
+    mockRenderedScreen(1440);
+
+    await action.run({ fileId: "missing", filename: "index.html" });
+
+    expect(takeDesignScreenshotRun).toHaveBeenCalledWith(
+      { fileId: "missing", filename: "index.html", widths: [1440] },
+      undefined,
+    );
+  });
+
+  it.each(["{not json", "", "null", "[]"])(
+    "fails typed instead of exporting at 1440 when the design data is unreadable (%j)",
+    async (data) => {
+      screenWithData(data);
+
+      await expect(
+        action.run({ fileId: "file_1", filename: "index.html" }),
+      ).rejects.toMatchObject({
+        errorCode: "design_data_unreadable",
+        noWrite: true,
+      });
+      expect(takeDesignScreenshotRun).not.toHaveBeenCalled();
+    },
+  );
+
+  it("still exports unreadable-data designs when the caller passes a width", async () => {
+    screenWithData("{not json");
+    mockRenderedScreen(600);
+
+    await expect(
+      action.run({ fileId: "file_1", filename: "index.html", width: 600 }),
+    ).resolves.toMatchObject({ ok: true });
   });
 });

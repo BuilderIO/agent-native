@@ -79,6 +79,14 @@ Other targeting options:
   authored mobile-first; prefer `activeFrameWidthPx` for breakpoint-bar
   parity.
 
+`deleteNode` follows the editor's Delete. With `activeFrameWidthPx` (or
+`maxWidthPx`) on a frame narrower than the base it hides the layer at that
+width (scoped `display: none`, result message "Hidden at viewport widths <= N px")
+and the layer stays in the document. On the base frame, with no scope, or in a
+design with no breakpoint set it removes the layer at every width. A legacy
+`activeBreakpoint` prefix has no hide form, so a delete scoped that way is
+refused with no write.
+
 When the design has no breakpoint set, `activeFrameWidthPx` falls back to
 the legacy min-width prefix behaviour for class edits. When the active frame
 IS the widest context, edits are base writes (correct — the widest frame is

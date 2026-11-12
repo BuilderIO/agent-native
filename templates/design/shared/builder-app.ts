@@ -5,9 +5,9 @@
  *
  * 1. **Connection status** — resolve whether Builder is configured for the
  *    current request (credentials + project ID), without duplicating Builder
- *    auth logic.  Delegates entirely to the core `resolveBuilderCredentials` /
- *    `resolveIsBuilderBranchingEnabled` helpers; no credential values are
- *    surfaced in return types.
+ *    auth logic.  Delegates entirely to the core
+ *    `canAuthorizeBuilderApiRequest` / `resolveIsBuilderBranchingEnabled`
+ *    helpers; no credential values are surfaced in return types.
  *
  * 2. **Migration seed** — build the prompt seed handed to the Builder cloud
  *    agent when migrating an inline Alpine/HTML design to a real React + Tailwind
@@ -26,10 +26,10 @@
  */
 
 import {
+  canAuthorizeBuilderApiRequest,
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,
 } from "@agent-native/core/server";
-import { resolveHasCompleteBuilderConnection } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 export interface BuilderConnectionStatus {
@@ -49,6 +49,10 @@ const MAX_SEED_FILES = 10;
 
 const MAX_HTML_BYTES_PER_FILE = 80_000;
 
+// The scope `runBuilderAgent` authorizes with, so "connected" means "the
+// Builder call these actions make next will be accepted".
+const BUILDER_RUN_SCOPE = "builder:agents:run";
+
 // ---------------------------------------------------------------------------
 // Connection status
 // ---------------------------------------------------------------------------
@@ -56,9 +60,11 @@ const MAX_HTML_BYTES_PER_FILE = 80_000;
 /**
  * Return the Builder connection status for the current request context.
  *
- * Delegates to core helpers (`resolveHasCompleteBuilderConnection`,
+ * Delegates to core helpers (`canAuthorizeBuilderApiRequest`,
  * `resolveIsBuilderBranchingEnabled`, `resolveBuilderBranchProjectId`) so
  * credential resolution lives in one place and is never duplicated here.
+ * `connected` is true when the request can authorize a Builder agent run:
+ * a Builder sign-in (OAuth grant, no key pair) counts, as does a private key.
  *
  * Usage:
  * ```ts
@@ -70,7 +76,7 @@ const MAX_HTML_BYTES_PER_FILE = 80_000;
  */
 export async function resolveBuilderStatus(): Promise<BuilderConnectionStatus> {
   const [connected, builderEnabled, branchProjectId] = await Promise.all([
-    resolveHasCompleteBuilderConnection(),
+    canAuthorizeBuilderApiRequest(BUILDER_RUN_SCOPE),
     resolveIsBuilderBranchingEnabled(),
     resolveBuilderBranchProjectId(),
   ]);

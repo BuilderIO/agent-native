@@ -23,8 +23,10 @@ How to export designs and generate handoff documentation for developers converti
 - **PNG**: `export-png` renders one stored HTML screen in headless Chromium and
   uploads the PNG through the configured file provider. Pass `fileId`, or
   `designId` plus `filename`, to select the screen. It returns a durable `url`
-  and suggested `filename`; `width` defaults to 1440px and `height` only sets
-  the responsive viewport because the export includes the screen's full page.
+  and suggested `filename`; `width` defaults to the screen's authored frame
+  width (1440px when it has none) and `height` only sets the responsive
+  viewport because the export includes the screen's full page. The PNG is
+  rendered at 2x pixel density, so a 390px screen yields a 780px-wide file.
 
   ```bash
   pnpm action export-png --designId <designId> --fileId <fileId>
