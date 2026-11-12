@@ -20,6 +20,7 @@ export interface ModelAttemptMetrics {
   firstTextAtMs?: number;
   lastTextAtMs?: number;
   endedAtMs: number;
+  /** Recovery after the failed stream ends, including cleanup and backoff. */
   retryWaitMs: number;
   streamedThinkingBytes: number;
   streamedTextBytes: number;
@@ -31,6 +32,7 @@ export interface ModelAttemptMetrics {
     toolsBytes: number;
     messageCount: number;
     toolCount: number;
+    /** Registered tool names only; other results share the [unlisted] bucket. */
     toolResultBytes: Record<string, number>;
   };
   requestSizeUnavailable?: true;
@@ -81,10 +83,9 @@ function assertMeasurementSafe(
   }
   ancestors.add(value);
   try {
-    for (const descriptor of Object.values(
-      Object.getOwnPropertyDescriptors(value),
-    )) {
-      if (!("value" in descriptor)) {
+    for (const key of Reflect.ownKeys(value)) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !("value" in descriptor)) {
         throw new Error("Request measurement cannot invoke accessors");
       }
       assertMeasurementSafe(descriptor.value, ancestors, budget);
@@ -141,12 +142,15 @@ export class ModelAttemptMeasurement {
           this.metrics.reasoningEffort = options.reasoningEffort;
       }
       const toolResultBytes: Record<string, number> = Object.create(null);
+      const registeredTools = new Set(options.tools.map((tool) => tool.name));
       for (const message of options.messages) {
         for (const part of message.content) {
           if (part.type === "tool-result") {
-            toolResultBytes[part.toolName] =
-              (toolResultBytes[part.toolName] ?? 0) +
-              Buffer.byteLength(part.content);
+            const name = registeredTools.has(part.toolName)
+              ? part.toolName
+              : "[unlisted]";
+            toolResultBytes[name] =
+              (toolResultBytes[name] ?? 0) + Buffer.byteLength(part.content);
           }
         }
       }
@@ -187,8 +191,9 @@ export class ModelAttemptMeasurement {
     }
   }
 
-  endStream(): void {
+  endStream(): number {
     this.endedAtMs ??= Date.now();
+    return this.endedAtMs;
   }
 
   retryWait(ms: number): void {

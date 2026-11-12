@@ -18,7 +18,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it.each(["retry", "early settings failure"])(
+it.each(["retry", "async cleanup", "early settings failure"])(
   "preserves model-attempt measurements through %s without capturing content",
   async (mode) => {
     vi.useFakeTimers({ now: 1_000_000 });
@@ -69,6 +69,12 @@ it.each(["retry", "early settings failure"])(
       runAgentLoop: (options) =>
         runAgentLoop({
           ...options,
+          send: async (event) => {
+            await options.send(event);
+            if (mode === "async cleanup" && event.type === "clear") {
+              await sleep(250);
+            }
+          },
           onModelSettings: () => {
             if (mode === "early settings failure" && calls === 1) {
               throw new Error("Synthetic settings failure");
@@ -81,6 +87,12 @@ it.each(["retry", "early settings failure"])(
         systemPrompt: "private café",
         tools: [
           { name: "read", description: "private schema", inputSchema: {} },
+          {
+            name: "get-document",
+            description: "Read document",
+            inputSchema: {},
+          },
+          { name: "resources", description: "Read resources", inputSchema: {} },
         ],
         messages: [
           {
@@ -196,7 +208,7 @@ it.each(["retry", "early settings failure"])(
     expect(second).toMatchObject({
       request: {
         systemPromptBytes: 13,
-        toolCount: 1,
+        toolCount: 3,
         messageCount: 3,
         toolResultBytes: { "get-document": 5, resources: 5 },
       },
