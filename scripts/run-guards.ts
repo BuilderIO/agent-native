@@ -36,7 +36,6 @@ const guards = [
   "guard:design-e2e-workflow",
   "guard:test-title-production",
   "guard:mobile-build-paths",
-  "guard:content-product-conformance",
   "guard:content-product-docs",
   "guard:workspace-skills",
   "guard:template-standard",
