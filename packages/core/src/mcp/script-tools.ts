@@ -805,6 +805,9 @@ const MAX_SEARCH_NAMES = 50;
  *  says when it cut the query. */
 const MAX_SEARCH_QUERY_CHARS = 500;
 const MAX_SEARCH_WORDS = 20;
+/** Characters of declarations one search returns, past the first; it names
+ *  the functions it left out. */
+const MAX_SEARCH_REPLY_CHARS = 50_000;
 
 /**
  * Declarations for the requested functions. Searches only what `run-script`
@@ -816,10 +819,10 @@ export function searchMcpScriptActions(
   args: unknown,
 ): string {
   const input = isSchemaObject(args) ? args : {};
-  const named = Array.isArray(input.names)
-    ? input.names.filter((name): name is string => typeof name === "string")
-    : [];
-  const requested = named.slice(0, MAX_SEARCH_NAMES);
+  const named: unknown[] = Array.isArray(input.names) ? input.names : [];
+  const requested = named
+    .slice(0, MAX_SEARCH_NAMES)
+    .filter((name): name is string => typeof name === "string");
   const typed = typeof input.query === "string" ? input.query : "";
   const query = typed.slice(0, MAX_SEARCH_QUERY_CHARS).trim().toLowerCase();
   const queryWords = query.split(/\s+/).filter(Boolean);
@@ -856,12 +859,28 @@ export function searchMcpScriptActions(
       ...[...catalog.byFunction.values()].slice(0, MAX_SEARCH_MATCHES),
     );
   }
-  const body = matched
-    .flatMap((action) => {
-      const entry = scriptCatalogEntry(catalog, action);
-      return entry === undefined ? [] : [mcpScriptDeclaration(action, entry)];
-    })
-    .join("\n\n");
+  const declarations: string[] = [];
+  const leftOut: string[] = [];
+  let replyChars = 0;
+  for (const action of matched) {
+    const entry = scriptCatalogEntry(catalog, action);
+    if (entry === undefined) continue;
+    if (leftOut.length > 0) {
+      leftOut.push(action);
+      continue;
+    }
+    const declaration = mcpScriptDeclaration(action, entry);
+    if (
+      declarations.length > 0 &&
+      replyChars + declaration.length > MAX_SEARCH_REPLY_CHARS
+    ) {
+      leftOut.push(action);
+      continue;
+    }
+    declarations.push(declaration);
+    replyChars += declaration.length;
+  }
+  const body = declarations.join("\n\n");
   const lines = [`declare const api: {\n${body}${body ? "\n" : ""}};`];
   if (missing.length > 0) {
     lines.push(
@@ -876,7 +895,12 @@ export function searchMcpScriptActions(
       `// Searched with the query's first ${words.length} words, within ${MAX_SEARCH_QUERY_CHARS} characters.`,
     );
   }
-  if (named.length > requested.length) {
+  if (leftOut.length > 0) {
+    lines.push(
+      `// Left out ${leftOut.map((action) => `api.${mcpScriptFunctionName(action)}`).join(", ")} to keep this reply within ${MAX_SEARCH_REPLY_CHARS} characters; search for them on their own.`,
+    );
+  }
+  if (named.length > MAX_SEARCH_NAMES) {
     lines.push(
       `// Looked up the first ${MAX_SEARCH_NAMES} of ${named.length} names; ask for the rest in another search.`,
     );
