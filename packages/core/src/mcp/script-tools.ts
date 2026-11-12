@@ -605,6 +605,18 @@ export function mcpScriptInstructions(): string {
   ].join(" ");
 }
 
+/**
+ * Whether an action a script can call says it reaches outside the app, read
+ * as the direct catalog reads it: its own annotations, else its defaults.
+ */
+function reachesOpenWorld(catalog: McpScriptCatalog): boolean {
+  return Object.values(catalog.actions).some(
+    (entry) =>
+      (entry.mcpAnnotations ?? entry.mcpAnnotationDefaults)?.openWorldHint ===
+      true,
+  );
+}
+
 /** The two tools a script-catalog connection sees, in catalog order. */
 export function mcpScriptToolDescriptors(catalog: McpScriptCatalog): Array<{
   name: string;
@@ -647,7 +659,7 @@ export function mcpScriptToolDescriptors(catalog: McpScriptCatalog): Array<{
         title: "Run script",
         readOnlyHint: true,
         destructiveHint: false,
-        openWorldHint: false,
+        openWorldHint: reachesOpenWorld(catalog),
       },
     },
     {

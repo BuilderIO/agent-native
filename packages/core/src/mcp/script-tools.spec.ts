@@ -269,6 +269,31 @@ describe("the script catalog", () => {
     expect(search!.name).toBe("search-actions");
     expect(search!.annotations.readOnlyHint).toBe(true);
   });
+
+  it("says run-script reaches the open world when an action it can call does", () => {
+    const openWorld = (fields: Record<string, unknown>) =>
+      mcpScriptToolDescriptors(
+        buildMcpScriptCatalog({
+          "get-document": entry(),
+          "search-web": entry(fields as never),
+        }),
+      )[0]!.annotations.openWorldHint;
+    const hints = { readOnlyHint: true, destructiveHint: false };
+    expect(openWorld({})).toBe(false);
+    expect(
+      openWorld({ mcpAnnotations: { ...hints, openWorldHint: true } }),
+    ).toBe(true);
+    expect(
+      openWorld({ mcpAnnotationDefaults: { ...hints, openWorldHint: true } }),
+    ).toBe(true);
+    // An action's own annotations win over its defaults, as on direct calls.
+    expect(
+      openWorld({
+        mcpAnnotations: { ...hints, openWorldHint: false },
+        mcpAnnotationDefaults: { ...hints, openWorldHint: true },
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("script types", () => {
