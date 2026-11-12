@@ -1733,8 +1733,12 @@ function decodeCookieHeader(raw: string): string {
       const eq = trimmed.indexOf("=");
       if (eq <= 0) return trimmed;
       const name = trimmed.slice(0, eq).trim();
-      const value = decodeSessionCookieValue(trimmed.slice(eq + 1).trim());
-      return `${name}=${value}`;
+      const raw = trimmed.slice(eq + 1).trim();
+      const value = decodeSessionCookieValue(raw);
+      // Cookies shared from a parent domain (analytics, shop) can hold
+      // percent-encoded characters above U+00FF. Decoded, they are not a
+      // valid header value and `new Headers()` throws, so keep them raw.
+      return `${name}=${/[^\u0000-\u00ff]/.test(value) ? raw : value}`;
     })
     .filter(Boolean)
     .join("; ");
