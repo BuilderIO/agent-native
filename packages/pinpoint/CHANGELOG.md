@@ -1,5 +1,11 @@
 # @agent-native/pinpoint
 
+## 0.1.114
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.113
 
 ### Patch Changes
@@ -615,11 +621,5 @@
 ### Patch Changes
 
 - 8df32f6: Publish the latest Builder link tracking updates.
-
-## 0.1.14
-
-### Patch Changes
-
-- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
