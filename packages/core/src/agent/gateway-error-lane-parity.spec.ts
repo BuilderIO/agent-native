@@ -106,6 +106,18 @@ const FAILURES: GatewayFailure[] = [
     expect: { isContextTooLongError: true, isRetryableError: false },
   },
   {
+    label: "413 request exceeds the provider's per-minute token budget",
+    response: () =>
+      jsonErrorResponse(413, {
+        error: {
+          message:
+            "Request too large on tokens per minute (TPM): Limit 8000, Requested 8700.",
+          code: "rate_limit_exceeded",
+        },
+      }),
+    expect: { isContextTooLongError: false, isRetryableError: false },
+  },
+  {
     label: "in-stream invalid_request on broken history",
     response: () =>
       jsonlResponse([

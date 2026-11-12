@@ -616,7 +616,7 @@ switch (command) {
       );
       process.exit(1);
     }
-    run(process.execPath, [serverEntry, ...args]);
+    run(process.execPath, [serverEntry, ...args], { shell: false });
     break;
   }
 
@@ -656,7 +656,7 @@ switch (command) {
         declarations,
         ...identityArgs,
       ]);
-    else run(process.execPath, [script, ...identityArgs]);
+    else run(process.execPath, [script, ...identityArgs], { shell: false });
     break;
   }
 

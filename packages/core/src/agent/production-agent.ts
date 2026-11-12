@@ -308,6 +308,7 @@ import {
   isContextOverflowMessage,
   isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
+  isProviderTokenRateLimitMessage,
   isRejectedRequestErrorCode,
   PROVIDER_RATE_LIMITED_ERROR_CODE,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
@@ -3482,7 +3483,7 @@ function engineStopError(
   const attachmentRejected =
     event.errorCode === "invalid_attachment" ||
     (hasInlineAttachment &&
-      (event.statusCode === 413 ||
+      ((event.statusCode === 413 && !isProviderTokenRateLimitMessage(error)) ||
         ((event.statusCode === undefined ||
           event.statusCode === 400 ||
           event.statusCode === 422) &&
