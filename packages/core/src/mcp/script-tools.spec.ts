@@ -71,6 +71,30 @@ function runner(
   return { catalog, denials, calls, run };
 }
 
+/**
+ * A timeout for runs a slot test stops together: long enough that, even on
+ * a loaded machine, they have all stopped before the first one's hold, as
+ * long again as its timeout, ends.
+ */
+const STOPPED_RUN_TIMEOUT_MS = 1_500;
+
+/** Waits until every script slot in the process is free again, so a slot
+ *  test leaves none held for the next. */
+const everySlotFree = (run: (code: string) => Promise<{ result?: unknown }>) =>
+  vi.waitFor(
+    async () => {
+      const results = await Promise.all(
+        Array.from({ length: MCP_SCRIPT_LIMITS.concurrentRuns }, () =>
+          run(`return 2;`),
+        ),
+      );
+      expect(results.map((payload) => payload.result)).toEqual(
+        Array.from({ length: MCP_SCRIPT_LIMITS.concurrentRuns }, () => 2),
+      );
+    },
+    { timeout: 10_000 },
+  );
+
 describe("mcpScriptCallPolicy", () => {
   it("allows only read-only actions that declare mcpScript: read", () => {
     expect(mcpScriptCallPolicy("get-doc", entry())).toEqual({ allowed: true });
@@ -780,7 +804,9 @@ describe("runMcpScript", () => {
     );
     const stopped = await Promise.all(
       Array.from({ length: MCP_SCRIPT_LIMITS.concurrentRuns }, () =>
-        run(`return await api.getDocument({});`, { timeoutMs: 500 }),
+        run(`return await api.getDocument({});`, {
+          timeoutMs: STOPPED_RUN_TIMEOUT_MS,
+        }),
       ),
     );
     expect(stopped.map((payload) => payload.error?.code)).toEqual(
@@ -795,10 +821,8 @@ describe("runMcpScript", () => {
     await vi.waitFor(() =>
       expect(settled).toBe(MCP_SCRIPT_LIMITS.concurrentRuns),
     );
-    await vi.waitFor(async () =>
-      expect((await run(`return 2;`)).result).toBe(2),
-    );
-  });
+    await everySlotFree(run);
+  }, 20_000);
 
   it("gives a stopped run's slot back when a call never settles", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -809,22 +833,66 @@ describe("runMcpScript", () => {
       );
       await Promise.all(
         Array.from({ length: MCP_SCRIPT_LIMITS.concurrentRuns }, () =>
-          run(`return await api.getDocument({});`, { timeoutMs: 500 }),
+          run(`return await api.getDocument({});`, {
+            timeoutMs: STOPPED_RUN_TIMEOUT_MS,
+          }),
         ),
       );
       expect((await run(`return 1;`)).error?.code).toBe("script_busy");
       // After as long again as the run's timeout.
-      await vi.waitFor(
-        async () => expect((await run(`return 2;`)).result).toBe(2),
-        { timeout: 5_000 },
-      );
+      await everySlotFree(run);
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("giving its slot back"),
       );
     } finally {
       warn.mockRestore();
     }
-  });
+  }, 20_000);
+
+  it("refuses new scripts while too many calls from stopped runs still run", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      const { run } = runner(
+        { "get-document": entry() },
+        {
+          callAction: async () => {
+            await gate;
+            return completed("done");
+          },
+        },
+      );
+      const stopped = await Promise.all(
+        Array.from({ length: MCP_SCRIPT_LIMITS.concurrentRuns }, () =>
+          run(
+            `await Promise.all(Array.from({ length: ${MCP_SCRIPT_LIMITS.inFlightCalls} }, () => api.getDocument({}))); return 1;`,
+            { timeoutMs: STOPPED_RUN_TIMEOUT_MS },
+          ),
+        ),
+      );
+      expect(
+        stopped.every((payload) => payload.error?.code === "script_timeout"),
+      ).toBe(true);
+      // Every run has given its slot back, and its calls still run.
+      await vi.waitFor(
+        () =>
+          expect(warn).toHaveBeenCalledTimes(MCP_SCRIPT_LIMITS.concurrentRuns),
+        { timeout: 10_000 },
+      );
+      expect(
+        MCP_SCRIPT_LIMITS.concurrentRuns * MCP_SCRIPT_LIMITS.inFlightCalls,
+      ).toBeGreaterThanOrEqual(MCP_SCRIPT_LIMITS.lingeringCalls);
+      expect((await run(`return 1;`)).error?.code).toBe("script_busy");
+      release();
+      await everySlotFree(run);
+    } finally {
+      release();
+      warn.mockRestore();
+    }
+  }, 20_000);
 
   it("holds a stopped run's slot while a refusal is still being recorded", async () => {
     let release!: () => void;
@@ -839,7 +907,7 @@ describe("runMcpScript", () => {
         known: {},
         callAction: async () => completed("done"),
         recordDenial: () => gate,
-        timeoutMs: 500,
+        timeoutMs: STOPPED_RUN_TIMEOUT_MS,
       });
     const stopped = await Promise.all(
       Array.from({ length: MCP_SCRIPT_LIMITS.concurrentRuns }, () =>
@@ -851,10 +919,8 @@ describe("runMcpScript", () => {
     ).toBe(true);
     expect((await run(`return 1;`)).error?.code).toBe("script_busy");
     release();
-    await vi.waitFor(async () =>
-      expect((await run(`return 2;`)).result).toBe(2),
-    );
-  });
+    await everySlotFree(run);
+  }, 20_000);
 
   it("stops a script that runs too long", async () => {
     const { run } = runner({ "get-document": entry() });
@@ -952,6 +1018,41 @@ describe("runMcpScript", () => {
       `api.getDocument takes at most ${MCP_SCRIPT_LIMITS.argumentChars} characters of arguments.`,
     ]);
     expect(calls).toEqual([]);
+  });
+
+  it("refuses arguments JSON would change, rather than calling with others", async () => {
+    const { run, calls } = runner({ "get-document": entry() });
+    const tried = await run(`
+      const self = {};
+      self.self = self;
+      const out = [];
+      for (const value of [
+        new Map([["a", 1]]), new Set([1]), new Date(0), NaN, Infinity, 1n,
+        [1, undefined], self,
+      ]) {
+        try { await api.getDocument({ value }); out.push("called"); }
+        catch (error) { out.push(\`\${error.code}: \${error.message}\`); }
+      }
+      return out;
+    `);
+    const held = (what: string) =>
+      `invalid_arguments: api.getDocument takes one object of JSON data, and its arguments hold ${what}.`;
+    expect(tried.result).toEqual([
+      held("a Map; convert it with Object.fromEntries"),
+      held("a Set; convert it with Array.from"),
+      held("a Date; pass date.toISOString()"),
+      held("NaN or Infinity; pass a finite number or null"),
+      held("NaN or Infinity; pass a finite number or null"),
+      held("a BigInt; pass it as a string or a number"),
+      held("undefined in a list; pass null"),
+      held("a circular reference"),
+    ]);
+    expect(calls).toEqual([]);
+    // A property left undefined is left out, as JSON leaves it out.
+    await run(
+      `return await api.getDocument({ id: "doc_1", skip: undefined });`,
+    );
+    expect(calls).toEqual([{ action: "get-document", args: { id: "doc_1" } }]);
   });
 
   it("measures arguments before a refusal records them, and all the way down", async () => {
