@@ -680,7 +680,8 @@ export function mcpScriptToolDescriptors(catalog: McpScriptCatalog): Array<{
           },
           query: {
             type: "string",
-            description: "Words to match against names and descriptions.",
+            maxLength: MAX_SEARCH_QUERY_CHARS,
+            description: `Words to match against names and descriptions, up to ${MAX_SEARCH_WORDS} words.`,
           },
         },
       },
@@ -697,6 +698,10 @@ export function mcpScriptToolDescriptors(catalog: McpScriptCatalog): Array<{
 const MAX_SEARCH_MATCHES = 20;
 /** Names one search looks up; the reply says when it left some out. */
 const MAX_SEARCH_NAMES = 50;
+/** The query one search reads, in characters and then words; the reply
+ *  says when it cut the query. */
+const MAX_SEARCH_QUERY_CHARS = 500;
+const MAX_SEARCH_WORDS = 20;
 
 /**
  * Declarations for the requested functions. Searches only what `run-script`
@@ -712,8 +717,10 @@ export function searchMcpScriptActions(
     ? input.names.filter((name): name is string => typeof name === "string")
     : [];
   const requested = named.slice(0, MAX_SEARCH_NAMES);
-  const query =
-    typeof input.query === "string" ? input.query.trim().toLowerCase() : "";
+  const typed = typeof input.query === "string" ? input.query.trim() : "";
+  const query = typed.slice(0, MAX_SEARCH_QUERY_CHARS).toLowerCase();
+  const queryWords = query.split(/\s+/).filter(Boolean);
+  const words = queryWords.slice(0, MAX_SEARCH_WORDS);
   const matched: string[] = [];
   const missing: string[] = [];
   for (const raw of requested) {
@@ -725,7 +732,6 @@ export function searchMcpScriptActions(
     else if (!action) missing.push(raw);
   }
   if (query) {
-    const words = query.split(/\s+/).filter(Boolean);
     for (const [fn, action] of catalog.byFunction) {
       if (matched.length >= MAX_SEARCH_MATCHES) break;
       if (matched.includes(action)) continue;
@@ -757,6 +763,14 @@ export function searchMcpScriptActions(
   if (missing.length > 0) {
     lines.push(
       `// Not available to scripts: ${missing.map((name) => JSON.stringify(oneLine(name, 80))).join(", ")}.`,
+    );
+  }
+  if (
+    typed.length > MAX_SEARCH_QUERY_CHARS ||
+    queryWords.length > words.length
+  ) {
+    lines.push(
+      `// Searched with the query's first ${words.length} words, within ${MAX_SEARCH_QUERY_CHARS} characters.`,
     );
   }
   if (named.length > requested.length) {
