@@ -95,7 +95,7 @@ describe("AgentKitActionWidget", () => {
     },
   );
 
-  it("leaves team progress to the task group once the thread tracks those tasks", async () => {
+  it("leaves team progress to the task group of the run that tracks those tasks", async () => {
     const toolCall: AgentToolCall = {
       id: "team-1",
       name: "agent-teams",
@@ -107,17 +107,23 @@ describe("AgentKitActionWidget", () => {
         status: "completed",
       },
       status: "completed",
+      runId: "run-2",
     };
     const widget: AgentWidget = {
       id: "team-1:chat-ui",
       kind: ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER,
       data: { toolCallId: toolCall.id, toolName: toolCall.name },
     };
-    const render = async (tracked: boolean) => {
+    const render = async (taskRunId: string) => {
+      const task = {
+        id: "task-1",
+        title: "Pricing research",
+        status: "completed" as const,
+      };
       const client = new AgentKitClient({
         transport: {
           async startRun() {
-            return { runId: "run-1" };
+            return { runId: "run-3" };
           },
           async *subscribeToRun() {},
           async cancelRun() {},
@@ -128,17 +134,18 @@ describe("AgentKitActionWidget", () => {
               updatedAt: "2026-09-26T00:00:00.000Z",
               messages: [],
               toolCalls: [toolCall],
-              ...(tracked
-                ? {
-                    tasks: [
-                      {
-                        id: "task-1",
-                        title: "Pricing research",
-                        status: "completed" as const,
-                      },
-                    ],
-                  }
-                : {}),
+              tasks: [task],
+              events: [
+                {
+                  id: "task-event-1",
+                  threadId: "thread-1",
+                  runId: taskRunId,
+                  sequence: 1,
+                  occurredAt: "2026-09-26T00:00:01.000Z",
+                  type: "task.completed" as const,
+                  task,
+                },
+              ],
             };
           },
         },
@@ -153,8 +160,9 @@ describe("AgentKitActionWidget", () => {
       );
     };
 
-    expect(await render(true)).toBe("");
-    expect(await render(false)).not.toBe("");
+    expect(await render("run-2")).toBe("");
+    // A task the thread tracks from an earlier run has no row in this run.
+    expect(await render("run-1")).not.toBe("");
   });
 
   it("resolves the renderer with stored action args and structured result", async () => {

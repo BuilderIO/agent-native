@@ -42,16 +42,23 @@ export function AgentKitActionWidget({
   if (!tool) return <AgentWidgetView value={widget} threadId={threadId} />;
 
   const resultJson = tool.output;
-  // The thread's task group already shows these tasks and their status.
+  // The run's task group already shows these tasks and their status.
   const teamTasks =
     widget.kind === ACTION_CHAT_UI_AGENT_TEAM_PROGRESS_RENDERER
       ? normalizeAgentTeamProgressResult(resultJson)?.tasks
       : undefined;
-  if (
-    teamTasks?.length &&
-    teamTasks.every((task) => task.taskId in thread.tasks)
-  ) {
-    return null;
+  if (teamTasks?.length && tool.runId) {
+    const runTaskIds = new Set(
+      thread.events.flatMap((event) =>
+        event.runId === tool.runId &&
+        (event.type === "task.created" ||
+          event.type === "task.updated" ||
+          event.type === "task.completed")
+          ? [event.task.id]
+          : [],
+      ),
+    );
+    if (teamTasks.every((task) => runTaskIds.has(task.taskId))) return null;
   }
   const messageId = thread.widgetMessageIds[widget.id];
   const attachedChangeWidgets =

@@ -5029,49 +5029,61 @@ describe("createAgentNativeChatRuntime", () => {
     ]);
   });
 
-  it("streams a delegated agent's reply into one message row", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        sseResponse([
-          {
-            type: "agent_call",
-            agent: "Researcher",
-            status: "start",
-            agentCallId: "call-1",
-            seq: 1,
-          },
-          {
-            type: "agent_call_text",
-            agent: "Researcher",
-            agentCallId: "call-1",
-            text: "The largest",
-            seq: 2,
-          },
-          {
-            type: "agent_call_text",
-            agent: "Researcher",
-            agentCallId: "call-1",
-            text: " lake is Ladoga.",
-            seq: 3,
-          },
-          {
-            type: "agent_call",
-            agent: "Researcher",
-            status: "start",
-            agentCallId: "call-2",
-            seq: 4,
-          },
-          {
-            type: "agent_call_text",
-            agent: "Researcher",
-            agentCallId: "call-2",
-            text: "Second call.",
-            seq: 5,
-          },
-          { type: "done" },
-        ]),
-      );
+  it("sends a delegated agent's streamed reply as one message when the call ends", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "start",
+          agentCallId: "call-1",
+          seq: 1,
+        },
+        {
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-1",
+          text: "The largest",
+          seq: 2,
+        },
+        {
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-1",
+          text: " lake is Ladoga.",
+          seq: 3,
+        },
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "start",
+          agentCallId: "call-2",
+          seq: 4,
+        },
+        {
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-2",
+          text: "Second call.",
+          seq: 5,
+        },
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "done",
+          agentCallId: "call-1",
+          seq: 6,
+        },
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "done",
+          agentCallId: "call-2",
+          seq: 7,
+        },
+        { type: "done" },
+      ]),
+    );
     const runtime = createAgentNativeChatRuntime({
       threadId: "thread-stream",
       fetch: fetchMock as typeof fetch,
@@ -5091,7 +5103,6 @@ describe("createAgentNativeChatRuntime", () => {
         : [],
     );
     expect(messages).toEqual([
-      ["call-1:message", "The largest"],
       ["call-1:message", "The largest lake is Ladoga."],
       ["call-2:message", "Second call."],
     ]);
@@ -5195,10 +5206,10 @@ describe("createAgentNativeChatRuntime", () => {
       "task",
       "participant",
       "activity",
-      "interaction",
       "activity",
       // No "completed" interaction: the activity row already reports the end.
       "participant",
+      "interaction",
       "task",
       "task",
       "task",
@@ -5226,7 +5237,7 @@ describe("createAgentNativeChatRuntime", () => {
         data: { state: "working", elapsedSeconds: 12 },
       },
     });
-    expect(events[5]).toMatchObject({
+    expect(events[7]).toMatchObject({
       type: "interaction",
       interaction: {
         id: "agent-call-1:message",
@@ -5234,7 +5245,7 @@ describe("createAgentNativeChatRuntime", () => {
         detail: "Found the runtime boundary.",
       },
     });
-    expect(events[6]).toMatchObject({
+    expect(events[5]).toMatchObject({
       type: "activity",
       activity: {
         id: "agent-call-1:activity",
@@ -5254,8 +5265,8 @@ describe("createAgentNativeChatRuntime", () => {
     expect(rowLabels).toHaveLength(4);
     expect(rowLabels).not.toContain("Planck");
     expect(rowLabels).not.toContain("working");
-    expect(events[5]).not.toHaveProperty("interaction.label");
-    expect(events[7]).toMatchObject({
+    expect(events[7]).not.toHaveProperty("interaction.label");
+    expect(events[6]).toMatchObject({
       type: "participant",
       operation: "update",
       participant: {
@@ -5310,6 +5321,64 @@ describe("createAgentNativeChatRuntime", () => {
       task: { title: "Write the hero copy", status: "completed" },
     });
     expect(tasks[1]?.task).not.toHaveProperty("detail");
+  });
+
+  it("keeps a background task's name and thread through its progress", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_task",
+          taskId: "task-1",
+          threadId: "child-1",
+          description: "Research pricing pages",
+          name: "Pricing research",
+          status: "running",
+        },
+        {
+          type: "agent_task_update",
+          taskId: "task-1",
+          currentStep: "Reading the pricing page",
+          preview: "Found three tiers",
+        },
+        {
+          type: "agent_task_complete",
+          taskId: "task-1",
+          summary: "Three tiers, from $10.",
+        },
+        { type: "done" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-progress",
+      fetch: fetchMock as typeof fetch,
+    });
+    const events = await drain(
+      (
+        await (
+          await runtime.createSession({ id: "thread-progress" })
+        ).startTurn({ prompt: "Plan it" })
+      ).events,
+    );
+    const tasks = events.flatMap((event) =>
+      event.type === "task" ? [event] : [],
+    );
+    expect(tasks.map((event) => event.operation)).toEqual([
+      "create",
+      "update",
+      "complete",
+    ]);
+    expect(tasks[1]?.task).toMatchObject({
+      title: "Pricing research",
+      threadId: "child-1",
+      detail: "Reading the pricing page",
+      summary: "Found three tiers",
+    });
+    expect(tasks[2]?.task).toMatchObject({
+      title: "Pricing research",
+      threadId: "child-1",
+      status: "completed",
+      summary: "Three tiers, from $10.",
+    });
   });
 
   it("maps a failed agent_call to a reason key instead of the app name or raw code", async () => {
