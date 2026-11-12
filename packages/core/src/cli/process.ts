@@ -32,8 +32,9 @@ export function cliSpawnOptions(
 ): Pick<SpawnOptions, "env" | "shell" | "stdio"> {
   return {
     stdio: options.stdio ?? "inherit",
-    // cmd.exe is only for command-name shims like pnpm. It splits an unquoted
-    // path at its spaces, and Node installs to C:\Program Files by default.
+    // This Node never needs cmd.exe, which splits an unquoted path at its
+    // spaces, and Node installs to C:\Program Files by default. Shims like
+    // pnpm and .cmd files still do.
     shell:
       options.shell ?? (platform === "win32" && command !== process.execPath),
     env: options.env ?? process.env,
