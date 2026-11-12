@@ -2246,6 +2246,18 @@ export default {
         "Un autre collaborateur a des modifications en attente. Appliquez-les ou effacez-les avant d’en envoyer de nouvelles.",
       codingHandoffCopied: "Transfert de code copié",
       clipboardBlocked: "Presse-papiers bloqué",
+      pasteMediaTooMany_one:
+        "{{count}} fichier n’a pas été collé. Vous pouvez coller jusqu’à {{limit}} fichiers à la fois.",
+      pasteMediaTooMany_many:
+        "{{count}} fichiers n’ont pas été collés. Vous pouvez coller jusqu’à {{limit}} fichiers à la fois.",
+      pasteMediaTooMany_other:
+        "{{count}} fichiers n’ont pas été collés. Vous pouvez coller jusqu’à {{limit}} fichiers à la fois.",
+      pasteMediaTooLarge_one:
+        "{{count}} fichier n’a pas été collé, car il dépasse {{limitMb}} Mo.",
+      pasteMediaTooLarge_many:
+        "{{count}} fichiers n’ont pas été collés, car ils dépassent {{limitMb}} Mo.",
+      pasteMediaTooLarge_other:
+        "{{count}} fichiers n’ont pas été collés, car ils dépassent {{limitMb}} Mo.",
       htmlCreateError: "Impossible de créer le téléchargement HTML",
       htmlDownloaded: "HTML téléchargé",
       htmlExportError: "Impossible d’exporter HTML",

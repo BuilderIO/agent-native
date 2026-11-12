@@ -2254,6 +2254,14 @@ export default {
       pasteClipboardUnreadable: "Allow clipboard access to paste here",
       pasteClipboardUntrusted:
         "Can't paste layers copied from Design on another site",
+      pasteMediaTooMany_one:
+        "{{count}} file wasn't pasted. You can paste up to {{limit}} files at once.",
+      pasteMediaTooMany_other:
+        "{{count}} files weren't pasted. You can paste up to {{limit}} files at once.",
+      pasteMediaTooLarge_one:
+        "{{count}} file wasn't pasted because it's over {{limitMb}} MB.",
+      pasteMediaTooLarge_other:
+        "{{count}} files weren't pasted because they're over {{limitMb}} MB.",
       swapFillStrokeLayeredFill:
         "Multiple or image fills can't move to a stroke yet",
       alignNeedsTwoLayers: "Select two or more layers to align them",

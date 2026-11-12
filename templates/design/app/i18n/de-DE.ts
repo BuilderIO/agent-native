@@ -2248,6 +2248,14 @@ export default {
         "Bei einem anderen Mitwirkenden warten Änderungen. Wende sie an oder verwerfe sie, bevor du neue Änderungen sendest.",
       codingHandoffCopied: "Code-Übergabe kopiert",
       clipboardBlocked: "Zwischenablage blockiert",
+      pasteMediaTooMany_one:
+        "{{count}} Datei wurde nicht eingefügt. Du kannst auf einmal bis zu {{limit}} Dateien einfügen.",
+      pasteMediaTooMany_other:
+        "{{count}} Dateien wurden nicht eingefügt. Du kannst auf einmal bis zu {{limit}} Dateien einfügen.",
+      pasteMediaTooLarge_one:
+        "{{count}} Datei wurde nicht eingefügt, weil sie größer als {{limitMb}} MB ist.",
+      pasteMediaTooLarge_other:
+        "{{count}} Dateien wurden nicht eingefügt, weil sie größer als {{limitMb}} MB sind.",
       htmlCreateError: "HTML-Download konnte nicht erstellt werden",
       htmlDownloaded: "HTML heruntergeladen",
       htmlExportError: "HTML konnte nicht exportiert werden",
