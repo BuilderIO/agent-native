@@ -605,6 +605,8 @@ const messages = {
     them: "هم",
     me: "أنا",
     regeneratingNotes: "جارٍ إعادة إنشاء الملخص",
+    notesAlreadyGenerating:
+      "يجري إنشاء ملخص بالفعل. سيظهر هنا عندما يصبح جاهزًا.",
     meetingRemoved: "تمت إزالة الاجتماع",
     couldNotRemoveMeeting: "تعذرت إزالة الاجتماع",
     couldNotLoadMeeting: "تعذر تحميل هذا الاجتماع.",
@@ -700,6 +702,8 @@ const messages = {
     noMatches: "لا توجد مباريات.",
     noTranscript: "لا يوجد نسخة بعد.",
     noTranscriptCaptured: "لم يتم التقاط أي نص.",
+    unreadableDescription:
+      "النص المحفوظ تالف. تؤدي إعادة إنشائه إلى إنشاء نص جديد من صوت المقطع.",
     partialTranscript: "نص جزئي: تم قطع التسجيل، لذا قد يكون جزء منه مفقودًا.",
     backupFailed:
       "لم يتم التقاط أي خطاب محليًا، ولم ينته النسخ الاحتياطي. أعد المحاولة أو تحقق من أذونات الميكروفون والكلام.",
@@ -778,6 +782,10 @@ const messages = {
     saveThumbnail: "حفظ الصورة المصغرة",
   },
   shareDialog: {
+    enterPassword: "أدخل كلمة مرور",
+    showPassword: "إظهار كلمة المرور",
+    hidePassword: "إخفاء كلمة المرور",
+    copyPassword: "نسخ كلمة المرور",
     redactionsPendingTitle: "أكمل التنقيح قبل المشاركة",
     redactionsPendingBody:
       "عمليات التنقيح المعلّقة: {{count}}. طبّقها في المحرر قبل المشاركة؛ فما زال الفيديو يحتوي على المحتوى الأصلي.",
@@ -2019,6 +2027,7 @@ const messages = {
     freeClipsLeft_few: "متبقية {{count}} مقاطع مجانية",
     freeClipsLeft_many: "متبقٍ {{count}} مقطعًا مجانيًا",
     freeClipsLeft_other: "متبقٍ {{count}} من المقاطع المجانية",
+    activateBuilder: "تفعيل Builder.io",
     hostedClipsExhaustedTitle: "اربط Builder.io مجانًا لمواصلة التسجيل",
     hostedClipsExhaustedDescription:
       "استخدمت كل المقاطع المجانية المستضافة. اربط مساحة تخزين Builder.io لمواصلة حفظ المقاطع في مكتبتك.",

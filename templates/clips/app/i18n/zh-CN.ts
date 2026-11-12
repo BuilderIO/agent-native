@@ -578,6 +578,7 @@ const messages = {
     them: "他们",
     me: "我",
     regeneratingNotes: "正在重新生成摘要",
+    notesAlreadyGenerating: "摘要已在生成中，完成后会显示在这里。",
     meetingRemoved: "会议已删除",
     couldNotRemoveMeeting: "无法删除会议",
     couldNotLoadMeeting: "无法加载该会议。",
@@ -658,6 +659,8 @@ const messages = {
     noMatches: "没有匹配项。",
     noTranscript: "还没有文字记录。",
     noTranscriptCaptured: "没有捕获任何文字记录。",
+    unreadableDescription:
+      "已保存的转录文本已损坏。重新生成会根据片段的音频创建新的转录文本。",
     partialTranscript: "部分文字记录：录制被截断，部分内容可能缺失。",
     backupFailed:
       "本地未捕获任何语音，备份转录未完成。重试或检查麦克风和语音权限。",
@@ -735,6 +738,10 @@ const messages = {
     saveThumbnail: "保存缩略图",
   },
   shareDialog: {
+    enterPassword: "输入密码",
+    showPassword: "显示密码",
+    hidePassword: "隐藏密码",
+    copyPassword: "复制密码",
     redactionsPendingTitle: "分享前完成遮挡处理",
     redactionsPendingBody:
       "待应用的遮挡：{{count}} 处。请先在编辑器中应用；视频中仍保留原始内容。",
@@ -1924,6 +1931,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "还剩 {{count}} 个免费片段",
     freeClipsLeft_other: "还剩 {{count}} 个免费片段",
+    activateBuilder: "激活 Builder.io",
     hostedClipsExhaustedTitle: "免费连接 Builder.io，继续录制",
     hostedClipsExhaustedDescription:
       "免费托管录制次数已用完。连接 Builder.io 存储，即可继续将片段保存到资料库。",

@@ -643,6 +643,8 @@ const messages = {
     them: "Eux",
     me: "Moi",
     regeneratingNotes: "Régénération du résumé",
+    notesAlreadyGenerating:
+      "Un résumé est déjà en cours de génération. Il s'affichera ici dès qu'il sera prêt.",
     meetingRemoved: "Réunion supprimée",
     couldNotRemoveMeeting: "Impossible de supprimer la réunion",
     couldNotLoadMeeting: "Impossible de charger cette réunion.",
@@ -731,6 +733,8 @@ const messages = {
     noMatches: "Aucun match.",
     noTranscript: "Pas encore de transcription.",
     noTranscriptCaptured: "Aucune transcription n’a été capturée.",
+    unreadableDescription:
+      "La transcription enregistrée est endommagée. La régénérer en crée une nouvelle à partir de l’audio du clip.",
     partialTranscript:
       "Transcription partielle : l’enregistrement a été coupé, il peut donc manquer des passages.",
     backupFailed:
@@ -816,6 +820,10 @@ const messages = {
     saveThumbnail: "Enregistrer la miniature",
   },
   shareDialog: {
+    enterPassword: "Saisir un mot de passe",
+    showPassword: "Afficher le mot de passe",
+    hidePassword: "Masquer le mot de passe",
+    copyPassword: "Copier le mot de passe",
     redactionsPendingTitle: "Terminer les masquages avant le partage",
     redactionsPendingBody:
       "Masquages en attente : {{count}}. Appliquez-les dans l’éditeur avant de partager ; la vidéo contient encore le contenu d’origine.",
@@ -2084,6 +2092,7 @@ const messages = {
     freeClipsLeft_one: "Il vous reste {{count}} clip gratuit",
     freeClipsLeft_other: "Il vous reste {{count}} clips gratuits",
     freeClipsLeft_many: "Il vous reste {{count}} clips gratuits",
+    activateBuilder: "Activer Builder.io",
     hostedClipsExhaustedTitle:
       "Connectez Builder.io gratuitement pour continuer à enregistrer",
     hostedClipsExhaustedDescription:

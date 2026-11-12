@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
 import type { CommentAiRequest } from "@shared/comment-ai";
-import { act, createElement } from "react";
+import { act, createElement, useRef } from "react";
+import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,6 +20,7 @@ import {
   type CommentAiController,
   useCommentAiRequests,
   useFreshAiResolutions,
+  useLeftAloneCountdown,
 } from "./comment-ai";
 
 const api = vi.hoisted(() => ({
@@ -843,7 +845,7 @@ describe("comment AI controls", () => {
 
   it("keeps fresh Ask AI blocked while a transport-unknown original completes late", async () => {
     vi.useFakeTimers();
-    let controller: CommentAiController;
+    let controller: CommentAiController | undefined;
     function Probe() {
       controller = useCommentAiRequests("document-1", { enabled: true });
       return null;
@@ -900,6 +902,8 @@ describe("comment AI controls", () => {
     act(() => root.render(createElement(Probe)));
 
     expect(controller!.requests[0]).toMatchObject({ status: "needs-review" });
+    // What the run writes is read from the server's status, not the shown one.
+    expect(controller?.serverRequests[0]).toMatchObject({ status: "queued" });
     await act(async () => {
       await controller!.start({
         threadId: "thread-1",
@@ -1366,5 +1370,149 @@ describe("comment AI continuation context", () => {
     expect(context).toContain("[Turn truncated]");
     expect(context).toContain("[Earlier conversation omitted]");
     expect(context).toContain("The latest launch fact is ORCHID-742.");
+  });
+});
+
+describe("useLeftAloneCountdown", () => {
+  const HOLD_MS = 1_000;
+  let container: HTMLDivElement;
+  let root: Root;
+
+  /** A card with a reply button inside it and a menu it opened in a portal. */
+  function Card({
+    enabled,
+    onGone,
+    showReply = true,
+    showMenu = true,
+    menuOpen = false,
+  }: {
+    enabled: boolean;
+    onGone: () => void;
+    showReply?: boolean;
+    showMenu?: boolean;
+    menuOpen?: boolean;
+  }) {
+    const ref = useRef<HTMLDivElement>(null);
+    const { handlers } = useLeftAloneCountdown({
+      ref,
+      enabled,
+      holdMs: HOLD_MS,
+      onGone,
+    });
+    return (
+      <div ref={ref} {...handlers}>
+        {showReply ? <button data-reply="">Reply</button> : null}
+        <button aria-haspopup="menu" aria-expanded={menuOpen}>
+          More
+        </button>
+        {showMenu
+          ? createPortal(<button data-menu-item="">Edit</button>, document.body)
+          : null}
+      </div>
+    );
+  }
+  const button = (selector: string) => {
+    const element = document.querySelector<HTMLButtonElement>(selector);
+    if (!element) throw new Error(`No ${selector}`);
+    return element;
+  };
+  const wait = (ms: number) =>
+    act(() => {
+      vi.advanceTimersByTime(ms);
+    });
+
+  const actEnvironment = globalThis as typeof globalThis & {
+    IS_REACT_ACT_ENVIRONMENT?: boolean;
+  };
+  let wasActEnvironment: boolean | undefined;
+
+  beforeEach(() => {
+    wasActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.useRealTimers();
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = wasActEnvironment;
+  });
+
+  it("starts the count over when the focused element goes without a blur", async () => {
+    const onGone = vi.fn();
+    act(() => root.render(createElement(Card, { enabled: true, onGone })));
+    act(() => button("[data-reply]").focus());
+    wait(HOLD_MS * 3);
+    expect(onGone).not.toHaveBeenCalled();
+
+    // A peer deleting the reply takes its button, and the focus, with it.
+    // The page reports the removal once the render's task is done.
+    await act(async () =>
+      root.render(
+        createElement(Card, { enabled: true, onGone, showReply: false }),
+      ),
+    );
+    wait(HOLD_MS - 100);
+    expect(onGone).not.toHaveBeenCalled();
+    wait(100);
+    expect(onGone).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts the count over when its menu closes under the pointer", async () => {
+    const onGone = vi.fn();
+    act(() => root.render(createElement(Card, { enabled: true, onGone })));
+    act(() => {
+      button("[data-menu-item]").dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true }),
+      );
+    });
+    wait(HOLD_MS * 3);
+    expect(onGone).not.toHaveBeenCalled();
+
+    // Choosing an item closes the menu, which sends no pointerleave.
+    await act(async () =>
+      root.render(
+        createElement(Card, { enabled: true, onGone, showMenu: false }),
+      ),
+    );
+    wait(HOLD_MS);
+    expect(onGone).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds while a menu it opened stays open after the pointer leaves", async () => {
+    const onGone = vi.fn();
+    act(() => root.render(createElement(Card, { enabled: true, onGone })));
+    await act(async () =>
+      root.render(
+        createElement(Card, { enabled: true, onGone, menuOpen: true }),
+      ),
+    );
+    wait(HOLD_MS * 3);
+    expect(onGone).not.toHaveBeenCalled();
+
+    await act(async () =>
+      root.render(
+        createElement(Card, { enabled: true, onGone, menuOpen: false }),
+      ),
+    );
+    wait(HOLD_MS);
+    expect(onGone).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds for keyboard focus in its portal menu when the count starts", () => {
+    const onGone = vi.fn();
+    act(() => root.render(createElement(Card, { enabled: false, onGone })));
+    act(() => button("[data-menu-item]").focus());
+    act(() => root.render(createElement(Card, { enabled: true, onGone })));
+    wait(HOLD_MS * 3);
+    expect(onGone).not.toHaveBeenCalled();
+
+    act(() => button("[data-menu-item]").blur());
+    wait(HOLD_MS);
+    expect(onGone).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -27,10 +27,15 @@ export default defineAction({
     const now = new Date().toISOString();
 
     const userEmail = getRequestUserEmail();
-    if (!userEmail) throw new Error("no authenticated user");
+    if (!userEmail) {
+      fail("Sign in to change the default design system.", {
+        errorCode: "unauthenticated",
+        statusCode: 401,
+      });
+    }
     const orgId = getRequestOrgId();
 
-    const [target] = await db
+    const targets = await db
       .select({
         ownerEmail: schema.designSystems.ownerEmail,
         orgId: schema.designSystems.orgId,
@@ -38,12 +43,22 @@ export default defineAction({
       .from(schema.designSystems)
       .where(eq(schema.designSystems.id, id))
       .limit(1);
+    const target = targets.length > 0 ? targets[0] : undefined;
 
+    if (!target) {
+      fail("Design system not found.", {
+        errorCode: "design_system_not_found",
+        statusCode: 404,
+      });
+    }
     if (
-      target?.ownerEmail !== userEmail ||
+      target.ownerEmail !== userEmail ||
       (target.orgId ?? null) !== (orgId ?? null)
     ) {
-      throw new Error("Only the owner can set a design system as default");
+      fail("Only the owner can set a design system as default", {
+        errorCode: "design_system_not_owner",
+        statusCode: 403,
+      });
     }
 
     await db.transaction(async (tx) => {

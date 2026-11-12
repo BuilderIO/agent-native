@@ -7,6 +7,7 @@ import {
   SqlQueryRefusalError,
   supportsSqlQueryCacheBypass,
   type SqlQueryExecutionMetadata,
+  type BigQueryUsageAccounting,
 } from "@shared/sql-query-contract";
 import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
@@ -202,6 +203,7 @@ function logSqlQueryTiming(timing: {
 }
 
 function responseMetadata(data: DashboardPanelQueryResponse): {
+  usageAccounting?: BigQueryUsageAccounting;
   cached?: boolean;
   providerCacheHit?: boolean;
   truncated?: boolean;
@@ -209,6 +211,8 @@ function responseMetadata(data: DashboardPanelQueryResponse): {
   fetchedAt?: string;
 } {
   const metadata: ReturnType<typeof responseMetadata> = {};
+  if (data.usageAccounting !== undefined)
+    metadata.usageAccounting = data.usageAccounting;
   if (typeof data.cached === "boolean") metadata.cached = data.cached;
   if (typeof data.providerCacheHit === "boolean") {
     metadata.providerCacheHit = data.providerCacheHit;
@@ -549,7 +553,17 @@ export function useSqlQuery(
       if (manualRequested && pendingManualRefresh.current === manual) {
         pendingManualRefresh.current = null;
       }
-      if (manual && forceRefresh && !manual.failed && !signal.aborted) {
+      // A background data program answers a forced refresh with its last
+      // rows while the new run goes on, so only its fresh rows say
+      // "Refreshed". (BigQuery marks rows cached when a forced refresh joins
+      // one already running, and those rows are new.)
+      if (
+        manual &&
+        forceRefresh &&
+        !manual.failed &&
+        !signal.aborted &&
+        !(source === "program" && result.cached === true)
+      ) {
         completedManualRefresh.current = {
           token: manual.token,
           queryKeyHash,

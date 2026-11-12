@@ -142,7 +142,7 @@ export function AnnotationsMenu({
           });
         }}
       >
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
+        <DropdownMenuLabel className="text-muted-foreground">
           {t("annotations.keyDates")}
         </DropdownMenuLabel>
         {sets.map((set) => (
@@ -172,7 +172,7 @@ export function AnnotationsMenu({
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
+        <DropdownMenuLabel className="text-muted-foreground">
           {t("annotations.dataNotes")}
         </DropdownMenuLabel>
         {notesHere.map((note) => {

@@ -1039,7 +1039,6 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "이 화면을 불러올 수 없습니다.",
-    writeFailed: "변경 사항을 저장하지 못했습니다.",
     selectionPublishFailed:
       "에이전트가 최신 선택 영역을 보지 못할 수 있습니다. 다시 선택해 주세요.",
     liveCollaboration: {
@@ -1631,31 +1630,18 @@ export default {
       editColor: "{{name}} 색상 편집",
     },
     import: {
-      title: "가져오기",
       description:
         "Figma 클립보드 HTML 또는 독립 HTML을 Design 화면으로 가져옵니다.",
-      figmaUrlTitle: "Figma 프레임 URL",
-      figmaUrlDescription: "Figma 링크에서 프레임이나 파일을 가져옵니다.",
       figmaUrlLabel: "Figma 프레임 또는 파일 URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "Figma 연결 확인 중…",
-      figmaConnected: "Figma 연결됨",
-      figmaConnectedWithSuffix: "Figma 연결됨 · ••••{{suffix}}",
       figmaTokenLabel: "Figma 액세스 토큰",
       figmaTokenDocs: "토큰 받기",
       figmaTokenPlaceholder: "Figma 개인 액세스 토큰 붙여넣기",
-      figmaTokenDescription:
-        "Figma 가져오기와 에이전트 채팅에 안전하게 저장됩니다. 토큰은 채팅에 추가되지 않습니다.",
-      importFigmaUrl: "Figma에서 가져오기",
-      saveKeyAndImport: "키 저장 후 가져오기",
       figmaUrlSuccess: "Figma에서 가져왔습니다.",
       figmaImageFallbackWarning:
         "이미지 대체: {{count}}. 모양은 유지되지만 이 레이어는 완전히 편집할 수 없습니다.",
       figmaApproximationWarning:
         "근사 처리된 레이어: {{count}}. HTML/CSS로 모든 Figma 속성을 정확히 표현할 수 없습니다.",
-      figmaPasteTitle: "Figma에서 붙여넣기",
-      figmaPasteDescription:
-        "Figma에서 프레임이나 레이어를 복사한 뒤 Design 캔버스에 붙여넣으세요. Design은 보이는 클립보드 HTML을 가져옵니다.",
       figmaPasteTarget: "캔버스에 붙여넣기",
       figmaPasteApiKeyHint:
         "정확한 노드 가져오기를 위해 Figma 액세스 토큰을 연결하세요.",
@@ -1664,10 +1650,10 @@ export default {
       figmaPasteMatchGuidance:
         "특정 Figma 노드와 일치시킬 수 없습니다. 정확한 가져오기를 위해 프레임 링크를 붙여넣으세요.",
       figmaPasteUnreadable:
-        "클립보드에 복사된 Figma 레이어가 없습니다. Figma에서 프레임을 선택해 Cmd+C로 복사한 뒤 다시 붙여넣거나, 가져오기 패널에서 Figma 링크를 가져오세요.",
+        "클립보드에 복사된 Figma 레이어가 없습니다. Figma에서 프레임을 선택해 Cmd+C로 복사한 뒤 다시 붙여넣거나, 채팅에 프레임 링크를 붙여넣으세요.",
       figmaPasteRestLabel: "Figma API로 가져옴",
       figmaPasteHtmlLabel: "클립보드 미리보기에서 가져옴",
-      figmaPasteLocalKiwiLabel: "토큰 없이 가져옴 — 기하학적 구조와 텍스트만",
+      figmaPasteLocalKiwiLabel: "Figma 클립보드에서 가져옴",
       figmaPasteImagesNeedToken:
         "{{count}}개의 이미지{{plural}}를 로드하려면 Figma 접근이 필요합니다.",
       figmaPasteImagesDontShowAgain: "다시 표시하지 않기",
@@ -1699,74 +1685,29 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: ".fig 업로드",
       figUploadDescription:
         "실험적 기능: Figma의 .fig 형식은 독점 형식이며 변경될 수 있습니다. 지원되는 레이어는 편집 가능한 화면으로 변환되지만 일부 기능은 다를 수 있습니다. 최대 {{max}}MB.",
-      chooseFigFile: ".fig 파일 선택",
       figUploadUploading: "업로드 중 {{progress}}%",
       figUploadProcessing: "변환 중…",
-      figImportWarningTitle: "대용량 .fig 가져오기",
-      figImportWarningDescription:
-        "이 파일에는 프레임 {{frames}}개와 레이어 {{nodes}}개가 있습니다. 모두 가져오면 편집기가 느려질 수 있습니다. 필요한 페이지를 선택하세요.",
-      figImportFrameCount: "{{total}}개 중 {{selected}}개 프레임 선택",
-      figImportSelectAll: "모두 선택",
-      figImportClearAll: "모두 지우기",
-      figImportCancel: "취소",
-      figImportSelected: "선택한 {{count}}개 가져오기",
-      figImportAll: "모두 가져오기",
       figImportAnalyzing: "분석 중…",
       figImportSaving: "{{total}}개 중 {{saved}}개 프레임 저장 중",
-      figImportFrameLimit:
-        "프레임 합계가 {{max}}개 이하가 되도록 페이지를 선택하세요.",
       figImportFramesSkippedWarning:
         "너무 복잡해서 가져올 수 없는 프레임 {{count}}개를 건너뛰었습니다: {{names}}",
-      figUploadLimits: "최대 {{size}}GB · 가져오기당 프레임 {{frames}}개",
-      figUploadDescriptionShort:
-        "로컬 가져오기 — Figma API 할당량을 사용하지 않습니다. 지원되는 포함 이미지가 포함됩니다.",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "Design이 이 가져오기를 일시 중지했습니다",
-      quotaCooldownBody:
-        "할당량 한도에 도달해 Design이 자체 Figma 요청 속도를 조절하고 있습니다. 자동으로 초기화됩니다.",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "HTML 가져오기",
       htmlDescription:
         "독립 HTML을 붙여넣거나 업로드하세요. Design은 이를 새 화면으로 저장하며 이 편집기 UI에 삽입하지 않습니다.",
-      htmlPlaceholder: "<main>독립 HTML을 여기에 붙여넣기...</main>",
-      importHtml: "HTML 가져오기",
-      chooseHtmlFile: "HTML 파일 선택",
       allSupportedFiles: "지원되는 모든 파일",
-      githubTitle: "GitHub",
       githubDescription:
         "곧 제공: 저장소에서 화면과 컴포넌트를 직접 가져옵니다.",
-      localTitle: "로컬 app",
       localDescription: "/visual-edit로 실행 중인 모든 로컬 app을 연결합니다.",
-      visualEditGuidance:
-        "/visual-edit skill을 설치하고 로컬 app을 시작한 뒤, 해당 app repo에서 브리지 명령을 실행해 에이전트가 URL 기반 화면을 추가할 수 있게 하세요.",
-      comingSoon: "곧 제공",
       warningsToast: "경고와 함께 가져오기가 완료되었습니다",
       figmaSuccess: "Figma 붙여넣기를 가져왔습니다",
       htmlSuccess: "HTML을 가져왔습니다",
       uploadSuccess: "파일을 가져왔습니다",
-      lastImport: "최근 가져오기",
       errors: {
         figmaTokenMustBeToken:
           "Figma 파일 링크가 아닌 Figma 액세스 토큰을 붙여넣으세요.",
-        figmaUrlRequired: "Figma 프레임 또는 파일 URL을 붙여넣으세요.",
-        invalidFigmaUrl: "유효한 figma.com URL을 입력하세요.",
         figmaImportFailed: "Figma에서 가져올 수 없습니다",
         notHtml: "가져올 유효한 HTML을 붙여넣거나 선택하세요.",
         importFailed: "가져오기 실패",
@@ -1774,10 +1715,11 @@ export default {
         uploadFailed: "파일 업로드 실패",
         invalidFigFile: ".fig로 끝나는 파일을 선택하세요.",
         unsupportedFileType: ".fig, .html 또는 .htm 파일을 선택하세요.",
-        importBusy:
-          "다른 가져오기가 진행 중입니다. 먼저 완료하거나 취소하세요.",
+        importBusy: "다른 가져오기가 진행 중입니다. 완료된 후 다시 시도하세요.",
         figFileTooLarge:
-          "이 .fig 파일은 너무 큽니다. 업로드는 {{max}}MB까지 지원됩니다. Figma에서 원하는 프레임만 새 파일로 복사한 뒤 그 파일을 .fig로 내보내거나, 'Figma에서 붙여넣기'를 사용하세요.",
+          "이 파일은 너무 커서 여기서 가져올 수 없습니다. 대신 Figma 페이지나 프레임 링크를 붙여넣으세요.",
+        figFileUnreadable:
+          "이 파일을 .fig 파일로 읽을 수 없습니다. Figma에서 새 로컬 사본을 저장한 후 가져오세요.",
       },
     },
     generationMayHaveStopped:
@@ -1837,9 +1779,12 @@ export default {
         "복제하기 전에 보류 중인 시각적 편집을 적용하거나 취소하세요.",
       allDesigns: "모든 디자인",
       rename: "이름 바꾸기",
+      builtFrom: "{{title}}에서 만듦",
+      builtFromPage: "Content 페이지에서 만듦",
       duplicate: "복제",
       versionHistory: "버전 기록",
       import: "가져오기…",
+      connectLocalApp: "로컬 앱 연결",
       delete: "삭제",
       deleteError: "이 디자인을 삭제할 수 없습니다",
     },
@@ -2629,6 +2574,8 @@ export default {
     changesDiscarded:
       "파일이 더 이상 존재하지 않아 일부 변경사항을 저장하지 못하고 삭제했습니다.",
     offline: "오프라인",
+    unsaved: "저장되지 않음",
+    saveRetrying: "변경사항을 저장하지 못했습니다. 자동으로 다시 시도합니다.",
     saving: "저장 중...",
     clearedAllAnnotations: "모든 주석이 지워졌습니다",
     annotationsDiscardedOnViewChange:
@@ -2686,7 +2633,6 @@ export default {
     websiteReferenceMenu: "웹사이트 추가…",
     websiteUrlLabel: "웹사이트 URL",
     websiteUrl: "웹사이트 URL 붙여넣기",
-    figmaUrlLabel: "Figma 링크",
     invalidFigmaUrl: "유효한 figma.com 프레임 또는 파일 URL을 입력하세요.",
     tooMany: "참조는 최대 20개까지 선택하세요.",
     invalidWebsiteUrl: "유효한 HTTP 또는 HTTPS URL을 입력하세요.",
@@ -2694,16 +2640,14 @@ export default {
     noSystems:
       "아직 디자인 시스템이 없습니다. 웹사이트, 파일 또는 Figma에서 만들어 보세요.",
     searchSystems: "디자인 시스템 검색…",
-    searchFrames: "Figma 프레임 검색…",
     searchDesigns: "디자인 검색…",
     searchPresentations: "프레젠테이션 검색…",
+    searchPages: "페이지 검색…",
     searchDesign: "디자인 검색…",
     useDesignSystem: "디자인 시스템 사용",
     notReady:
       "아직 요청을 제출할 수 없습니다. 선택한 컨텍스트와 연결을 확인한 후 다시 시도하세요.",
     search: "컨텍스트 검색…",
-    figmaUrl: "Figma 링크 붙여넣기",
-    browse: "프레임 찾아보기",
     loadFailed: "이 참조를 불러오지 못했습니다.",
     retry: "다시 시도",
     empty: "일치하는 참조가 없습니다.",
@@ -2711,9 +2655,28 @@ export default {
     design: "디자인 참조",
     slides: "슬라이드",
     referenceDesign: "디자인 참조",
+    contentPage: "Content 페이지",
     connectFigma: "Figma 연결",
-    figmaDisconnected: "디자인을 찾아보려면 Figma를 연결하세요.",
-    figmaReference: "Figma 디자인",
+    figmaReference: "Figma 디자인…",
+    figmaDialogTitle: "Figma 디자인 추가",
+    figmaDropTitle: ".fig 파일을 끌어다 놓기",
+    figmaChooseFile: "파일 선택",
+    figmaPasteHint: "복사한 프레임을 프롬프트에 바로 붙여넣을 수도 있습니다.",
+    figmaAddToPrompt: "프롬프트에 추가",
+    figmaLinkNeedsConnection:
+      "링크를 사용하려면 Figma 계정을 연결해야 합니다. 대신 .fig 파일을 끌어다 놓거나 복사한 프레임을 붙여넣으세요.",
+    figmaReferenceMore: "{{name}} 외 {{count}}개",
+    figmaReferenceEmpty:
+      "프레임을 가져오지 못했습니다. Figma에서 프레임을 복사한 다음 다시 시도하세요.",
+    figmaSelection: "Figma 선택 항목",
+    figmaFileTooLarge:
+      "이 파일은 너무 커서 여기서 읽을 수 없습니다. 대신 페이지나 프레임 링크를 붙여 넣으세요.",
+    figmaSearch: "페이지 및 프레임 검색",
+    figmaSelectedCount: "{{count}}개 선택됨",
+    figmaShowFrames: "{{name}}의 프레임 보기",
+    figmaLinkNotFrame: "Figma 페이지나 프레임 링크를 사용하세요.",
+    figmaPageFrameCap:
+      "처음 {{limit}}개 프레임을 추가합니다. 추가할 프레임을 고르려면 프레임을 선택하세요.",
     referenceDeck: "프레젠테이션 참조",
     quickSaas: "SaaS 랜딩 페이지 만들기",
     quickDashboard: "대시보드 만들기",
@@ -2879,7 +2842,6 @@ export default {
     import: "가져오기",
     importFromFigma: "Figma에서 가져오기",
     figmaFile: "Figma 파일 (.fig)",
-    figmaFileMaxSize: "최대 {{max}}GB",
     openImport: "가져오기 열기",
     importSelectedFile: "선택한 파일 가져오기",
     starterSaasPrompt:

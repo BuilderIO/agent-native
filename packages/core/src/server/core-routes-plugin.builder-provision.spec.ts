@@ -1,10 +1,11 @@
-import { createApp } from "h3";
+import { createApp, defineEventHandler } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getOrgContext: vi.fn(),
   isRestricted: vi.fn(async () => false),
   writeBuilderCredentials: vi.fn(),
+  hasCompletedAutomaticBuilderSignup: vi.fn(async () => true),
   settings: new Map<string, Record<string, unknown>>(),
   track: vi.fn(),
   recordAudit: vi.fn(async () => undefined),
@@ -22,6 +23,7 @@ vi.mock("./personal-provider-key-policy.js", async (importOriginal) => ({
 vi.mock("./credential-provider.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./credential-provider.js")>()),
   writeBuilderCredentials: mocks.writeBuilderCredentials,
+  hasCompletedAutomaticBuilderSignup: mocks.hasCompletedAutomaticBuilderSignup,
 }));
 
 vi.mock("../settings/store.js", async (importOriginal) => ({
@@ -56,9 +58,12 @@ import {
 } from "./builder-browser.js";
 import {
   createBuilderProvisionHandler,
+  activateBuilderAccount,
+  reconcileBuilderSignupActivation,
   getBuilderConnectErrorKey,
   type BuilderOwnerContext,
 } from "./core-routes-plugin.js";
+import { SessionResolutionUnavailableError } from "./session-resolution-errors.js";
 
 const OWNER = "owner@example.com";
 const SESSION_TOKEN = "session-token-example";
@@ -168,6 +173,36 @@ afterEach(() => {
 });
 
 describe("POST /builder/provision", () => {
+  it("passes the server-owned signup receipt into credential persistence", async () => {
+    const app = createApp();
+    app.use(
+      PATH,
+      defineEventHandler((event) =>
+        activateBuilderAccount(event, {
+          ownerEmail: OWNER,
+          session: session(),
+          provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+          requestedScope: null,
+          connectAttemptId: null,
+          tracking: {},
+          newAccountOnly: true,
+          signupActivationReceipt: "design_builder_signup_v1:server-attempt",
+        }),
+      ),
+    );
+    const response = await app.fetch(
+      new Request(`${ORIGIN}${PATH}`, { method: "POST" }),
+    );
+    expect(await response.json()).toEqual(
+      expect.objectContaining({ ok: true, scope: "user" }),
+    );
+    expect(mocks.writeBuilderCredentials).toHaveBeenCalledWith(
+      OWNER,
+      expect.anything(),
+      { automaticSignupReceipt: "design_builder_signup_v1:server-attempt" },
+    );
+  });
+
   it("offers existing-account sign-in when a newly provisioned credential cannot be saved", async () => {
     mocks.writeBuilderCredentials.mockRejectedValueOnce(
       new Error("credential store unavailable"),
@@ -628,5 +663,65 @@ describe("POST /builder/provision", () => {
 
     expect(response.status).toBe(400);
     expect(upstream).not.toHaveBeenCalled();
+  });
+});
+
+describe("automatic signup receipt custody", () => {
+  it.each([
+    {
+      name: "solo",
+      context: { email: OWNER, orgId: null, role: null },
+      scope: { orgId: null, role: null, deny: expect.any(String) },
+    },
+    {
+      name: "organization owner",
+      context: { email: OWNER, orgId: "org-example", role: "owner" },
+      scope: { orgId: "org-example", role: "owner", deny: null },
+    },
+  ])(
+    "reconciles a $name through its effective credential scope",
+    async ({ context, scope }) => {
+      mocks.getOrgContext.mockResolvedValue(context);
+      mocks.hasCompletedAutomaticBuilderSignup.mockClear();
+      const app = createApp();
+      app.use(
+        "/receipt",
+        defineEventHandler(async (event) => ({
+          recovered: await reconcileBuilderSignupActivation(event, session(), {
+            experimentId: "clips_builder_signup_v1",
+            attempt: "receipt-attempt",
+            startedAt: 100,
+          }),
+        })),
+      );
+      const r = await app.fetch(new Request(ORIGIN + "/receipt"));
+      expect(await r.json()).toEqual({ recovered: true });
+      expect(mocks.hasCompletedAutomaticBuilderSignup).toHaveBeenCalledWith(
+        OWNER,
+        "clips_builder_signup_v1:receipt-attempt",
+        100,
+        expect.objectContaining(scope),
+      );
+    },
+  );
+  it("does not read receipts when organization membership cannot be checked", async () => {
+    mocks.getOrgContext.mockRejectedValue(
+      new SessionResolutionUnavailableError(),
+    );
+    mocks.hasCompletedAutomaticBuilderSignup.mockClear();
+    const app = createApp();
+    app.use(
+      "/receipt",
+      defineEventHandler(async (event) => ({
+        recovered: await reconcileBuilderSignupActivation(event, session(), {
+          experimentId: "clips_builder_signup_v1",
+          attempt: "receipt-attempt",
+          startedAt: 100,
+        }),
+      })),
+    );
+    const r = await app.fetch(new Request(ORIGIN + "/receipt"));
+    expect(r.status).toBe(503);
+    expect(mocks.hasCompletedAutomaticBuilderSignup).not.toHaveBeenCalled();
   });
 });

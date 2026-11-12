@@ -1462,6 +1462,7 @@ async function rowWriters(seed: Awaited<ReturnType<typeof seedCollection>>) {
 /** A primary Blocks property on the collection; deleting it clears the rows' bodies. */
 async function addPrimaryBlocksProperty(
   seed: Awaited<ReturnType<typeof seedCollection>>,
+  ctx?: typeof agent,
 ) {
   const propertyId = `${seed.key}_body`;
   await getDb()
@@ -1482,11 +1483,14 @@ async function addPrimaryBlocksProperty(
     .where(eq(schema.contentDatabases.id, seed.ids.collection));
   return () =>
     asOwner(() =>
-      deleteDocumentProperty.run({
-        documentId: seed.ids.collectionPage,
-        databaseId: seed.ids.collection,
-        propertyId,
-      }),
+      deleteDocumentProperty.run(
+        {
+          documentId: seed.ids.collectionPage,
+          databaseId: seed.ids.collection,
+          propertyId,
+        },
+        ctx,
+      ),
     );
 }
 
@@ -2631,6 +2635,18 @@ describe.skipIf(!POSTGRES_URL)(
         expect(report.waitedOn).toEqual(COLLECTION_ROWS);
       });
 
+      it("an agent deleting a primary Blocks property", async () => {
+        const report = await probeLockOrder(async () => {
+          const seed = await seedCollection();
+          return {
+            rows: seed.rows,
+            run: await addPrimaryBlocksProperty(seed, agent),
+          };
+        });
+        expect(report.violations).toEqual([]);
+        expect(report.waitedOn).toEqual(COLLECTION_ROWS);
+      });
+
       it("the historical-icon script's callout migration", async () => {
         const report = await probeLockOrder(async () => {
           const seed = await seedCollection();
@@ -3525,48 +3541,7 @@ Unchanged body.
       });
     });
 
-    it("holds memberships with a lock suggestion acceptance's table guard refuses", async () => {
-      const seed = await seedCollection();
-      let release!: () => void;
-      const released = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      let held!: () => void;
-      const holding = new Promise<void>((resolve) => {
-        held = resolve;
-      });
-      const holder = getDb().transaction(async (tx) => {
-        await lockDatabaseMemberships(tx, [seed.ids.rowItem]);
-        held();
-        await released;
-      });
-      let guard: string | undefined;
-      try {
-        await Promise.race([
-          holding,
-          holder.then(() => {
-            throw new Error("The holder ended before it held its rows.");
-          }),
-        ]);
-        // suggested-edits.ts takes this lock after the page and before the
-        // memberships, and accepts only when it's free.
-        guard = await getDb()
-          .transaction(async (tx) => {
-            await tx.execute(
-              sql`LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT`,
-            );
-          })
-          .then(
-            () => "acquired",
-            (error: unknown) => postgresCode(error) ?? String(error),
-          );
-      } finally {
-        release();
-        await holder;
-      }
-      expect(guard).toBe("55P03");
-    });
-
+    // oracle-change: Accept no longer takes a table lock on memberships, so no membership writer can meet one.
     it("restarts a restore that meets a favorite added while it waited, and locks it before any page", async () => {
       const seed = await seedFavorites();
       const pages = [seed.ids.collectionPage, seed.ids.kept, seed.ids.removed];

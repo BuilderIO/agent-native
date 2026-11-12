@@ -13,6 +13,10 @@ const issuedConnectTokens = vi.hoisted(
     >(),
 );
 
+const resolveOrgIdForEmail = vi.hoisted(() =>
+  vi.fn(async (_email: string): Promise<string | null> => null),
+);
+
 vi.mock("./builtin-tools.js", () => ({
   getBuiltinCrossAppTools: () => ({
     list_apps: {
@@ -79,6 +83,7 @@ vi.mock("./builtin-tools.js", () => ({
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
   getA2ASecretByDomain: vi.fn(async () => null),
+  resolveOrgIdForEmail,
 }));
 
 vi.mock("../server/better-auth-instance.js", async (importOriginal) => ({
@@ -102,6 +107,7 @@ vi.mock("./connect-store.js", () => ({
 
 beforeEach(() => {
   issuedConnectTokens.clear();
+  resolveOrgIdForEmail.mockReset().mockResolvedValue(null);
 });
 
 vi.mock("../server/embed-session.js", () => ({
@@ -984,10 +990,47 @@ describe("connector-catalog tier", () => {
         expect(names).toContain("public-read");
         expect(names).not.toContain("seed-kitchen-sink");
         expect(names).toContain("create-plan");
+        expect(resolveOrgIdForEmail).toHaveBeenCalledExactlyOnceWith(
+          "alice@example.com",
+        );
       } finally {
         delete process.env.BETTER_AUTH_SECRET;
       }
     });
+
+    it.each([
+      ["57014", 503, "Service Unavailable", "5"],
+      ["42501", 500, "Internal server error", undefined],
+    ])(
+      "classifies full-catalog OAuth scope failure %s",
+      async (code, status, error, retryAfter) => {
+        process.env.BETTER_AUTH_SECRET = OAUTH_SECRET;
+        resolveOrgIdForEmail.mockRejectedValueOnce(
+          Object.assign(new Error("private membership lookup failure"), {
+            code,
+          }),
+        );
+        const token = await signOAuthToken({
+          catalogScope: "full",
+          clientId: "catalog-test-client",
+        });
+        const event = makeEvent({
+          headers: { authorization: `Bearer ${token}` },
+          body: { jsonrpc: "2.0", id: 8, method: "tools/list", params: {} },
+        });
+
+        const result = await handleMcpRequest(event, connectorConfig as any);
+
+        expect(result).toMatchObject({ error });
+        expect(event._status).toBe(status);
+        expect(event._responseHeaders?.["retry-after"]).toBe(retryAfter);
+        expect(JSON.stringify(result)).not.toContain("private membership");
+        expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+        expect(resolveOrgIdForEmail).toHaveBeenCalledExactlyOnceWith(
+          "alice@example.com",
+        );
+      },
+    );
   });
 
   describe("AGENT_NATIVE_MCP_FULL_CATALOG=1 overrides connector tier", () => {

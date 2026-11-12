@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconThumbDown, IconThumbUp } from "@tabler/icons-react";
 
+import { ActionTooltip } from "@/components/email/ActionTooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,23 +21,25 @@ export function ImportanceFeedbackMenu({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={t("mail.sort.priorityFeedbackLabel")}
-          onClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-          className={cn(
-            "flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-            className,
-          )}
-        >
-          <span aria-hidden className="relative block size-4">
-            <IconThumbUp className="absolute left-0 top-0 size-3" />
-            <IconThumbDown className="absolute bottom-0 right-0 size-3" />
-          </span>
-        </button>
-      </DropdownMenuTrigger>
+      <ActionTooltip label={t("mail.sort.priorityFeedbackLabel")}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={t("mail.sort.priorityFeedbackLabel")}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            className={cn(
+              "flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+              className,
+            )}
+          >
+            <span aria-hidden className="relative block size-4">
+              <IconThumbUp className="absolute left-0 top-0 size-3" />
+              <IconThumbDown className="absolute bottom-0 right-0 size-3" />
+            </span>
+          </button>
+        </DropdownMenuTrigger>
+      </ActionTooltip>
       <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuItem onSelect={() => onFeedback("important")}>
           <IconThumbUp className="size-3.5" />
