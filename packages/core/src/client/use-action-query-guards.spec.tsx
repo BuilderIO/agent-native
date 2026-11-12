@@ -78,14 +78,11 @@ describe("useActionQueryCanFetch", () => {
 
   async function canFetch(
     queryClient: QueryClient,
-    {
-      bindingPending = false,
-      key = KEY as readonly unknown[] | undefined,
-    } = {},
+    { bindingPending = false, withKey = true } = {},
   ) {
     let answer: boolean | undefined;
     function Probe() {
-      answer = useActionQueryCanFetch(key);
+      answer = useActionQueryCanFetch(withKey ? KEY : undefined);
       return null;
     }
     const container = document.createElement("div");
@@ -113,12 +110,13 @@ describe("useActionQueryCanFetch", () => {
   it("holds a read with nothing to show until the binding settles", async () => {
     const queryClient = new QueryClient();
     expect(await canFetch(queryClient, { bindingPending: true })).toBe(false);
-    expect(
-      await canFetch(queryClient, { bindingPending: true, key: undefined }),
-    ).toBe(false);
 
     queryClient.setQueryData(KEY, "rows");
     expect(await canFetch(queryClient, { bindingPending: true })).toBe(true);
+    // A new read, such as a prefetch, still waits.
+    expect(
+      await canFetch(queryClient, { bindingPending: true, withKey: false }),
+    ).toBe(false);
   });
 
   it("never lets a read start while the app's API is off", async () => {

@@ -428,8 +428,32 @@ export async function readFilesNavigationPage(
       }
     }
     return withCreatedFilesRows(queryClient, params, page, readStartMark);
+  } catch (error) {
+    // A refused read of the tree's top level means the whole Files database
+    // is out of reach, so every page of it this tab cached goes too, such as
+    // a folder's page a breadcrumb menu still draws.
+    const status = (error as { status?: unknown } | undefined)?.status;
+    if (
+      !signal?.aborted &&
+      params.navigation.parentId === null &&
+      (status === 401 || status === 403 || status === 404)
+    ) {
+      clearCachedFilesPages(queryClient, params.databaseId);
+    }
+    throw error;
   } finally {
     if (expansionKey && pending) pending.delete(expansionKey);
+  }
+}
+
+function clearCachedFilesPages(queryClient: QueryClient, databaseId: string) {
+  for (const query of queryClient
+    .getQueryCache()
+    .findAll({ queryKey: ["action", "query-content-database-items"] })) {
+    const params = query.queryKey[2] as FilesNavigationPageParams | undefined;
+    if (params?.navigation && params.databaseId === databaseId) {
+      query.setState({ data: undefined, dataUpdatedAt: 0 });
+    }
   }
 }
 

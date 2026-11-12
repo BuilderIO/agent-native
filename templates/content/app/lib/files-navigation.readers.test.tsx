@@ -104,6 +104,51 @@ describe("a Files read", () => {
     ).toBeUndefined();
   });
 
+  it("drops a folder's cached page once the top level is refused, for a breadcrumb that reads it alone", async () => {
+    const folder = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: "folder",
+    });
+    const otherDatabase = filesNavigationPageParams({
+      databaseId: "other-files-db",
+      parentId: null,
+    });
+    queryClient.setQueryData(filesNavigationQueryKey(folder), {
+      ...empty(),
+      items: [{ documentId: "child", type: "page" }],
+    });
+    queryClient.setQueryData(filesNavigationQueryKey(otherDatabase), empty());
+    function FolderReader() {
+      useFilesNavigationPage(folder);
+      return null;
+    }
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <BreadcrumbReader />
+          <FolderReader />
+        </QueryClientProvider>,
+      );
+    });
+
+    callActionWithRetry.mockRejectedValue(
+      Object.assign(new Error("Forbidden"), { status: 403 }),
+    );
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: filesNavigationQueryKey(ROOT),
+        exact: true,
+      });
+    });
+
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(folder)),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(otherDatabase)),
+    ).toBeDefined();
+  });
+
   it("isn't made while the app's API is off", async () => {
     setAgentNativeApiDisabled("builder shell canvas");
     await mountBreadcrumb();

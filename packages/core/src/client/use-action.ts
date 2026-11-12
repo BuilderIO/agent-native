@@ -1527,9 +1527,10 @@ export function useActionQueryCanFetch(queryKey?: QueryKey): boolean {
 }
 
 /**
- * Runs one read of an `["action", …]` query under `useActionQuery`'s rules. A
- * 401, 403 or 404 drops the rows the query showed and the browser's saved
- * copy of its results. A success may join the saved results only for the
+ * Runs one read of an `["action", …]` query with `useActionQuery`'s handling
+ * of refused reads and saved results; whether it may start is
+ * `useActionQueryCanFetch`'s call. A 401, 403 or 404 drops the rows the query
+ * showed and the browser's saved copy of its results. A success may join the saved results only for the
  * binding active when the read began, and only when `read` passes the
  * `onResponse` it is given to the action call; a read that doesn't is never
  * saved.
