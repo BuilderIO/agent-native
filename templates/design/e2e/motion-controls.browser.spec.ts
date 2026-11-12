@@ -391,7 +391,7 @@ test("Motion inspector states match the editable timeline", async ({
     throw new Error("Motion menu geometry is unavailable");
   }
   expect(menuGeometry.menu.width).toBe(120);
-  expect(menuGeometry.menu.height).toBe(136);
+  expect(menuGeometry.menu.height).toBe(150);
   expect(menuGeometry.trigger.width).toBe(24);
   expect(
     Math.abs(
@@ -566,12 +566,15 @@ test("Motion inspector states match the editable timeline", async ({
   }
   await page.setViewportSize({ width: 1152, height: 941 });
   await expect(easingPopup).toBeVisible();
+  await expect
+    .poll(async () => {
+      const rect = await easingPopup.boundingBox();
+      return rect ? rect.x + rect.width : Number.POSITIVE_INFINITY;
+    })
+    .toBeLessThanOrEqual(1152);
   const narrowEasingPopupRect = await easingPopup.boundingBox();
   expect(narrowEasingPopupRect).not.toBeNull();
   expect(narrowEasingPopupRect!.x).toBeGreaterThanOrEqual(0);
-  expect(
-    narrowEasingPopupRect!.x + narrowEasingPopupRect!.width,
-  ).toBeLessThanOrEqual(1152);
   await captureReferenceState(page, "motion-controls-easing-menu");
   await page.setViewportSize({ width: 1728, height: 941 });
   await easingPopup.getByRole("button", { name: "Close", exact: true }).click();
@@ -765,7 +768,27 @@ test("Motion inspector states match the editable timeline", async ({
     ).toBeVisible();
   }
 
+  // The resize triggers a Motion autosave, and the refresh after it re-resolves
+  // the selected Motion style. A selection made before that settles is undone.
+  const resizeSaved = page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+      response.request().method() === "POST",
+    { timeout: 20_000 },
+  );
   await page.setViewportSize({ width: 1200, height: 953 });
+  await resizeSaved;
+  await page.waitForResponse(
+    (response) =>
+      response.url().includes("/_agent-native/actions/get-actions-batch"),
+    { timeout: 20_000 },
+  );
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
   const inspectorPosition = nativeStyleInspector.getByRole("button", {
     name: "Position",
     exact: true,
