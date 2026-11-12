@@ -43,6 +43,9 @@ const SKIP_DIRS = new Set([
   "dist",
   "node_modules",
 ]);
+// Repo-relative directories that hold generated copies of tracked source: a
+// reference there is the same reference, reported once at its origin.
+const SKIP_PATHS = new Set(["packages/core-corpus/corpus"]);
 const SOURCE_FILE = /\.(?:[cm]?[jt]sx?|sql)$/;
 const TEST_FILE =
   /(?:\.spec\.|\.test\.|\.test-helpers\.|(?:^|\/)__tests__\/|(?:^|\/)__fixtures__\/|(?:^|\/)e2e\/)/;
@@ -122,7 +125,10 @@ function* walk(root: string, dir = root): Generator<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const file = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name)) yield* walk(root, file);
+      const relative = path.relative(root, file).split(path.sep).join("/");
+      if (!SKIP_DIRS.has(entry.name) && !SKIP_PATHS.has(relative)) {
+        yield* walk(root, file);
+      }
     } else if (entry.isFile()) {
       yield file;
     }

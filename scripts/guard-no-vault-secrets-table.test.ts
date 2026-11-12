@@ -97,6 +97,8 @@ describe("references to the retired vault_secrets table", () => {
       "packages/dispatch/dist/index.js": "vault_secrets;",
       "node_modules/pkg/index.js": "vault_secrets;",
       ".claude/worktrees/peer/a.ts": "vault_secrets;",
+      "packages/core-corpus/corpus/templates/dispatch/actions/view-screen.ts":
+        "screen.vaultSecrets = [];",
       "packages/dispatch/src/clean.ts": "export const ok = true;",
     });
 
