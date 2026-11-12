@@ -1734,6 +1734,11 @@ export function defineAction(options: any) {
         'mcpScript: "read" requires a read-only action: readOnly: true, no planMode effect other than "read", and no readOnlyHint: false.',
       );
     }
+    if (mcpAnnotations?.destructiveHint === true) {
+      throw new TypeError(
+        'mcpScript: "read" cannot be set on an action annotated destructiveHint: true.',
+      );
+    }
     if (
       (options.needsApproval !== undefined &&
         options.needsApproval !== false) ||
