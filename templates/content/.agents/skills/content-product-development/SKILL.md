@@ -72,25 +72,13 @@ require a permission slip for every useful bug fix.
 Load the domain skill for the work, especially `actions`, `security`, `sharing`,
 `storing-data`, `portability`, `real-time-collab`, or `real-time-sync`.
 
-## Check pull-request impact locally
+## Pull-request conformance
 
 The advisory Content product conformance workflow has been retired. The
-standalone validator can still check a fenced `content_product_impact` YAML
-block in a pull request body. To run it from the repo root, set
-`GITHUB_EVENT_PATH` to a JSON file with this webhook payload shape:
-
-```json
-{"pull_request":{"body":"<PR body>","base":{"sha":"<base SHA>"},"head":{"sha":"<head SHA>"}}}
-```
-
-Set `CONTENT_IMPACT_BASE_SHA` and `CONTENT_IMPACT_HEAD_SHA` to the full commit
-SHAs in that payload, fetch both commits locally, and run
-`pnpm content-product-impact`.
-
-The validator snapshots the product catalog and skill. Links to files outside
-that snapshot can make the run fail during catalog validation.
-
-Run `pnpm test:content-product-impact` to test the validator.
+standalone `content-product-impact` command currently fails on `main` because
+its catalog snapshot omits `docs/search-architecture.md`, which a Capability
+record links to. Its focused test suite runs with
+`pnpm test:content-product-impact`.
 
 ## Prove and record the result
 
