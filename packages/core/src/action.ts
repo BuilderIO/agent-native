@@ -3140,6 +3140,20 @@ export async function actionCallIntent(
 }
 
 /**
+ * Whether `call` was prepared for `entry`'s action. An entry
+ * `defineAction` didn't make carries no identity to compare, so it passes.
+ */
+export function preparedCallIsFor(
+  call: PreparedActionCall,
+  entry: object,
+): boolean {
+  const prepared = preparedIntents.get(call);
+  if (!prepared) return false;
+  const key = (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
+  return key !== null && typeof key === "object" ? prepared.key === key : true;
+}
+
+/**
  * A fresh, mutable copy of the arguments `call` was prepared with, for one
  * consumer: a gate, the handler, or a reader after the run. No two consumers
  * share one, so none can change what another reads.

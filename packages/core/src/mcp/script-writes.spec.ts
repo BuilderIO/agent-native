@@ -15,6 +15,7 @@ import type {
   McpScriptReconcileResult,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { auditAttribution } from "../audit/attribution.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -242,6 +243,17 @@ describe("effectOfOutcome", () => {
         effect: "committed",
       }),
     ).toBe("committed");
+    // A run that reported an error, and whose value then couldn't be read,
+    // still ran.
+    expect(
+      effectOfOutcome({
+        status: "failed",
+        stage: "result",
+        message: "The result could not be read.",
+        errorCode: undefined,
+        effect: "none",
+      }),
+    ).toBe("unknown");
     expect(effectOfOutcome({ status: "unknown-tool" } as never)).toBe(
       "not-applied",
     );
@@ -504,6 +516,36 @@ describe("createScriptWriteGate", () => {
     // Nothing is due again.
     await deliverScriptOutbox("app-a", { now: T0 + 60 * 60_000 });
     expect(audits.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps embed credentials out of a committed write's audit rows", async () => {
+    const link =
+      "https://mail.agent-native.com/_agent-native/embed/start?ticket=secret-ticket";
+    const writes = gate();
+    // One write with the action's own audit row held for the outbox, and
+    // one without, which gets a fallback row.
+    const held = await writes.begin(call(5, { key: `${link}&n=1`, rows: 1 }));
+    if (held.status !== "go") throw new Error("expected go");
+    held.ticket.runContext.deferAudit?.({
+      config: undefined,
+      args: { key: `${link}&n=1`, rows: 1 },
+      ctx: {
+        actionName: "save-thing",
+        userEmail: "ada@example.com",
+        orgId: "org-1",
+      },
+      attribution: auditAttribution({ caller: "mcp", runId: "run-1" }),
+      status: "success",
+    });
+    await writes.settle(held.ticket, committed, { status: "completed" });
+    const bare = await writes.begin(call(6, { key: `${link}&n=2`, rows: 1 }));
+    if (bare.status !== "go") throw new Error("expected go");
+    await writes.settle(bare.ticket, committed, { status: "completed" });
+    expect(audits.insert).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(audits.insert.mock.calls)).not.toContain(
+      "secret-ticket",
+    );
+    expect(JSON.stringify(await outbox())).not.toContain("secret-ticket");
   });
 
   it("retries an outbox delivery that failed, without failing the call", async () => {

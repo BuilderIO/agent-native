@@ -37,7 +37,10 @@ import {
 import { currentRequestUserIsOrgAdmin } from "../server/org-admin.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { describeThrownForLog } from "./embed-redaction.js";
-import type { McpActionCallOutcome } from "./execute-action-call.js";
+import {
+  type McpActionCallOutcome,
+  redactEmbedCredentials,
+} from "./execute-action-call.js";
 import {
   insertPendingScriptWrite,
   listDueScriptOutbox,
@@ -375,12 +378,13 @@ export function effectOfOutcome(
           ? "committed"
           : "unknown";
     case "failed":
-      // A failure past the run, in reading its result, undoes no commit.
-      return outcome.effect === "none"
-        ? "not-applied"
-        : outcome.effect === "committed" && outcome.stage === "result"
-          ? "committed"
-          : "unknown";
+      // A failure in reading the result comes after the run: it undoes no
+      // commit, and a run that reported an error before it proves none, so
+      // only its receipt can say.
+      if (outcome.stage === "result") {
+        return outcome.effect === "committed" ? "committed" : "unknown";
+      }
+      return outcome.effect === "none" ? "not-applied" : "unknown";
     case "unknown-tool":
     case "forbidden-scope":
     case "approval-required":
@@ -435,7 +439,10 @@ function committedOutbox(
   const events: AuditEvent[] = [];
   for (const audit of facts.audits) {
     try {
-      const event = buildActionAuditEvent(audit);
+      const event = buildActionAuditEvent({
+        ...audit,
+        args: auditedArguments(audit.args),
+      });
       if (event) events.push(event);
     } catch (error) {
       console.error(
@@ -444,7 +451,11 @@ function committedOutbox(
     }
   }
   if (events.length === 0) {
-    const fallback = minimalAuditEvent(owner, call.action, facts.args);
+    const fallback = minimalAuditEvent(
+      owner,
+      call.action,
+      auditedArguments(facts.args),
+    );
     if (fallback) events.push(fallback);
   }
   for (const event of events) {
@@ -473,6 +484,17 @@ function committedOutbox(
  * The audit row for a write recovery found committed, whose run is gone and
  * with it everything but the ledger: who, what, and the stored arguments.
  */
+/** A write's arguments as its audit rows record them: without embed
+ *  credentials, as the ledger keeps them, or none if they can't be read. */
+function auditedArguments(args: unknown): unknown {
+  try {
+    return redactEmbedCredentials(args ?? {});
+  } catch {
+    // coercion-ok: an audit row records no arguments it can't read.
+    return undefined;
+  }
+}
+
 function minimalAuditEvent(
   owner: ScriptRunOwner,
   action: string,
@@ -608,9 +630,7 @@ export async function recoverScriptWrites(
               result: undefined,
             },
           )
-        : effect === "committed"
-          ? auditOnlyOutbox(row, args)
-          : [];
+        : [];
     if (await settleScriptWriteRow(row, row.seq, { effect, outbox }, now)) {
       recordMcpScriptWriteEffect(effect, "recovery");
       settled += 1;
@@ -624,21 +644,6 @@ export async function recoverScriptWrites(
   });
   await pruneScriptLedger(now);
   return { settled, unsettled };
-}
-
-function auditOnlyOutbox(
-  row: UnsettledScriptWrite,
-  args: unknown,
-): ScriptOutboxItem[] {
-  const event = minimalAuditEvent(row, row.action, args);
-  return event
-    ? [
-        {
-          kind: "audit",
-          payload: { ...event, id: scriptAuditEventId(row, row.seq, 0) },
-        },
-      ]
-    : [];
 }
 
 async function recoveredEffect(

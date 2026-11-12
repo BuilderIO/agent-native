@@ -477,6 +477,34 @@ describe("executeMcpActionCall", () => {
     expect(made).toBe(madeWhenPrepared);
   });
 
+  it("refuses a call prepared for another action, and runs neither", async () => {
+    const ran: string[] = [];
+    const action = (name: string) =>
+      defineAction({
+        description: `Save ${name}.`,
+        schema: z.object({ id: z.string() }),
+        readOnly: false,
+        run: async () => {
+          ran.push(name);
+          return { ok: true };
+        },
+      }) as unknown as ActionEntry;
+    const first = action("first");
+    const second = action("second");
+    const prepared = await actionCallIntent(first, { id: "A" });
+    if (!prepared.valid) throw new Error("expected a valid call");
+    const outcome = await inRequest(() =>
+      executeMcpActionCall(context, {
+        name: "second",
+        args: { id: "B" },
+        callable: { first, second },
+        prepared,
+      }),
+    );
+    expect(outcome).toMatchObject({ status: "failed", effect: "none" });
+    expect(ran).toEqual([]);
+  });
+
   it("asks for approval and runs only on an approved resume of the same call", async () => {
     const evidence: unknown[] = [];
     const run = vi.fn(async (_args: unknown, _ctx: unknown) => {

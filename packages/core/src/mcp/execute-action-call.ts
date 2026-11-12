@@ -9,6 +9,7 @@ import {
   isActionContractError,
   recordInvalidActionCall,
   preparedCallArguments,
+  preparedCallIsFor,
   preparedCallNeedsApproval,
   runPreparedActionCall,
   type ActionExecutionOutcome,
@@ -701,6 +702,18 @@ export async function runMcpActionCallUnredacted(
   try {
     // One preparation: approval decides on, and the run executes, the
     // arguments the action runs with, defaults applied.
+    if (call.prepared && !preparedCallIsFor(call.prepared, entry)) {
+      // Server code passed a call prepared for another action; none runs.
+      return {
+        status: "threw",
+        stage: "action",
+        error: new TypeError(
+          `A call prepared for another action can't run as ${name}.`,
+        ),
+        entry,
+        execution: { refused: true },
+      };
+    }
     const prepared = call.prepared ?? (await actionCallIntent(entry, callArgs));
     if (!prepared.valid) {
       // Recorded and reported as the action's own validation failure was,
