@@ -762,8 +762,8 @@ export function mcpScriptToolDescriptors(catalog: McpScriptCatalog): Array<{
           names: {
             type: "array",
             items: { type: "string" },
-            description:
-              "Function names (api.getDocument or getDocument) or tool names (get-document).",
+            maxItems: MAX_SEARCH_NAMES,
+            description: `Function names (api.getDocument or getDocument) or tool names (get-document), up to ${MAX_SEARCH_NAMES}.`,
           },
           query: {
             type: "string",
@@ -783,6 +783,8 @@ export function mcpScriptToolDescriptors(catalog: McpScriptCatalog): Array<{
 }
 
 const MAX_SEARCH_MATCHES = 20;
+/** Names one search looks up; the reply says when it left some out. */
+const MAX_SEARCH_NAMES = 50;
 
 /**
  * Declarations for the requested functions. Searches only what `run-script`
@@ -794,9 +796,10 @@ export function searchMcpScriptActions(
   args: unknown,
 ): string {
   const input = isSchemaObject(args) ? args : {};
-  const requested = Array.isArray(input.names)
+  const named = Array.isArray(input.names)
     ? input.names.filter((name): name is string => typeof name === "string")
     : [];
+  const requested = named.slice(0, MAX_SEARCH_NAMES);
   const query =
     typeof input.query === "string" ? input.query.trim().toLowerCase() : "";
   const matched: string[] = [];
@@ -842,6 +845,11 @@ export function searchMcpScriptActions(
   if (missing.length > 0) {
     lines.push(
       `// Not available to scripts: ${missing.map((name) => JSON.stringify(oneLine(name, 80))).join(", ")}.`,
+    );
+  }
+  if (named.length > requested.length) {
+    lines.push(
+      `// Looked up the first ${MAX_SEARCH_NAMES} of ${named.length} names; ask for the rest in another search.`,
     );
   }
   for (const [fn, actions] of catalog.collisions) {
