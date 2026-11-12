@@ -59,6 +59,57 @@ export async function sanitizeReviewCommentMetadata(
 }
 
 /**
+ * The attachments an edit gives a comment, in the edit's order. Ones the
+ * comment already keeps stay as stored, without their checks running again,
+ * so a change of upload provider since never drops them. New ones are checked
+ * as a new comment's are.
+ */
+export async function sanitizeReviewCommentAttachmentEdit(
+  attachments: readonly unknown[],
+  storedMetadata: Record<string, unknown> | null | undefined,
+): Promise<Record<string, unknown>[]> {
+  const stored = attachmentsByUrl(storedMetadata?.attachments);
+  const sanitized = await sanitizeReviewCommentMetadata({
+    attachments: attachments.filter((value) => {
+      const url = attachmentUrl(value);
+      return url !== null && !stored.has(url);
+    }),
+  });
+  const checked = attachmentsByUrl(sanitized?.attachments);
+  const next: Record<string, unknown>[] = [];
+  const taken = new Set<string>();
+  for (const value of attachments) {
+    const url = attachmentUrl(value);
+    const attachment = url ? (stored.get(url) ?? checked.get(url)) : undefined;
+    if (!url || !attachment || taken.has(url)) continue;
+    taken.add(url);
+    next.push(attachment);
+    if (next.length >= MAX_REVIEW_IMAGE_ATTACHMENTS) break;
+  }
+  return next;
+}
+
+function attachmentUrl(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const url = (value as Record<string, unknown>).url;
+  return typeof url === "string" && url.trim() ? url.trim() : null;
+}
+
+function attachmentsByUrl(
+  values: unknown,
+): Map<string, Record<string, unknown>> {
+  const byUrl = new Map<string, Record<string, unknown>>();
+  if (!Array.isArray(values)) return byUrl;
+  for (const value of values) {
+    const url = attachmentUrl(value);
+    if (url && !byUrl.has(url)) {
+      byUrl.set(url, value as Record<string, unknown>);
+    }
+  }
+  return byUrl;
+}
+
+/**
  * Refuses a comment with nothing in it: no text, and no image left once its
  * attachments were checked. An image is a comment on its own.
  */

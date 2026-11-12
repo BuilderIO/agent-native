@@ -698,6 +698,57 @@ describe("review actions", () => {
     );
   });
 
+  it("keeps an image the comment already has when no upload provider would accept it now", async () => {
+    // Stored while an S3 provider was set up, which this server no longer has.
+    const stored = {
+      url: "https://uploads.s3.amazonaws.com/review/stored.png",
+      name: "stored.png",
+      contentType: "image/png",
+      provider: "s3",
+    };
+    const added = {
+      url: "https://cdn.builder.io/api/v1/image/added",
+      name: "added.png",
+      contentType: "image/png",
+    };
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "public",
+      body: "Look",
+      authorEmail: COMMENTER_EMAIL,
+      visibility: "public",
+      metadata: {
+        attachments: [
+          stored,
+          {
+            url: "https://cdn.builder.io/api/v1/image/old",
+            name: "old.png",
+          },
+        ],
+      },
+    });
+
+    const edited = await updateReviewCommentAction.run(
+      {
+        resourceType: "doc",
+        resourceId: "public",
+        commentId: root.id,
+        attachments: [
+          stored,
+          added,
+          // A new one from that provider is still checked, and refused.
+          {
+            url: "https://uploads.s3.amazonaws.com/review/new.png",
+            name: "new.png",
+            provider: "s3",
+          },
+        ],
+      },
+      { userEmail: COMMENTER_EMAIL },
+    );
+    expect(edited.metadata).toEqual({ attachments: [stored, added] });
+  });
+
   it("moves a pin at the revision its mover read", async () => {
     const root = await insertReviewComment({
       resourceType: "doc",

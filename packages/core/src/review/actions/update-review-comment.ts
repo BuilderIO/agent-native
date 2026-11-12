@@ -5,7 +5,7 @@ import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
 import {
   assertReviewCommentHasContent,
-  sanitizeReviewCommentMetadata,
+  sanitizeReviewCommentAttachmentEdit,
 } from "../attachments.js";
 import { extractReviewMentions, normalizeReviewMentions } from "../mentions.js";
 import {
@@ -120,14 +120,14 @@ export default defineAction({
             : comment.anchorKind,
       );
     }
-    // Images that fail a new comment's checks are dropped here too.
+    // New images that fail a new comment's checks are dropped here too; the
+    // ones the comment already keeps stay as they are.
     const attachments =
       args.attachments === undefined
         ? undefined
-        : reviewAttachmentsOf(
-            await sanitizeReviewCommentMetadata({
-              attachments: args.attachments,
-            }),
+        : await sanitizeReviewCommentAttachmentEdit(
+            args.attachments,
+            comment.metadata,
           );
     // Checked here for a quick answer, and again by the store against the
     // locked row, so a change made meanwhile can't empty the comment.
@@ -175,15 +175,6 @@ export default defineAction({
     }),
   },
 });
-
-function reviewAttachmentsOf(
-  metadata: Record<string, unknown> | null,
-): Record<string, unknown>[] {
-  const attachments = metadata?.attachments;
-  return Array.isArray(attachments)
-    ? (attachments as Record<string, unknown>[])
-    : [];
-}
 
 function normalizeEmail(email: string | null | undefined): string | null {
   const normalized = email?.trim().toLowerCase();

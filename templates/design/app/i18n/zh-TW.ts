@@ -363,6 +363,7 @@ export default {
     attachImage: "附加圖片",
     removeImage: "移除圖片",
     imageUploadFailed: "無法上傳圖片",
+    editChanged: "你開始編輯後，這則評論已被變更。再次儲存即可取代。",
     searching: "搜尋中…",
     reactionFailed: "無法更新反應",
     moveFailed: "無法移動評論",

@@ -3314,6 +3314,7 @@ export default {
     attachImage: "附加图片",
     removeImage: "移除图片",
     imageUploadFailed: "无法上传图片",
+    editChanged: "你开始编辑后，这条评论已被更改。再次保存即可替换。",
     searching: "搜索中…",
     reactionFailed: "无法更新反应",
     moveFailed: "无法移动评论",

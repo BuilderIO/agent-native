@@ -3361,6 +3361,8 @@ export default {
     attachImage: "Attach image",
     removeImage: "Remove image",
     imageUploadFailed: "Could not upload the image",
+    editChanged:
+      "This comment changed after you started editing. Save again to replace it.",
     searching: "Searching…",
     reactionFailed: "Could not update the reaction",
     moveFailed: "Could not move the comment",

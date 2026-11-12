@@ -217,6 +217,18 @@ interface CanvasCameraSnapshot {
   surfaceOrigin: { x: number; y: number };
 }
 
+/** The comment's revision now, when a write was refused for being stale. */
+function revisionConflictRevision(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const { errorCode, details } = error as {
+    errorCode?: unknown;
+    details?: { currentRevision?: unknown } | null;
+  };
+  if (errorCode !== "revision_conflict") return null;
+  const revision = details?.currentRevision;
+  return typeof revision === "number" ? revision : null;
+}
+
 function readCanvasCamera(canvas: HTMLElement): CanvasCameraSnapshot | null {
   const world = canvas.querySelector<HTMLElement>(
     "[data-multi-screen-canvas-world]",
@@ -1129,6 +1141,13 @@ export function ReviewCanvasPins({
   const [editCandidate, setEditCandidate] = useState<ReviewComment | null>(
     null,
   );
+  // The revision an edit goes against once its author has been told the
+  // comment changed meanwhile, so saving again replaces it instead of being
+  // refused again. Kept for the edit it came from only.
+  const [editRevision, setEditRevision] = useState<{
+    comment: ReviewComment;
+    revision: number;
+  } | null>(null);
   // Each box keeps its draft in the browser, so a reload doesn't lose it: a
   // reply per thread, an edit per comment, and a new pin per screen, apart
   // for each account.
@@ -1535,6 +1554,10 @@ export function ReviewCanvasPins({
       JSON.stringify(editImages) !==
       JSON.stringify(reviewCommentImages(comment));
     const sentDraft = editDraftState;
+    const expectedRevision =
+      editRevision?.comment === comment
+        ? editRevision.revision
+        : comment.revision;
     updateComment.mutate(
       {
         resourceType,
@@ -1551,17 +1574,24 @@ export function ReviewCanvasPins({
             }
           : {}),
         // The edit is of the comment as it was opened, so a newer one refuses it.
-        ...(comment.revision !== undefined
-          ? { expectedRevision: comment.revision }
-          : {}),
+        ...(expectedRevision !== undefined ? { expectedRevision } : {}),
       },
       {
         onSuccess: () => {
           sentDraft.clear();
           setEditCandidate(null);
         },
-        onError: (error) =>
-          reportWriteFailure(error, { label: t("review.postFailed") }),
+        onError: (error) => {
+          // The draft stays, and saving again goes against the comment as it
+          // is now.
+          const currentRevision = revisionConflictRevision(error);
+          if (currentRevision !== null) {
+            setEditRevision({ comment, revision: currentRevision });
+            toast.error(t("review.editChanged"));
+            return;
+          }
+          reportWriteFailure(error, { label: t("review.postFailed") });
+        },
       },
     );
   }, [
@@ -1571,6 +1601,7 @@ export function ReviewCanvasPins({
     editHiddenAttachments,
     editImages,
     editMentions,
+    editRevision,
     resourceId,
     resourceType,
     t,

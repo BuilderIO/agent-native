@@ -3462,6 +3462,8 @@ export default {
     attachImage: "Anexar imagem",
     removeImage: "Remover imagem",
     imageUploadFailed: "Não foi possível enviar a imagem",
+    editChanged:
+      "Este comentário mudou depois que você começou a editá-lo. Salve de novo para substituí-lo.",
     searching: "Pesquisando…",
     reactionFailed: "Não foi possível atualizar a reação",
     moveFailed: "Não foi possível mover o comentário",

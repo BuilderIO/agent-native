@@ -3424,6 +3424,8 @@ export default {
     attachImage: "이미지 첨부",
     removeImage: "이미지 제거",
     imageUploadFailed: "이미지를 업로드할 수 없습니다",
+    editChanged:
+      "수정을 시작한 후 이 댓글이 변경되었습니다. 바꾸려면 다시 저장하세요.",
     searching: "검색 중…",
     reactionFailed: "리액션을 업데이트하지 못했습니다",
     moveFailed: "댓글을 이동하지 못했습니다",

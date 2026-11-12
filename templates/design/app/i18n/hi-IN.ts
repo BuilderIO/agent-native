@@ -3398,6 +3398,8 @@ export default {
     attachImage: "इमेज संलग्न करें",
     removeImage: "इमेज हटाएं",
     imageUploadFailed: "इमेज अपलोड नहीं हो सकी",
+    editChanged:
+      "संपादन शुरू करने के बाद यह टिप्पणी बदल गई। इसे बदलने के लिए फिर से सहेजें।",
     searching: "खोज जारी…",
     reactionFailed: "प्रतिक्रिया अपडेट नहीं हो सकी",
     moveFailed: "टिप्पणी स्थानांतरित नहीं हो सकी",

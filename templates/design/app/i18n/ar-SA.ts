@@ -3389,6 +3389,7 @@ export default {
     attachImage: "إرفاق صورة",
     removeImage: "إزالة الصورة",
     imageUploadFailed: "تعذّر رفع الصورة",
+    editChanged: "تغيّر هذا التعليق بعد أن بدأت تعديله. احفظ مرة أخرى لاستبداله.",
     searching: "جارٍ البحث…",
     reactionFailed: "تعذر تحديث التفاعل",
     moveFailed: "تعذر نقل التعليق",

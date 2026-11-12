@@ -5443,6 +5443,42 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         });
       });
 
+      it("keeps an edit's text when the comment changed meanwhile, and saves it against the comment as it is now", async () => {
+        reviewComments = [{ ...comment, revision: 3 }];
+        mocks.updateMutate.mockImplementationOnce(
+          (_input, options?: { onError?: (error: unknown) => void }) =>
+            options?.onError?.(
+              Object.assign(new Error("Comment changed since it was read"), {
+                errorCode: "revision_conflict",
+                details: { commentId: "comment-1", currentRevision: 4 },
+              }),
+            ),
+        );
+        await renderPins(signedIn);
+        await openFirstThread();
+        await openCommentMenu("comment-1");
+        await act(async () => menuItem("review.editComment")?.click());
+        const editing = () =>
+          document.querySelector<HTMLElement>("[data-review-comment-editing]");
+        await typeInto(editing()?.querySelector("textarea"), "Keep this open");
+
+        await act(async () => submit(editing()!)?.click());
+        expect(mocks.updateMutate.mock.calls[0]?.[0]).toMatchObject({
+          expectedRevision: 3,
+        });
+        expect(mocks.toastError).toHaveBeenCalledWith("review.editChanged");
+        expect(mocks.reportWriteFailure).not.toHaveBeenCalled();
+        expect(editing()?.querySelector("textarea")?.value).toBe(
+          "Keep this open",
+        );
+
+        await act(async () => submit(editing()!)?.click());
+        expect(mocks.updateMutate.mock.calls[1]?.[0]).toMatchObject({
+          body: "Keep this open",
+          expectedRevision: 4,
+        });
+      });
+
       it("keeps the attachments a card doesn't show when an edit changes its images", async () => {
         const stored = {
           url: "https://uploads.s3.amazonaws.com/review/stored.png",
