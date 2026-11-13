@@ -133,21 +133,10 @@ export const dispatchMigrations: MigrationEntry[] = [
   },
   {
     version: 2,
+    // The retired vault_secrets table was created here. A fresh install no
+    // longer gets it; a database that already has it keeps it, and version 10
+    // still reads it where it exists.
     sql: `
-      CREATE TABLE IF NOT EXISTS vault_secrets (
-        id TEXT PRIMARY KEY,
-        owner_email TEXT NOT NULL,
-        org_id TEXT,
-        name TEXT NOT NULL,
-        credential_key TEXT NOT NULL,
-        value TEXT NOT NULL,
-        provider TEXT,
-        description TEXT,
-        created_by TEXT NOT NULL,
-        created_at BIGINT NOT NULL,
-        updated_at BIGINT NOT NULL
-      );
-
       CREATE TABLE IF NOT EXISTS vault_grants (
         id TEXT PRIMARY KEY,
         owner_email TEXT NOT NULL,
