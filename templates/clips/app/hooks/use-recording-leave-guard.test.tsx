@@ -274,8 +274,9 @@ describe("useRecordingLeaveGuard", () => {
         void rendered.router.navigate("/other");
       });
       await flush();
-      const blocked = [...rendered.router.state.blockers.values()].at(0);
-      if (!blocked) throw new Error("Missing navigation blocker");
+      const blocker = rendered.router.state.blockers.values().next();
+      if (blocker.done) throw new Error("Missing navigation blocker");
+      const blocked = blocker.value;
       expect(blocked.state).toBe("blocked");
       act(() => {
         if (when === "after") click(container, "confirm-leave");
