@@ -92,12 +92,10 @@ runs:
 
     - name: Install dependencies
       shell: bash
-      env:
-        INSTALL_FILTER: ${{ inputs.filter }}
       run: |
         filter=()
-        if [ -n "$INSTALL_FILTER" ]; then
-          filter=(--filter "$INSTALL_FILTER")
+        if [ -n "${{ inputs.filter }}" ]; then
+          filter=(--filter "${{ inputs.filter }}")
         fi
         if [ "${{ inputs.install }}" = "no-scripts" ]; then
           pnpm install --frozen-lockfile --ignore-scripts "${filter[@]}"
