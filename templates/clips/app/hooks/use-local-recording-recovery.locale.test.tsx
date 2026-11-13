@@ -5,11 +5,12 @@ import {
   useLocale,
   useT,
 } from "@agent-native/core/client/i18n";
-import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
+import { IDBFactory, IDBKeyRange, IDBOpenDBRequest } from "fake-indexeddb";
 import React, { act, useState } from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { toast } from "sonner";
+import { toast, Toaster } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -20,7 +21,9 @@ import { i18nCatalog } from "@/i18n";
 import * as upload from "@/lib/local-recording-upload";
 import {
   claimRecordingBackupLock,
+  getRecordingBackupMeta,
   putRecordingBackupMeta,
+  updateRecordingBackupMeta,
 } from "@/lib/recording-backup";
 import { FakeLockManager } from "@/lib/testing/fake-lock-manager";
 
@@ -61,7 +64,11 @@ function Probe() {
 }
 
 function recoveryToast() {
-  const item = toast.getToasts().find((toast) => toast.id === toastId);
+  const item = toast
+    .getToasts()
+    .find(
+      (toast) => typeof toast.id === "string" && toast.id.startsWith(toastId),
+    );
   return item && "title" in item ? item : undefined;
 }
 
@@ -101,7 +108,10 @@ describe("recovery toast localization", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
-    toast.dismiss(toastId);
+    for (const item of toast.getToasts()) {
+      if (typeof item.id === "string" && item.id.startsWith(toastId))
+        toast.dismiss(item.id);
+    }
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -134,6 +144,7 @@ describe("recovery toast localization", () => {
         >
           <MemoryRouter>
             <Probe />
+            {createPortal(<Toaster />, document.body)}
           </MemoryRouter>
         </AgentNativeI18nProvider>,
       );
@@ -152,6 +163,209 @@ describe("recovery toast localization", () => {
       });
     });
   }
+
+  it("does not remove a newly offered toast when an earlier dismissal is delivered", async () => {
+    const release = await mount("en-US");
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain(english),
+    );
+    const claim = await claimRecordingBackupLock("unfinished");
+    if (claim.status !== "held")
+      throw new Error("Could not hold recording lock");
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    try {
+      await act(async () => {
+        container.querySelector("button")?.click();
+        release();
+      });
+      await vi.waitFor(() => expect(recoveryToast()).toBeUndefined());
+      await act(async () => {
+        offerLocalRecording({
+          meta: { recordingId: "new-copy", ownerEmail: null },
+          t: ((key: string) => key) as never,
+          navigate: () => {},
+        });
+      });
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain(
+          "recordRoute.unclaimedRecording",
+        ),
+      );
+      await act(async () => {
+        while (frames.length) frames.shift()?.(performance.now());
+      });
+      await vi.waitFor(() => {
+        const title = [
+          ...document.querySelectorAll("[data-sonner-toast]"),
+        ].find((element) =>
+          element.textContent?.includes("recordRoute.unclaimedRecording"),
+        );
+        expect(title?.getAttribute("data-removed")).toBe("false");
+      });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(document.body.textContent).toContain(
+        "recordRoute.unclaimedRecording",
+      );
+    } finally {
+      claim.release();
+    }
+  });
+
+  it("lets a second mount scan while the first status request is stalled", async () => {
+    await mount("en-US");
+    await updateRecordingBackupMeta("unfinished", {
+      localOnly: false,
+      serverRecordingId: "server-recording",
+    });
+    const gate = {
+      release: (): void => {
+        throw new Error("Missing status gate");
+      },
+    };
+    const waiting = new Promise<void>((resolve) => {
+      gate.release = resolve;
+    });
+    const status = vi
+      .spyOn(upload, "fetchServerUploadStatus")
+      .mockImplementation(async () => {
+        await waiting;
+        return { found: false };
+      });
+    try {
+      await act(async () =>
+        document.dispatchEvent(new Event("visibilitychange")),
+      );
+      await vi.waitFor(() => expect(status).toHaveBeenCalledOnce());
+      await updateRecordingBackupMeta("unfinished", {
+        localOnly: true,
+        serverRecordingId: null,
+        ownerEmail: null,
+      });
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(
+            '[aria-label="Mount another recovery watcher"]',
+          )
+          ?.click(),
+      );
+      await vi.waitFor(() =>
+        expect(recoveryToast()?.title).toBe(
+          "A recording in this browser isn't linked to an account",
+        ),
+      );
+    } finally {
+      gate.release();
+    }
+  });
+
+  it("lets a second mount scan while an IndexedDB open is stalled", async () => {
+    await mount("en-US");
+    const open = vi
+      .spyOn(IDBFactory.prototype, "open")
+      .mockImplementationOnce(() => new IDBOpenDBRequest());
+    await act(async () =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    );
+    await vi.waitFor(() => expect(open).toHaveBeenCalledOnce());
+    await updateRecordingBackupMeta("unfinished", { ownerEmail: null });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Mount another recovery watcher"]',
+        )
+        ?.click(),
+    );
+    await vi.waitFor(() =>
+      expect(recoveryToast()?.title).toBe(
+        "A recording in this browser isn't linked to an account",
+      ),
+    );
+  });
+
+  it("does not let an older pending result replace a newer recorder offer", async () => {
+    await mount("en-US");
+    await updateRecordingBackupMeta("unfinished", {
+      localOnly: false,
+      serverRecordingId: "server-recording",
+    });
+    const gate = {
+      release: (): void => {
+        throw new Error("Missing status gate");
+      },
+    };
+    const waiting = new Promise<void>((resolve) => {
+      gate.release = resolve;
+    });
+    const status = vi
+      .spyOn(upload, "fetchServerUploadStatus")
+      .mockImplementation(async () => {
+        await waiting;
+        return { found: false };
+      });
+    await act(async () =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    );
+    await vi.waitFor(() => expect(status).toHaveBeenCalledOnce());
+    offerLocalRecording({
+      meta: { recordingId: "new-copy", ownerEmail: null },
+      t: ((key: string) => key) as never,
+      navigate: () => {},
+    });
+    await act(async () => {
+      gate.release();
+      await status.mock.results[0]?.value;
+    });
+    await vi.waitFor(() =>
+      expect(recoveryToast()?.title).toBe("recordRoute.unclaimedRecording"),
+    );
+  });
+
+  it("does not restore a prompt snoozed while an older scan is in flight", async () => {
+    await mount("en-US");
+    await vi.waitFor(() =>
+      expect(document.querySelector("[data-cancel]")).not.toBeNull(),
+    );
+    await updateRecordingBackupMeta("unfinished", {
+      localOnly: false,
+      serverRecordingId: "server-recording",
+    });
+    const gate = {
+      release: (): void => {
+        throw new Error("Missing status gate");
+      },
+    };
+    const waiting = new Promise<void>((resolve) => {
+      gate.release = resolve;
+    });
+    const status = vi
+      .spyOn(upload, "fetchServerUploadStatus")
+      .mockImplementation(async () => {
+        await waiting;
+        return { found: false };
+      });
+    await act(async () =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    );
+    await vi.waitFor(() => expect(status).toHaveBeenCalledOnce());
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>("[data-cancel]")?.click(),
+    );
+    await vi.waitFor(async () =>
+      expect((await getRecordingBackupMeta("unfinished"))?.remindAfter).toEqual(
+        expect.any(String),
+      ),
+    );
+    await act(async () => {
+      gate.release();
+      await status.mock.results[0]?.value;
+    });
+    await vi.waitFor(() => expect(recoveryToast()).toBeUndefined());
+    expect(await getRecordingBackupMeta("unfinished")).not.toBeNull();
+  });
 
   it("keeps the unreadable-store error when a scan fails", async () => {
     await mount("en-US");
@@ -215,15 +429,13 @@ describe("recovery toast localization", () => {
           )
           ?.click(),
       );
-      // A concurrent implementation reaches the second snapshot before the
-      // first status returns; a serialized one waits for that first scan.
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await vi.waitFor(() => expect(query).toHaveBeenCalled());
+      await vi.waitFor(() => expect(recoveryToast()).toBeUndefined());
       await act(async () => {
         statusControl.release();
         await status.mock.results[0]?.value;
       });
-      await vi.waitFor(() => expect(query).toHaveBeenCalled());
-      await vi.waitFor(() => expect(recoveryToast()).toBeUndefined());
+      expect(recoveryToast()).toBeUndefined();
     } finally {
       statusControl.release();
       claim.release();

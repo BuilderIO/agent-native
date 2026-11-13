@@ -6,10 +6,15 @@ const mocks = vi.hoisted(() => ({
   trashStaleServerRecordings: vi.fn(async () => {}),
   toastWarning: vi.fn(),
   toastInfo: vi.fn(),
+  toastDismiss: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
-  toast: { warning: mocks.toastWarning, info: mocks.toastInfo },
+  toast: {
+    warning: mocks.toastWarning,
+    info: mocks.toastInfo,
+    dismiss: mocks.toastDismiss,
+  },
 }));
 vi.mock("@/lib/local-recording-upload", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/local-recording-upload")>()),
@@ -148,6 +153,35 @@ describe("findLocalRecordingsToFinish", () => {
     expect(await getRecordingBackupMeta("proven")).not.toBeNull();
     expect(scan.pending.map((m) => m.recordingId)).toEqual(["proven"]);
     expect(scan.waitingOnServer).toBe(1);
+  });
+
+  it("rechecks a copy while another scan is cleaning it", async () => {
+    await saveCopy(meta("proven", { serverRecordingId: "srv-1" }));
+    mocks.fetchServerUploadStatus.mockResolvedValue(ready(4));
+    const gate = {
+      release: (): void => {
+        throw new Error("Missing cleanup gate");
+      },
+    };
+    const waiting = new Promise<void>((resolve) => {
+      gate.release = resolve;
+    });
+    mocks.trashStaleServerRecordings.mockImplementationOnce(async () => {
+      await waiting;
+    });
+    const first = findLocalRecordingsToFinish("me@example.com");
+    try {
+      await vi.waitFor(() =>
+        expect(mocks.trashStaleServerRecordings).toHaveBeenCalledOnce(),
+      );
+      const second = await findLocalRecordingsToFinish("me@example.com");
+      expect(second.pending).toEqual([]);
+      expect(second.waitingOnServer).toBe(1);
+    } finally {
+      gate.release();
+      await first;
+    }
+    expect(await getRecordingBackupMeta("proven")).toBeNull();
   });
 
   it("keeps a proven copy visible when the browser has no Web Locks", async () => {
@@ -350,6 +384,7 @@ describe("watchLocalRecordings", () => {
         expect.objectContaining({
           pending: [expect.objectContaining({ recordingId: "unfinished" })],
         }),
+        expect.any(Number),
         expect.any(Number),
       );
       expect(oldResult).not.toHaveBeenCalled();
