@@ -505,8 +505,11 @@ describe("pre-signup Builder experiment", () => {
       status: "connected",
     });
     expect(await (await request({ operation: "start" })).json()).toEqual({
-      status: "disabled",
-      code: "already_completed",
+      status: "connected",
+    });
+    mocks.waitUntil = undefined;
+    expect(await (await request({ operation: "start" })).json()).toEqual({
+      status: "connected",
     });
     expect(await (await request({ operation: "activate" })).json()).toEqual({
       status: "connected",

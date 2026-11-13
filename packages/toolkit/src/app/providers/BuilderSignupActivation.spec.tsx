@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
-  status: vi.fn<() => Promise<"eligible" | "disabled">>(),
+  status: vi.fn<() => Promise<"eligible" | "connected" | "disabled">>(),
   activate: vi.fn<() => Promise<"connected" | "fallback" | "disabled">>(),
 }));
 
@@ -106,6 +106,33 @@ describe("BuilderSignupActivation", () => {
     act(() => root.unmount());
     container.remove();
   });
+
+  it.each(["connected", "eligible"] as const)(
+    "refreshes the composer after successful activation with initial status %s",
+    async (status) => {
+      mocks.status.mockResolvedValue(status);
+      mocks.activate.mockImplementation(async () => {
+        mocks.status.mockResolvedValue("connected");
+        return "connected";
+      });
+      const refresh = vi.fn();
+      window.addEventListener("agent-engine:configured-changed", refresh);
+      try {
+        await render(`readiness-${status}-user`);
+        await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+        expect(mocks.activate).toHaveBeenCalledTimes(
+          status === "eligible" ? 1 : 0,
+        );
+        expect(container.querySelector("[inert]")).toBeNull();
+        await act(async () => {
+          await queryClient.refetchQueries();
+        });
+        expect(refresh).toHaveBeenCalledOnce();
+      } finally {
+        window.removeEventListener("agent-engine:configured-changed", refresh);
+      }
+    },
+  );
 
   it("reports eligibility resolution separately from confirmed activation", async () => {
     mocks.status.mockReturnValue(new Promise(() => {}));

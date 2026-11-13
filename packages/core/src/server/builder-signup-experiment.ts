@@ -585,6 +585,8 @@ export function createBuilderSignupExperiment(dependencies: {
           );
         }
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        if (body.data.operation === "start" && status === "connected")
+          return { status: "connected" as const };
         return { status: "disabled" as const, code: "already_completed" };
       }
       return { status: "eligible" as const };
@@ -716,7 +718,7 @@ export function createBuilderSignupExperiment(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "control" };
       }
-      if (status !== "started" && body.data.operation === "start") {
+      if (status === "fallback" && body.data.operation === "start") {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };
       }

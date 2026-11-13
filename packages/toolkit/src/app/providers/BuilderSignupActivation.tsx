@@ -6,7 +6,13 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { useSession } from "@agent-native/core/client/use-session";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { Button } from "../../ui/button.js";
 import { Skeleton } from "../../ui/skeleton.js";
@@ -16,7 +22,10 @@ import {
 } from "../onboarding/first-run-startup-gate-context.js";
 import { FirstRunOnboardingStartupGate } from "../onboarding/first-run-startup-gate.js";
 
-const attempts = new Map<string, Promise<unknown>>();
+const attempts = new Map<
+  string,
+  ReturnType<typeof activateBuilderSignupAssignment>
+>();
 
 // Runs a pending Builder signup activation for the signed-in user and reports
 // whether it is still in progress. Anything outside the cover that opens UI,
@@ -32,11 +41,13 @@ export function useBuilderSignupActivation(
 } {
   const queryClient = useQueryClient();
   const attemptKey = `${experimentId}:${userId}`;
+  const refreshedConnection = useRef<string | undefined>(undefined);
   const recoveryAttempts = useRef(new Map<string, number>());
   const [activation, setActivation] = useState<{
     userId: string;
     status: "running" | "checking" | "paused" | "settled";
     failedAt?: number;
+    connected?: boolean;
   }>();
   const eligibility = useQuery({
     queryKey: ["builder-signup-eligibility", experimentId, userId],
@@ -51,6 +62,19 @@ export function useBuilderSignupActivation(
         ? 2000
         : false,
   });
+  useEffect(() => {
+    if (
+      userId &&
+      refreshedConnection.current !== attemptKey &&
+      (eligibility.data === "connected" ||
+        (activation?.userId === userId && activation.connected))
+    ) {
+      refreshedConnection.current = attemptKey;
+      // Provider readiness is cached outside React Query and may have been
+      // checked before the signup callback finished saving credentials.
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+  }, [activation, attemptKey, eligibility.data, userId]);
   useEffect(() => {
     if (eligibility.error && userId) {
       void track("builder_signup_experiment_client_failed", {
@@ -78,10 +102,15 @@ export function useBuilderSignupActivation(
       });
       attempts.set(attemptKey, attempt);
     }
-    const settle = () =>
+    const settle = (
+      status: Awaited<ReturnType<typeof activateBuilderSignupAssignment>>,
+    ) => {
       setActivation((current) =>
-        current?.userId === userId ? { userId, status: "settled" } : current,
+        current?.userId === userId
+          ? { userId, status: "settled", connected: status === "connected" }
+          : current,
       );
+    };
     void attempt.then(settle, (error: unknown) => {
       if (attempts.get(attemptKey) === attempt) attempts.delete(attemptKey);
       void track("builder_signup_experiment_client_failed", {
@@ -114,7 +143,7 @@ export function useBuilderSignupActivation(
     if (
       (activation?.status === "checking" || activation?.status === "paused") &&
       activation.userId === userId &&
-      eligibility.data === "disabled"
+      (eligibility.data === "disabled" || eligibility.data === "connected")
     ) {
       setActivation({ userId, status: "settled" });
       void queryClient.invalidateQueries();
