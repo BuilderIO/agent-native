@@ -1050,6 +1050,7 @@ function targetForSpecifier(
         prefix.length,
         specifier.length - suffix.length || undefined,
       );
+      if (!wildcard) continue;
       const wildcardPath =
         wildcard.startsWith("/") && !prefix.endsWith("/")
           ? wildcard.slice(1)
