@@ -2359,6 +2359,8 @@ return requestFullscreenOnFirstInteraction;`;
       href: string;
       pageHelper?: unknown;
       frameSrc?: string;
+      navigator?: unknown;
+      app?: unknown;
     }) => {
       const resource = embedApp({ title: "Mail" });
       const html =
@@ -2409,7 +2411,8 @@ return requestFullscreenOnFirstInteraction;`;
         "appFrame",
         "lastFrameSrc",
         "app",
-        `${source}; return { listViewTools, callViewTool };`,
+        "navigator",
+        `${source}; return { listViewTools, callViewTool, watchPageTools };`,
       )(
         fakeWindow,
         window.document,
@@ -2418,8 +2421,10 @@ return requestFullscreenOnFirstInteraction;`;
         FakePopStateEvent,
         appFrame,
         "https://labs.example.com/_agent-native/embed/start?t=1",
-        null,
+        options.app ?? null,
+        options.navigator ?? {},
       ) as {
+        watchPageTools(): void;
         listViewTools(): Promise<Array<{ name: string }>>;
         callViewTool(params: unknown): Promise<{
           isError?: boolean;
@@ -2481,6 +2486,58 @@ return requestFullscreenOnFirstInteraction;`;
       expect(called.structuredContent).toEqual({ selected: { id: "t1" } });
     });
 
+    it("calls a page tool on the origin it was listed from", async () => {
+      const calls: unknown[] = [];
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+        pageHelper: {
+          tools: async () => [
+            { name: "archive", origin: "https://labs.example.com" },
+            { name: "archive", origin: "https://widgets.example.com" },
+          ],
+          call: async (name: string, _args: unknown, options: unknown) => {
+            calls.push(options);
+            return { state: "done", ok: true, tool: name, result: "ok" };
+          },
+        },
+      });
+
+      const listed = await tools.listViewTools();
+      expect(listed.filter((tool) => tool.name === "archive")).toHaveLength(1);
+      await tools.callViewTool({ name: "archive", arguments: {} });
+      expect(calls).toEqual([
+        { waitMs: 40000, origin: "https://labs.example.com" },
+      ]);
+    });
+
+    it("re-announces its tools once the page registers them", async () => {
+      vi.useFakeTimers();
+      try {
+        let notified = 0;
+        const listeners: Array<() => void> = [];
+        const tools = viewToolsFor({
+          href: "https://labs.example.com/mail/inbox",
+          app: { sendToolListChanged: () => notified++ },
+          navigator: {
+            modelContext: {
+              addEventListener: (_type: string, listener: () => void) =>
+                listeners.push(listener),
+            },
+          },
+        });
+
+        tools.watchPageTools();
+        expect(notified).toBe(1);
+        expect(listeners).toHaveLength(1);
+
+        listeners[0]!();
+        await vi.advanceTimersByTimeAsync(300);
+        expect(notified).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("reads what the open page shows", async () => {
       const tools = viewToolsFor({
         href: "https://labs.example.com/mail/inbox?q=acme",
@@ -2524,6 +2581,9 @@ return requestFullscreenOnFirstInteraction;`;
         arguments: { path: "/calendar/event/e1" },
       });
       expect(moved.structuredContent).toEqual({ path: "/calendar/event/e1" });
+      const read = await tools.callViewTool({ name: "read_view" });
+      expect(read.isError).toBe(true);
+      expect(read.content[0]!.text).toContain("nested frame");
       const listed = await tools.listViewTools();
       expect(listed.map((tool) => tool.name)).toEqual([
         "read_view",

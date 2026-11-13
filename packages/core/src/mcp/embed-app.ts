@@ -1405,7 +1405,7 @@ export function embedApp(
         window.history.replaceState(window.history.state, "", localPathFromUrl(appUrl, false));
       } catch {}
       await mountTransplantedHtml(html, appUrl);
-      notifyViewToolsChanged();
+      watchPageTools();
       embedSessionRefreshAttempts = 0;
       notifyHostHeightRepeatedly();
     }
@@ -2692,6 +2692,8 @@ export function embedApp(
     const maxViewTextChars = 6000;
     const maxPageTools = 60;
     const pageToolWaitMs = 40000;
+    const pageToolOrigins = new Map();
+    let pageToolWatchStarted = false;
 
     function appPageToolHelper() {
       if (appFrame) return null;
@@ -2714,13 +2716,16 @@ export function embedApp(
     }
 
     function readViewState() {
+      // A nested app frame is cross-origin and moves on its own, so its src is
+      // only the launch URL; reporting it would describe the wrong page.
+      if (appFrame) throw new Error("This host shows the app in a nested frame, so its current page can't be read.");
       const url = currentViewUrl();
       if (!url) throw new Error("No app page has loaded in this view yet.");
       const state = {
         path: localPathFromUrl(url, false),
-        title: appFrame ? "" : document.title
+        title: document.title
       };
-      if (!appFrame) {
+      {
         const selection = typeof window.getSelection === "function"
           ? String(window.getSelection() || "").trim()
           : "";
@@ -2787,6 +2792,7 @@ export function embedApp(
       ];
       const helper = appPageToolHelper();
       if (!helper) return tools;
+      pageToolOrigins.clear();
       try {
         const summaries = await helper.tools();
         for (const summary of (Array.isArray(summaries) ? summaries : []).slice(0, maxPageTools)) {
@@ -2805,6 +2811,7 @@ export function embedApp(
             inputSchema: schema,
             ...(summary.readOnly ? { annotations: { readOnlyHint: true } } : {})
           });
+          pageToolOrigins.set(summary.name, summary.origin);
         }
       } catch (err) {
         console.warn("[agent-native] page tools unavailable to the MCP host", err);
@@ -2825,7 +2832,11 @@ export function embedApp(
         } else {
           const helper = appPageToolHelper();
           if (!helper) throw new Error("Unknown view tool: " + name);
-          const outcome = await helper.call(name, args, { waitMs: pageToolWaitMs });
+          const origin = pageToolOrigins.get(name);
+          const outcome = await helper.call(name, args, {
+            waitMs: pageToolWaitMs,
+            ...(origin ? { origin } : {})
+          });
           if (!outcome || outcome.state !== "done") {
             throw new Error("Page tool " + name + " did not finish.");
           }
@@ -2858,6 +2869,37 @@ export function embedApp(
           console.warn("[agent-native] tools/list_changed notification failed", error);
         }
       }
+    }
+
+    // The app registers its WebMCP tools from module scripts that keep running
+    // after the transplant mounts, so the first list_changed can arrive before
+    // they exist. Re-announce when the helper appears and on every toolchange.
+    function watchPageTools() {
+      notifyViewToolsChanged();
+      if (pageToolWatchStarted) return;
+      pageToolWatchStarted = true;
+      let timer = null;
+      const schedule = () => {
+        clearTimeout(timer);
+        timer = setTimeout(notifyViewToolsChanged, 250);
+      };
+      let watchedContext = null;
+      let helperSeen = false;
+      let ticks = 0;
+      const check = () => {
+        const context = navigator.modelContext;
+        if (context && context !== watchedContext && typeof context.addEventListener === "function") {
+          context.addEventListener("toolchange", schedule);
+          watchedContext = context;
+        }
+        if (!helperSeen && appPageToolHelper()) {
+          helperSeen = true;
+          schedule();
+        }
+        if ((helperSeen && watchedContext) || ++ticks >= 20) clearInterval(poll);
+      };
+      const poll = setInterval(check, 500);
+      check();
     }
 
     function createNativeMcpAppsBridge() {
