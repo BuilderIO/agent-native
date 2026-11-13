@@ -49,6 +49,7 @@ import {
   isContextOverflowMessage,
   isCreditsLimitErrorCode,
   isGenericInternalServerErrorMessage,
+  isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./error-detail.js";
@@ -706,6 +707,9 @@ function gatewayErrorStop(
         }),
     ...(isContextOverflowMessage(error) || isContextOverflowCode(errorCode)
       ? { contextOverflow: true }
+      : {}),
+    ...(isInvalidAttachmentProviderMessage(error)
+      ? { attachmentRejection: true }
       : {}),
     ...(requestShape ? { requestShape } : {}),
     ...retry,

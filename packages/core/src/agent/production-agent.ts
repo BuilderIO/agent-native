@@ -3487,7 +3487,8 @@ function engineStopError(
         ((event.statusCode === undefined ||
           event.statusCode === 400 ||
           event.statusCode === 422) &&
-          isInvalidAttachmentProviderMessage(error))));
+          (event.attachmentRejection === true ||
+            isInvalidAttachmentProviderMessage(error)))));
   const names = parts.flatMap((part) =>
     part.type === "file" && part.filename ? [`"${part.filename}"`] : [],
   );
