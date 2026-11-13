@@ -13,8 +13,10 @@ import {
 } from "@/components/sidebar/select-content-space";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
 import {
+  removeCreatedDocumentNavigation,
   rollbackOptimisticCreatedDocument,
   seedCreatedDocumentNavigation,
+  showCreatedDocumentInFiles,
   useCreateDocument,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -130,6 +132,12 @@ export function useCreatePage(opts?: {
         );
         void navigate(`/page/${id}`, { flushSync: true });
         onAfterNavigate?.();
+      } else {
+        showCreatedDocumentInFiles(
+          queryClient,
+          tempDoc,
+          selectedSpace?.filesDatabaseId ?? null,
+        );
       }
 
       const createIntent = {
@@ -218,6 +226,7 @@ export function useCreatePage(opts?: {
             id,
             previousDocuments !== undefined,
           );
+          removeCreatedDocumentNavigation(queryClient, tempDoc);
           void queryClient.invalidateQueries({
             queryKey: ["action", "list-documents"],
           });

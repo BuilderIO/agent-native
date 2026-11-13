@@ -1795,6 +1795,8 @@ export default {
         "複製する前に、保留中のビジュアル編集を適用または破棄してください。",
       allDesigns: "すべてのデザイン",
       rename: "名前を変更",
+      builtFrom: "{{title}} から作成",
+      builtFromPage: "Content のページから作成",
       duplicate: "複製",
       versionHistory: "バージョン履歴",
       import: "インポート…",
@@ -2232,6 +2234,10 @@ export default {
         "別の共同編集者の変更が適用待ちです。新しい変更を送る前に適用するか消去してください。",
       codingHandoffCopied: "コーディング引き継ぎをコピーしました",
       clipboardBlocked: "クリップボードがブロックされました",
+      pasteMediaTooMany_other:
+        "{{count}} 件のファイルは貼り付けられませんでした。一度に貼り付けられるのは最大 {{limit}} 件です。",
+      pasteMediaTooLarge_other:
+        "{{count}} 件のファイルは {{limitMb}} MB を超えているため貼り付けられませんでした。",
       htmlCreateError: "HTML ダウンロードを作成できませんでした",
       htmlDownloaded: "HTML をダウンロードしました",
       htmlExportError: "HTML をエクスポートできませんでした",
@@ -2666,6 +2672,7 @@ export default {
     searchSystems: "デザインシステムを検索…",
     searchDesigns: "デザインを検索…",
     searchPresentations: "プレゼンテーションを検索…",
+    searchPages: "ページを検索…",
     searchDesign: "デザインを検索…",
     useDesignSystem: "デザインシステムを使用",
     notReady:
@@ -2678,6 +2685,7 @@ export default {
     design: "デザインの参照",
     slides: "スライド",
     referenceDesign: "デザインを参照",
+    contentPage: "Content のページ",
     connectFigma: "Figma を接続",
     figmaReference: "Figma デザイン…",
     figmaDialogTitle: "Figma デザインを追加",

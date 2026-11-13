@@ -1,5 +1,18 @@
 # @agent-native/recap-cli
 
+## 0.5.102
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.101
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- bea9322: Require verified organization identity, scope background reads to the current organization, restrict shared MCP identity hints and recap agent tools, protect logout from cross-origin requests, confirm extension-submitted agent turns in the host UI, and let users approve exact outbound origins for custom keys without replacing their values.
+
 ## 0.5.100
 
 ### Patch Changes
@@ -648,20 +661,5 @@
   consumer who already has a different Playwright from deduping, which forces a
   nested copy and downloads exactly the second browser this change exists to
   avoid.
-
-## 0.5.2
-
-### Patch Changes
-
-- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
-  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
-  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
-  config merges it in.
-
-## 0.5.1
-
-### Patch Changes
-
-- 03a043e: Retry transient recap document-load timeouts and only embed screenshot previews when both light and dark themes are available.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

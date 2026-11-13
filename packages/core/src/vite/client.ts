@@ -95,6 +95,7 @@ import {
   readAgentNativeJsonConfig,
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
+  resolveRequiredEnvBuildReplacement,
   writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
@@ -1151,6 +1152,25 @@ const CORE_CLIENT_SUBPATHS = [
 const disableDepSourcemapsPlugin: Plugin = {
   name: "agent-native:no-dep-prebundle-sourcemaps",
   outputOptions: (options) => ({ ...options, sourcemap: false }),
+};
+
+const disableServedDepSourcemapsPlugin: Plugin = {
+  name: "agent-native:no-served-dep-sourcemaps",
+  apply: "serve",
+  enforce: "post",
+  transform(code, id) {
+    if (
+      process.env.AGENT_NATIVE_DEP_SOURCEMAPS === "1" ||
+      this.environment.name !== "client" ||
+      this.environment.mode !== "dev" ||
+      !this.environment.depsOptimizer?.isOptimizedDepFile(id)
+    ) {
+      return;
+    }
+    // Vite injects an identity map when no map is present. It only takes the
+    // transformed map when the code changes, so add a trailing newline.
+    return { code: `${code}\n`, map: { mappings: "" } };
+  },
 };
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
@@ -4732,6 +4752,7 @@ function createAgentNativePlugins(
     clientOptionalPeerStubPlugin(cwd),
     ...userPlugins,
     externalStoreShimPlugin(),
+    disableServedDepSourcemapsPlugin,
     appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
@@ -4884,14 +4905,17 @@ function createAgentNativeConfig(
     runtimeEnv,
   );
   const harnessMode = resolveHarnessBuildReplacement(resolvedAppConfig);
+  const requiredEnv = resolveRequiredEnvBuildReplacement(resolvedAppConfig);
   if (command === "build") {
     writeAgentNativeBuildConfigMarker(cwd, {
       firstRunOnboarding: firstRunOnboardingMode,
       harness: harnessMode,
+      requiredEnv,
     });
   }
   const firstRunOnboardingBuildMode = JSON.stringify(firstRunOnboardingMode);
   const harnessBuildMode = JSON.stringify(harnessMode);
+  const requiredEnvBuildValue = JSON.stringify(requiredEnv);
   const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
   const frameworkRoutePrefix =
@@ -4982,6 +5006,7 @@ function createAgentNativeConfig(
         "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
           firstRunOnboardingBuildMode,
         "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
+        "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": requiredEnvBuildValue,
       },
     },
     logLevel:
@@ -5032,6 +5057,7 @@ function createAgentNativeConfig(
       "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
         firstRunOnboardingBuildMode,
       "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
+      "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": requiredEnvBuildValue,
       ...(resolvedAppConfig.deployment?.environment
         ? {
             "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(

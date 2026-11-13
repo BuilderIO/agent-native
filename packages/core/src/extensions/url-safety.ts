@@ -486,6 +486,22 @@ export async function ssrfSafeFetch(
         ((response.status === 301 || response.status === 302) &&
           method === "POST") ||
         (response.status === 303 && method !== "GET" && method !== "HEAD");
+      const changesOrigin = nextUrl.origin !== new URL(currentUrl).origin;
+      if (
+        changesOrigin &&
+        !rewritesToGet &&
+        method !== "GET" &&
+        method !== "HEAD"
+      ) {
+        throw new Error(
+          "Refusing to follow a cross-origin redirect with a non-GET request",
+        );
+      }
+      if (!rewritesToGet && currentInit.body instanceof ReadableStream) {
+        throw new Error(
+          "Cannot replay a one-shot streamed request body after redirect",
+        );
+      }
       let headers = new Headers(currentInit.headers);
       if (rewritesToGet) {
         for (const name of [
@@ -499,13 +515,7 @@ export async function ssrfSafeFetch(
         }
         currentInit = { ...currentInit, method: "GET", body: undefined };
       }
-      if (nextUrl.origin !== new URL(currentUrl).origin) {
-        const redirectedMethod = currentInit.method?.toUpperCase() ?? "GET";
-        if (redirectedMethod !== "GET" && redirectedMethod !== "HEAD") {
-          throw new Error(
-            "Refusing to follow a cross-origin redirect with a non-GET request",
-          );
-        }
+      if (changesOrigin) {
         const safeHeaders = new Headers();
         const accept = headers.get("accept");
         if (accept !== null) safeHeaders.set("accept", accept);

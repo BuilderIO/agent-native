@@ -1,3 +1,15 @@
+## 0.31.10
+
+### Patch Changes
+
+- a1d24db: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
+
+## 0.31.9
+
+### Patch Changes
+
+- 4ebc74f: Fix Clips, Forms, and Design apps sharing the same fallback icon in the Dispatch "Your apps" list.
+
 ## 0.31.8
 
 ### Patch Changes

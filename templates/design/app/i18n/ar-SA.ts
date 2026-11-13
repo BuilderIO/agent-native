@@ -1762,6 +1762,8 @@ export default {
         "طبّق تعديلاتك المرئية المعلّقة أو تجاهلها قبل التكرار.",
       allDesigns: "كل التصاميم",
       rename: "إعادة التسمية",
+      builtFrom: "مبني على {{title}}",
+      builtFromPage: "مبني على صفحة Content",
       duplicate: "تكرار",
       versionHistory: "سجل الإصدارات",
       import: "استيراد…",
@@ -2192,6 +2194,30 @@ export default {
         "لدى متعاون آخر تعديلات بانتظار التطبيق. طبّقها أو امسحها قبل إرسال تعديلات جديدة.",
       codingHandoffCopied: "تم نسخ تسليم الترميز",
       clipboardBlocked: "تم حظر الحافظة",
+      pasteMediaTooMany_zero:
+        "لم يتم لصق {{count}} ملف. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_one:
+        "لم يتم لصق {{count}} ملف. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_two:
+        "لم يتم لصق {{count}} ملفين. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_few:
+        "لم يتم لصق {{count}} ملفات. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_many:
+        "لم يتم لصق {{count}} ملفًا. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_other:
+        "لم يتم لصق {{count}} ملفًا. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooLarge_zero:
+        "لم يتم لصق {{count}} ملف لأنه يتجاوز {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_one:
+        "لم يتم لصق {{count}} ملف لأنه يتجاوز {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_two:
+        "لم يتم لصق {{count}} ملفين لأنهما يتجاوزان {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_few:
+        "لم يتم لصق {{count}} ملفات لأنها تتجاوز {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_many:
+        "لم يتم لصق {{count}} ملفًا لأنها تتجاوز {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_other:
+        "لم يتم لصق {{count}} ملفًا لأنها تتجاوز {{limitMb}} ميغابايت.",
       htmlCreateError: "تعذر إنشاء تنزيل HTML",
       htmlDownloaded: "تم تنزيل HTML",
       htmlExportError: "تعذر تصدير HTML",
@@ -2609,6 +2635,7 @@ export default {
     searchSystems: "البحث في أنظمة التصميم…",
     searchDesigns: "البحث في التصاميم…",
     searchPresentations: "البحث في العروض التقديمية…",
+    searchPages: "البحث في الصفحات…",
     searchDesign: "البحث في التصميم…",
     useDesignSystem: "استخدام نظام تصميم",
     notReady:
@@ -2621,6 +2648,7 @@ export default {
     design: "مراجع التصميم",
     slides: "الشرائح",
     referenceDesign: "استخدام تصميم كمرجع",
+    contentPage: "صفحة Content",
     connectFigma: "ربط Figma",
     figmaReference: "تصميم Figma…",
     figmaDialogTitle: "إضافة تصميم Figma",

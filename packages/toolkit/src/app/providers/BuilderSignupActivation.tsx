@@ -218,7 +218,8 @@ export function BuilderSignupActivationCover({
         {children}
       </div>
       {activating ? (
-        <div className="fixed inset-0 z-50 flex gap-4 bg-background p-4">
+        // Above the first-run gate's cover, which waits under this one.
+        <div className="fixed inset-0 z-[110] flex gap-4 bg-background p-4">
           <span role="status" className="sr-only">
             {t("agentChat.common.loading")}
           </span>
@@ -239,7 +240,9 @@ export function BuilderSignupActivationCover({
       ) : statusError ? (
         <div
           role="alert"
-          className="fixed bottom-4 right-4 z-50 flex max-w-sm flex-col items-start gap-3 rounded-lg border bg-background p-4 shadow-lg"
+          // Above the first-run gate's cover, which stays up while an unknown
+          // eligibility defers onboarding.
+          className="fixed bottom-4 right-4 z-[110] flex max-w-sm flex-col items-start gap-3 rounded-lg border bg-background p-4 shadow-lg"
         >
           {retryContent}
         </div>
@@ -251,10 +254,12 @@ export function BuilderSignupActivationCover({
 export function BuilderSignupStartupGate({
   experimentId,
   suppressSurface,
+  cover,
   children,
 }: {
   experimentId?: string;
   suppressSurface: boolean;
+  cover?: ReactNode;
   children: ReactNode;
 }) {
   const { session } = useSession();
@@ -274,6 +279,7 @@ export function BuilderSignupStartupGate({
       <FirstRunOnboardingStartupGate
         suppressSurface={suppressSurface}
         deferSurface={resolving || activating}
+        cover={cover}
       >
         {children}
       </FirstRunOnboardingStartupGate>

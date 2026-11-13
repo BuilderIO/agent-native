@@ -44,7 +44,7 @@ Dispatch ships close to a hundred actions. Most of the UI-facing ones are alread
 | `create-vault-secret` / `update-vault-secret` / `delete-vault-secret`                           | Manage a stored credential.                              |
 | `create-vault-grant` / `revoke-vault-grant` / `list-vault-grants`                               | Grant, revoke, or list per-app secret access.            |
 | `request-vault-secret` / `approve-vault-request` / `deny-vault-request` / `list-vault-requests` | The request-and-review workflow for a new secret.        |
-| `grant-vault-secrets-to-app` / `sync-vault-to-app`                                              | Push access, or push the full vault, to one app.         |
+| `grant-vault-secrets-to-app`                                                                    | Grant several vault keys to one app in manual mode.      |
 | `list-vault-secrets` / `list-vault-secret-options` / `list-vault-audit`                         | Read secret metadata (never values) and the audit trail. |
 | `get-vault-access-settings` / `set-vault-access-settings`                                       | Read or change the all-apps vs. manual access mode.      |
 

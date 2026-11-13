@@ -14,6 +14,7 @@ import {
   IconDownload,
   IconDots,
   IconHierarchy2,
+  IconLoader2,
   IconMessageCircle,
   IconMinus,
   IconPhoto,
@@ -56,6 +57,12 @@ import {
 
 import { deleteNodeFromMenu } from "../editor-transaction-meta";
 import { createImagePickerId, pickedAssetImageFile } from "../image-upload";
+import {
+  releaseImageUploadPreview,
+  retryImageUpload,
+  useFinishedImageUpload,
+  useImageUploadPreview,
+} from "../image-upload-previews";
 import { imageDisplaySrc } from "../private-media-src";
 import { storedBodyImageFailed } from "../stored-body-images";
 import type { ContentImageOptions } from "./ImageNode";
@@ -502,6 +509,23 @@ function buildAltTextArticleContext({
     .join("\n\n");
 }
 
+/**
+ * Sets or clears a block's upload id outside undo history, like the upload's
+ * own steps. Undo bringing back a picker id would hold the page's saves, and
+ * taking one back would stop the upload it starts.
+ */
+function setUploadIdOutsideHistory(
+  editor: NodeViewProps["editor"],
+  position: number,
+  uploadId: string | null,
+) {
+  editor.view.dispatch(
+    editor.state.tr
+      .setNodeAttribute(position, "uploadId", uploadId)
+      .setMeta("addToHistory", false),
+  );
+}
+
 export function ImageBlock({
   node,
   editor,
@@ -547,6 +571,29 @@ export function ImageBlock({
   const isUploading = String(node.attrs.uploadId ?? "").startsWith(
     "image-upload-",
   );
+  // Only the tab uploading the image has its preview; any other shows the
+  // block as the page has it.
+  const uploadPreview = useImageUploadPreview(node.attrs.uploadId);
+  const uploadFailure = uploadPreview?.failure ?? null;
+  // A block can come back carrying an upload this tab has let go of, such as
+  // through undo. Nothing will finish it, so it drops the id and shows what
+  // the page holds; leaving undo history alone, so undo can't bring it back.
+  const uploadFinished = useFinishedImageUpload(node.attrs.uploadId);
+  useEffect(() => {
+    if (!uploadFinished || !isEditable || typeof getPos !== "function") return;
+    const position = getPos();
+    if (typeof position !== "number") return;
+    setUploadIdOutsideHistory(editor, position, null);
+  }, [editor, getPos, isEditable, uploadFinished]);
+  // A file this browser can't draw, such as HEIC outside Safari, leaves the
+  // block in its plain uploading state.
+  const [undrawablePreview, setUndrawablePreview] = useState<string | null>(
+    null,
+  );
+  const previewUrl =
+    uploadPreview?.url && uploadPreview.url !== undrawablePreview
+      ? uploadPreview.url
+      : null;
   const width = normalizedImageWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
@@ -587,11 +634,13 @@ export function ImageBlock({
       ) {
         return;
       }
+      const position = typeof getPos === "function" ? getPos() : undefined;
       if (
         !src &&
+        typeof position === "number" &&
         String(node.attrs.uploadId ?? "").startsWith("image-picker-")
       ) {
-        updateAttributes({ uploadId: null });
+        setUploadIdOutsideHistory(editor, position, null);
       }
       setSourcePanelOpen(false);
       setSourcePanelDismissed(true);
@@ -600,7 +649,7 @@ export function ImageBlock({
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () =>
       document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [node.attrs.uploadId, selected, sourcePanelOpen, src, updateAttributes]);
+  }, [editor, getPos, node.attrs.uploadId, selected, sourcePanelOpen, src]);
 
   function handleComment() {
     if (!options.onImageComment) return;
@@ -835,8 +884,14 @@ export function ImageBlock({
     if (typeof getPos !== "function") return;
     const position = getPos();
     if (typeof position !== "number") return;
-    const pickerId = String(node.attrs.uploadId || createImagePickerId());
-    if (!node.attrs.uploadId) updateAttributes({ uploadId: pickerId });
+    // Another tab's failed upload leaves its id here, which isn't this pick's.
+    const currentId = String(node.attrs.uploadId ?? "");
+    const pickerId = currentId.startsWith("image-picker-")
+      ? currentId
+      : createImagePickerId();
+    if (pickerId !== currentId) {
+      setUploadIdOutsideHistory(editor, position, pickerId);
+    }
     options.onImageFilePickerRequest?.({
       pickerId,
       position,
@@ -1092,6 +1147,155 @@ export function ImageBlock({
           </form>
         )}
       </div>
+    );
+  }
+
+  function handleRemoveFailedUpload() {
+    if (!canMutateMediaNow()) return;
+    const uploadId = node.attrs.uploadId;
+    // A replaced image goes back to what it showed; a new block goes away.
+    if (src) updateAttributes({ uploadId: null });
+    else deleteNode();
+    releaseImageUploadPreview(uploadId);
+  }
+
+  function renderUploadFailure(onPreview: boolean, overPageImage = false) {
+    // Over the image the page still holds, a broken upload reads as a failed
+    // one, since the image on show is fine.
+    const message =
+      uploadFailure === "render" && !overPageImage
+        ? t("editor.media.imageBroken")
+        : t("editor.media.imageUploadFailed");
+    const handleRetry = () => {
+      if (canMutateMediaNow()) retryImageUpload(node.attrs.uploadId);
+    };
+    const retryLabel = (
+      <>
+        <IconRefresh size={14} aria-hidden />
+        {t("editor.media.retryImageUpload")}
+      </>
+    );
+    const removeLabel = (
+      <>
+        <IconTrash size={14} aria-hidden />
+        {t("editor.media.removeImage")}
+      </>
+    );
+    const actions = !isEditable ? null : onPreview ? (
+      <div className="media-block__upload-failure-actions">
+        <button
+          type="button"
+          className="media-block__btn"
+          onClick={handleRetry}
+        >
+          {retryLabel}
+        </button>
+        <button
+          type="button"
+          className="media-block__btn"
+          onClick={handleRemoveFailedUpload}
+        >
+          {removeLabel}
+        </button>
+      </div>
+    ) : (
+      <div className="media-block__upload-failure-actions">
+        <Button type="button" size="sm" variant="outline" onClick={handleRetry}>
+          {retryLabel}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={handleRemoveFailedUpload}
+        >
+          {removeLabel}
+        </Button>
+      </div>
+    );
+
+    if (onPreview) {
+      return (
+        <div className="media-block__upload-failure">
+          <span className="media-block__upload-failure-text">{message}</span>
+          {actions}
+        </div>
+      );
+    }
+    return (
+      <div className="media-empty-block__trigger media-empty-block__trigger--static">
+        <IconPhoto size={20} aria-hidden />
+        <span>{message}</span>
+        <span className="media-empty-block__note">{actions}</span>
+      </div>
+    );
+  }
+
+  // The picked file, drawn while it uploads, or kept after a failed upload
+  // with Retry and Remove.
+  if (uploadPreview && (uploadFailure || (isUploading && previewUrl))) {
+    return (
+      <NodeViewWrapper
+        className="media-block-wrapper"
+        data-drag-handle
+        data-image-upload-id={node.attrs.uploadId || undefined}
+      >
+        {previewUrl ? (
+          <div
+            className="media-block media-block--upload"
+            data-failed={uploadFailure ? "true" : undefined}
+            style={activeWidth ? { width: `${activeWidth}px` } : undefined}
+          >
+            <img
+              src={previewUrl}
+              alt={alt || ""}
+              className="media-block__content"
+              data-upload-preview="true"
+              draggable={false}
+              onError={() => setUndrawablePreview(previewUrl)}
+            />
+            {isUploading && src ? (
+              // The uploaded copy loads unseen beneath the preview; the editor
+              // swaps it in once it has drawn.
+              <img
+                src={displaySrc}
+                alt=""
+                aria-hidden
+                className="media-block__staged-upload"
+                draggable={false}
+              />
+            ) : null}
+            {isUploading ? (
+              <span
+                className="media-block__upload-status"
+                role="status"
+                aria-label={t("editor.media.uploadingImage")}
+              >
+                <IconLoader2 size={16} className="animate-spin" aria-hidden />
+              </span>
+            ) : null}
+            {uploadFailure ? renderUploadFailure(true) : null}
+          </div>
+        ) : src ? (
+          // The browser couldn't draw the picked file, so a failed replacement
+          // keeps showing the image the page still holds.
+          <div
+            className="media-block media-block--upload"
+            data-failed="true"
+            style={activeWidth ? { width: `${activeWidth}px` } : undefined}
+          >
+            <img
+              src={displaySrc}
+              alt={alt || ""}
+              className="media-block__content"
+              draggable={false}
+            />
+            {renderUploadFailure(true, true)}
+          </div>
+        ) : (
+          <div className="media-empty-block">{renderUploadFailure(false)}</div>
+        )}
+      </NodeViewWrapper>
     );
   }
 

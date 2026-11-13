@@ -9,6 +9,7 @@ import {
   AgentNativeI18nProvider,
   type AgentNativeI18nProviderProps,
 } from "@agent-native/core/client/i18n";
+import { isFirstRunOnboardingEnabled } from "@agent-native/core/client/onboarding/first-run-enabled";
 import { AgentNativeRouteWarmup } from "@agent-native/core/client/route-warmup";
 import {
   EMBEDDED_THEME_CHANGE_EVENT,
@@ -39,6 +40,7 @@ import {
   McpApprovalReviewGate,
   McpApprovalReviewSkeleton,
 } from "../mcp-approval/McpApprovalReview.js";
+import { getFirstRunFirstPaintScriptBody } from "../onboarding/first-run-first-paint.js";
 import { FirstRunOnboardingStartupGate } from "../onboarding/first-run-startup-gate.js";
 import {
   AppShellSkeleton,
@@ -154,6 +156,17 @@ function McpAppWidgetBootScript() {
           workspaceRuntime,
         ),
       }}
+    />
+  );
+}
+
+// Before the server-rendered skeleton paints, so a first-paint home never
+// shows to someone about to see the role question.
+function FirstRunFirstPaintScript() {
+  return (
+    <script
+      data-agent-native-first-run-first-paint="1"
+      dangerouslySetInnerHTML={{ __html: getFirstRunFirstPaintScriptBody() }}
     />
   );
 }
@@ -653,12 +666,14 @@ export function AppProviders({
             <BuilderSignupStartupGate
               experimentId={builderSignupExperiment}
               suppressSurface={skipFirstRunOnboarding}
+              cover={fallback}
             >
               {children}
             </BuilderSignupStartupGate>
           ) : (
             <FirstRunOnboardingStartupGate
               suppressSurface={skipFirstRunOnboarding}
+              cover={fallback}
             >
               {children}
             </FirstRunOnboardingStartupGate>
@@ -697,6 +712,9 @@ export function AppProviders({
         <>
           <EarlySessionBootstrapScript />
           <EarlyBetaRedirectScript />
+          {isFirstRunOnboardingEnabled() && !skipFirstRunOnboarding ? (
+            <FirstRunFirstPaintScript />
+          ) : null}
         </>
       )}
       <ClientOnly fallback={fallback}>

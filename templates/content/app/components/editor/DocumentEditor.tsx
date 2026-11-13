@@ -2854,6 +2854,26 @@ export function documentEditorShowsInlineComments(args: {
 }
 
 /**
+ * Whether the margin still shows a thread AI just resolved. Its Resolved by
+ * AI mark holds the margin open until it fades, even when AI resolved the
+ * page's last open thread. Only the open tab's threads count: another tab's
+ * mark isn't on screen to fade, so it would hold an empty margin.
+ */
+export function documentEditorHasFreshAiResolution(
+  threads: readonly CommentThread[] | null | undefined,
+  openFieldId: string | null,
+  freshResolutions: ReadonlyMap<string, unknown>,
+) {
+  if (!threads || freshResolutions.size === 0) return false;
+  return commentRailThreads(threads, openFieldId).some(
+    (thread) =>
+      thread.resolved &&
+      freshResolutions.has(thread.threadId) &&
+      !isPageCommentThread(thread),
+  );
+}
+
+/**
  * What the page panel shows. `utilityPanel === "comments"` alone only means a
  * comment is in focus, which the margin or a card on the text shows; the panel
  * takes it when Discussion was asked for, or for a suggestion with no margin to
@@ -9070,20 +9090,6 @@ function PageEditorSessionBody({
           thread.threadId === selectedThreadId && !isPageCommentThread(thread),
       ) ??
         false));
-  const marginWanted = documentEditorShowsInlineComments({
-    showIndicators: showCommentIndicators,
-    hasInlineCommentSpace,
-    hasOpenCommentThreads: hasOpenCommentThreads || hasOpenSuggestions,
-    hasSelectedCommentThread,
-    hasPendingComment: !!pendingComment,
-  });
-  const pagePanel = usePagePanelMotion(requestedPanelTab, marginWanted);
-  // The margin gives its space back with the panel's arrival and takes it again
-  // as the panel leaves, so the page moves once; its comments wait until the
-  // panel has gone.
-  const marginReserved = marginWanted && !pagePanel.tab;
-  const showInlineComments = marginReserved && !pagePanel.closing;
-  if (pagePanel.tab) pagePanelLastTabRef.current = pagePanel.tab;
   // A failed read says nothing about whether the page still has open review,
   // so the remembered margin holds until both reads answer.
   const reviewReadsSettled = documentEditorReviewReadsSettled({
@@ -9098,25 +9104,6 @@ function PageEditorSessionBody({
   const pageHadOpenReview = useMemo(
     () => host === "page" && readPageShapeHint(documentId) === "review",
     [documentId, host],
-  );
-  const reserveInlineReviewSpace = documentEditorReservesInlineReviewSpace({
-    showInlineComments: marginReserved,
-    preserveInlineReviewSpace:
-      preserveInlineReviewSpace || (pageHadOpenReview && !reviewReadsSettled),
-    hasInlineCommentSpace: hasInlineCommentSpace && !pagePanel.tab,
-    isDatabasePage: Boolean(document.database),
-  });
-  const scrollContentRef = useRef<HTMLDivElement>(null);
-  const pageColumnRef = useRef<HTMLDivElement>(null);
-  useReviewMarginSlide(
-    {
-      scroller: scrollContainerRef,
-      content: scrollContentRef,
-      column: pageColumnRef,
-      panelSpacer: pagePanelSpacerRef,
-    },
-    reserveInlineReviewSpace,
-    !!pagePanel.tab && pagePanelLayout.mode === "dock",
   );
   const hasOpenReview = hasOpenCommentThreads || hasOpenSuggestions;
   useEffect(() => {
@@ -9298,6 +9285,46 @@ function PageEditorSessionBody({
   const clipRailThreads = useMemo(
     () => commentRailThreads(clipThreads, blockFieldComments.openFieldId),
     [blockFieldComments.openFieldId, clipThreads],
+  );
+  const marginWanted = documentEditorShowsInlineComments({
+    showIndicators: showCommentIndicators,
+    hasInlineCommentSpace,
+    hasOpenCommentThreads:
+      hasOpenCommentThreads ||
+      hasOpenSuggestions ||
+      documentEditorHasFreshAiResolution(
+        threads,
+        blockFieldComments.openFieldId,
+        commentAi.freshResolutions,
+      ),
+    hasSelectedCommentThread,
+    hasPendingComment: !!pendingComment,
+  });
+  const pagePanel = usePagePanelMotion(requestedPanelTab, marginWanted);
+  // The margin gives its space back with the panel's arrival and takes it again
+  // as the panel leaves, so the page moves once; its comments wait until the
+  // panel has gone.
+  const marginReserved = marginWanted && !pagePanel.tab;
+  const showInlineComments = marginReserved && !pagePanel.closing;
+  if (pagePanel.tab) pagePanelLastTabRef.current = pagePanel.tab;
+  const reserveInlineReviewSpace = documentEditorReservesInlineReviewSpace({
+    showInlineComments: marginReserved,
+    preserveInlineReviewSpace:
+      preserveInlineReviewSpace || (pageHadOpenReview && !reviewReadsSettled),
+    hasInlineCommentSpace: hasInlineCommentSpace && !pagePanel.tab,
+    isDatabasePage: Boolean(document.database),
+  });
+  const scrollContentRef = useRef<HTMLDivElement>(null);
+  const pageColumnRef = useRef<HTMLDivElement>(null);
+  useReviewMarginSlide(
+    {
+      scroller: scrollContainerRef,
+      content: scrollContentRef,
+      column: pageColumnRef,
+      panelSpacer: pagePanelSpacerRef,
+    },
+    reserveInlineReviewSpace,
+    !!pagePanel.tab && pagePanelLayout.mode === "dock",
   );
   const showAnchoredCommentPopover =
     !showCommentsHistoryDrawer &&

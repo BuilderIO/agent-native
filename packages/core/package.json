@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.227.0",
+  "version": "0.228.1",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -596,6 +596,7 @@
     "./client/resources/use-builtin-capabilities": "./dist/client/resources/use-builtin-capabilities.js",
     "./client/resources/use-mcp-servers": "./dist/client/resources/use-mcp-servers.js",
     "./client/resources/use-resources": "./dist/client/resources/use-resources.js",
+    "./client/resources/use-skill-choices": "./dist/client/resources/use-skill-choices.js",
     "./client/review/use-review": "./dist/client/review/use-review.js",
     "./client/settings": "./dist/client/tombstone/settings.js",
     "./client/sharing/share-controller-helpers": "./dist/client/sharing/share-controller-helpers.js",

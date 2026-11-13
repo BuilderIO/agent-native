@@ -1,9 +1,10 @@
 import { hasActiveAgentRuns } from "@agent-native/agentkit";
 import { IconPlayerStopFilled } from "@tabler/icons-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Tooltip } from "../../../design-system/index.js";
 import {
+  useAgentKit,
   useAgentKitControl,
   useAgentKitSubmissionStarting,
   useAgentThread,
@@ -53,7 +54,17 @@ export function useAgentKitStopButton(options: {
   onErrorRef.current = options.onError;
   const beforeCancelRef = useRef(options.beforeCancel);
   beforeCancelRef.current = options.beforeCancel;
-  if (!running && !starting) return undefined;
+  const { requestComposerFocus, threadId: providerThreadId } = useAgentKit();
+  // Keyboard stops only: refocusing the composer on touch opens the keyboard.
+  const refocusComposerRef = useRef(false);
+  const visible = running || starting;
+  const focusThreadId = options.threadId ?? providerThreadId;
+  useEffect(() => {
+    if (visible || !refocusComposerRef.current) return;
+    refocusComposerRef.current = false;
+    requestComposerFocus(focusThreadId);
+  }, [focusThreadId, requestComposerFocus, visible]);
+  if (!visible) return undefined;
   const { label } = options;
   return (
     <Tooltip
@@ -61,8 +72,10 @@ export function useAgentKitStopButton(options: {
       trigger={
         <button
           type="button"
-          onClick={() => {
+          onClick={(event) => {
             if (stoppingRef.current === activeRunKey) return;
+            // Enter and Space fire a click with no pointer detail.
+            refocusComposerRef.current = event.detail === 0;
             const runKey = activeRunKey;
             stoppingRef.current = runKey;
             setStoppingRunKey(runKey);
@@ -74,11 +87,15 @@ export function useAgentKitStopButton(options: {
             const knownRunIds = running ? thread.activeRunIds : undefined;
             void (async () => {
               const beforeCancel = beforeCancelRef.current;
-              if (beforeCancel && (await beforeCancel()) === false) return;
+              if (beforeCancel && (await beforeCancel()) === false) {
+                refocusComposerRef.current = false;
+                return;
+              }
               const runIds = knownRunIds ?? (await control.runIdsOnceStarted());
               await Promise.all(runIds.map((runId) => control.cancel(runId)));
             })()
               .catch((error: unknown) => {
+                refocusComposerRef.current = false;
                 onErrorRef.current(
                   error instanceof Error ? error : new Error(String(error)),
                 );
@@ -89,7 +106,7 @@ export function useAgentKitStopButton(options: {
           aria-busy={stopping || undefined}
           disabled={stopping}
           data-agent-composer-slot="stop-button"
-          className={`flex size-[var(--agentkit-composer-primary-control-size,2rem)] shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-[opacity,background-color,color] duration-150 hover:opacity-90 disabled:cursor-default disabled:opacity-35 ${STOP_BESIDE_PRIMARY}`}
+          className={`flex size-[var(--agentkit-composer-primary-control-size,2rem)] shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-sm,0.5rem)] bg-primary text-primary-foreground transition-[opacity,background-color,color] duration-150 hover:opacity-90 disabled:cursor-default disabled:opacity-35 ${STOP_BESIDE_PRIMARY}`}
         >
           <IconPlayerStopFilled aria-hidden="true" className="size-4" />
         </button>
