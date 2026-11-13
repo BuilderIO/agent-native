@@ -2302,7 +2302,7 @@ ${slice("function neverStartedFailures", "function requireSingleJob")}; return w
 
     for (const [childWorkflow, builds] of [
       [desktopWorkflow, ["build-mac", "build-windows", "build-linux"]],
-      [clipsWorkflow, ["build-tauri"]],
+      [clipsWorkflow, ["build-tauri", "build-macos", "bundle-macos"]],
     ] as const) {
       const modeInput = (
         ((childWorkflow.on as Workflow).workflow_dispatch as Workflow)
@@ -2342,10 +2342,13 @@ ${slice("function neverStartedFailures", "function requireSingleJob")}; return w
       assert.equal(published["publish-release"], "success");
 
       for (const mode of [undefined, "release"]) {
-        assert.equal(
-          simulate(childWorkflow, mode, [builds[0]])["publish-release"],
-          "skipped",
-        );
+        for (const build of builds) {
+          assert.equal(
+            simulate(childWorkflow, mode, [build])["publish-release"],
+            "skipped",
+            `${build} failing`,
+          );
+        }
       }
       assert.equal(
         simulate(childWorkflow, "publish", ["prepare-release"])[
