@@ -3771,8 +3771,8 @@ interface AgentNativeMessageProjectionState {
     omitFromPersistedHistory?: boolean;
     /** Delegated calls that streamed an activity row, which reports their end. */
     activityParticipants?: Set<string>;
-    /** Text each delegated call has streamed and not yet sent. */
-    agentCallText?: Map<string, HeldAgentCallText>;
+    /** The message preview each delegated call has streamed so far. */
+    agentCallText?: Map<string, string>;
     /** Background tasks by id, so a progress event keeps the task's name. */
     backgroundTasks?: Map<string, AgentChatRuntimeTask>;
     /** Ids given to tool input that streamed without one, by tool name. */
@@ -3974,29 +3974,7 @@ function backgroundTask(
   };
 }
 
-interface HeldAgentCallText {
-  agent: string;
-  text: string;
-}
-
-function heldAgentCallMessage(
-  participantId: string,
-  held: HeldAgentCallText,
-  base: Pick<AgentChatRuntimeEventBase, "sessionId" | "turnId" | "metadata">,
-): AgentChatRuntimeKnownEvent {
-  return {
-    type: "interaction",
-    ...base,
-    interaction: {
-      id: `${participantId}:message`,
-      kind: "messaged",
-      participantId,
-      detail: held.text,
-      scope: "external",
-      source: agentNativeAgentReference(held.agent),
-    },
-  };
-}
+const AGENT_CALL_MESSAGE_PREVIEW_CHARS = 600;
 
 function agentNativeParticipantId(event: SSEEvent): string {
   return event.agentCallId ?? event.taskId ?? `agent:${event.agent ?? "agent"}`;
@@ -4218,7 +4196,7 @@ function mapAgentNativeEvent(
       connectionPending: boolean;
       omitFromPersistedHistory?: boolean;
       activityParticipants?: Set<string>;
-      agentCallText?: Map<string, HeldAgentCallText>;
+      agentCallText?: Map<string, string>;
       backgroundTasks?: Map<string, AgentChatRuntimeTask>;
       pendingToolInputIds?: Map<string, string>;
     };
@@ -4695,13 +4673,6 @@ function mapAgentNativeEvent(
         participant,
       },
     ];
-    const held = input.message.agentCallText?.get(participantId);
-    if (ev.status !== "start" && held) {
-      events.push(heldAgentCallMessage(participantId, held, base));
-      if (ev.status !== "pending") {
-        input.message.agentCallText?.delete(participantId);
-      }
-    }
     if (!reportedByActivity) {
       events.push({
         type: "interaction",
@@ -4781,15 +4752,34 @@ function mapAgentNativeEvent(
     ];
   }
   if (ev.type === "agent_call_text") {
-    // The run keeps every event, so streamed pieces wait for the call to end
-    // or pause and go out as one message.
+    // The row shows a short preview, and the run keeps every event, so updates
+    // stop once the preview is full.
     const participantId = agentNativeParticipantId(ev);
     const texts = (input.message.agentCallText ??= new Map());
-    texts.set(participantId, {
-      agent: ev.agent ?? "agent",
-      text: (texts.get(participantId)?.text ?? "") + (ev.text ?? ""),
-    });
-    return [];
+    const previous = texts.get(participantId) ?? "";
+    if (previous.length > AGENT_CALL_MESSAGE_PREVIEW_CHARS) return [];
+    const text = (previous + (ev.text ?? "")).slice(
+      0,
+      AGENT_CALL_MESSAGE_PREVIEW_CHARS + 1,
+    );
+    texts.set(participantId, text);
+    return [
+      {
+        type: "interaction",
+        ...base,
+        interaction: {
+          id: `${participantId}:message`,
+          kind: "messaged",
+          participantId,
+          detail:
+            text.length > AGENT_CALL_MESSAGE_PREVIEW_CHARS
+              ? `${text.slice(0, AGENT_CALL_MESSAGE_PREVIEW_CHARS)}…`
+              : text,
+          scope: "external",
+          source: agentNativeAgentReference(ev.agent ?? "agent"),
+        },
+      },
+    ];
   }
   if (ev.type === "agent_call_activity" && ev.snapshot) {
     const agent = ev.agent ?? "agent";
@@ -5580,28 +5570,6 @@ export function createAgentNativeChatRuntime(
         messageId: state.messageId,
         message: state.message,
       });
-      // A call the turn ended or failed under never reports its own end, so
-      // its held text goes out before the reply closes.
-      const closing = mapped.findIndex(
-        (item) =>
-          item.type === "message-done" ||
-          item.type === "done" ||
-          item.type === "error",
-      );
-      const held = state.message.agentCallText;
-      if (closing >= 0 && held?.size) {
-        const base = {
-          sessionId: context.sessionId,
-          ...(context.turnId === undefined ? {} : { turnId: context.turnId }),
-        };
-        mapped.splice(
-          closing,
-          0,
-          ...[...held].map(([participantId, text]) =>
-            heldAgentCallMessage(participantId, text, base),
-          ),
-        );
-      }
       if (
         mapped.some(
           (item) => item.type === "done" && item.reason !== "tool-use",

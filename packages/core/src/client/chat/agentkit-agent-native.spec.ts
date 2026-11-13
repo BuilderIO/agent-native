@@ -3592,6 +3592,95 @@ describe("createAgentNativeAgentKitTransport", () => {
     }
   });
 
+  it("saves only the latest copy of a streamed agent message", async () => {
+    let threadData = JSON.stringify({
+      messages: [],
+      agentKit: { messages: [] },
+    });
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/threads/thread-stream") && init?.method === "PUT") {
+          const incoming = JSON.parse(JSON.parse(String(init.body)).threadData);
+          threadData = JSON.stringify(
+            mergeThreadDataForClientSave(JSON.parse(threadData), incoming),
+          );
+          return json({ ok: true });
+        }
+        if (url.endsWith("/threads/thread-stream")) {
+          return json({
+            id: "thread-stream",
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:01:00.000Z",
+            threadData,
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: fetcher as typeof fetch,
+      adapter: { now: () => "2026-09-26T00:01:00.000Z" },
+    });
+    const event = (sequence: number, rest: object) =>
+      ({
+        id: `stream-${sequence}`,
+        threadId: "thread-stream",
+        runId: "run-stream",
+        sequence,
+        occurredAt: `2026-09-26T00:00:0${sequence}.000Z`,
+        ...rest,
+      }) as AgentEvent;
+    const message = (detail: string) => ({
+      type: "agent.interaction",
+      interaction: {
+        id: "call-1:message",
+        kind: "messaged",
+        agentId: "call-1",
+        detail,
+        scope: "external",
+      },
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId: "thread-stream",
+      snapshot: {
+        id: "thread-stream",
+        createdAt: "2026-09-26T00:00:00.000Z",
+        updatedAt: "2026-09-26T00:01:00.000Z",
+        messages: [],
+        events: [
+          event(1, { type: "run.started" }),
+          event(2, message("The largest")),
+          event(3, message("The largest lake is Ladoga.")),
+          event(4, { type: "run.completed" }),
+        ],
+        runs: [
+          {
+            id: "run-stream",
+            threadId: "thread-stream",
+            status: "completed",
+            lastSequence: 4,
+            startedAt: "2026-09-26T00:00:01.000Z",
+            completedAt: "2026-09-26T00:00:04.000Z",
+          },
+        ],
+        activeRunIds: [],
+      },
+    });
+
+    const saved = JSON.parse(threadData).agentKit.events as AgentEvent[];
+    expect(saved.map((entry) => entry.type)).toEqual([
+      "run.started",
+      "x-agent-native.persisted-event-omission",
+      "agent.interaction",
+      "run.completed",
+    ]);
+    expect(saved[2]).toMatchObject({
+      interaction: { detail: "The largest lake is Ladoga." },
+    });
+  });
+
   it("persists compact completed activity history without replacing messages", async () => {
     const repository = {
       queuedMessages: [{ id: "queued-after-snapshot-read", text: "Later" }],
