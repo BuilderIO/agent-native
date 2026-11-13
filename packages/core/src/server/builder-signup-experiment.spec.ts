@@ -498,16 +498,29 @@ describe("pre-signup Builder experiment", () => {
     },
   );
 
-  it("does not emit a replayed outcome when a completed user returns", async () => {
+  it("signals readiness only for a recently completed startup without replaying outcomes", async () => {
     session = signedSession();
     mocks.waitUntil = () => {};
-    mocks.settings.set("design_builder_signup_v1:new-user", {
+    const key = "design_builder_signup_v1:new-user";
+    mocks.settings.set(key, { status: "connected", completedAt: Date.now() });
+    expect(await (await request({ operation: "start" })).json()).toEqual({
       status: "connected",
     });
+    mocks.waitUntil = undefined;
     expect(await (await request({ operation: "start" })).json()).toEqual({
-      status: "disabled",
-      code: "already_completed",
+      status: "connected",
     });
+    mocks.settings.set(key, {
+      status: "connected",
+      completedAt: Date.now() - 60_001,
+    });
+    for (const waitUntil of [undefined, () => {}]) {
+      mocks.waitUntil = waitUntil;
+      expect(await (await request({ operation: "start" })).json()).toEqual({
+        status: "disabled",
+        code: "already_completed",
+      });
+    }
     expect(await (await request({ operation: "activate" })).json()).toEqual({
       status: "connected",
     });
