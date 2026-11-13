@@ -17,7 +17,11 @@ import {
 import type { MCPConfig } from "./build-server.js";
 import { embedApp } from "./embed-app.js";
 import { frameworkMcpTool } from "./framework-tools.js";
-import { fetchOrgApps, type OrgApp } from "./org-directory.js";
+import {
+  fetchOrgApps,
+  fetchOrgAppsResult,
+  type OrgApp,
+} from "./org-directory.js";
 
 type Params = Record<
   string,
@@ -682,11 +686,23 @@ async function resolveTargetAppOrigin(
   }
 }
 
+// "unavailable" means a sibling might own this URL but the app lists could not
+// be read; a URL under this app's own base path is never a sibling's.
 async function resolveWorkspaceAppForUrl(
   config: MCPConfig,
   rawUrl: string,
 ): Promise<{ appUrl: string; relUrl: string } | "unavailable" | null> {
   if (!/^https?:\/\//i.test(rawUrl)) return null;
+  const ownBase = getConfiguredAppBasePath();
+  if (ownBase) {
+    try {
+      const { pathname } = new URL(rawUrl);
+      if (pathname === ownBase || pathname.startsWith(`${ownBase}/`))
+        return null;
+    } catch {
+      return null;
+    }
+  }
   const selfId = currentAppId(config);
   const candidates: string[] = [];
   let unavailable = false;
@@ -701,9 +717,10 @@ async function resolveWorkspaceAppForUrl(
   } catch {
     unavailable = true;
   }
-  try {
-    for (const app of await fetchOrgApps({ selfId })) candidates.push(app.url);
-  } catch {
+  const directory = await fetchOrgAppsResult({ selfId });
+  if (directory.status === "available") {
+    for (const app of directory.apps) candidates.push(app.url);
+  } else if (directory.reason !== "not-configured") {
     unavailable = true;
   }
   for (const candidate of candidates) {

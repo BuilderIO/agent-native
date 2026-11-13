@@ -1676,14 +1676,17 @@ describe("open_app — sibling workspace apps on the same origin", () => {
       isWorkspace: false,
       apps: [],
     });
-    vi.spyOn(orgDirectory, "fetchOrgApps").mockResolvedValue([
-      {
-        id: "mail",
-        name: "Mail",
-        url: "https://labs.test/mail-2",
-        a2aUrl: "https://labs.test/mail-2",
-      } as any,
-    ]);
+    vi.spyOn(orgDirectory, "fetchOrgAppsResult").mockResolvedValue({
+      status: "available",
+      apps: [
+        {
+          id: "mail",
+          name: "Mail",
+          url: "https://labs.test/mail-2",
+          a2aUrl: "https://labs.test/mail-2",
+        } as any,
+      ],
+    });
 
     const result: any = await runWithRequestContext(dispatchContext, () =>
       dispatch().create_embed_session.run({
@@ -1720,9 +1723,10 @@ describe("open_app — sibling workspace apps on the same origin", () => {
       isWorkspace: false,
       apps: [],
     });
-    vi.spyOn(orgDirectory, "fetchOrgApps").mockRejectedValue(
-      new Error("directory down"),
-    );
+    vi.spyOn(orgDirectory, "fetchOrgAppsResult").mockResolvedValue({
+      status: "unavailable",
+      reason: "network",
+    });
 
     await expect(
       runWithRequestContext(dispatchContext, () =>
@@ -1757,6 +1761,27 @@ describe("open_app — sibling workspace apps on the same origin", () => {
       ),
     ).rejects.toThrow(/could not look up the workspace apps/);
     expect(createTicket).not.toHaveBeenCalled();
+  });
+
+  it("keeps embedding the caller's own URL while the workspace lookup fails", async () => {
+    vi.spyOn(workspaceResolve, "resolveWorkspace").mockRejectedValue(
+      new Error("workspace unreadable"),
+    );
+    vi.spyOn(embedSession, "createEmbedSessionTicket").mockResolvedValue({
+      ticket: "own-ticket",
+      ticketHash: "hash",
+      expiresAt: 1,
+    });
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().create_embed_session.run({
+        url: "https://labs.test/dispatch/chat",
+      }),
+    );
+
+    expect(result.startUrl).toBe(
+      "https://labs.test/dispatch/_agent-native/embed/start?ticket=own-ticket",
+    );
   });
 
   it("still refuses a URL that belongs to no workspace app", async () => {
