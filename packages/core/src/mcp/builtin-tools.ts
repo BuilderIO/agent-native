@@ -724,8 +724,11 @@ async function resolveWorkspaceAppForUrl(
   } else if (directory.reason !== "not-configured") {
     unavailable = true;
   }
-  for (const candidate of candidates) {
-    const appUrl = candidate.replace(/\/+$/, "");
+  // Longest first, so a root-mounted app cannot shadow a path-mounted sibling.
+  const appUrls = candidates
+    .map((candidate) => candidate.replace(/\/+$/, ""))
+    .sort((a, b) => b.length - a.length);
+  for (const appUrl of appUrls) {
     if (!rawUrl.startsWith(appUrl)) continue;
     const rest = rawUrl.slice(appUrl.length);
     if (rest && !/^[/?#]/.test(rest)) continue;
@@ -742,7 +745,8 @@ async function startCrossAppEmbed(
   chrome: string | undefined,
 ): Promise<{ startUrl: string; targetPath: string; expiresAt: number } | null> {
   const { getRequestContext } = await import("../server/request-context.js");
-  const ownerEmail = getRequestContext()?.userEmail?.trim();
+  const ctx = getRequestContext();
+  const ownerEmail = ctx?.userEmail?.trim();
   const { getEmbedSessionOrigin } =
     await import("../server/embed-request-origin.js");
   const embedOrigin = getEmbedSessionOrigin();
@@ -761,6 +765,7 @@ async function startCrossAppEmbed(
     targetAppUrl,
     targetPath,
     ownerEmail,
+    orgId: ctx?.orgId,
     chrome,
   });
   return started ? { ...started, targetPath } : null;

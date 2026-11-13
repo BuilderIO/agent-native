@@ -32,6 +32,7 @@ export async function createEmbedHandoffStartUrl(input: {
   targetAppUrl: string;
   targetPath: string;
   ownerEmail: string;
+  orgId?: string | null | undefined;
   chrome?: string | null | undefined;
 }): Promise<{ startUrl: string; expiresAt: number } | null> {
   const { getGlobalA2ASecret, signA2AToken } = await import("../a2a/client.js");
@@ -46,6 +47,7 @@ export async function createEmbedHandoffStartUrl(input: {
       jti: crypto.randomUUID(),
       embed_target: input.targetPath,
       ...(input.chrome ? { embed_chrome: input.chrome } : {}),
+      ...(input.orgId ? { embed_org_id: input.orgId } : {}),
     },
   });
   const startUrl = new URL(audience);
@@ -103,12 +105,22 @@ export async function embedTicketFromHandoff(
       ? claims.embed_chrome
       : null;
 
+  // Org ids are app-local, so the caller's org only carries over when this
+  // app's roster has the user in an org with that id.
+  let orgId: string | undefined;
+  if (typeof claims.embed_org_id === "string" && claims.embed_org_id) {
+    const { isOrgMemberForA2A } = await import("../org/membership.js");
+    if (await isOrgMemberForA2A(claims.embed_org_id, ownerEmail, event))
+      orgId = claims.embed_org_id;
+  }
+
   const { consumeOneTimeJti } = await import("./identity-sso-store.js");
   if (await consumeOneTimeJti(`${EMBED_HANDOFF_SCOPE}:${claims.jti}`))
     return null;
 
   const ticket = await createEmbedSessionTicket({
     ownerEmail,
+    ...(orgId ? { orgId } : {}),
     targetPath,
     scope: chrome,
     audienceHost,

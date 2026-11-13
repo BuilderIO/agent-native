@@ -1784,6 +1784,28 @@ describe("open_app — sibling workspace apps on the same origin", () => {
     );
   });
 
+  it("matches the longest mounted app URL first", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    vi.spyOn(workspaceResolve, "resolveWorkspace").mockResolvedValue({
+      root: "/ws",
+      isWorkspace: true,
+      apps: [
+        { id: "home", url: "https://labs.test", port: 0, running: true },
+        { id: "mail", url: "https://labs.test/mail-2", port: 0, running: true },
+      ],
+    });
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().create_embed_session.run({
+        url: "https://labs.test/mail-2/inbox",
+      }),
+    );
+
+    expect(new URL(result.startUrl).pathname).toBe(
+      "/mail-2/_agent-native/embed/start",
+    );
+  });
+
   it("still refuses a URL that belongs to no workspace app", async () => {
     process.env.A2A_SECRET = "workspace-secret";
     mockWorkspace("https://labs.test/mail-2");

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const createEmbedSessionTicket = vi.hoisted(() => vi.fn());
 const consumeOneTimeJti = vi.hoisted(() => vi.fn());
+const isOrgMemberForA2A = vi.hoisted(() => vi.fn());
 
 vi.mock("./embed-session.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./embed-session.js")>()),
@@ -9,6 +10,9 @@ vi.mock("./embed-session.js", async (importOriginal) => ({
 }));
 vi.mock("./identity-sso-store.js", () => ({
   consumeOneTimeJti: (...a: any[]) => consumeOneTimeJti(...a),
+}));
+vi.mock("../org/membership.js", () => ({
+  isOrgMemberForA2A: (...a: any[]) => isOrgMemberForA2A(...a),
 }));
 vi.mock("./embed-request-origin.js", () => ({
   resolveEmbedRequestOrigin: () => "https://labs.test",
@@ -50,6 +54,7 @@ describe("embed handoff between workspace apps", () => {
     });
     consumeOneTimeJti.mockReset();
     consumeOneTimeJti.mockResolvedValue(false);
+    isOrgMemberForA2A.mockReset();
   });
 
   afterEach(() => {
@@ -81,6 +86,41 @@ describe("embed handoff between workspace apps", () => {
       expect.stringMatching(/^embed-handoff:/),
     );
   });
+
+  it.each([
+    [true, { orgId: "org-1" }],
+    [false, {}],
+  ])(
+    "carries the caller's org only when this app's roster agrees (member: %s)",
+    async (member, expectedOrg) => {
+      isOrgMemberForA2A.mockResolvedValue(member);
+      const started = await createEmbedHandoffStartUrl({
+        targetAppUrl: MAIL_URL,
+        targetPath: "/inbox",
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+      });
+      const handoff = new URL(started!.startUrl).searchParams.get(
+        EMBED_HANDOFF_QUERY_PARAM,
+      )!;
+
+      await expect(embedTicketFromHandoff(event, handoff)).resolves.toBe(
+        "local-ticket",
+      );
+      expect(isOrgMemberForA2A).toHaveBeenCalledWith(
+        "org-1",
+        "owner@example.com",
+        event,
+      );
+      expect(createEmbedSessionTicket).toHaveBeenCalledWith({
+        ownerEmail: "owner@example.com",
+        ...expectedOrg,
+        targetPath: "/inbox",
+        scope: null,
+        audienceHost: "https://labs.test",
+      });
+    },
+  );
 
   it("refuses a replayed handoff", async () => {
     const handoff = await mintHandoff();
