@@ -2,7 +2,11 @@
 
 import React, { act, useCallback, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import {
+  createMemoryRouter,
+  RouterProvider,
+  type LoaderFunction,
+} from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -122,11 +126,13 @@ function renderProbe(
   container: HTMLDivElement,
   atRisk: boolean,
   delayCloseAutoFocus = false,
+  loader?: LoaderFunction,
 ) {
   const router = createMemoryRouter(
     [
       {
         path: "/record",
+        loader,
         Component: () => (
           <RecordProbe
             atRisk={atRisk}
@@ -168,11 +174,25 @@ describe("useRecordingLeaveGuard", () => {
     root = undefined;
   });
 
-  it("lets in-app navigation through when nothing is at risk", async () => {
+  function setup(
+    atRisk = true,
+    delayCloseAutoFocus = false,
+    loader?: LoaderFunction,
+  ) {
     container = document.createElement("div");
     document.body.appendChild(container);
-    const rendered = renderProbe(container, false);
+    const rendered = renderProbe(
+      container,
+      atRisk,
+      delayCloseAutoFocus,
+      loader,
+    );
     root = rendered.root;
+    return rendered;
+  }
+
+  it("lets in-app navigation through when nothing is at risk", async () => {
+    const rendered = setup(false);
 
     act(() => {
       void rendered.router.navigate("/other");
@@ -185,10 +205,7 @@ describe("useRecordingLeaveGuard", () => {
   });
 
   it("blocks in-app navigation away from an at-risk recording instead of silently discarding it", async () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    const rendered = renderProbe(container, true);
-    root = rendered.root;
+    const rendered = setup();
 
     act(() => {
       void rendered.router.navigate("/other");
@@ -201,10 +218,7 @@ describe("useRecordingLeaveGuard", () => {
   });
 
   it("resumes the blocked navigation once the user confirms leaving", async () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    const rendered = renderProbe(container, true);
-    root = rendered.root;
+    const rendered = setup();
 
     act(() => {
       void rendered.router.navigate("/other");
@@ -222,10 +236,7 @@ describe("useRecordingLeaveGuard", () => {
   });
 
   it("does not resume an obsolete blocked navigation after navigating within the recording", async () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    const rendered = renderProbe(container, true);
-    root = rendered.root;
+    const rendered = setup();
 
     act(() => {
       void rendered.router.navigate("/other");
@@ -243,11 +254,93 @@ describe("useRecordingLeaveGuard", () => {
     expect(container.querySelector('[data-testid="other-probe"]')).toBeNull();
   });
 
+  it.each(["before", "after"] as const)(
+    "keeps a newer same-path pending navigation started %s confirmation and still protects the recording",
+    async (when) => {
+      let finishLoader: () => void = () => {
+        throw new Error("Loader did not start");
+      };
+      let loaderSignal: AbortSignal | undefined;
+      const loader: LoaderFunction = ({ request }) => {
+        if (!new URL(request.url).search) return null;
+        loaderSignal = request.signal;
+        return new Promise<void>((resolve) => {
+          finishLoader = resolve;
+        });
+      };
+      const rendered = setup(true, false, loader);
+      await flush();
+      act(() => {
+        void rendered.router.navigate("/other");
+      });
+      await flush();
+      const blocked = [...rendered.router.state.blockers.values()][0];
+      expect(blocked?.state).toBe("blocked");
+      act(() => {
+        if (when === "after") click(container, "confirm-leave");
+        void rendered.router.navigate("/record?tab=details");
+      });
+      expect(rendered.router.state.navigation.state).toBe("loading");
+      expect([...rendered.router.state.blockers.values()][0]).toBe(blocked);
+      expect(loaderSignal?.aborted).toBe(false);
+      if (when === "before") act(() => click(container, "confirm-leave"));
+      await flush();
+      expect(loaderSignal?.aborted).toBe(false);
+      expect(rendered.router.state.navigation.location?.search).toBe(
+        "?tab=details",
+      );
+      await act(async () => {
+        finishLoader();
+      });
+      expect(rendered.router.state.location.pathname).toBe("/record");
+      expect(rendered.router.state.location.search).toBe("?tab=details");
+      act(() => {
+        void rendered.router.navigate("/another");
+      });
+      expect([...rendered.router.state.blockers.values()][0]?.state).toBe(
+        "blocked",
+      );
+      expect(
+        container
+          .querySelector('[data-testid="record-probe"]')
+          ?.getAttribute("data-prompt-open"),
+      ).toBe("true");
+    },
+  );
+
+  it("honors a confirmed leave when the pending loader predates the blocked attempt", async () => {
+    let loaderSignal: AbortSignal | undefined;
+    const loader: LoaderFunction = ({ request }) => {
+      if (!new URL(request.url).search) return null;
+      loaderSignal = request.signal;
+      return new Promise<void>((resolve) => {
+        request.signal.addEventListener("abort", () => resolve(), {
+          once: true,
+        });
+      });
+    };
+    const rendered = setup(true, false, loader);
+    await flush();
+    act(() => {
+      void rendered.router.navigate("/record?tab=details");
+    });
+    expect(rendered.router.state.navigation.state).toBe("loading");
+    act(() => {
+      void rendered.router.navigate("/other");
+    });
+    expect([...rendered.router.state.blockers.values()][0]?.state).toBe(
+      "blocked",
+    );
+    act(() => {
+      click(container, "confirm-leave");
+    });
+    await flush();
+    expect(loaderSignal?.aborted).toBe(true);
+    expect(rendered.router.state.location.pathname).toBe("/other");
+  });
+
   it("requires a new confirmation for a later blocked navigation", async () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    const rendered = renderProbe(container, true);
-    root = rendered.root;
+    const rendered = setup();
 
     act(() => {
       void rendered.router.navigate("/other");
@@ -275,10 +368,7 @@ describe("useRecordingLeaveGuard", () => {
   });
 
   it("clears a second cancelled blocker before the first dialog's delayed autofocus", async () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    const rendered = renderProbe(container, true, true);
-    root = rendered.root;
+    const rendered = setup(true, true);
 
     act(() => {
       void rendered.router.navigate("/other");
@@ -370,10 +460,7 @@ describe("useRecordingLeaveGuard", () => {
   });
 
   it("waits for the second confirmed dialog's autofocus before proceeding", async () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    const rendered = renderProbe(container, true, true);
-    root = rendered.root;
+    const rendered = setup(true, true);
 
     act(() => {
       void rendered.router.navigate("/other");
@@ -408,10 +495,7 @@ describe("useRecordingLeaveGuard", () => {
   });
 
   it("does not confirm a replaced blocker before React rerenders", async () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    const rendered = renderProbe(container, true, true);
-    root = rendered.root;
+    const rendered = setup(true, true);
 
     act(() => {
       void rendered.router.navigate("/other");
@@ -440,10 +524,7 @@ describe("useRecordingLeaveGuard", () => {
   });
 
   it("does not proceed after the recorder unmounts", async () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    const rendered = renderProbe(container, true, true);
-    root = rendered.root;
+    const rendered = setup(true, true);
 
     act(() => {
       void rendered.router.navigate("/other");
@@ -460,10 +541,7 @@ describe("useRecordingLeaveGuard", () => {
   });
 
   it("stays put and clears the prompt when the user cancels leaving", async () => {
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    const rendered = renderProbe(container, true);
-    root = rendered.root;
+    const rendered = setup();
 
     act(() => {
       void rendered.router.navigate("/other");

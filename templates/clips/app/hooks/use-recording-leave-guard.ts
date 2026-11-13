@@ -23,11 +23,18 @@ export function useUnsavedRecordingUnloadWarning(isUnsaved: () => boolean) {
 
 export function useRecordingLeaveGuard(hasRecordingAtRisk: () => boolean) {
   const router = useContext(UNSAFE_DataRouterContext)?.router;
+  const navigationAttemptRef = useRef(0);
+  const blockedAttemptRef = useRef(0);
   const blocker = useBlocker(
     useCallback(
-      ({ currentLocation, nextLocation }) =>
-        currentLocation.pathname !== nextLocation.pathname &&
-        hasRecordingAtRisk(),
+      ({ currentLocation, nextLocation }) => {
+        const attempt = ++navigationAttemptRef.current;
+        const blocked =
+          currentLocation.pathname !== nextLocation.pathname &&
+          hasRecordingAtRisk();
+        if (blocked) blockedAttemptRef.current = attempt;
+        return blocked;
+      },
       [hasRecordingAtRisk],
     ),
   );
@@ -38,7 +45,10 @@ export function useRecordingLeaveGuard(hasRecordingAtRisk: () => boolean) {
     return Array.from(router.state.blockers.values());
   }, [router]);
   const [leavePromptOpen, setLeavePromptOpen] = useState(false);
-  const confirmedBlockerRef = useRef<Blocker | null>(null);
+  const confirmedBlockerRef = useRef<{
+    blocker: Blocker;
+    attempt: number;
+  } | null>(null);
   const promptRef = useRef<{ blocker: Blocker | null; key: number }>({
     blocker: null,
     key: 0,
@@ -66,7 +76,14 @@ export function useRecordingLeaveGuard(hasRecordingAtRisk: () => boolean) {
 
   const confirmLeave = useCallback(() => {
     if (blocker.state === "blocked" && getCurrentBlockers().includes(blocker)) {
-      confirmedBlockerRef.current = blocker;
+      if (blockedAttemptRef.current === navigationAttemptRef.current) {
+        confirmedBlockerRef.current = {
+          blocker,
+          attempt: blockedAttemptRef.current,
+        };
+      } else {
+        blocker.reset();
+      }
     }
     setLeavePromptOpen(false);
   }, [blocker, getCurrentBlockers]);
@@ -76,7 +93,7 @@ export function useRecordingLeaveGuard(hasRecordingAtRisk: () => boolean) {
       if (open) return;
       setLeavePromptOpen(false);
       if (
-        confirmedBlockerRef.current !== blocker &&
+        confirmedBlockerRef.current?.blocker !== blocker &&
         blocker.state === "blocked" &&
         getCurrentBlockers().includes(blocker)
       ) {
@@ -96,16 +113,21 @@ export function useRecordingLeaveGuard(hasRecordingAtRisk: () => boolean) {
       ) {
         event.preventDefault();
       }
-      if (confirmedBlockerRef.current !== blocker) return;
+      const confirmed = confirmedBlockerRef.current;
+      if (confirmed?.blocker !== blocker) return;
       confirmedBlockerRef.current = null;
       const timer = setTimeout(() => {
         timersRef.current.delete(timer);
-        // A later navigation may replace the confirmed blocker before React renders.
         if (
           blocker.state === "blocked" &&
           getCurrentBlockers().includes(blocker)
         ) {
-          blocker.proceed();
+          // A newer allowed navigation can load while this blocker stays in router state.
+          if (navigationAttemptRef.current === confirmed.attempt) {
+            blocker.proceed();
+          } else {
+            blocker.reset();
+          }
         }
       }, 0);
       timersRef.current.add(timer);
