@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useBlocker } from "react-router";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import {
+  UNSAFE_DataRouterContext,
+  useBlocker,
+  type Blocker,
+} from "react-router";
 
 /**
  * Ask the browser to confirm closing or reloading the tab while a recording
@@ -18,6 +22,7 @@ export function useUnsavedRecordingUnloadWarning(isUnsaved: () => boolean) {
 }
 
 export function useRecordingLeaveGuard(hasRecordingAtRisk: () => boolean) {
+  const router = useContext(UNSAFE_DataRouterContext)?.router;
   const blocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>
@@ -28,37 +33,52 @@ export function useRecordingLeaveGuard(hasRecordingAtRisk: () => boolean) {
   );
 
   const [leavePromptOpen, setLeavePromptOpen] = useState(false);
-  const proceedBlockerRef = useRef<() => void>(() => {});
-  proceedBlockerRef.current =
-    blocker.state === "blocked" ? blocker.proceed : () => {};
-  const leaveConfirmedRef = useRef(false);
+  const confirmedBlockerRef = useRef<Blocker | null>(null);
 
   useEffect(() => {
-    if (blocker.state === "blocked") setLeavePromptOpen(true);
-  }, [blocker.state]);
+    setLeavePromptOpen(blocker.state === "blocked");
+  }, [blocker]);
 
   const confirmLeave = useCallback(() => {
-    leaveConfirmedRef.current = true;
+    confirmedBlockerRef.current = blocker.state === "blocked" ? blocker : null;
     setLeavePromptOpen(false);
-  }, []);
+  }, [blocker]);
 
   const onDialogOpenChange = useCallback(
     (open: boolean) => {
       if (open) return;
       setLeavePromptOpen(false);
-      if (!leaveConfirmedRef.current && blocker.state === "blocked") {
+      if (
+        !confirmedBlockerRef.current &&
+        blocker.state === "blocked" &&
+        Array.from(router?.state.blockers.values() ?? []).includes(blocker)
+      ) {
         blocker.reset();
       }
     },
-    [blocker],
+    [blocker, router],
   );
 
-  const onCloseAutoFocus = useCallback((event: { preventDefault(): void }) => {
-    if (!leaveConfirmedRef.current) return;
-    leaveConfirmedRef.current = false;
-    event.preventDefault();
-    setTimeout(() => proceedBlockerRef.current(), 0);
-  }, []);
+  const onCloseAutoFocus = useCallback(
+    (event: { preventDefault(): void }) => {
+      const confirmedBlocker = confirmedBlockerRef.current;
+      if (!confirmedBlocker) return;
+      confirmedBlockerRef.current = null;
+      event.preventDefault();
+      setTimeout(() => {
+        // Router state can change before React renders, including to a different blocked navigation.
+        if (
+          confirmedBlocker.state === "blocked" &&
+          Array.from(router?.state.blockers.values() ?? []).includes(
+            confirmedBlocker,
+          )
+        ) {
+          confirmedBlocker.proceed();
+        }
+      }, 0);
+    },
+    [router],
+  );
 
   return {
     leavePromptOpen,

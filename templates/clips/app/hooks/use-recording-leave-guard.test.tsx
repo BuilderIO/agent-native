@@ -56,6 +56,7 @@ function renderProbe(container: HTMLDivElement, atRisk: boolean) {
     [
       { path: "/record", Component: () => <RecordProbe atRisk={atRisk} /> },
       { path: "/other", Component: OtherProbe },
+      { path: "/another", Component: OtherProbe },
     ],
     { initialEntries: ["/record"] },
   );
@@ -133,6 +134,59 @@ describe("useRecordingLeaveGuard", () => {
     expect(
       container.querySelector('[data-testid="other-probe"]'),
     ).not.toBeNull();
+  });
+
+  it("does not resume an obsolete blocked navigation after navigating within the recording", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    const rendered = renderProbe(container, true);
+    root = rendered.root;
+
+    act(() => {
+      void rendered.router.navigate("/other");
+    });
+    await flush();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#confirm-leave")?.click();
+      await rendered.router.navigate("/record?tab=details");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(rendered.router.state.location.pathname).toBe("/record");
+    expect(rendered.router.state.location.search).toBe("?tab=details");
+    expect(container.querySelector('[data-testid="other-probe"]')).toBeNull();
+  });
+
+  it("requires a new confirmation for a later blocked navigation", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    const rendered = renderProbe(container, true);
+    root = rendered.root;
+
+    act(() => {
+      void rendered.router.navigate("/other");
+    });
+    await flush();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#confirm-leave")?.click();
+      await rendered.router.navigate("/another");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(rendered.router.state.location.pathname).toBe("/record");
+    expect(
+      container
+        .querySelector('[data-testid="record-probe"]')
+        ?.getAttribute("data-prompt-open"),
+    ).toBe("true");
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>("#confirm-leave")?.click();
+    });
+    await flush();
+    expect(rendered.router.state.location.pathname).toBe("/another");
   });
 
   it("stays put and clears the prompt when the user cancels leaving", async () => {
