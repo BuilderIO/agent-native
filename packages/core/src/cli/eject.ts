@@ -1040,6 +1040,19 @@ function targetForSpecifier(
       );
     }
   }
+  const exactEntrypoint = unit.entrypoints.find(
+    (entrypoint) =>
+      !entrypoint.includes("*") &&
+      specifier === packageSpecifier(packageName, entrypoint),
+  );
+  if (exactEntrypoint) {
+    return targetForSource(
+      targetRoot,
+      unit,
+      packageDir,
+      pickSourceEntry(unit, exactEntrypoint, packageDir),
+    );
+  }
   for (const entrypoint of unit.entrypoints) {
     const publicSpecifier = packageSpecifier(packageName, entrypoint);
     if (entrypoint.includes("*")) {
@@ -1073,14 +1086,6 @@ function targetForSpecifier(
         unit,
         packageDir,
         path.join(sourceBase, wildcardPath),
-      );
-    }
-    if (specifier === publicSpecifier) {
-      return targetForSource(
-        targetRoot,
-        unit,
-        packageDir,
-        pickSourceEntry(unit, entrypoint, packageDir),
       );
     }
   }
