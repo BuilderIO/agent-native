@@ -6,7 +6,7 @@ import { findDuplicateMocks } from "./guard-no-duplicate-vi-mock.ts";
 describe("findDuplicateMocks", () => {
   it("reports a path mocked twice, with both lines", () => {
     const source = [
-      'import { vi } from "vitest";',
+      'import { useState } from "react";',
       'vi.mock("@agent-native/core/client/use-action", () => ({',
       "  useActionMutation: () => ({}),",
       "}));",
