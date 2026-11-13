@@ -218,6 +218,7 @@ export default defineEventHandler(async (event: H3Event) => {
       );
       return sourceMs === null ? null : timeline.fromSourceMs(sourceMs);
     };
+    let cleanupStarted = false;
     try {
       const fps =
         parsed.value.fps ??
@@ -248,10 +249,12 @@ export default defineEventHandler(async (event: H3Event) => {
             ? planWithin(fps, timeline.fromSourceMs(actualSourceMs))
             : null,
       });
+      cleanupStarted = true;
+      await media.cleanup();
       applySheetHeaders(event, result.plan);
       return Buffer.from(result.sheet);
     } finally {
-      await media.cleanup();
+      if (!cleanupStarted) await media.cleanup();
     }
   } catch (err) {
     const status = frameFailureStatus(err);

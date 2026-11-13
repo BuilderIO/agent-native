@@ -173,6 +173,9 @@ describe("agent-frames.jpg route", () => {
       failureKind: "processing",
       error: "media cleanup failed",
     });
+    expect(event.headers.get("x-clips-frame-sheet-fps")).toBeUndefined();
+    expect(event.headers.get("x-clips-frame-sheet-grid")).toBeUndefined();
+    expect(event.headers.get("x-clips-frame-sheet-times")).toBeUndefined();
   });
 
   it("uses the video's own frame rate when fps is left out", async () => {

@@ -251,6 +251,7 @@ async function acquireAgentFrameMediaFileAdmission(
   if (
     agentFrameFileReservations.size >= MAX_CONCURRENT_AGENT_FRAME_MEDIA_FILES
   ) {
+    if (rangeFallbackSize !== undefined) return null;
     throw new RecordingMediaFetchError(
       "Recording media file capacity exceeded.",
       503,
@@ -430,6 +431,7 @@ async function writeResponseBodyToFileWithLimit(
     throw error;
   }
 
+  // observed-write-ok: request-scoped temporary media, removed after use.
   const file = await open(path, "wx").catch(async (error: unknown) => {
     await response.body?.cancel().catch(() => {});
     throw error;
@@ -1470,7 +1472,7 @@ export async function loadRecordingMediaFile(
     (recording.storageMode === "own" || recording.storageMode === "hosted") &&
     isRangeVideoFormat(recording.videoFormat) &&
     !isLocalRecordingBlob(videoUrl);
-  const oversized = (recording.videoSizeBytes ?? 0) > maxFileBytes;
+  const oversized = recording.videoSizeBytes > maxFileBytes;
   const tempRoot = tmpdir();
   const admission = oversized
     ? null
@@ -1570,6 +1572,7 @@ export async function loadRecordingMediaFile(
   const { release } = admission;
   let dir: string;
   try {
+    // observed-write-ok: request-scoped temporary directory, removed after use.
     dir = await mkdtemp(join(tempRoot, "clips-agent-frame-"));
   } catch (error) {
     release();
@@ -1585,8 +1588,10 @@ export async function loadRecordingMediaFile(
     cleanupPromise ??= (async () => {
       try {
         try {
+          // observed-write-ok: removes only this request's temporary directory.
           await rm(dir, { recursive: true, force: true });
         } catch {
+          // observed-write-ok: retries removal of this request's temporary directory.
           await rm(dir, { recursive: true, force: true });
         }
         pendingAgentFrameCleanups.delete(cleanup);
@@ -1641,8 +1646,10 @@ export async function loadRecordingMediaFile(
       await cleanup();
     } catch (cleanupError) {
       throw Object.assign(
-        new Error("Recording media download and cleanup failed."),
-        { downloadError: error, cleanupError },
+        error instanceof Error
+          ? error
+          : new Error("Recording media download failed."),
+        { cleanupError },
       );
     }
     throw error;
