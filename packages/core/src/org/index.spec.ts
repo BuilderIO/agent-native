@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 
-import { createDbExec } from "../db/client.js";
+import { closePgliteClients, createDbExec } from "../db/client.js";
 import { assertIdentityColumnsRegistered } from "./index.js";
 
 it("validates only the public schema of the supplied database", async () => {
@@ -14,6 +14,6 @@ it("validates only the public schema of the supplied database", async () => {
       "contacts.email looks identity-bearing",
     );
   } finally {
-    await db.close?.();
+    await closePgliteClients();
   }
 });
