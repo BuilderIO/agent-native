@@ -23,6 +23,7 @@ import {
   loadAgentFrame,
 } from "../../lib/agent-frame-load.js";
 import {
+  cleanupAfterFrameFailure,
   describeFrameFailure,
   frameFailureStatus,
   loadAgentFrameAccess,
@@ -230,9 +231,11 @@ export default defineEventHandler(async (event: H3Event) => {
             mimeType,
           ),
       });
-    } finally {
-      await media.cleanup();
+    } catch (error) {
+      await cleanupAfterFrameFailure(media.cleanup);
+      throw error;
     }
+    await media.cleanup();
     if (loaded.moved) {
       return redirectToResolvedFrame(
         event,

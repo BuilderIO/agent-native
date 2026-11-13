@@ -21,6 +21,7 @@ import {
 import { buildAgentEditedTimeline } from "../../lib/agent-edited-timeline.js";
 import type { RemoteFrameInput } from "../../lib/agent-frame-range.js";
 import {
+  cleanupAfterFrameFailure,
   describeFrameFailure,
   frameFailureStatus,
   loadAgentFrameAccess,
@@ -238,7 +239,11 @@ export default defineEventHandler(async (event: H3Event) => {
         ? await probeEditedDurationMs(media.path)
         : timeline.durationMs;
       const plan = planWithin(fps, durationMs);
-      if (!plan.ok) return requestFailure(event, plan);
+      if (!plan.ok) {
+        cleanupStarted = true;
+        await cleanupAfterFrameFailure(media.cleanup);
+        return requestFailure(event, plan);
+      }
       const result = await extractSheetWithStaleDurationRecovery({
         mediaPath: media.path,
         remote: media.remote,
@@ -253,8 +258,9 @@ export default defineEventHandler(async (event: H3Event) => {
       await media.cleanup();
       applySheetHeaders(event, result.plan);
       return Buffer.from(result.sheet);
-    } finally {
-      if (!cleanupStarted) await media.cleanup();
+    } catch (error) {
+      if (!cleanupStarted) await cleanupAfterFrameFailure(media.cleanup);
+      throw error;
     }
   } catch (err) {
     const status = frameFailureStatus(err);

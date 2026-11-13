@@ -31,6 +31,14 @@ import {
 } from "./public-agent-context.js";
 import { VideoFrameExtractionError } from "./video-frame.js";
 
+export async function cleanupAfterFrameFailure(cleanup: () => Promise<void>) {
+  try {
+    await cleanup();
+  } catch {
+    console.error("[agent-frame] Media cleanup failed after frame processing failed.");
+  }
+}
+
 export function sendFrameJson<T>(
   event: H3Event,
   status: number,
