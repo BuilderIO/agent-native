@@ -1676,11 +1676,17 @@ function writeInlineStyleDeclaration(
   value: string,
   priority: string,
 ): void {
+  const { style } = element;
+  const wasImportant = style.getPropertyPriority(property) === "important";
+  if (!value) {
+    style.removeProperty(property);
+    return;
+  }
+  style.setProperty(property, value, priority);
   // Chrome 157 keeps an !important inline declaration rewritten in place as a
-  // plain one winning over a stylesheet !important rule until the next full
-  // recalc, so a restore must replace the declaration, not overwrite it.
-  element.style.removeProperty(property);
-  if (value) element.style.setProperty(property, value, priority);
+  // plain one winning over a stylesheet !important rule. Reparsing the style
+  // re-cascades it; removing and re-adding would reorder the saved HTML.
+  if (wasImportant && priority !== "important") style.cssText = style.cssText;
 }
 
 function restoreTemporaryInlineStyleOverride(
