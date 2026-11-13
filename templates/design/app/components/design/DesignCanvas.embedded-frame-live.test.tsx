@@ -108,13 +108,26 @@ describe("DesignCanvas live embedded-frame offset", () => {
         expect(onElementHover).not.toHaveBeenCalled();
         expect(onElementMarqueeSelect).not.toHaveBeenCalled();
         expect(onIframeContextMenu).not.toHaveBeenCalled();
+        let snapshotNodeReads = 0;
+        const snapshotNode = {
+          path: [],
+          get styles() {
+            snapshotNodeReads += 1;
+            return { color: "red" };
+          },
+        };
+        const selection = {
+          ...valid,
+          portableStyleSnapshot: { version: 1, nodes: [snapshotNode] },
+        };
         await send({
           type: "element-select",
-          payload: valid,
+          payload: selection,
           intent: { source: "pointer" },
         });
+        expect(snapshotNodeReads).toBe(0);
         await send({ type: "element-marquee-select", payload: [valid] });
-        expect(onElementSelect).toHaveBeenCalledWith(valid, {
+        expect(onElementSelect).toHaveBeenCalledWith(selection, {
           source: "pointer",
         });
         expect(onElementMarqueeSelect).toHaveBeenCalledWith([valid], undefined);

@@ -76,6 +76,17 @@ describe("selection measurement lifecycle", () => {
           isFlexChild: true,
           parentDisplay: "flex",
           parentBoundingRect: { x: 0, y: 0, width: 300, height: 100 },
+          editCapabilities: [
+            {
+              kind: "deterministic-style-edit",
+              label: "Style",
+              confidence: 0.9,
+            },
+          ],
+          portableStyleSnapshot: {
+            version: 1,
+            nodes: [{ path: [], styles: { color: "blue" } }],
+          },
         };
         await act(async () =>
           window.dispatchEvent(
@@ -95,6 +106,8 @@ describe("selection measurement lifecycle", () => {
           isFlexChild: true,
           parentDisplay: "flex",
           parentBoundingRect: live.parentBoundingRect,
+          editCapabilities: live.editCapabilities,
+          portableStyleSnapshot: live.portableStyleSnapshot,
           needsLiveMeasurement: false,
         });
         expect(otherPost).not.toHaveBeenCalled();
@@ -519,6 +532,18 @@ describe("requestSelectionMeasurement", () => {
     { parentBoundingRect: { x: "invalid", y: 0, width: 1, height: 1 } },
     { childLayouts: { children: null, complete: true, looseText: false } },
     { portableStyleSnapshot: { version: 1, nodes: null } },
+    {
+      portableStyleSnapshot: {
+        version: 1,
+        nodes: [{ path: [], styles: { color: 1 } }],
+      },
+    },
+    {
+      portableStyleSnapshot: {
+        version: 1,
+        nodes: [{ path: ["0"], styles: {} }],
+      },
+    },
   ])(
     "waits for a valid response after malformed metadata %j",
     async (metadata) => {
