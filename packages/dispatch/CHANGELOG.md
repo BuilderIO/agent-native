@@ -1,5 +1,15 @@
 # @agent-native/dispatch
 
+## 0.42.7
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 77f6fe8: The Dispatch Vault now stores its keys only in `app_secrets` and no longer reads or writes `vault_secrets`. `app_secrets` gains nullable `label`, `provider` and `created_by` columns, and a key's id is its `app_secrets` row id. The Vault page lists the organization's keys (or your own solo workspace's), a key created or edited in the Vault is marked with `created_by`, and a rename moves the stored ciphertext with the row. `vault_grants` gains a nullable `credential_key`, which core's manual-mode check now reads instead of joining `vault_secrets`; grants from before this release grant nothing until `credential_key` is backfilled. The table stays in existing databases, untouched, until it is dropped. The new `guard:no-vault-secrets-table` fails when source reads or writes it.
+- Updated dependencies
+- Updated dependencies [75f2dbb]
+  - @agent-native/toolkit@0.228.2
+
 ## 0.42.6
 
 ### Patch Changes
@@ -1537,13 +1547,5 @@
 ### Patch Changes
 
 - dc0978d: Fix action request context to use the forwarded workspace gateway origin instead of the internal dev proxy host.
-
-## 0.31.11
-
-### Patch Changes
-
-- e5e6934: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
-- dd80d09: Keep the full workspace credential workflow reachable from the redesigned integrations catalog.
-- e5e6934: Refresh integration and Dispatch app surfaces with connected-first layouts and two-column cards.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
