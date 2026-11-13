@@ -6,6 +6,7 @@ import {
   test,
   type APIRequestContext,
   type Page,
+  type Request,
 } from "@playwright/test";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
@@ -134,6 +135,42 @@ async function captureReferenceState(
   });
 }
 
+// Each Motion save is followed by a timeline refetch that re-resolves the
+// selected style, undoing a click made before it lands, and a resize can queue
+// another save seconds after the last one. Nothing in the DOM marks the end of
+// that, so wait for saves to go quiet instead of for one response that may
+// already have passed.
+const MOTION_SAVE_QUIET_MS = 5_000;
+
+function trackMotionSaves(page: Page) {
+  const pending = new Set<Request>();
+  let lastSaveActivityAt = Date.now();
+  const isMotionSave = (request: Request) =>
+    request.url().includes("/_agent-native/actions/apply-motion-edit");
+  page.on("request", (request) => {
+    if (!isMotionSave(request)) return;
+    pending.add(request);
+    lastSaveActivityAt = Date.now();
+  });
+  const finished = (request: Request) => {
+    if (!pending.delete(request)) return;
+    lastSaveActivityAt = Date.now();
+  };
+  page.on("requestfinished", finished);
+  page.on("requestfailed", finished);
+  return {
+    async settle() {
+      lastSaveActivityAt = Date.now();
+      await expect
+        .poll(
+          () => (pending.size === 0 ? Date.now() - lastSaveActivityAt : 0),
+          { timeout: 30_000 },
+        )
+        .toBeGreaterThanOrEqual(MOTION_SAVE_QUIET_MS);
+    },
+  };
+}
+
 async function zoomCanvasTo100(page: Page): Promise<void> {
   const canvasZoom = page
     .getByRole("button")
@@ -190,6 +227,7 @@ test("Motion inspector states match the editable timeline", async ({
   request,
 }) => {
   test.setTimeout(120_000);
+  const motionSaves = trackMotionSaves(page);
   await page.setViewportSize({ width: 1728, height: 941 });
   await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   await gotoEditor(page, designId);
@@ -768,27 +806,8 @@ test("Motion inspector states match the editable timeline", async ({
     ).toBeVisible();
   }
 
-  // The resize triggers a Motion autosave, and the refresh after it re-resolves
-  // the selected Motion style. A selection made before that settles is undone.
-  const resizeSaved = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-      response.request().method() === "POST",
-    { timeout: 20_000 },
-  );
   await page.setViewportSize({ width: 1200, height: 953 });
-  await resizeSaved;
-  await page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/get-actions-batch"),
-    { timeout: 20_000 },
-  );
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-      ),
-  );
+  await motionSaves.settle();
   const inspectorPosition = nativeStyleInspector.getByRole("button", {
     name: "Position",
     exact: true,
