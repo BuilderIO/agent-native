@@ -5158,43 +5158,41 @@ describe("createAgentNativeChatRuntime", () => {
   });
 
   it("writes a new message for what a delegated agent says after a pause", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        sseResponse([
-          {
-            type: "agent_call",
-            agent: "Researcher",
-            status: "start",
-            agentCallId: "call-1",
-          },
-          {
-            type: "agent_call_text",
-            agent: "Researcher",
-            agentCallId: "call-1",
-            text: "Before.",
-          },
-          {
-            type: "agent_call",
-            agent: "Researcher",
-            status: "pending",
-            agentCallId: "call-1",
-          },
-          {
-            type: "agent_call_text",
-            agent: "Researcher",
-            agentCallId: "call-1",
-            text: "After.",
-          },
-          {
-            type: "agent_call",
-            agent: "Researcher",
-            status: "done",
-            agentCallId: "call-1",
-          },
-          { type: "done" },
-        ]),
-      );
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "start",
+          agentCallId: "call-1",
+        },
+        {
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-1",
+          text: "Before.",
+        },
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "pending",
+          agentCallId: "call-1",
+        },
+        {
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-1",
+          text: "After.",
+        },
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "done",
+          agentCallId: "call-1",
+        },
+        { type: "done" },
+      ]),
+    );
     const runtime = createAgentNativeChatRuntime({
       threadId: "thread-pause",
       fetch: fetchMock as typeof fetch,
