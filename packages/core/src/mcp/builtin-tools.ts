@@ -700,6 +700,7 @@ async function resolveWorkspaceAppForUrl(
       if (pathname === ownBase || pathname.startsWith(`${ownBase}/`))
         return null;
     } catch {
+      // coercion-ok: an unparseable URL is no sibling's; same-origin normalization then refuses it.
       return null;
     }
   }
