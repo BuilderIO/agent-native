@@ -16,6 +16,7 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Skeleton } from "../../../ui/skeleton.js";
+import { loadCodeHighlighter } from "../../code-highlighter.js";
 import { ActionChatUiSurface } from "../chat/action-chat-ui-surface.js";
 import {
   resolveToolRenderer,
@@ -249,56 +250,7 @@ function ConversationMessagePartView({
   );
 }
 
-type ShikiHighlighter = {
-  codeToHtml: (
-    code: string,
-    options: {
-      lang: string;
-      themes: { light: string; dark: string };
-      defaultColor?: false | "light" | "dark";
-    },
-  ) => string | Promise<string>;
-  getLoadedLanguages: () => string[];
-};
-
-let _highlighterLoader: Promise<ShikiHighlighter> | null = null;
-function loadConversationHighlighter(): Promise<ShikiHighlighter> {
-  if (!_highlighterLoader) {
-    _highlighterLoader = (async () => {
-      const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] =
-        await Promise.all([
-          import("shiki/core"),
-          import("shiki/engine/javascript"),
-        ]);
-      return createHighlighterCore({
-        themes: [
-          import("shiki/themes/github-light-default.mjs"),
-          import("shiki/themes/github-dark-default.mjs"),
-        ],
-        langs: [
-          import("shiki/langs/javascript.mjs"),
-          import("shiki/langs/typescript.mjs"),
-          import("shiki/langs/jsx.mjs"),
-          import("shiki/langs/tsx.mjs"),
-          import("shiki/langs/json.mjs"),
-          import("shiki/langs/css.mjs"),
-          import("shiki/langs/html.mjs"),
-          import("shiki/langs/markdown.mjs"),
-          import("shiki/langs/bash.mjs"),
-          import("shiki/langs/shellscript.mjs"),
-          import("shiki/langs/python.mjs"),
-          import("shiki/langs/yaml.mjs"),
-          import("shiki/langs/sql.mjs"),
-        ],
-        engine: createJavaScriptRegexEngine({ forgiving: true }),
-      }) as unknown as Promise<ShikiHighlighter>;
-    })().catch((err) => {
-      _highlighterLoader = null;
-      throw err;
-    });
-  }
-  return _highlighterLoader;
-}
+const loadConversationHighlighter = loadCodeHighlighter;
 
 function ConversationMarkdown({ text }: { text: string }) {
   return (

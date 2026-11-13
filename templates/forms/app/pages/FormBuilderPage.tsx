@@ -694,7 +694,6 @@ export function FormBuilderPage() {
                   resourceId={form.id}
                   allowedRoles={["viewer", "editor", "admin"]}
                   resourceTitle={form.title}
-                  triggerClassName="h-10 border-input bg-transparent px-3 text-xs active:scale-[0.96] hover:bg-accent hover:text-accent-foreground"
                   shareUrl={publishedFormUrl}
                   shareUrlLabel={t("builder.publicResponseLink")}
                   shareUrlDescription={t(
@@ -2061,7 +2060,7 @@ function IntegrationsEditor({
               : t("builder.integrations.addIntegration")}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="center" className="w-80 p-1.5">
+        <DropdownMenuContent align="center" className="w-80">
           {(
             Object.entries(integrationMeta) as [
               IntegrationType,

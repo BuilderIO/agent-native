@@ -194,7 +194,7 @@ export async function bindBuilderSignupAttempt(
   attemptId: unknown,
   method: "password" | "magic-link" | "google",
   email: string,
-): Promise<boolean> {
+): Promise<{ userId: string } | false> {
   if (!isBuilderSignupExperimentEnabled()) return false;
   const assignment = decodeBuilderSignupAssignment(
     getCookie(event, builderSignupAssignmentCookieName()),
@@ -211,7 +211,8 @@ export async function bindBuilderSignupAttempt(
   if (
     !identity ||
     !Number.isFinite(createdAtMs) ||
-    createdAtMs < assignment.issuedAt
+    createdAtMs < assignment.issuedAt ||
+    (assignment.acceptedAt !== undefined && createdAtMs < assignment.acceptedAt)
   )
     return false;
   track(
@@ -258,7 +259,6 @@ export async function bindBuilderSignupAttempt(
     (assignment.email && assignment.email !== normalizedEmail)
   )
     return false;
-  if (createdAtMs < assignment.acceptedAt) return false;
   const bound = z
     .object({ id: z.string(), boundUserId: z.string() })
     .parse(
@@ -285,7 +285,7 @@ export async function bindBuilderSignupAttempt(
     maxAge: TTL,
     secure: getHeader(event, "host")?.includes("localhost") !== true,
   });
-  return true;
+  return { userId: identity.user.id };
 }
 
 export async function getBuilderSignupConnectError(
@@ -352,7 +352,34 @@ async function finishSignupActivation(
   };
 }
 
-export function createBuilderSignupExperimentHandler(dependencies: {
+let verifiedSignupStarter:
+  | ((event: H3Event, session: AuthSession) => Promise<unknown>)
+  | undefined;
+
+export function setBuilderSignupVerifiedStarter(
+  starter: (event: H3Event, session: AuthSession) => Promise<unknown>,
+): void {
+  verifiedSignupStarter = starter;
+}
+
+/** Called only after the auth provider issued this verified signup's session. */
+export async function startBuilderSignupForVerifiedSession(
+  event: H3Event,
+  session: AuthSession,
+): Promise<void> {
+  if (
+    !isBuilderSignupExperimentEnabled() ||
+    !session.userId ||
+    !session.token ||
+    session.emailVerified !== true
+  )
+    return;
+  if (!verifiedSignupStarter)
+    throw new Error("Builder signup activation handler is unavailable");
+  await verifiedSignupStarter(event, session);
+}
+
+export function createBuilderSignupExperiment(dependencies: {
   getSession: (event: H3Event) => Promise<AuthSession | null>;
   sameOrigin: (event: H3Event) => boolean;
   activate: (
@@ -415,10 +442,13 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       ...(result.code ? { code: result.code } : {}),
     };
   };
-  return defineEventHandler(async (event) => {
+  const handle = async (
+    event: H3Event,
+    verifiedSignupSession?: AuthSession,
+  ) => {
     setResponseHeader(event, "Cache-Control", "no-store");
     const refuse = (status: number, code: string) => {
-      setResponseStatus(event, status);
+      if (!verifiedSignupSession) setResponseStatus(event, status);
       return { status: "unavailable" as const, code };
     };
     if (!isBuilderSignupExperimentEnabled()) {
@@ -426,20 +456,26 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
       return { status: "disabled" as const };
     }
-    const method = getMethod(event);
+    const method = verifiedSignupSession ? "POST" : getMethod(event);
     if (method !== "GET" && method !== "POST")
       return refuse(405, "method_not_allowed");
-    if (!dependencies.sameOrigin(event)) return refuse(403, "cross_origin");
-    const session = await dependencies.getSession(event);
+    if (!verifiedSignupSession && !dependencies.sameOrigin(event))
+      return refuse(403, "cross_origin");
+    const session =
+      verifiedSignupSession ?? (await dependencies.getSession(event));
     let assignment = decodeBuilderSignupAssignment(
       getCookie(event, builderSignupAssignmentCookieName()),
     );
     if (method === "GET") {
       if (session) return { status: "disabled" as const };
       if (!assignment) {
+        const { builderSignupAutomaticPercent } = getAppConfig().onboarding;
         assignment = {
           id: randomBytes(16).toString("hex"),
-          variant: randomInt(2) === 0 ? "control" : "automatic",
+          variant:
+            randomInt(100) < builderSignupAutomaticPercent
+              ? "automatic"
+              : "control",
           issuedAt: Date.now(),
           policy: BUILDER_SIGNUP_POLICY,
         };
@@ -452,6 +488,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
       };
     }
     if (
+      !verifiedSignupSession &&
       !/^application\/json\s*(;|$)/i.test(
         getHeader(event, "content-type") ?? "",
       )
@@ -465,7 +502,11 @@ export function createBuilderSignupExperimentHandler(dependencies: {
         method: z.enum(["password", "magic-link", "google"]).optional(),
         email: z.string().email().max(320).optional(),
       })
-      .safeParse(await readBodyWithSizeLimit(event, 4096));
+      .safeParse(
+        verifiedSignupSession
+          ? { operation: "start" }
+          : await readBodyWithSizeLimit(event, 4096),
+      );
     if (!body.success) return refuse(400, "invalid_request");
     const waitUntil =
       body.data.operation === "start"
@@ -519,7 +560,7 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     }
     if (
       body.data.operation === "status" ||
-      (body.data.operation === "start" && !waitUntil)
+      (body.data.operation === "start" && !waitUntil && !verifiedSignupSession)
     ) {
       if (!session?.emailVerified || !session.userId)
         return refuse(401, "verified_session_required");
@@ -771,5 +812,10 @@ export function createBuilderSignupExperimentHandler(dependencies: {
     }
     // Hosts without a durable background lifetime must await the write.
     return completion;
-  });
+  };
+  return {
+    handler: defineEventHandler((event) => handle(event)),
+    startVerifiedSignup: (event: H3Event, session: AuthSession) =>
+      handle(event, session),
+  };
 }

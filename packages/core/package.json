@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.226.0",
+  "version": "0.228.1",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -596,6 +596,7 @@
     "./client/resources/use-builtin-capabilities": "./dist/client/resources/use-builtin-capabilities.js",
     "./client/resources/use-mcp-servers": "./dist/client/resources/use-mcp-servers.js",
     "./client/resources/use-resources": "./dist/client/resources/use-resources.js",
+    "./client/resources/use-skill-choices": "./dist/client/resources/use-skill-choices.js",
     "./client/review/use-review": "./dist/client/review/use-review.js",
     "./client/settings": "./dist/client/tombstone/settings.js",
     "./client/sharing/share-controller-helpers": "./dist/client/sharing/share-controller-helpers.js",
@@ -671,6 +672,7 @@
     "./shared/framework-route-prefix": "./dist/shared/framework-route-prefix.js",
     "./shared/loading-labels": "./dist/shared/loading-labels.js",
     "./shared/mcp-app-widget-embed": "./dist/shared/mcp-app-widget-embed.js",
+    "./shared/mcp-client-connections": "./dist/shared/mcp-client-connections.js",
     "./shared/mcp-connect-content": "./dist/shared/mcp-connect-content.js",
     "./shared/motion-easing": "./dist/shared/motion-easing.js",
     "./shared/motion-source-node-id": "./dist/shared/motion-source-node-id.js",

@@ -61,10 +61,34 @@ function processEnv(name: string): string | undefined {
   return process.env?.[name];
 }
 
+/**
+ * The tab a request from no browser tab acts on for tab-scoped app state:
+ * the tab of this app the user used last, or none used recently.
+ */
+export type BrowserTabTarget =
+  | { kind: "last-used"; tabId: string; usedAt: number }
+  | { kind: "unavailable" };
+
+export interface BrowserTabTargetSlot {
+  /** Looks the tab up once; later calls get the same answer. */
+  resolve(): Promise<BrowserTabTarget>;
+  /** Set once something in the request has asked for the tab. */
+  resolved?: BrowserTabTarget;
+}
+
 export interface RequestRunContext {
   waitUntil?: (promise: Promise<unknown>) => void;
   requestOrigin?: string;
+  /** The browser tab the request came from. */
   browserTabId?: string;
+  /**
+   * For an MCP tool call by a signed-in user, which came from no tab: the tab
+   * whose tab-scoped app state (navigation, navigate commands, selection) the
+   * call reads and writes. Unlike `browserTabId`, it doesn't make the call
+   * that tab's own, so the tab still sees the call's changes as someone
+   * else's.
+   */
+  browserTabTarget?: BrowserTabTargetSlot;
   chatScope?: {
     type: string;
     id: string;

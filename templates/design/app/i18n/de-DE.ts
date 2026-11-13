@@ -1771,7 +1771,6 @@ export default {
     signInToRequestAccessTitle: "Anmelden, um Zugriff anzufordern",
     signInToRequestAccessDescription:
       "Melden Sie sich an oder erstellen Sie ein Konto, um Zugriff beim Eigentümer anzufordern.",
-    signInOrSignUp: "Anmelden oder registrieren",
     accessCheckFailed:
       "Der Zugriff auf dieses Design konnte nicht geprüft werden.",
     retryAccessCheck: "Erneut versuchen",
@@ -1806,6 +1805,8 @@ export default {
         "Wende deine ausstehenden visuellen Änderungen an oder verwirf sie, bevor du dupliziert.",
       allDesigns: "Alle Designs",
       rename: "Umbenennen",
+      builtFrom: "Erstellt aus {{title}}",
+      builtFromPage: "Erstellt aus einer Content-Seite",
       duplicate: "Duplizieren",
       versionHistory: "Versionsverlauf",
       import: "Importieren…",
@@ -2246,6 +2247,14 @@ export default {
         "Bei einem anderen Mitwirkenden warten Änderungen. Wende sie an oder verwerfe sie, bevor du neue Änderungen sendest.",
       codingHandoffCopied: "Code-Übergabe kopiert",
       clipboardBlocked: "Zwischenablage blockiert",
+      pasteMediaTooMany_one:
+        "{{count}} Datei wurde nicht eingefügt. Du kannst auf einmal bis zu {{limit}} Dateien einfügen.",
+      pasteMediaTooMany_other:
+        "{{count}} Dateien wurden nicht eingefügt. Du kannst auf einmal bis zu {{limit}} Dateien einfügen.",
+      pasteMediaTooLarge_one:
+        "{{count}} Datei wurde nicht eingefügt, weil sie größer als {{limitMb}} MB ist.",
+      pasteMediaTooLarge_other:
+        "{{count}} Dateien wurden nicht eingefügt, weil sie größer als {{limitMb}} MB sind.",
       htmlCreateError: "HTML-Download konnte nicht erstellt werden",
       htmlDownloaded: "HTML heruntergeladen",
       htmlExportError: "HTML konnte nicht exportiert werden",
@@ -2626,6 +2635,9 @@ export default {
     changesDiscarded:
       "Einige Änderungen konnten nicht gespeichert werden, da die Datei nicht mehr existiert, und wurden verworfen.",
     offline: "Offline",
+    unsaved: "Nicht gespeichert",
+    saveRetrying:
+      "Änderungen konnten nicht gespeichert werden. Es wird automatisch erneut versucht.",
     saving: "Speichern...",
     clearedAllAnnotations: "Alle Anmerkungen gelöscht",
     annotationsDiscardedOnViewChange:
@@ -2696,6 +2708,7 @@ export default {
     searchSystems: "Designsysteme suchen…",
     searchDesigns: "Designs suchen…",
     searchPresentations: "Präsentationen suchen…",
+    searchPages: "Seiten suchen…",
     searchDesign: "Design suchen…",
     useDesignSystem: "Ein Designsystem verwenden",
     notReady:
@@ -2708,6 +2721,7 @@ export default {
     design: "Designreferenzen",
     slides: "Folien",
     referenceDesign: "Ein Design als Referenz verwenden",
+    contentPage: "Content-Seite",
     connectFigma: "Figma verbinden",
     figmaReference: "Figma-Design…",
     figmaDialogTitle: "Figma-Design hinzufügen",

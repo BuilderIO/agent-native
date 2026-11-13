@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   appId: "agent-native-clips" as string | undefined,
   enabled: true,
+  automaticPercent: 50,
+  assignmentRoll: 0,
   experimentId: "design_builder_signup_v1",
   failTerminalWrites: 0,
   waitUntil: undefined as ((work: Promise<unknown>) => void) | undefined,
@@ -12,11 +14,16 @@ const mocks = vi.hoisted(() => ({
   settings: new Map<string, Record<string, unknown>>(),
   track: vi.fn(),
 }));
+vi.mock("node:crypto", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:crypto")>()),
+  randomInt: () => mocks.assignmentRoll,
+}));
 vi.mock("../app-config/index.js", () => ({
   getAppConfig: () => ({
     app: { id: mocks.appId, slug: "clips" },
     onboarding: {
       builderSignupExperiment: mocks.enabled,
+      builderSignupAutomaticPercent: mocks.automaticPercent,
       builderSignupExperimentId: mocks.experimentId,
       builderSignupExperimentOverride: mocks.override,
     },
@@ -63,7 +70,9 @@ import {
   bindBuilderSignupAttempt,
   getBuilderSignupConnectError,
   getBuilderSignupTrackingIdentity,
-  createBuilderSignupExperimentHandler,
+  createBuilderSignupExperiment,
+  setBuilderSignupVerifiedStarter,
+  startBuilderSignupForVerifiedSession,
   builderSignupAssignmentCookieName,
   decodeBuilderSignupAssignment,
   encodeBuilderSignupAssignment,
@@ -94,12 +103,12 @@ function request(body?: unknown, cookie?: string) {
   const app = createApp();
   app.use(
     "/experiment",
-    createBuilderSignupExperimentHandler({
+    createBuilderSignupExperiment({
       getSession: async () => session,
       sameOrigin: () => sameOrigin,
       activate,
       reconcile,
-    }),
+    }).handler,
   );
   return app.fetch(
     new Request("https://design.example.com/experiment", {
@@ -125,7 +134,9 @@ function bindRequest(
   app.use(
     "/bind",
     defineEventHandler(async (event) => ({
-      bound: await bindBuilderSignupAttempt(event, attemptId, method, email),
+      bound: Boolean(
+        await bindBuilderSignupAttempt(event, attemptId, method, email),
+      ),
     })),
   );
   return app.fetch(
@@ -139,6 +150,8 @@ beforeEach(() => {
   testTime = Date.now();
   mocks.appId = "agent-native-clips";
   mocks.enabled = true;
+  mocks.automaticPercent = 50;
+  mocks.assignmentRoll = 0;
   mocks.experimentId = "design_builder_signup_v1";
   mocks.failTerminalWrites = 0;
   mocks.waitUntil = undefined;
@@ -158,6 +171,40 @@ beforeEach(() => {
 });
 
 describe("pre-signup Builder experiment", () => {
+  it.each([
+    [49, "automatic"],
+    [50, "control"],
+  ])(
+    "assigns a roll of %s to %s at the default allocation",
+    async (roll, variant) => {
+      mocks.assignmentRoll = roll;
+      expect(await (await request()).json()).toMatchObject({ variant });
+    },
+  );
+
+  it("assigns new Clips visitors to automatic and honors existing control assignments", async () => {
+    mocks.experimentId = "clips_builder_signup_v1";
+    mocks.automaticPercent = 100;
+    mocks.assignmentRoll = 99;
+
+    expect(await (await request()).json()).toMatchObject({
+      experimentId: "clips_builder_signup_v1",
+      variant: "automatic",
+    });
+
+    const control = {
+      id: "b".repeat(32),
+      variant: "control" as const,
+      issuedAt: testTime,
+      policy: BUILDER_SIGNUP_POLICY,
+    };
+    const response = await request(
+      undefined,
+      encodeBuilderSignupAssignment(control),
+    );
+    expect(await response.json()).toMatchObject(control);
+  });
+
   it("keeps assignment cookie names independent across same-origin apps", async () => {
     const names = new Set<string>();
     for (const app of ["design", "clips", "slides"]) {
@@ -204,6 +251,58 @@ describe("pre-signup Builder experiment", () => {
         expect.objectContaining({ experiment_id: `${app}_builder_signup_v1` }),
         expect.anything(),
       );
+    },
+  );
+
+  it.each([true, false])(
+    "finishes a verified signup callback without a subsequent app request (background=%s)",
+    async (background) => {
+      const works: Promise<unknown>[] = [];
+      if (background)
+        mocks.waitUntil = (work) => {
+          works.push(work);
+        };
+      let finish!: (result: { ok: boolean }) => void;
+      activate.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const experiment = createBuilderSignupExperiment({
+        getSession: async () => null,
+        sameOrigin: () => false,
+        activate,
+        reconcile,
+      });
+      setBuilderSignupVerifiedStarter(experiment.startVerifiedSignup);
+      const server = createApp();
+      server.use(
+        "/callback",
+        defineEventHandler(async (event) => {
+          await startBuilderSignupForVerifiedSession(event, signedSession());
+          return { signedIn: true };
+        }),
+      );
+      const response = server.fetch(
+        new Request("https://design.example.com/callback"),
+      );
+      await vi.waitFor(() => expect(activate).toHaveBeenCalledOnce());
+      if (background)
+        expect(await (await response).json()).toEqual({ signedIn: true });
+      expect(
+        mocks.settings.get("design_builder_signup_v1:new-user")?.status,
+      ).toBe("started");
+      // No frontend hydration, session read, start request, or polling happens.
+      finish({ ok: true });
+      await response;
+      await Promise.all(works);
+      expect(
+        mocks.settings.get("design_builder_signup_v1:new-user")?.status,
+      ).toBe("connected");
+      session = signedSession();
+      await request({ operation: "start" });
+      expect(activate).toHaveBeenCalledOnce();
     },
   );
 
@@ -594,6 +693,24 @@ describe("pre-signup Builder experiment", () => {
       expect(activate).not.toHaveBeenCalled();
     },
   );
+
+  it("does not count an existing password identity as a new enrollment when signup is retried after acceptance", async () => {
+    mocks.settings.clear();
+    const assignment = { ...accepted(), method: "password" as const };
+    mocks.identity.user.createdAt = new Date(testTime - 1500);
+    expect(
+      await (
+        await bindRequest(
+          encodeBuilderSignupAssignment(assignment),
+          ATTEMPT,
+          "password",
+          "new@example.com",
+        )
+      ).json(),
+    ).toEqual({ bound: false });
+    expect(mocks.track).not.toHaveBeenCalled();
+    expect(mocks.settings.size).toBe(0);
+  });
 
   it("links signup enrollment without granting provisioning consent when acceptance is absent", async () => {
     mocks.settings.delete("design_builder_signup_v1:consent:new-user");

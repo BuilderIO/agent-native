@@ -6,7 +6,12 @@ import { z } from "zod";
 
 import { defineAction } from "../action.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
-import { resolveKeyReferencesWithRequestScopes } from "../secrets/substitution.js";
+import {
+  getResolvedKeyAllowlist,
+  resolveKeyReferencesWithRequestScopes,
+  validateUrlAllowlist,
+  type ResolvedKeyReference,
+} from "../secrets/substitution.js";
 import { getRequestUserEmail } from "../server/request-context.js";
 
 const DEFAULT_MAX_REQUEST_BYTES = 64 * 1024;
@@ -267,9 +272,14 @@ async function resolveStaticHeaders(
   headers: Readonly<Record<string, string>> | undefined,
   userEmail: string,
   resolveSecret: AutomationRuntimeOptions["resolveSecret"],
-): Promise<{ headers: Record<string, string>; secretValues: string[] }> {
+): Promise<{
+  headers: Record<string, string>;
+  secretValues: string[];
+  resolvedKeys: ResolvedKeyReference[];
+}> {
   const output: Record<string, string> = {};
   const secretValues: string[] = [];
+  const resolvedKeys: ResolvedKeyReference[] = [];
   for (const [name, value] of Object.entries(headers ?? {})) {
     let resolved = value;
     if (value.includes("${keys.")) {
@@ -277,8 +287,18 @@ async function resolveStaticHeaders(
         value,
         userEmail,
       );
+      if (
+        !result.resolvedKeys ||
+        result.resolvedKeys.length !== result.usedKeys.length
+      ) {
+        throw new AutomationConnectorError(
+          "invalid_configuration",
+          "A configured key reference could not be checked.",
+        );
+      }
       resolved = result.resolved;
       secretValues.push(...result.secretValues);
+      resolvedKeys.push(...result.resolvedKeys);
     }
     output[name] = resolved;
   }
@@ -300,7 +320,7 @@ async function resolveStaticHeaders(
       secretValues.push(secret);
     }
   }
-  return { headers: output, secretValues };
+  return { headers: output, secretValues, resolvedKeys };
 }
 
 async function readBoundedResponse(
@@ -455,11 +475,20 @@ export function createAutomationRuntime(
       );
     }
 
-    const { headers, secretValues } = await resolveStaticHeaders(
+    const { headers, secretValues, resolvedKeys } = await resolveStaticHeaders(
       workflow.outbound.headers,
       invocation.userEmail,
       options.resolveSecret,
     );
+    for (const ref of resolvedKeys) {
+      const allowlist = await getResolvedKeyAllowlist(ref);
+      if (!validateUrlAllowlist(target.href, allowlist)) {
+        throw new AutomationConnectorError(
+          "blocked_target",
+          `Workflow target is not approved for key "${ref.name}".`,
+        );
+      }
+    }
     headers["content-type"] ??= "application/json";
     if (workflow.outbound.idempotencyHeader && invocation.idempotencyKey) {
       headers[workflow.outbound.idempotencyHeader] = invocation.idempotencyKey;

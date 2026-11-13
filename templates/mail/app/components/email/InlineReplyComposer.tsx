@@ -50,6 +50,10 @@ import {
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
+import {
+  toastStorageSetupFailure,
+  toastUploadFailure,
+} from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
 
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -420,6 +424,15 @@ export const InlineReplyComposer = forwardRef<
     </>
   );
 
+  const storageSetupLabels = {
+    builderRefused: t("mail.toasts.storageBuilderRefused"),
+    storageRefused: t("mail.toasts.storageRefused"),
+    storageNotConfigured: t("mail.toasts.storageNotConfigured"),
+    openStorageSettings: t("mail.toasts.openStorageSettings"),
+    reconnectBuilder: t("mail.toasts.reconnectBuilderStorage"),
+    useOwnStorage: t("mail.toasts.useOwnStorage"),
+  };
+
   const handleAttachFiles = async (files: File[]) => {
     if (files.length === 0) return;
     try {
@@ -427,10 +440,10 @@ export const InlineReplyComposer = forwardRef<
       const existing = draft.attachments ?? [];
       onUpdate(draft.id, { attachments: [...existing, ...attachments] });
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("mail.toasts.failedToAttachFile"),
+      toastUploadFailure(
+        error,
+        t("mail.toasts.failedToAttachFile"),
+        storageSetupLabels,
       );
     }
   };
@@ -440,7 +453,11 @@ export const InlineReplyComposer = forwardRef<
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      reportWriteFailure(err, { label: t("mail.toasts.failedToUploadImage") });
+      if (!toastStorageSetupFailure(err, storageSetupLabels)) {
+        reportWriteFailure(err, {
+          label: t("mail.toasts.failedToUploadImage"),
+        });
+      }
       throw err;
     }
   };

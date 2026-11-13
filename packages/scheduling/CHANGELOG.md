@@ -1,5 +1,63 @@
 # @agent-native/scheduling
 
+## 0.2.58
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.228.1
+
+## 0.2.57
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ade88da]
+- Updated dependencies [8656de2]
+- Updated dependencies [c8c081c]
+- Updated dependencies [da0d6d2]
+- Updated dependencies [353cb43]
+- Updated dependencies [40362af]
+- Updated dependencies [8656de2]
+- Updated dependencies [8175f2d]
+- Updated dependencies [54b3cc3]
+- Updated dependencies
+- Updated dependencies [8930066]
+- Updated dependencies [bea9322]
+- Updated dependencies [b6222c2]
+- Updated dependencies [78738f3]
+- Updated dependencies [bdefc2e]
+  - @agent-native/toolkit@0.228.0
+
+## 0.2.56
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [ba1a7d3]
+- Updated dependencies [48d9de3]
+- Updated dependencies [d1fa5c5]
+- Updated dependencies [6e8b91a]
+- Updated dependencies [cd176a0]
+- Updated dependencies [0f27dbe]
+- Updated dependencies [17bf02d]
+- Updated dependencies [4a3c8c7]
+- Updated dependencies [7f5db5c]
+- Updated dependencies [f94438c]
+- Updated dependencies [46ed84c]
+- Updated dependencies [3142f57]
+- Updated dependencies
+- Updated dependencies [ec21102]
+- Updated dependencies [36106a3]
+- Updated dependencies [ba1a7d3]
+- Updated dependencies [36074ef]
+- Updated dependencies [a467c58]
+- Updated dependencies [d4f3450]
+- Updated dependencies [6189d88]
+- Updated dependencies [7c7bf12]
+  - @agent-native/toolkit@0.227.0
+
 ## 0.2.55
 
 ### Patch Changes
@@ -1234,32 +1292,5 @@
   config merges it in.
 - Updated dependencies [f499dff]
   - @agent-native/toolkit@0.12.2
-
-## 0.1.34
-
-### Patch Changes
-
-- Updated dependencies [c0e7d64]
-- Updated dependencies [c0e7d64]
-  - @agent-native/toolkit@0.12.0
-
-## 0.1.33
-
-### Patch Changes
-
-- Updated dependencies [24a5a20]
-  - @agent-native/toolkit@0.11.0
-
-## 0.1.32
-
-### Patch Changes
-
-- Updated dependencies [f0da2e0]
-- Updated dependencies [f0da2e0]
-- Updated dependencies [f0da2e0]
-- Updated dependencies [f0da2e0]
-- Updated dependencies [f0da2e0]
-- Updated dependencies [f0da2e0]
-  - @agent-native/toolkit@0.10.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

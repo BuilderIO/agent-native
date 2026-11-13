@@ -1,3 +1,24 @@
+## 0.5.2
+
+### Patch Changes
+
+- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
+  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
+  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
+  config merges it in.
+
+## 0.5.1
+
+### Patch Changes
+
+- 03a043e: Retry transient recap document-load timeouts and only embed screenshot previews when both light and dark themes are available.
+
+## 0.5.0
+
+### Minor Changes
+
+- f8fe58b: Add `VISUAL_RECAP_REQUIRED_LABELS` so PR Visual Recap can run only when a pull request has an opt-in label.
+
 ## 0.4.7
 
 ### Patch Changes

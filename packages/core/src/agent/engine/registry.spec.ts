@@ -112,6 +112,7 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../server/chatgpt-subscription-oauth.js");
     vi.doUnmock("../../server/request-context.js");
     vi.doUnmock("../../extensions/url-safety.js");
+    vi.doUnmock("node:dns/promises");
     vi.doUnmock("../../secrets/storage.js");
     vi.doUnmock("../../db/client.js");
     vi.doUnmock("../../org/context.js");
@@ -3589,7 +3590,7 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../secrets/storage.js", () => {
         const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
           if (key === "OPENAI_BASE_URL") {
-            return { key, value: "https://gateway.example/v1///" };
+            return { key, value: "https://93.184.216.34/v1///" };
           }
           return null;
         });
@@ -3621,7 +3622,7 @@ describe("AgentEngine registry", () => {
       expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: undefined,
         allowEnvFallback: false,
-        baseUrl: "https://gateway.example/v1",
+        baseUrl: "https://93.184.216.34/v1",
         requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
@@ -4157,6 +4158,14 @@ describe("AgentEngine registry", () => {
     });
 
     it("does not treat the first-party OpenAI endpoint as a custom gateway", async () => {
+      vi.doMock("node:dns/promises", () => ({
+        lookup: vi.fn(async (hostname: string) => {
+          if (hostname === "api.openai.com") {
+            return [{ address: "93.184.216.34", family: 4 }];
+          }
+          throw new Error(`Unexpected DNS lookup for ${hostname}`);
+        }),
+      }));
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",

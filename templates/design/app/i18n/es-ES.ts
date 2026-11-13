@@ -1767,7 +1767,6 @@ export default {
     signInToRequestAccessTitle: "Inicia sesión para solicitar acceso",
     signInToRequestAccessDescription:
       "Inicia sesión o crea una cuenta para solicitar acceso al propietario.",
-    signInOrSignUp: "Iniciar sesión o registrarse",
     accessCheckFailed: "No se pudo comprobar el acceso a este diseño.",
     retryAccessCheck: "Reintentar",
     saveAsTemplate: "Guardar como plantilla…",
@@ -1801,6 +1800,8 @@ export default {
         "Aplica o descarta tus ediciones visuales pendientes antes de duplicar.",
       allDesigns: "Todos los diseños",
       rename: "Renombrar",
+      builtFrom: "Creado a partir de {{title}}",
+      builtFromPage: "Creado a partir de una página de Content",
       duplicate: "Duplicar",
       versionHistory: "Historial de versiones",
       import: "Importar…",
@@ -2238,6 +2239,18 @@ export default {
         "Otro colaborador tiene cambios pendientes. Aplícalos o elimínalos antes de enviar cambios nuevos.",
       codingHandoffCopied: "Entrega para código copiada",
       clipboardBlocked: "Portapapeles bloqueado",
+      pasteMediaTooMany_one:
+        "No se pegó {{count}} archivo. Puedes pegar hasta {{limit}} archivos a la vez.",
+      pasteMediaTooMany_many:
+        "No se pegaron {{count}} archivos. Puedes pegar hasta {{limit}} archivos a la vez.",
+      pasteMediaTooMany_other:
+        "No se pegaron {{count}} archivos. Puedes pegar hasta {{limit}} archivos a la vez.",
+      pasteMediaTooLarge_one:
+        "No se pegó {{count}} archivo porque supera los {{limitMb}} MB.",
+      pasteMediaTooLarge_many:
+        "No se pegaron {{count}} archivos porque superan los {{limitMb}} MB.",
+      pasteMediaTooLarge_other:
+        "No se pegaron {{count}} archivos porque superan los {{limitMb}} MB.",
       htmlCreateError: "No se pudo crear la descarga HTML",
       htmlDownloaded: "HTML descargado",
       htmlExportError: "No se pudo exportar HTML",
@@ -2603,6 +2616,9 @@ export default {
     changesDiscarded:
       "Algunos cambios no se pudieron guardar porque el archivo ya no existe y se descartaron.",
     offline: "Sin conexión",
+    unsaved: "No guardado",
+    saveRetrying:
+      "No se pudieron guardar tus cambios. Reintentando automáticamente.",
     saving: "Guardando...",
     clearedAllAnnotations: "Se borraron todas las anotaciones",
     annotationsDiscardedOnViewChange:
@@ -2670,6 +2686,7 @@ export default {
     searchSystems: "Buscar sistemas de diseño…",
     searchDesigns: "Buscar diseños…",
     searchPresentations: "Buscar presentaciones…",
+    searchPages: "Buscar páginas…",
     searchDesign: "Buscar diseño…",
     useDesignSystem: "Usar un sistema de diseño",
     notReady:
@@ -2682,6 +2699,7 @@ export default {
     design: "Referencias de diseño",
     slides: "Diapositivas",
     referenceDesign: "Usar un diseño como referencia",
+    contentPage: "Página de Content",
     connectFigma: "Conectar Figma",
     figmaReference: "Diseño de Figma…",
     figmaDialogTitle: "Añadir diseño de Figma",

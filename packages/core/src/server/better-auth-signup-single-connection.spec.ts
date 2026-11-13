@@ -792,4 +792,61 @@ describe("password sign-up on a one-connection Neon pool", () => {
       (await pglite.query(`SELECT email, email_verified FROM "user"`)).rows,
     ).toEqual([{ email: newEmail, email_verified: true }]);
   });
+
+  it("rejects a verified user's email change when the confirmation cannot be delivered", async () => {
+    const fetchMock = vi.fn(
+      async (_input: unknown, _init?: RequestInit) =>
+        new Response(JSON.stringify({ id: "email_ok" }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { auth, pglite } = await bootSignUp({
+      AUTH_REQUIRE_EMAIL_VERIFICATION: "1",
+      RESEND_API_KEY: "re_test_not_a_real_key",
+      EMAIL_FROM: "Test <test@example.test>",
+      APP_URL: "https://auth.example.test",
+    });
+    await auth.api.signUpEmail({
+      body: {
+        email: "change-me@example.test",
+        password: "correct-horse-battery",
+        name: "change-me",
+      },
+    });
+    await pglite.exec('UPDATE "user" SET email_verified = TRUE');
+    const signIn = await auth.api.signInEmail({
+      body: {
+        email: "change-me@example.test",
+        password: "correct-horse-battery",
+      },
+      returnHeaders: true,
+    });
+    const cookie = signIn.headers
+      .getSetCookie()
+      .map((value) => value.split(";")[0])
+      .join("; ");
+    const headers = () => new Headers({ cookie });
+    const changeEmail = () =>
+      auth.api.changeEmail({
+        body: { newEmail: "changed@example.test" },
+        headers: headers(),
+      });
+
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ message: "API key is invalid" }), {
+          status: 401,
+        }),
+    );
+    await expect(changeEmail()).rejects.toThrow();
+    expect((await pglite.query('SELECT email FROM "user"')).rows).toEqual([
+      { email: "change-me@example.test" },
+    ]);
+
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ id: "email_retry" }), { status: 200 }),
+    );
+    await expect(changeEmail()).resolves.toEqual({ status: true });
+    expect(fetchMock).toHaveBeenCalled();
+  });
 });

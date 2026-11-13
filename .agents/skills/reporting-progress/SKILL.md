@@ -34,17 +34,18 @@ proceed", and a status paragraph with no ask are all stalls.
 
 ## Exhaust this before writing BLOCKED
 
-In the measured cases, every single "blocked" was a step the agent could have
-taken:
+Try the options already authorized for the task:
 
 1. Run it locally instead of waiting on a deploy or CI.
-2. Drive the user's logged-in Chrome instead of asking them to click.
-3. Read production directly — the DB URLs are in the template `.env` files.
+2. Use an authorized signed-in browser session instead of asking the user to
+   reproduce the issue.
+3. Use a read-only production query when production access is authorized for
+   the investigation.
 4. Spawn a cheap subagent for the part you think you lack context for.
 5. Pick the reversible option and say which one you picked.
 
-A missing credential, a genuinely destructive action, and a decision only the
-user can make are blockers. Nothing else on this list is.
+If a step needs credentials, approval, or a decision only the user can make,
+name that blocker after completing any independent work.
 
 ## While it runs
 
