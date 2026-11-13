@@ -62,12 +62,14 @@ export function FieldRenderer({
         field.width === "half" ? "w-full sm:w-1/2" : "w-full",
       )}
     >
-      <Label className="text-sm font-medium">
+      <Label dir="auto" className="text-sm font-medium">
         {field.label}
         {field.required && <span className="text-destructive ml-0.5">*</span>}
       </Label>
       {field.description && (
-        <p className="text-xs text-muted-foreground">{field.description}</p>
+        <p dir="auto" className="text-xs text-muted-foreground">
+          {field.description}
+        </p>
       )}
 
       {fileOptions && (
@@ -89,6 +91,7 @@ export function FieldRenderer({
       >
         {field.type === "text" && (
           <Input
+            dir="auto"
             placeholder={field.placeholder || ""}
             value={(value as string) || ""}
             onChange={(e) => handleChange(e.target.value)}
@@ -120,6 +123,7 @@ export function FieldRenderer({
 
         {field.type === "textarea" && (
           <Textarea
+            dir="auto"
             placeholder={field.placeholder || ""}
             value={(value as string) || ""}
             onChange={(e) => handleChange(e.target.value)}
@@ -135,12 +139,15 @@ export function FieldRenderer({
             disabled={disabled}
           >
             <SelectTrigger>
-              <SelectValue placeholder={field.placeholder || "Select..."} />
+              <SelectValue
+                dir="auto"
+                placeholder={field.placeholder || "Select..."}
+              />
             </SelectTrigger>
             <SelectContent>
               {dedupeRenderableOptions(field.options).map((opt, i) => (
                 <SelectItem key={`${opt}-${i}`} value={opt}>
-                  {opt}
+                  <span dir="auto">{opt}</span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -166,7 +173,7 @@ export function FieldRenderer({
                     }}
                     disabled={disabled}
                   />
-                  {opt}
+                  <span dir="auto">{opt}</span>
                 </label>
               );
             })}
@@ -180,7 +187,7 @@ export function FieldRenderer({
               onCheckedChange={handleChange}
               disabled={disabled}
             />
-            {field.placeholder || field.label}
+            <span dir="auto">{field.placeholder || field.label}</span>
           </label>
         )}
 
@@ -198,6 +205,7 @@ export function FieldRenderer({
                 <RadioGroupItem value={opt} id={`${field.id}-${opt}-${i}`} />
                 <Label
                   htmlFor={`${field.id}-${opt}-${i}`}
+                  dir="auto"
                   className="font-normal"
                 >
                   {opt}
