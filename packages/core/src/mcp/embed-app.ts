@@ -2743,15 +2743,16 @@ export function embedApp(
       if (!path.startsWith("/") || path.startsWith("//")) {
         throw new Error("path must start with / and stay inside the open app, e.g. the path read_view returns.");
       }
+      // The nested frame was launched on a session scoped to its start URL;
+      // pointing it at a bare app route would drop that session.
+      if (appFrame) {
+        throw new Error("This host shows the app in a nested frame, so it can't be moved from here.");
+      }
       const base = currentViewUrl();
       if (!base) throw new Error("No app page has loaded in this view yet.");
       const target = new URL(path, base);
       if (target.origin !== base.origin) throw new Error("path must stay inside the open app.");
       const nextPath = localPathFromUrl(target, false);
-      if (appFrame) {
-        appFrame.src = target.href;
-        return { path: nextPath };
-      }
       // React Router reads the location on popstate, so a pushed entry plus a
       // popstate event moves the transplanted app without reloading it.
       const current = window.history.state;
@@ -2887,7 +2888,7 @@ export function embedApp(
       let helperSeen = false;
       let ticks = 0;
       const check = () => {
-        const context = navigator.modelContext;
+        const context = document.modelContext;
         if (context && context !== watchedContext && typeof context.addEventListener === "function") {
           context.addEventListener("toolchange", schedule);
           watchedContext = context;

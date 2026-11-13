@@ -2359,7 +2359,7 @@ return requestFullscreenOnFirstInteraction;`;
       href: string;
       pageHelper?: unknown;
       frameSrc?: string;
-      navigator?: unknown;
+      modelContext?: unknown;
       app?: unknown;
     }) => {
       const resource = embedApp({ title: "Mail" });
@@ -2401,6 +2401,9 @@ return requestFullscreenOnFirstInteraction;`;
       class FakePopStateEvent {
         constructor(readonly type: string) {}
       }
+      if (options.modelContext) {
+        Object.assign(window.document, { modelContext: options.modelContext });
+      }
       const appFrame = options.frameSrc ? { src: options.frameSrc } : null;
       return new Function(
         "window",
@@ -2411,7 +2414,6 @@ return requestFullscreenOnFirstInteraction;`;
         "appFrame",
         "lastFrameSrc",
         "app",
-        "navigator",
         `${source}; return { listViewTools, callViewTool, watchPageTools };`,
       )(
         fakeWindow,
@@ -2422,7 +2424,6 @@ return requestFullscreenOnFirstInteraction;`;
         appFrame,
         "https://labs.example.com/_agent-native/embed/start?t=1",
         options.app ?? null,
-        options.navigator ?? {},
       ) as {
         watchPageTools(): void;
         listViewTools(): Promise<Array<{ name: string }>>;
@@ -2518,11 +2519,9 @@ return requestFullscreenOnFirstInteraction;`;
         const tools = viewToolsFor({
           href: "https://labs.example.com/mail/inbox",
           app: { sendToolListChanged: () => notified++ },
-          navigator: {
-            modelContext: {
-              addEventListener: (_type: string, listener: () => void) =>
-                listeners.push(listener),
-            },
+          modelContext: {
+            addEventListener: (_type: string, listener: () => void) =>
+              listeners.push(listener),
           },
         });
 
@@ -2571,7 +2570,7 @@ return requestFullscreenOnFirstInteraction;`;
       }
     });
 
-    it("navigates a nested app frame by its own URL", async () => {
+    it("leaves a nested app frame where its session started", async () => {
       const tools = viewToolsFor({
         href: "https://sandbox.example/shell",
         frameSrc: "https://labs.example.com/calendar/week",
@@ -2580,7 +2579,8 @@ return requestFullscreenOnFirstInteraction;`;
         name: "navigate_view",
         arguments: { path: "/calendar/event/e1" },
       });
-      expect(moved.structuredContent).toEqual({ path: "/calendar/event/e1" });
+      expect(moved.isError).toBe(true);
+      expect(moved.content[0]!.text).toContain("nested frame");
       const read = await tools.callViewTool({ name: "read_view" });
       expect(read.isError).toBe(true);
       expect(read.content[0]!.text).toContain("nested frame");
