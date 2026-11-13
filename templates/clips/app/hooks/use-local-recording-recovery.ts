@@ -1,6 +1,6 @@
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect, useRef } from "react";
+import { createElement, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -23,25 +23,14 @@ import {
 } from "@/lib/recording-backup";
 
 const RECOVERY_TOAST_ID = "clips-local-recording-recovery";
-let recoveryToastRevision = 0;
-let recoveryToastId: string | undefined;
-let recoveryToastSequence = 0;
-let recoveryScanSequence = 0;
-let lastAppliedRecoveryScan = 0;
-const snoozingRecordings = new Set<string>();
-const cleaningRecordings = new Set<string>();
-let cleanupRevision = 0;
 
-function nextRecoveryToastId(): string {
-  if (recoveryToastId) toast.dismiss(recoveryToastId);
-  recoveryToastId = `${RECOVERY_TOAST_ID}-${++recoveryToastSequence}`;
-  return recoveryToastId;
+function RecoveryMessage({ messageKey }: { messageKey: string }) {
+  const t = useT();
+  return t(messageKey);
 }
 
-function clearRecoveryToast(id: string): void {
-  if (recoveryToastId !== id) return;
-  recoveryToastId = undefined;
-  recoveryToastRevision += 1;
+function recoveryMessage(messageKey: string) {
+  return createElement(RecoveryMessage, { messageKey });
 }
 
 /** Rechecks while a copy's server row is still processing; the last repeats. */
@@ -69,23 +58,15 @@ export interface LocalRecordingScan {
 async function deleteConfirmedCopy(
   meta: RecordingBackupMeta,
 ): Promise<"deleted" | "busy" | "unavailable"> {
-  if (cleaningRecordings.has(meta.recordingId)) return "busy";
-  cleaningRecordings.add(meta.recordingId);
-  cleanupRevision += 1;
+  const claim = await claimRecordingBackupLock(meta.recordingId);
+  if (claim.status !== "held") return claim.status;
   try {
-    const claim = await claimRecordingBackupLock(meta.recordingId);
-    if (claim.status !== "held") return claim.status;
-    try {
-      // coercion-ok: copies from before stale tracking have no superseded rows.
-      await trashStaleServerRecordings(meta.staleServerRecordingIds ?? []);
-      await deleteRecordingBackup(meta.recordingId);
-      return "deleted";
-    } finally {
-      claim.release();
-    }
+    // coercion-ok: copies from before stale tracking have no superseded rows.
+    await trashStaleServerRecordings(meta.staleServerRecordingIds ?? []);
+    await deleteRecordingBackup(meta.recordingId);
+    return "deleted";
   } finally {
-    cleaningRecordings.delete(meta.recordingId);
-    cleanupRevision += 1;
+    claim.release();
   }
 }
 
@@ -103,33 +84,19 @@ async function deleteConfirmedCopy(
 export async function findLocalRecordingsToFinish(
   ownerEmail: string,
   nowMs = Date.now(),
-  signal?: AbortSignal,
 ): Promise<LocalRecordingScan> {
-  const cleanupAtStart = new Set(cleaningRecordings);
-  const cleanupRevisionAtStart = cleanupRevision;
   const [metas, liveIds] = await Promise.all([
     listRecordingBackupMetas(),
     // coercion-ok: null is "liveness unknown"; without locks nothing is uploaded or deleted unclaimed.
     liveRecordingBackupIds().catch(() => null),
   ]);
   const pending: RecordingBackupMeta[] = [];
-  // A scan can observe another scan's temporary cleanup lock as a live copy.
-  let waitingOnServer = selectRecoverableRecordingBackups(metas, {
-    liveIds: null,
-    ownerEmail,
-  }).filter(
-    (meta) =>
-      liveIds?.has(meta.recordingId) &&
-      (cleanupAtStart.has(meta.recordingId) ||
-        cleaningRecordings.has(meta.recordingId) ||
-        cleanupRevisionAtStart !== cleanupRevision),
-  ).length;
+  let waitingOnServer = 0;
   for (const meta of selectRecoverableRecordingBackups(metas, {
     liveIds,
     ownerEmail,
   })) {
     try {
-      signal?.throwIfAborted();
       const serverId =
         meta.serverRecordingId ?? (meta.localOnly ? null : meta.recordingId);
       if (!serverId) {
@@ -137,12 +104,7 @@ export async function findLocalRecordingsToFinish(
         continue;
       }
       // coercion-ok: null is "server unreachable" (unlike { found: false }); the copy is still offered.
-      const server = await fetchServerUploadStatus(serverId, signal).catch(
-        (error: unknown) => {
-          if (signal?.aborted) throw error;
-          return null;
-        },
-      );
+      const server = await fetchServerUploadStatus(serverId).catch(() => null);
       if (server?.found && server.status === "processing") {
         if (isProcessingStuck(meta, nowMs)) pending.push(meta);
         else waitingOnServer += 1;
@@ -178,7 +140,6 @@ export async function findLocalRecordingsToFinish(
       }
       pending.push(meta);
     } catch (err) {
-      if (signal?.aborted) throw err;
       console.warn(
         `[clips] checking local recording ${meta.recordingId} failed:`,
         err,
@@ -213,60 +174,33 @@ export async function remindLaterAboutLocalRecording(
 export function watchLocalRecordings(
   ownerEmail: string,
   handlers: {
-    onResult: (
-      scan: LocalRecordingScan,
-      scanSequence: number,
-      toastRevision: number,
-    ) => void;
-    onError: (
-      error: unknown,
-      retry: () => void,
-      scanSequence: number,
-      toastRevision: number,
-    ) => void;
+    onResult: (scan: LocalRecordingScan) => void;
+    onError: (error: unknown, retry: () => void) => void;
   },
   delaysMs: readonly number[] = PROCESSING_RECHECK_MS,
 ): () => void {
   let stopped = false;
-  const controller = new AbortController();
   let attempt = 0;
-  let latestScan = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const scan = () => {
     if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
-    const scanSequence = ++recoveryScanSequence;
-    latestScan = scanSequence;
-    const toastRevision = recoveryToastRevision;
-    const run = async () => {
-      if (stopped) return;
-      let result: LocalRecordingScan;
-      try {
-        result = await findLocalRecordingsToFinish(
-          ownerEmail,
-          Date.now(),
-          controller.signal,
-        );
-      } catch (error) {
-        if (!stopped && latestScan === scanSequence)
-          handlers.onError(error, scan, scanSequence, toastRevision);
-        return;
-      }
-      if (stopped || latestScan !== scanSequence) return;
-      handlers.onResult(result, scanSequence, toastRevision);
-      if (timer !== undefined) clearTimeout(timer);
-      timer = undefined;
-      if (result.waitingOnServer > 0) {
-        const delay = delaysMs[Math.min(attempt, delaysMs.length - 1)];
-        attempt += 1;
-        timer = setTimeout(scan, delay);
-      } else {
-        attempt = 0;
-      }
-    };
-    void run().catch((error: unknown) => {
-      console.error("[clips] local recording recovery handler failed:", error);
-    });
+    void findLocalRecordingsToFinish(ownerEmail).then(
+      (result) => {
+        if (stopped) return;
+        handlers.onResult(result);
+        if (result.waitingOnServer > 0) {
+          const delay = delaysMs[Math.min(attempt, delaysMs.length - 1)];
+          attempt += 1;
+          timer = setTimeout(scan, delay);
+        } else {
+          attempt = 0;
+        }
+      },
+      (error: unknown) => {
+        if (!stopped) handlers.onError(error, scan);
+      },
+    );
   };
   const onVisible = () => {
     if (
@@ -283,7 +217,6 @@ export function watchLocalRecordings(
   scan();
   return () => {
     stopped = true;
-    controller.abort();
     if (timer !== undefined) clearTimeout(timer);
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", onVisible);
@@ -296,7 +229,7 @@ export function watchLocalRecordings(
  * when clicked, because the prompt can stay open while another tab takes the
  * copy. An ownerless copy always opens the recorder's explicit claim step.
  */
-type RecoveryOffer = {
+export function offerLocalRecording(options: {
   meta: Pick<
     RecordingBackupMeta,
     "recordingId" | "ownerEmail" | "keptAfterUpload" | "state"
@@ -304,57 +237,44 @@ type RecoveryOffer = {
   t: ReturnType<typeof useT>;
   navigate: (path: string) => unknown;
   onFinish?: (recordingId: string) => void;
-};
-
-export function offerLocalRecording(options: RecoveryOffer): void {
-  recoveryToastRevision += 1;
-  showLocalRecording(options);
-}
-
-function showLocalRecording(options: RecoveryOffer): void {
-  const { meta, t, navigate, onFinish } = options;
+}): void {
+  const { meta, navigate, onFinish } = options;
   const unclaimed = !meta.ownerEmail;
   // Uploaded and kept, or still processing on the server.
   const kept = !!meta.keptAfterUpload || meta.state === "uploaded";
-  const toastId = nextRecoveryToastId();
   toast.warning(
     unclaimed
-      ? t("recordRoute.unclaimedRecording")
+      ? recoveryMessage("recordRoute.unclaimedRecording")
       : kept
-        ? t("recordRoute.keptCopyWaiting")
-        : t("recordRoute.unfinishedRecording"),
+        ? recoveryMessage("recordRoute.keptCopyWaiting")
+        : recoveryMessage("recordRoute.unfinishedRecording"),
     {
-      id: toastId,
+      id: RECOVERY_TOAST_ID,
       duration: Infinity,
       closeButton: true,
-      onDismiss: () => clearRecoveryToast(toastId),
       cancel: {
-        label: t("recordRoute.remindTomorrow"),
+        label: recoveryMessage("recordRoute.remindTomorrow"),
         onClick: () => {
-          clearRecoveryToast(toastId);
-          snoozingRecordings.add(meta.recordingId);
-          void remindLaterAboutLocalRecording(meta.recordingId)
-            .catch((err: unknown) => {
+          void remindLaterAboutLocalRecording(meta.recordingId).catch(
+            (err: unknown) => {
               console.warn("[clips] could not snooze the reminder:", err);
-            })
-            .finally(() => {
-              snoozingRecordings.delete(meta.recordingId);
-              recoveryToastRevision += 1;
-            });
+            },
+          );
         },
       },
       action: {
         label:
           unclaimed || kept
-            ? t("recordRoute.reviewRecording")
-            : t("recordRoute.finishUpload"),
+            ? recoveryMessage("recordRoute.reviewRecording")
+            : recoveryMessage("recordRoute.finishUpload"),
         onClick: () => {
-          clearRecoveryToast(toastId);
           void (async () => {
             // coercion-ok: null is "liveness unknown"; the recorder claims the lock before it acts.
             const live = await liveRecordingBackupIds().catch(() => null);
             if (live?.has(meta.recordingId)) {
-              toast.info(t("recordRoute.localRecordingOpenElsewhere"));
+              toast.info(
+                recoveryMessage("recordRoute.localRecordingOpenElsewhere"),
+              );
               return;
             }
             if (onFinish && !unclaimed) {
@@ -390,26 +310,11 @@ export function useLocalRecordingRecovery(
   useEffect(() => {
     if (!enabled || !ownerEmail || !recordingBackupAvailable()) return;
     return watchLocalRecordings(ownerEmail, {
-      onResult: ({ pending }, scanSequence, toastRevision) => {
-        if (
-          scanSequence < lastAppliedRecoveryScan ||
-          toastRevision !== recoveryToastRevision
-        )
-          return;
-        lastAppliedRecoveryScan = scanSequence;
-        const newest = pending.find(
-          (meta) => !snoozingRecordings.has(meta.recordingId),
-        );
-        if (!newest) {
-          if (recoveryToastId) {
-            const id = recoveryToastId;
-            recoveryToastId = undefined;
-            toast.dismiss(id);
-          }
-          return;
-        }
+      onResult: ({ pending }) => {
+        const newest = pending[0];
+        if (!newest) return;
         // One prompt for the newest; finishing it rescans on the next load.
-        showLocalRecording({
+        offerLocalRecording({
           meta: newest,
           t,
           navigate,
@@ -418,21 +323,16 @@ export function useLocalRecordingRecovery(
             : undefined,
         });
       },
-      onError: (error, retry, scanSequence, toastRevision) => {
-        if (
-          scanSequence < lastAppliedRecoveryScan ||
-          toastRevision !== recoveryToastRevision
-        )
-          return;
-        lastAppliedRecoveryScan = scanSequence;
+      onError: (error, retry) => {
         console.warn("[clips] local recording recovery scan failed:", error);
-        const toastId = nextRecoveryToastId();
-        toast.error(t("recordRoute.savedRecordingsUnreadable"), {
-          id: toastId,
+        toast.error(recoveryMessage("recordRoute.savedRecordingsUnreadable"), {
+          id: RECOVERY_TOAST_ID,
           duration: Infinity,
           closeButton: true,
-          onDismiss: () => clearRecoveryToast(toastId),
-          action: { label: t("recordRoute.tryAgain"), onClick: retry },
+          action: {
+            label: recoveryMessage("recordRoute.tryAgain"),
+            onClick: retry,
+          },
         });
       },
     });

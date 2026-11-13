@@ -444,15 +444,7 @@ export default function Root() {
         isPublicPath={isPublicPath}
         sessionBypass={legacyRecordingPath}
         showEnvironmentBadge={isPublicPath && !publicSharePath}
-        toaster={
-          <Toaster
-            richColors
-            closeButton
-            position="top-center"
-            offset={{ top: 16 }}
-            mobileOffset={{ top: 12 }}
-          />
-        }
+        toaster={null}
         i18n={{
           catalog: i18nCatalog,
           initialLocale: loaderData.locale,
@@ -462,6 +454,13 @@ export default function Root() {
         }}
       >
         <PrivateAppContent />
+        <Toaster
+          richColors
+          closeButton
+          position="top-center"
+          offset={{ top: 16 }}
+          mobileOffset={{ top: 12 }}
+        />
       </AppProviders>
     </AppToolkitProvider>
   );
