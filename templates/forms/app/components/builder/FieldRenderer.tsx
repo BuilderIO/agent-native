@@ -64,7 +64,7 @@ export function FieldRenderer({
     >
       <Label dir="auto" className="text-sm font-medium">
         {field.label}
-        {field.required && <span className="text-destructive ml-0.5">*</span>}
+        {field.required && <span className="text-destructive ms-0.5">*</span>}
       </Label>
       {field.description && (
         <p dir="auto" className="text-xs text-muted-foreground">

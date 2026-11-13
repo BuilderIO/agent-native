@@ -970,7 +970,7 @@ body{background:hsl(var(--bg));color:hsl(var(--fg));min-height:100vh;-webkit-fon
 .field-half{width:50%}
 .field-label{font-size:0.875rem;font-weight:500;color:hsl(var(--card-fg))}
 .field-desc{font-size:0.75rem;color:hsl(var(--muted-fg))}
-.req{color:#ef4444;margin-left:2px}
+.req{color:#ef4444;margin-inline-start:2px}
 
 .fi{width:100%;padding:8px 12px;font-size:0.875rem;font-family:inherit;background:transparent;border:1px solid hsl(var(--input));border-radius:var(--radius);color:hsl(var(--fg));outline:none}
 .fi:focus{border-color:hsl(var(--ring));box-shadow:0 0 0 2px hsl(var(--ring)/0.15)}
