@@ -1,5 +1,13 @@
 # @agent-native/dispatch
 
+## 0.42.8
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.228.3
+
 ## 0.42.7
 
 ### Patch Changes
@@ -1541,11 +1549,5 @@
 ### Patch Changes
 
 - f2f60b9: Move the environment badge to the bottom-left, show a truthful dev badge during configured local development, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.
-
-## 0.31.12
-
-### Patch Changes
-
-- dc0978d: Fix action request context to use the forwarded workspace gateway origin instead of the internal dev proxy host.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -1,5 +1,13 @@
 # @agent-native/toolkit
 
+## 0.228.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.228.3
+
 ## 0.228.2
 
 ### Patch Changes
@@ -1649,11 +1657,5 @@
 ### Patch Changes
 
 - 60b7e74: Pin Tiptap bubble-menu and floating-menu to 3.30.1 so npm no longer warns on optional peer mismatches when installing the CLI.
-
-## 0.16.7
-
-### Patch Changes
-
-- fc85cb2: Allow external prompt handoffs to insert text through the shared composer without publishing a runtime message update.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -51,6 +51,16 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.228.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- fd05133: Open embedded apps in Claude's side panel, give MCP hosts `read_view` and `navigate_view` tools on the open app view, and answer the RFC 9728 path-inserted OAuth metadata URL for apps mounted under a base path.
+- Updated dependencies
+  - @agent-native/agentkit@0.228.3
+  - @agent-native/recap-cli@0.5.104
+
 ## 0.228.2
 
 ### Patch Changes
@@ -4694,11 +4704,5 @@
   - The `webhook` tracking provider now sends `anonymousId`, which it silently dropped.
 
   Signup counts will fall to the real number. The removed rows were duplicate and backfilled events, not lost users.
-
-## 0.172.7
-
-### Patch Changes
-
-- be8c373: Fix Analytics chat composer drafts to prefer the stable tab identity over a late-arriving thread identity, preventing typed text from disappearing when the draft scope changes.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
