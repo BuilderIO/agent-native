@@ -219,7 +219,7 @@ async function flushSignupTracking(): Promise<void> {
       new Promise<void>((resolve) => setTimeout(resolve, 1500)),
     ]);
   } catch {
-    console.error("[auth] failed to flush signup analytics");
+    // Signup should never fail because analytics delivery did.
   }
 }
 
@@ -462,15 +462,12 @@ export async function trackSignupEvent({
   const cleanAttribution: Record<string, string> = {};
   if (attribution) {
     for (const [key, value] of Object.entries(attribution)) {
-      if (
-        key !== "email_verified" &&
-        typeof value === "string" &&
-        value.length > 0
-      ) {
+      if (typeof value === "string" && value.length > 0) {
         cleanAttribution[key] = value;
       }
     }
   }
+  delete cleanAttribution.email_verified;
   track(
     "signup",
     {

@@ -567,6 +567,7 @@ describe("password sign-up on a one-connection Neon pool", () => {
         userId: "verify-me@example.com",
         properties: expect.objectContaining({
           auth_user_id: expect.any(String),
+          app: "design",
           email_verified: true,
         }),
       }),

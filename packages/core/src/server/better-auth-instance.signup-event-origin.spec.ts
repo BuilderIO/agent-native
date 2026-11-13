@@ -49,7 +49,7 @@ vi.mock("./request-context.js", () => ({
     fn(),
 }));
 
-const { emitSignupEventForCreatedUser, getAuthSecret } =
+const { emitSignupEventForCreatedUser, getAuthSecret, trackSignupEvent } =
   await import("./better-auth-instance.js");
 
 const USER = { id: "user_1", email: "new@example.com", name: "New" };
@@ -561,4 +561,16 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked[0].source?.anonymousId).toBe("anon_real");
     expect(tracked[0].properties).toMatchObject({ utm_source: "real" });
   });
+});
+
+it("does not copy an email verification claim from attribution", async () => {
+  await trackSignupEvent({
+    authProvider: "better-auth",
+    origin: "browser_signup",
+    email: USER.email,
+    attribution: { email_verified: "true", utm_source: "newsletter" },
+  });
+
+  expect(tracked[0]?.properties).toHaveProperty("utm_source", "newsletter");
+  expect(tracked[0]?.properties).not.toHaveProperty("email_verified");
 });
