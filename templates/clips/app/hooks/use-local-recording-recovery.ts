@@ -329,6 +329,7 @@ export function useLocalRecordingRecovery(
           id: RECOVERY_TOAST_ID,
           duration: Infinity,
           closeButton: true,
+          cancel: undefined,
           action: {
             label: recoveryMessage("recordRoute.tryAgain"),
             onClick: retry,

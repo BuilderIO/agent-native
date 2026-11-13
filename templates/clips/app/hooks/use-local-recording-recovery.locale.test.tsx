@@ -304,6 +304,7 @@ describe("recovery toast localization", () => {
         "Clips couldn't read the recordings saved in this browser.",
       ),
     );
+    expect(renderedToast()?.querySelector("[data-cancel]")).toBeNull();
     await switchToSpanish(release);
     await vi.waitFor(() => {
       expect(renderedToast()?.querySelector("[data-title]")?.textContent).toBe(
