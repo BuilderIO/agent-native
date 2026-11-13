@@ -23,12 +23,26 @@ import "./vitest-config.js";
 const coreRoot = fileURLToPath(new URL("..", import.meta.url));
 const require = createRequire(import.meta.url);
 
-it("mocks a dependency imported by an installed Core module", async () => {
+it("shares and mocks Core modules across installed packages", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "core-vitest-installed-"));
   try {
     const modules = path.join(root, "node_modules");
     const installedCore = path.join(modules, "@agent-native", "core");
+    const installedSibling = path.join(modules, "@agent-native", "fixture");
     await mkdir(installedCore, { recursive: true });
+    await mkdir(installedSibling, { recursive: true });
+    await writeFile(
+      path.join(installedSibling, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/fixture",
+        type: "module",
+        exports: "./index.js",
+      }),
+    );
+    await writeFile(
+      path.join(installedSibling, "index.js"),
+      'export { OptionalPeerDependencyError } from "@agent-native/core/shared/optional-peer";\n',
+    );
     await copyFile(
       path.join(coreRoot, "package.json"),
       path.join(installedCore, "package.json"),
@@ -73,6 +87,10 @@ vi.mock("@agent-native/core/package-lifecycle/migration-message", () => ({
   AGENT_NATIVE_MIGRATION_GUIDE_URL: "mocked-migration-guide",
 }));
 import { OptionalPeerDependencyError } from "@agent-native/core/shared/optional-peer";
+import { OptionalPeerDependencyError as SiblingError } from "@agent-native/fixture";
+it("shares Core modules with installed sibling packages", () => {
+  expect(SiblingError).toBe(OptionalPeerDependencyError);
+});
 it("uses the mocked migration guide in the real error", () => {
   const message = new OptionalPeerDependencyError("example-peer").message;
   writeFileSync("observed-message.txt", message);
