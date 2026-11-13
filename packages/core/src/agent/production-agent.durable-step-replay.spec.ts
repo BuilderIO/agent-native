@@ -225,8 +225,11 @@ describe("late outcome error reporting", () => {
     "unexpected-timeout",
     "private",
     "aborted",
+    "aborted-no-write",
     "aborted-after-write",
+    "aborted-retry-safe-after-write",
     "read-only-post-abort",
+    "read-only-nested-write-abort",
     "stop",
     "stop-after-write",
     "validation",
@@ -306,6 +309,25 @@ describe("late outcome error reporting", () => {
       if (outcome === "read-only-post-abort") {
         vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
       }
+      const nestedWriteAction = defineAction({
+        description: "Write a deck",
+        schema: z.object({}),
+        readOnly: false,
+        run: async () => {
+          noteExternalWrite("late-nested-write-test");
+          throw new DOMException("Action aborted", "AbortError");
+        },
+      });
+      const readOnlyNestedWriteAction = defineAction({
+        description: "Read a deck and invoke a nested write",
+        schema: z.object({}),
+        readOnly: true,
+        run: async () => {
+          actionStarted.resolve();
+          await actionResult.promise;
+          return nestedWriteAction.run({});
+        },
+      });
       const readOnlyPostAction = defineAction({
         description: "Read a deck using POST",
         schema: z.object({}),
@@ -321,13 +343,21 @@ describe("late outcome error reporting", () => {
         description: "Create a deck and validate nested input",
         schema: z.object({}),
         readOnly: false,
+        retrySafe: outcome === "aborted-retry-safe-after-write",
         run: async () => {
           actionStarted.resolve();
           await actionResult.promise;
-          if (outcome !== "nested-validation-no-write") {
+          if (
+            outcome !== "nested-validation-no-write" &&
+            outcome !== "aborted-no-write"
+          ) {
             noteExternalWrite("late-validation-test");
           }
-          if (outcome === "aborted-after-write") {
+          if (
+            outcome === "aborted-after-write" ||
+            outcome === "aborted-retry-safe-after-write" ||
+            outcome === "aborted-no-write"
+          ) {
             throw new DOMException("Action aborted", "AbortError");
           }
           if (outcome === "stop-after-write") {
@@ -390,32 +420,36 @@ describe("late outcome error reporting", () => {
                   ? outputAction
                   : outcome === "read-only-post-abort"
                     ? readOnlyPostAction
-                    : outcome === "nested-validation-after-write" ||
-                        outcome === "nested-validation-no-write" ||
-                        outcome === "setup-after-write" ||
-                        outcome === "aborted-after-write" ||
-                        outcome === "stop-after-write" ||
-                        outcome === "post-write-contract" ||
-                        outcome === "post-write-503"
-                      ? parentAction
-                      : {
-                          tool: {
-                            description: "Create a deck",
-                            parameters: { type: "object", properties: {} },
+                    : outcome === "read-only-nested-write-abort"
+                      ? readOnlyNestedWriteAction
+                      : outcome === "nested-validation-after-write" ||
+                          outcome === "nested-validation-no-write" ||
+                          outcome === "setup-after-write" ||
+                          outcome === "aborted-after-write" ||
+                          outcome === "aborted-retry-safe-after-write" ||
+                          outcome === "aborted-no-write" ||
+                          outcome === "stop-after-write" ||
+                          outcome === "post-write-contract" ||
+                          outcome === "post-write-503"
+                        ? parentAction
+                        : {
+                            tool: {
+                              description: "Create a deck",
+                              parameters: { type: "object", properties: {} },
+                            },
+                            readOnly: false,
+                            ...(outcome === "unexpected-timeout"
+                              ? { timeoutMs: 10 }
+                              : {}),
+                            ...(outcome === "private" ||
+                            outcome === "private-persistence-fails"
+                              ? { persistInChatHistory: false }
+                              : {}),
+                            run: () => {
+                              actionStarted.resolve();
+                              return actionResult.promise;
+                            },
                           },
-                          readOnly: false,
-                          ...(outcome === "unexpected-timeout"
-                            ? { timeoutMs: 10 }
-                            : {}),
-                          ...(outcome === "private" ||
-                          outcome === "private-persistence-fails"
-                            ? { persistInChatHistory: false }
-                            : {}),
-                          run: () => {
-                            actionStarted.resolve();
-                            return actionResult.promise;
-                          },
-                        },
             },
             threadId: fence.threadId,
             turnId: fence.turnId,
@@ -439,7 +473,10 @@ describe("late outcome error reporting", () => {
           outcome === "nested-validation-after-write" ||
           outcome === "setup-after-write" ||
           outcome === "aborted-after-write" ||
+          outcome === "aborted-retry-safe-after-write" ||
+          outcome === "aborted-no-write" ||
           outcome === "read-only-post-abort" ||
+          outcome === "read-only-nested-write-abort" ||
           outcome === "stop-after-write" ||
           outcome === "post-write-contract" ||
           outcome === "post-write-503"
@@ -508,8 +545,7 @@ describe("late outcome error reporting", () => {
           outcome === "contract" ||
           outcome === "setup-required" ||
           outcome === "nested-validation-no-write" ||
-          outcome === "aborted" ||
-          outcome === "aborted-after-write" ||
+          outcome === "aborted-no-write" ||
           outcome === "read-only-post-abort" ||
           outcome === "stop"
         ) {

@@ -11419,9 +11419,12 @@ export async function runAgentLoop(opts: {
                     actionExecutionOutcome.evidence?.writeObserved === false) ||
                   (isAgentActionStopError(error) &&
                     actionExecutionOutcome.evidence?.writeObserved === false) ||
+                  // Retry safety does not establish that a write did not happen.
                   (signal.aborted &&
                     error instanceof Error &&
-                    error.name === "AbortError") ||
+                    error.name === "AbortError" &&
+                    ranEffect({ failed: { error }, retrySafe: false })
+                      .effect === "none") ||
                   (!actionInvoked &&
                     error instanceof Error &&
                     ((signal.aborted && error.message === "Run aborted") ||
