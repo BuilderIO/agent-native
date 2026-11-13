@@ -5029,7 +5029,7 @@ describe("createAgentNativeChatRuntime", () => {
     ]);
   });
 
-  it("streams a delegated agent's reply into one message row", async () => {
+  it("writes a delegated agent's streamed reply as one message when the call ends", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
         {
@@ -5103,13 +5103,124 @@ describe("createAgentNativeChatRuntime", () => {
         : [],
     );
     expect(messages).toEqual([
-      ["call-1:message", "The largest"],
-      ["call-1:message", "The largest lake is Ladoga."],
-      ["call-2:message", "Second call."],
+      ["call-1:message:0", "The largest lake is Ladoga."],
+      ["call-2:message:0", "Second call."],
     ]);
   });
 
-  it("stops updating a delegated agent's message once its preview is full", async () => {
+  it("writes a delegated agent's held reply before the turn's error", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        {
+          type: "agent_call",
+          agent: "Researcher",
+          status: "start",
+          agentCallId: "call-1",
+        },
+        {
+          type: "agent_call_text",
+          agent: "Researcher",
+          agentCallId: "call-1",
+          text: "Partial answer",
+        },
+        { type: "error", error: "The run stopped." },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-cut",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession({ id: "thread-cut" })).startTurn({
+          prompt: "Ask the researcher",
+        })
+      ).events,
+    );
+
+    const messageIndex = events.findIndex(
+      (event) =>
+        event.type === "interaction" && event.interaction.kind === "messaged",
+    );
+    expect(events[messageIndex]).toMatchObject({
+      interaction: {
+        id: "call-1:message:0",
+        participantId: "call-1",
+        detail: "Partial answer",
+        source: { id: "Researcher" },
+      },
+    });
+    expect(messageIndex).toBeGreaterThanOrEqual(0);
+    expect(messageIndex).toBeLessThan(
+      events.findIndex((event) => event.type === "error"),
+    );
+  });
+
+  it("writes a new message for what a delegated agent says after a pause", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          {
+            type: "agent_call",
+            agent: "Researcher",
+            status: "start",
+            agentCallId: "call-1",
+          },
+          {
+            type: "agent_call_text",
+            agent: "Researcher",
+            agentCallId: "call-1",
+            text: "Before.",
+          },
+          {
+            type: "agent_call",
+            agent: "Researcher",
+            status: "pending",
+            agentCallId: "call-1",
+          },
+          {
+            type: "agent_call_text",
+            agent: "Researcher",
+            agentCallId: "call-1",
+            text: "After.",
+          },
+          {
+            type: "agent_call",
+            agent: "Researcher",
+            status: "done",
+            agentCallId: "call-1",
+          },
+          { type: "done" },
+        ]),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      threadId: "thread-pause",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const events = await drain(
+      (
+        await (await runtime.createSession({ id: "thread-pause" })).startTurn({
+          prompt: "Ask the researcher",
+        })
+      ).events,
+    );
+
+    expect(
+      events.flatMap((event) =>
+        event.type === "interaction" && event.interaction.kind === "messaged"
+          ? [[event.interaction.id, event.interaction.detail]]
+          : [],
+      ),
+    ).toEqual([
+      ["call-1:message:0", "Before."],
+      ["call-1:message:1", "After."],
+    ]);
+  });
+
+  it("caps a delegated agent's message at a marked preview", async () => {
     const piece = "x".repeat(400);
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
@@ -5141,8 +5252,8 @@ describe("createAgentNativeChatRuntime", () => {
         ? [event.interaction.detail ?? ""]
         : [],
     );
-    expect(details.map((detail) => detail.length)).toEqual([400, 601]);
-    expect(details[1]?.endsWith("…")).toBe(true);
+    expect(details.map((detail) => detail.length)).toEqual([601]);
+    expect(details[0]?.endsWith("…")).toBe(true);
   });
 
   it("normalizes delegated-agent activity and task lifecycles without flattening them", async () => {
@@ -5243,10 +5354,10 @@ describe("createAgentNativeChatRuntime", () => {
       "task",
       "participant",
       "activity",
-      "interaction",
       "activity",
       // No "completed" interaction: the activity row already reports the end.
       "participant",
+      "interaction",
       "task",
       "task",
       "task",
@@ -5274,15 +5385,15 @@ describe("createAgentNativeChatRuntime", () => {
         data: { state: "working", elapsedSeconds: 12 },
       },
     });
-    expect(events[5]).toMatchObject({
+    expect(events[7]).toMatchObject({
       type: "interaction",
       interaction: {
-        id: "agent-call-1:message",
+        id: "agent-call-1:message:0",
         kind: "messaged",
         detail: "Found the runtime boundary.",
       },
     });
-    expect(events[6]).toMatchObject({
+    expect(events[5]).toMatchObject({
       type: "activity",
       activity: {
         id: "agent-call-1:activity",
@@ -5302,8 +5413,8 @@ describe("createAgentNativeChatRuntime", () => {
     expect(rowLabels).toHaveLength(4);
     expect(rowLabels).not.toContain("Planck");
     expect(rowLabels).not.toContain("working");
-    expect(events[5]).not.toHaveProperty("interaction.label");
-    expect(events[7]).toMatchObject({
+    expect(events[7]).not.toHaveProperty("interaction.label");
+    expect(events[6]).toMatchObject({
       type: "participant",
       operation: "update",
       participant: {

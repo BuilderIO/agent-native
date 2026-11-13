@@ -3771,8 +3771,8 @@ interface AgentNativeMessageProjectionState {
     omitFromPersistedHistory?: boolean;
     /** Delegated calls that streamed an activity row, which reports their end. */
     activityParticipants?: Set<string>;
-    /** The message preview each delegated call has streamed so far. */
-    agentCallText?: Map<string, string>;
+    /** Text each delegated call has streamed and not yet sent. */
+    agentCallText?: Map<string, HeldAgentCallText>;
     /** Background tasks by id, so a progress event keeps the task's name. */
     backgroundTasks?: Map<string, AgentChatRuntimeTask>;
     /** Ids given to tool input that streamed without one, by tool name. */
@@ -3975,6 +3975,41 @@ function backgroundTask(
 }
 
 const AGENT_CALL_MESSAGE_PREVIEW_CHARS = 600;
+
+interface HeldAgentCallText {
+  agent: string;
+  text: string;
+  /** Messages already written for this call; each gets its own id. */
+  sent: number;
+}
+
+function takeAgentCallMessage(
+  participantId: string,
+  held: HeldAgentCallText,
+  base: Pick<AgentChatRuntimeEventBase, "sessionId" | "turnId" | "metadata">,
+): AgentChatRuntimeKnownEvent | undefined {
+  if (!held.text) return undefined;
+  // The row shows two lines, so the message keeps a bounded preview.
+  const detail =
+    held.text.length > AGENT_CALL_MESSAGE_PREVIEW_CHARS
+      ? `${held.text.slice(0, AGENT_CALL_MESSAGE_PREVIEW_CHARS)}…`
+      : held.text;
+  const id = `${participantId}:message:${held.sent}`;
+  held.text = "";
+  held.sent += 1;
+  return {
+    type: "interaction",
+    ...base,
+    interaction: {
+      id,
+      kind: "messaged",
+      participantId,
+      detail,
+      scope: "external",
+      source: agentNativeAgentReference(held.agent),
+    },
+  };
+}
 
 function agentNativeParticipantId(event: SSEEvent): string {
   return event.agentCallId ?? event.taskId ?? `agent:${event.agent ?? "agent"}`;
@@ -4196,7 +4231,7 @@ function mapAgentNativeEvent(
       connectionPending: boolean;
       omitFromPersistedHistory?: boolean;
       activityParticipants?: Set<string>;
-      agentCallText?: Map<string, string>;
+      agentCallText?: Map<string, HeldAgentCallText>;
       backgroundTasks?: Map<string, AgentChatRuntimeTask>;
       pendingToolInputIds?: Map<string, string>;
     };
@@ -4673,6 +4708,12 @@ function mapAgentNativeEvent(
         participant,
       },
     ];
+    const held = input.message.agentCallText?.get(participantId);
+    const message =
+      ev.status === "start" || !held
+        ? undefined
+        : takeAgentCallMessage(participantId, held, base);
+    if (message) events.push(message);
     if (!reportedByActivity) {
       events.push({
         type: "interaction",
@@ -4752,34 +4793,21 @@ function mapAgentNativeEvent(
     ];
   }
   if (ev.type === "agent_call_text") {
-    // The row shows a short preview, and the run keeps every event, so updates
-    // stop once the preview is full.
+    // Interactions are append-only history, so streamed pieces are held and
+    // written once, when the call ends or pauses or the reply closes.
     const participantId = agentNativeParticipantId(ev);
     const texts = (input.message.agentCallText ??= new Map());
-    const previous = texts.get(participantId) ?? "";
-    if (previous.length > AGENT_CALL_MESSAGE_PREVIEW_CHARS) return [];
-    const text = (previous + (ev.text ?? "")).slice(
+    const held = texts.get(participantId) ?? {
+      agent: ev.agent ?? "agent",
+      text: "",
+      sent: 0,
+    };
+    held.text = (held.text + (ev.text ?? "")).slice(
       0,
       AGENT_CALL_MESSAGE_PREVIEW_CHARS + 1,
     );
-    texts.set(participantId, text);
-    return [
-      {
-        type: "interaction",
-        ...base,
-        interaction: {
-          id: `${participantId}:message`,
-          kind: "messaged",
-          participantId,
-          detail:
-            text.length > AGENT_CALL_MESSAGE_PREVIEW_CHARS
-              ? `${text.slice(0, AGENT_CALL_MESSAGE_PREVIEW_CHARS)}…`
-              : text,
-          scope: "external",
-          source: agentNativeAgentReference(ev.agent ?? "agent"),
-        },
-      },
-    ];
+    texts.set(participantId, held);
+    return [];
   }
   if (ev.type === "agent_call_activity" && ev.snapshot) {
     const agent = ev.agent ?? "agent";
@@ -5570,6 +5598,27 @@ export function createAgentNativeChatRuntime(
         messageId: state.messageId,
         message: state.message,
       });
+      // A call the turn ended or failed under never reports its own end, so
+      // its held text is written before the reply closes.
+      const closing = mapped.findIndex(
+        (item) =>
+          item.type === "message-done" ||
+          item.type === "done" ||
+          item.type === "error",
+      );
+      if (closing >= 0 && state.message.agentCallText?.size) {
+        const base = {
+          sessionId: context.sessionId,
+          ...(context.turnId === undefined ? {} : { turnId: context.turnId }),
+        };
+        const messages = [...state.message.agentCallText].flatMap(
+          ([participantId, held]) => {
+            const message = takeAgentCallMessage(participantId, held, base);
+            return message ? [message] : [];
+          },
+        );
+        mapped.splice(closing, 0, ...messages);
+      }
       if (
         mapped.some(
           (item) => item.type === "done" && item.reason !== "tool-use",
