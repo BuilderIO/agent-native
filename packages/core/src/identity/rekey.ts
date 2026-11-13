@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { jwtVerify } from "jose";
 
 import { AGENT_AUDIT_LOG_CREATE_SQL } from "../audit/store.js";
+import { sql } from "../db/sql.js";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -527,14 +528,16 @@ export function assertIdentityColumnRows(
   return resolveIdentityColumns(rows);
 }
 
+export const IDENTITY_SCHEMA_COLUMNS_QUERY = sql`
+  SELECT table_name, column_name FROM information_schema.columns
+  WHERE table_schema = 'public'
+  ORDER BY table_name, column_name
+`;
+
 export async function assertIdentityColumnsRegistered(
   db: IdentityRekeyDb,
 ): Promise<IdentityColumn[]> {
-  const rows = await db.unsafe(
-    `SELECT table_name, column_name FROM information_schema.columns
-     WHERE table_schema = 'public'
-     ORDER BY table_name, column_name`,
-  );
+  const rows = await db.unsafe(IDENTITY_SCHEMA_COLUMNS_QUERY.sql);
   return resolveIdentityColumns(rows);
 }
 
