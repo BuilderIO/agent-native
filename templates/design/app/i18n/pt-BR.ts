@@ -1760,7 +1760,6 @@ export default {
     signInToRequestAccessTitle: "Entre para solicitar acesso",
     signInToRequestAccessDescription:
       "Entre ou crie uma conta para solicitar acesso ao proprietário.",
-    signInOrSignUp: "Entrar ou criar conta",
     accessCheckFailed: "Não foi possível verificar o acesso a este design.",
     retryAccessCheck: "Tentar novamente",
     saveAsTemplate: "Salvar como modelo…",

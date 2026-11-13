@@ -1728,7 +1728,6 @@ export default {
     signInToRequestAccessTitle: "سجّل الدخول لطلب الوصول",
     signInToRequestAccessDescription:
       "سجّل الدخول أو أنشئ حسابًا لطلب الوصول من المالك.",
-    signInOrSignUp: "تسجيل الدخول أو إنشاء حساب",
     accessCheckFailed: "تعذر التحقق من الوصول إلى هذا التصميم.",
     retryAccessCheck: "إعادة المحاولة",
     saveAsTemplate: "حفظ كقالب…",

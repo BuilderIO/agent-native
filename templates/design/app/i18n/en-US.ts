@@ -1682,7 +1682,6 @@ export default {
     signInToRequestAccessTitle: "Sign in to request access",
     signInToRequestAccessDescription:
       "Sign in or create an account to request access from the owner.",
-    signInOrSignUp: "Sign in or sign up",
     accessCheckFailed: "Could not check access to this design.",
     retryAccessCheck: "Try again",
     saveAsTemplate: "Save as template…",

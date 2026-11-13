@@ -1745,7 +1745,6 @@ export default {
     signInToRequestAccessTitle: "로그인하여 액세스 요청",
     signInToRequestAccessDescription:
       "로그인하거나 계정을 만들어 소유자에게 액세스를 요청하세요.",
-    signInOrSignUp: "로그인 또는 가입",
     accessCheckFailed: "이 디자인에 대한 액세스를 확인할 수 없습니다.",
     retryAccessCheck: "다시 시도",
     saveAsTemplate: "템플릿으로 저장…",

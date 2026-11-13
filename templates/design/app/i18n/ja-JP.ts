@@ -1761,7 +1761,6 @@ export default {
     signInToRequestAccessTitle: "ログインしてアクセスをリクエスト",
     signInToRequestAccessDescription:
       "ログインするかアカウントを作成して、所有者にアクセスをリクエストしてください。",
-    signInOrSignUp: "ログインまたは登録",
     accessCheckFailed: "このデザインへのアクセスを確認できませんでした。",
     retryAccessCheck: "再試行",
     saveAsTemplate: "テンプレートとして保存…",

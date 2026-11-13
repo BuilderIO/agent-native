@@ -1767,7 +1767,6 @@ export default {
     signInToRequestAccessTitle: "Inicia sesión para solicitar acceso",
     signInToRequestAccessDescription:
       "Inicia sesión o crea una cuenta para solicitar acceso al propietario.",
-    signInOrSignUp: "Iniciar sesión o registrarse",
     accessCheckFailed: "No se pudo comprobar el acceso a este diseño.",
     retryAccessCheck: "Reintentar",
     saveAsTemplate: "Guardar como plantilla…",
