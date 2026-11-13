@@ -282,6 +282,42 @@ describe("production cache contract probe helpers", () => {
     assert.equal(urls[1], urls[2]);
   });
 
+  it("starts the probe over on a fresh URL when a repeat is cut off", async () => {
+    const urls: string[] = [];
+    const miss = new Response("<html>origin</html>", {
+      status: 200,
+      headers: {
+        ...cacheHeaders('"Netlify Edge"; fwd=miss; stored'),
+        "content-type": "text/html",
+      },
+    });
+    const hit = new Response("<html>origin</html>", {
+      status: 200,
+      headers: {
+        ...cacheHeaders('"Netlify Edge"; hit; ttl=599'),
+        "content-type": "text/html",
+      },
+    });
+    const fetchImpl = async (url: string) => {
+      urls.push(url);
+      if (urls.length === 2) throw new TypeError("terminated");
+      return (urls.length === 4 ? hit : miss).clone();
+    };
+
+    const result = await probeUrl(
+      "www.agent-native.com",
+      htmlProbe,
+      fetchImpl,
+      { retryDelayMs: 0 },
+    );
+
+    assert.equal(result.outcome, "ok");
+    assert.equal(urls.length, 4);
+    assert.equal(urls[0], urls[1]);
+    assert.notEqual(urls[1], urls[2]);
+    assert.equal(urls[2], urls[3]);
+  });
+
   it("reports a request that keeps getting cut off as unreachable", async () => {
     let calls = 0;
     const fetchImpl = async () => {

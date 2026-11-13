@@ -333,7 +333,9 @@ export async function probeUrl(
 ) {
   // A request cut off on the way says nothing about the site, yet one probe
   // left unasserted fails a single-host deploy check and rolls the deploy
-  // back. A response is an answer and is never retried.
+  // back. A request cut off at any point, the first one or a repeat, starts
+  // the probe over on a fresh URL. A probe that ends on a response, a 429 or
+  // 5xx included, is never retried.
   for (let attempt = 1; ; attempt += 1) {
     const result = await probeUrlOnce(host, probe, fetchImpl);
     if (result.outcome !== "unreachable") return result;
