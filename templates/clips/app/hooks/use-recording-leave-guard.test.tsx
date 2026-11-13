@@ -132,7 +132,7 @@ function renderProbe(
     [
       {
         path: "/record",
-        loader,
+        ...(loader ? { loader } : {}),
         Component: () => (
           <RecordProbe
             atRisk={atRisk}
@@ -274,8 +274,9 @@ describe("useRecordingLeaveGuard", () => {
         void rendered.router.navigate("/other");
       });
       await flush();
-      const blocked = [...rendered.router.state.blockers.values()][0];
-      expect(blocked?.state).toBe("blocked");
+      const blocked = [...rendered.router.state.blockers.values()].at(0);
+      if (!blocked) throw new Error("Missing navigation blocker");
+      expect(blocked.state).toBe("blocked");
       act(() => {
         if (when === "after") click(container, "confirm-leave");
         void rendered.router.navigate("/record?tab=details");
