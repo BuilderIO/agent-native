@@ -1050,6 +1050,13 @@ function targetForSpecifier(
         prefix.length,
         specifier.length - suffix.length || undefined,
       );
+      if (
+        !isSafeRelative(wildcard) ||
+        wildcard.includes("\0") ||
+        wildcard.split("/").some((segment) => segment === "" || segment === ".")
+      ) {
+        throw new Error(`Unsafe wildcard in eject import: ${specifier}`);
+      }
       const sourceEntry = pickSourceEntry(unit, entrypoint, packageDir);
       const sourceBase = fs.lstatSync(sourceEntry).isDirectory()
         ? sourceEntry
