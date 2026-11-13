@@ -176,6 +176,7 @@ export function watchLocalRecordings(
   handlers: {
     onResult: (scan: LocalRecordingScan) => void;
     onError: (error: unknown, retry: () => void) => void;
+    onRetryAvailable?: (retry: () => void) => void;
   },
   delaysMs: readonly number[] = PROCESSING_RECHECK_MS,
 ): () => void {
@@ -214,6 +215,7 @@ export function watchLocalRecordings(
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", onVisible);
   }
+  handlers.onRetryAvailable?.(scan);
   scan();
   return () => {
     stopped = true;
@@ -304,28 +306,30 @@ export function useLocalRecordingRecovery(
   const navigate = useNavigate();
   const { session } = useSession();
   const ownerEmail = session?.email ?? null;
-  const tRef = useRef(t);
-  tRef.current = t;
+  const retryRef = useRef<(() => void) | null>(null);
   const onFinishRef = useRef(onFinish);
   onFinishRef.current = onFinish;
 
   useEffect(() => {
     if (!enabled || !ownerEmail || !recordingBackupAvailable()) return;
-    return watchLocalRecordings(ownerEmail, {
+    const stop = watchLocalRecordings(ownerEmail, {
+      onRetryAvailable: (retry) => {
+        retryRef.current = retry;
+      },
       onResult: ({ pending }) => {
         const newest = pending[0];
         if (!newest) return;
         // One prompt for the newest; finishing it rescans on the next load.
         offerLocalRecording({
           meta: newest,
-          t: tRef.current,
+          t,
           navigate,
           onFinish: onFinishRef.current
             ? (recordingId) => onFinishRef.current?.(recordingId)
             : undefined,
         });
       },
-      onError: (error, retry) => {
+      onError: (error) => {
         console.warn("[clips] local recording recovery scan failed:", error);
         toast.error(recoveryMessage("recordRoute.savedRecordingsUnreadable"), {
           id: RECOVERY_TOAST_ID,
@@ -334,10 +338,14 @@ export function useLocalRecordingRecovery(
           cancel: undefined,
           action: {
             label: recoveryMessage("recordRoute.tryAgain"),
-            onClick: retry,
+            onClick: () => retryRef.current?.(),
           },
         });
       },
     });
-  }, [enabled, navigate, ownerEmail]);
+    return () => {
+      retryRef.current = null;
+      stop();
+    };
+  }, [enabled, navigate, ownerEmail, t]);
 }
