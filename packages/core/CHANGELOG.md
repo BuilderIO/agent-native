@@ -51,6 +51,18 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.228.2
+
+### Patch Changes
+
+- 209a53c: Retry the Builder upload gateway's start and finish calls on a 502, 503 or 504 with bounded backoff, and report their failures as a typed `BuilderGatewayError` that carries the step, attempts and a trace id instead of a whole HTML error page.
+- d2e71a8: Fail the email-change request when the confirmation email cannot be sent, instead of answering success.
+- Release all public npm packages with a patch version bump.
+- 77f6fe8: The Dispatch Vault now stores its keys only in `app_secrets` and no longer reads or writes `vault_secrets`. `app_secrets` gains nullable `label`, `provider` and `created_by` columns, and a key's id is its `app_secrets` row id. The Vault page lists the organization's keys (or your own solo workspace's), a key created or edited in the Vault is marked with `created_by`, and a rename moves the stored ciphertext with the row. `vault_grants` gains a nullable `credential_key`, which core's manual-mode check now reads instead of joining `vault_secrets`; grants from before this release grant nothing until `credential_key` is backfilled. The table stays in existing databases, untouched, until it is dropped. The new `guard:no-vault-secrets-table` fails when source reads or writes it.
+- Updated dependencies
+  - @agent-native/agentkit@0.228.2
+  - @agent-native/recap-cli@0.5.103
+
 ## 0.228.1
 
 ### Patch Changes
@@ -4688,18 +4700,5 @@
 ### Patch Changes
 
 - be8c373: Fix Analytics chat composer drafts to prefer the stable tab identity over a late-arriving thread identity, preventing typed text from disappearing when the draft scope changes.
-
-## 0.172.6
-
-### Patch Changes
-
-- 415a6d8: Transform virtual runtime modules before serving them to embed sessions. The
-  dev middleware loaded `/@id/__x00__virtual:*` modules through
-  `pluginContainer.load`, which returns plugin source with bare specifiers
-  intact, so react-router's `inject-hmr-runtime` reached the browser still
-  importing `virtual:react-router/hmr-runtime`. Any page loaded on an origin
-  that had an `an_embed_session` cookie failed to hydrate and hung on a spinner.
-- 3fa1b09: Allow organization members to queue Run now for Factory-domain jobs they can already load, without widening Mail or CRM automation edit rights.
-- 6f0392b: Prevent unconfigured LLM engine tests from reporting a false pass.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

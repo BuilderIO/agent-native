@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.8.72
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.71
 
 ### Patch Changes
@@ -638,11 +644,5 @@
 
 - 4c7c289: Keep browser-rendered website style extraction working when the shared evaluator
   is bundled before it is serialized into Chromium.
-
-## 0.6.5
-
-### Patch Changes
-
-- b3b4580: Normalize commenter access to the read-only creative-context role contract.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

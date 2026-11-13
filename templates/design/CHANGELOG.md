@@ -9,6 +9,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Automatic Builder setup is available to more new Design users during signup.
 
+### Fixed
+
+- Pasting too many files, or a file over 15 MB, now tells you how many were left out instead of dropping them silently.
+
 ## 2026-11-10
 
 ### Fixed

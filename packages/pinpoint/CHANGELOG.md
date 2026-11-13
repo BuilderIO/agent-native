@@ -1,5 +1,11 @@
 # @agent-native/pinpoint
 
+## 0.1.115
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.114
 
 ### Patch Changes
@@ -615,11 +621,5 @@
   overlay components, which were never rendered by the overlay and were not
   reachable from any of its `.`, `./react`, `./primitives`, `./server`, or
   `./types` entry points. No exported API changes.
-
-## 0.1.15
-
-### Patch Changes
-
-- 8df32f6: Publish the latest Builder link tracking updates.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
