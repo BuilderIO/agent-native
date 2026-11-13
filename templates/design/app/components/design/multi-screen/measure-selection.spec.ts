@@ -106,6 +106,97 @@ describe("selection measurement lifecycle", () => {
     },
   );
 
+  it("remeasures a source-derived selection after switching breakpoints", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const desktop = document.createElement("iframe");
+    desktop.dataset.screenIframeId = "screen-a";
+    const mobile = document.createElement("iframe");
+    mobile.dataset.screenIframeId = "screen-a::bp-390";
+    document.body.append(desktop, mobile);
+    const desktopPost = vi
+      .spyOn(desktop.contentWindow!, "postMessage")
+      .mockImplementation(() => {});
+    const mobilePost = vi
+      .spyOn(mobile.contentWindow!, "postMessage")
+      .mockImplementation(() => {});
+    const initial: ElementInfo = {
+      tagName: "div",
+      sourceId: "a",
+      selector: "#a",
+      classes: [],
+      computedStyles: { width: "50%" },
+      boundingRect: { x: 0, y: 0, width: 120, height: 30 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      needsLiveMeasurement: true,
+    };
+    const activeFileIdRef = { current: "screen-a" };
+    let current: ElementInfo | null = null;
+    function Harness({ breakpointWidth }: { breakpointWidth?: number }) {
+      const [selected, setSelected] = useState<ElementInfo | null>(initial);
+      current = selected;
+      useSelectionMeasurement({
+        selectedElement: selected,
+        setSelectedElement: setSelected,
+        screenId: "screen-a",
+        breakpointWidth,
+        viewMode: "overview",
+        activeFileIdRef,
+      });
+      return null;
+    }
+    const root = createRoot(container);
+    const reply = async (
+      frame: HTMLIFrameElement,
+      correlationId: string,
+      width: number,
+    ) =>
+      act(async () =>
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: frame.contentWindow,
+            data: {
+              type: "agent-native:selection-measured",
+              screenId: "screen-a",
+              correlationId,
+              payload: {
+                ...initial,
+                computedStyles: { width: `${width}px` },
+                boundingRect: { ...initial.boundingRect, width },
+              },
+            },
+          }),
+        ),
+      );
+    try {
+      await act(async () => root.render(createElement(Harness, {})));
+      const first = desktopPost.mock.calls[0]![0] as { correlationId: string };
+      await reply(desktop, first.correlationId, 120);
+      expect(current).toMatchObject({
+        computedStyles: { width: "120px" },
+        needsLiveMeasurement: false,
+      });
+      await act(async () =>
+        root.render(createElement(Harness, { breakpointWidth: 390 })),
+      );
+      expect(mobilePost).toHaveBeenCalledTimes(1);
+      const second = mobilePost.mock.calls[0]![0] as { correlationId: string };
+      await reply(mobile, second.correlationId, 60);
+      expect(current).toMatchObject({
+        computedStyles: { width: "60px" },
+        boundingRect: { width: 60 },
+      });
+    } finally {
+      await act(async () => root.unmount());
+      desktopPost.mockRestore();
+      mobilePost.mockRestore();
+      desktop.remove();
+      mobile.remove();
+      container.remove();
+    }
+  });
+
   it("does not apply a reply to a newer same-selector selection", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -286,6 +377,8 @@ describe("requestSelectionMeasurement", () => {
     const measured = await requestSelectionMeasurement({
       targetWindows: () => [
         frame({ ...complete, computedStyles: null }),
+        frame({ ...complete, computedStyles: undefined }),
+        frame({ ...complete, computedStyles: { width: 101 } }),
         frame({ ...complete, boundingRect: { ...rect, x: "invalid" } }),
         frame({ ...complete, inlineStyles: { width: 101 } }),
       ],

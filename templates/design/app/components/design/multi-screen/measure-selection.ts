@@ -31,11 +31,21 @@ export function useSelectionMeasurement({
   boardFileId?: string;
   activeFileIdRef: RefObject<string | null>;
 }) {
-  const lastMeasured = useRef<ElementInfo | null>(null);
+  const lastMeasured = useRef<{ element: ElementInfo; scope: string } | null>(
+    null,
+  );
+  const scope = JSON.stringify([
+    screenId,
+    breakpointWidth,
+    viewMode,
+    boardFileId,
+  ]);
   const selector =
     selectedElement &&
     (selectedElement.needsLiveMeasurement ||
-      sizeNeedsMeasurement(selectedElement.computedStyles))
+      sizeNeedsMeasurement(selectedElement.computedStyles) ||
+      (lastMeasured.current?.element === selectedElement &&
+        lastMeasured.current.scope !== scope))
       ? (selectedElement.runtimeSelector ?? selectedElement.selector ?? null)
       : null;
   useEffect(() => {
@@ -43,7 +53,8 @@ export function useSelectionMeasurement({
       !selector ||
       !selectedElement ||
       !screenId ||
-      lastMeasured.current === selectedElement
+      (lastMeasured.current?.element === selectedElement &&
+        lastMeasured.current.scope === scope)
     )
       return;
     let cancelled = false;
@@ -70,7 +81,7 @@ export function useSelectionMeasurement({
         classes: selectedElement.classes,
         needsLiveMeasurement: false,
       };
-      lastMeasured.current = next;
+      lastMeasured.current = { element: next, scope };
       setSelectedElement((prev) =>
         prev === selectedElement && activeFileIdRef.current === screenId
           ? next
@@ -89,6 +100,7 @@ export function useSelectionMeasurement({
     boardFileId,
     activeFileIdRef,
     setSelectedElement,
+    scope,
   ]);
 }
 

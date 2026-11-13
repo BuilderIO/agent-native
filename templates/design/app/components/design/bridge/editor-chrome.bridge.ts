@@ -6761,7 +6761,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var vectorStrokeGradient = strokeCs
       .getPropertyValue("--an-vector-stroke-gradient")
       .trim();
-    return {
+    var styles = {
       color: cs.color,
       backgroundColor: cs.backgroundColor,
       backgroundImage: cs.backgroundImage,
@@ -6887,6 +6887,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       isolation: cs.isolation,
       whiteSpace: cs.whiteSpace,
     };
+    return Object.fromEntries(
+      Object.entries(styles).filter(([, value]) => value !== undefined),
+    ) as Record<string, string>;
   }
 
   function measureNormalLineHeightPx(
