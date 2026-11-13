@@ -316,6 +316,43 @@ describe("recovery toast localization", () => {
     });
   });
 
+  it("retries an unreadable store after changing the interface language", async () => {
+    const release = await mount();
+    const open = vi
+      .spyOn(IDBFactory.prototype, "open")
+      .mockImplementation(() => {
+        throw new Error("blocked");
+      });
+    const errors = vi.spyOn(toast, "error");
+    await act(async () =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    );
+    await vi.waitFor(() =>
+      expect(renderedToast()?.querySelector("[data-title]")?.textContent).toBe(
+        "Clips couldn't read the recordings saved in this browser.",
+      ),
+    );
+    expect(errors).toHaveBeenCalledTimes(1);
+    open.mockImplementation(() => new IDBOpenDBRequest());
+    await switchToSpanish(release);
+    await vi.waitFor(() =>
+      expect(renderedToast()?.querySelector("[data-action]")?.textContent).toBe(
+        "Intentar de nuevo",
+      ),
+    );
+    open.mockImplementation(() => {
+      throw new Error("still blocked");
+    });
+    const opensBeforeRetry = open.mock.calls.length;
+    await act(async () =>
+      renderedToast()
+        ?.querySelector<HTMLButtonElement>("[data-action]")
+        ?.click(),
+    );
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledTimes(2));
+    expect(open).toHaveBeenCalledTimes(opensBeforeRetry + 1);
+  });
+
   it("updates the fallback prompt when the initial Spanish catalog loads", async () => {
     const release = await mount("es-ES");
     await act(async () => release());

@@ -304,6 +304,8 @@ export function useLocalRecordingRecovery(
   const navigate = useNavigate();
   const { session } = useSession();
   const ownerEmail = session?.email ?? null;
+  const tRef = useRef(t);
+  tRef.current = t;
   const onFinishRef = useRef(onFinish);
   onFinishRef.current = onFinish;
 
@@ -316,7 +318,7 @@ export function useLocalRecordingRecovery(
         // One prompt for the newest; finishing it rescans on the next load.
         offerLocalRecording({
           meta: newest,
-          t,
+          t: tRef.current,
           navigate,
           onFinish: onFinishRef.current
             ? (recordingId) => onFinishRef.current?.(recordingId)
@@ -337,5 +339,5 @@ export function useLocalRecordingRecovery(
         });
       },
     });
-  }, [enabled, navigate, ownerEmail, t]);
+  }, [enabled, navigate, ownerEmail]);
 }
