@@ -242,6 +242,23 @@ describe("findTargetedMatches", () => {
     expect("content" in result).toBe(false);
   });
 
+  it("keeps a distinct same-line candidate after a flexible hit", () => {
+    const content = `alpha   beta${" ".repeat(220)}alpha gamma beta`;
+    const result = findTargetedMatches(content, "alpha beta");
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("Expected a miss");
+    expect(result.candidates[0]).toMatchObject({
+      text: "alpha   beta",
+      whitespaceOnly: true,
+    });
+    expect(
+      result.candidates.some((candidate) =>
+        candidate.text.includes("alpha gamma beta"),
+      ),
+    ).toBe(true);
+  });
+
   it("shows a middle mismatch in a long near-identical find without applying it", () => {
     const prefix = "<p>filler</p>".repeat(500);
     const suffix = "<p>tail</p>".repeat(500);
@@ -310,6 +327,58 @@ describe("findTargetedMatches", () => {
       });
     },
   );
+
+  it.each([0, 4, 8])(
+    "ranks the distinctive context after a long shared prefix in section %i",
+    (targetIndex) => {
+      const prefix = `<section><style>${".card{padding:4px;color:red;}".repeat(350)}</style>`;
+      const target = `${prefix}<p>Revenue: $42 million annual enterprise subscription growth forecast</p></section>`;
+      const decoy = `${prefix}<p>Revenue: $43 thousand unrelated inventory warehouse costs</p></section>`;
+      const content = Array.from({ length: 9 }, (_, i) =>
+        i === targetIndex ? target : decoy,
+      ).join("");
+      const find = `${prefix}<p>Revenue: $43 million annual enterprise subscription growth forecast</p></section>`;
+      const result = applyTargetedReplace(content, find, "replacement");
+      expect(result).toMatchObject({ ok: false, reason: "not_found" });
+      if (result.ok || result.reason !== "not_found")
+        throw new Error("Expected a miss");
+      expect(result.candidates[0]?.text).toContain(
+        "$42 million annual enterprise",
+      );
+      expect(result.candidates[0]).toMatchObject({ excerpt: true });
+      expect(result.candidates[0]?.whitespaceOnly).not.toBe(true);
+      expect(result.candidates[0]?.similarity).toBeLessThan(0.99);
+      expect("content" in result).toBe(false);
+    },
+  );
+
+  it("deduplicates overlapping excerpts without hiding distinct candidates on the same line", () => {
+    const prefix = `<section><style>${".card{padding:4px;color:red;}".repeat(350)}</style>`;
+    const first = `${prefix}<p>Revenue: $42 million annual enterprise growth forecast</p></section>`;
+    const second = `${prefix}<p>Revenue: $41 million annual enterprise growth forecast</p></section>`;
+    const content = `${first}${second}`;
+    const find = `${prefix}<p>Revenue: $43 million annual enterprise growth forecast</p></section>`;
+    const result = applyTargetedReplace(content, find, "replacement");
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("Expected a miss");
+    expect(
+      result.candidates.filter((candidate) =>
+        candidate.text.includes("$42 million"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      result.candidates.filter((candidate) =>
+        candidate.text.includes("$41 million"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      result.candidates.every(
+        (candidate) => candidate.excerpt && !candidate.whitespaceOnly,
+      ),
+    ).toBe(true);
+    expect("content" in result).toBe(false);
+  });
 
   it("shows post-match context for long identical ambiguous matches", () => {
     const match = `<p>${"common".repeat(60)}</p>`;
