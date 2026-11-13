@@ -2201,6 +2201,14 @@ export default {
         "किसी अन्य सहयोगी के बदलाव लागू होने की प्रतीक्षा में हैं। नए बदलाव भेजने से पहले उन्हें लागू करें या हटाएँ।",
       codingHandoffCopied: "कोडिंग हैंडऑफ़ कॉपी हुआ",
       clipboardBlocked: "क्लिपबोर्ड अवरुद्ध है",
+      pasteMediaTooMany_one:
+        "{{count}} फ़ाइल पेस्ट नहीं हुई। आप एक बार में अधिकतम {{limit}} फ़ाइलें पेस्ट कर सकते हैं।",
+      pasteMediaTooMany_other:
+        "{{count}} फ़ाइलें पेस्ट नहीं हुईं। आप एक बार में अधिकतम {{limit}} फ़ाइलें पेस्ट कर सकते हैं।",
+      pasteMediaTooLarge_one:
+        "{{count}} फ़ाइल पेस्ट नहीं हुई क्योंकि वह {{limitMb}} MB से बड़ी है।",
+      pasteMediaTooLarge_other:
+        "{{count}} फ़ाइलें पेस्ट नहीं हुईं क्योंकि वे {{limitMb}} MB से बड़ी हैं।",
       htmlCreateError: "HTML डाउनलोड नहीं बनाया जा सका",
       htmlDownloaded: "HTML डाउनलोड हुआ",
       htmlExportError: "HTML निर्यात नहीं किया जा सका",

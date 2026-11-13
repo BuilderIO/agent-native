@@ -2175,6 +2175,10 @@ export default {
         "另一位協作者有待套用的變更。請先套用或清除這些變更，再傳送新變更。",
       codingHandoffCopied: "編碼交接已複製",
       clipboardBlocked: "剪貼簿被阻止",
+      pasteMediaTooMany_other:
+        "{{count}} 個檔案未貼上。一次最多可貼上 {{limit}} 個檔案。",
+      pasteMediaTooLarge_other:
+        "{{count}} 個檔案因超過 {{limitMb}} MB 而未貼上。",
       htmlCreateError: "無法建立 HTML 下載",
       htmlDownloaded: "HTML 已下載",
       htmlExportError: "無法匯出 HTML",
