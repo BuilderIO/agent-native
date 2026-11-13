@@ -250,7 +250,14 @@ export type ComposerSubmitIntent = "immediate" | "queued";
 
 export const DEFAULT_VOICE_DICTATION_ENABLED = false;
 
+export interface ComposerVerifiedModel {
+  model?: string;
+  engine?: string;
+  effort?: ReasoningEffort;
+}
+
 export interface TiptapComposerSubmitOptions {
+  verifiedModel?: ComposerVerifiedModel;
   intent?: ComposerSubmitIntent;
   steer?: boolean;
   contextItems?: ComposerContextSnapshot;
@@ -1222,7 +1229,10 @@ export interface TiptapComposerProps {
   /** Return false to stop a submit before it enters the chat runtime. */
   onBeforeSubmit?: (
     draft?: ComposerDraftSnapshot,
-  ) => boolean | Promise<boolean>;
+  ) =>
+    | boolean
+    | ComposerVerifiedModel
+    | Promise<boolean | ComposerVerifiedModel>;
   onSubmissionPendingChange?: (pending: boolean) => void;
   /**
    * Called synchronously when a submit takes its draft, before `onBeforeSubmit`
@@ -5389,6 +5399,7 @@ function TiptapComposerSurface({
         );
       }
 
+      let verifiedModel: ComposerVerifiedModel | undefined;
       if (onBeforeSubmit) {
         const preflightLock: ComposerSubmitLock = {
           draftReleased: clearedBeforePreflight,
@@ -5402,6 +5413,7 @@ function TiptapComposerSurface({
             restoreSubmittedDraft(true);
             return false;
           }
+          if (typeof shouldSubmit === "object") verifiedModel = shouldSubmit;
         } catch (error) {
           restoreSubmittedDraft(true);
           if (mountedRef.current && isCurrentDraftScope()) {
@@ -5855,6 +5867,7 @@ function TiptapComposerSurface({
             submittedAttachments,
             {
               intent: submitIntent,
+              ...(verifiedModel ? { verifiedModel } : {}),
               ...(steer ? { steer: true } : {}),
               onLocalSubmit,
               ...(optimistic.handle

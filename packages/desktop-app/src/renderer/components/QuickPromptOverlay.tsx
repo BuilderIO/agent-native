@@ -188,7 +188,7 @@ export default function QuickPromptOverlay({
   const modelRefreshGeneration = useRef(0);
   const activeModelRefresh = useRef<{
     forced: boolean;
-    promise: Promise<boolean>;
+    promise: Promise<CodeAgentModelSelectionType | false>;
   } | null>(null);
   useEffect(() => {
     normalizedSelectionRef.current = modelOptions.length
@@ -229,48 +229,55 @@ export default function QuickPromptOverlay({
     };
   }, []);
 
-  const refreshModels = useCallback((force = false): Promise<boolean> => {
-    const active = activeModelRefresh.current;
-    if (active && (active.forced || !force)) return active.promise;
+  const refreshModels = useCallback(
+    (force = false): Promise<CodeAgentModelSelectionType | false> => {
+      const active = activeModelRefresh.current;
+      if (active && (active.forced || !force)) return active.promise;
 
-    const generation = ++modelRefreshGeneration.current;
-    const api = window.electronAPI?.codeAgents;
-    const promise = (async () => {
-      try {
-        const result = api
-          ? await (force ? api.listModels({ refresh: true }) : api.listModels())
-          : null;
-        if (generation !== modelRefreshGeneration.current) return false;
-        if (!result || result.status !== "ok") {
-          setModelListUnavailable(true);
+      const generation = ++modelRefreshGeneration.current;
+      const api = window.electronAPI?.codeAgents;
+      const promise = (async () => {
+        try {
+          const result = api
+            ? await (force
+                ? api.listModels({ refresh: true })
+                : api.listModels())
+            : null;
+          if (generation !== modelRefreshGeneration.current) return false;
+          if (!result || result.status !== "ok") {
+            setModelListUnavailable(true);
+            setModelListLoading(false);
+            return false;
+          }
+          const selection = preferConfiguredModelSelection(
+            normalizedSelectionRef.current,
+            result.models,
+            result.selected,
+          );
+          setModelOptions(result.models);
+          setModelSelection(selection);
+          setModelListUnavailable(false);
           setModelListLoading(false);
+          return isCodeAgentModelConfigured(result.models, selection)
+            ? selection
+            : false;
+        } catch {
+          if (generation === modelRefreshGeneration.current) {
+            setModelListUnavailable(true);
+            setModelListLoading(false);
+          }
           return false;
         }
-        const selection = preferConfiguredModelSelection(
-          normalizedSelectionRef.current,
-          result.models,
-          result.selected,
-        );
-        setModelOptions(result.models);
-        setModelSelection(selection);
-        setModelListUnavailable(false);
-        setModelListLoading(false);
-        return isCodeAgentModelConfigured(result.models, selection);
-      } catch {
+      })().finally(() => {
         if (generation === modelRefreshGeneration.current) {
-          setModelListUnavailable(true);
-          setModelListLoading(false);
+          activeModelRefresh.current = null;
         }
-        return false;
-      }
-    })().finally(() => {
-      if (generation === modelRefreshGeneration.current) {
-        activeModelRefresh.current = null;
-      }
-    });
-    activeModelRefresh.current = { forced: force, promise };
-    return promise;
-  }, []);
+      });
+      activeModelRefresh.current = { forced: force, promise };
+      return promise;
+    },
+    [],
+  );
 
   useEffect(() => {
     void refreshModels();
@@ -390,9 +397,9 @@ export default function QuickPromptOverlay({
           files.map((file) => readAgentPromptAttachment(file)),
         );
         await onSubmit(prompt, attachments, effectiveProjectPath || undefined, {
-          engine: options.engine ?? normalizedModelSelection.engine,
-          model: options.model ?? normalizedModelSelection.model,
-          effort: options.effort ?? normalizedModelSelection.effort,
+          engine: options.engine,
+          model: options.model,
+          effort: options.effort,
         });
       } catch (error) {
         setSubmitError(error instanceof Error ? error.message : String(error));
@@ -401,7 +408,7 @@ export default function QuickPromptOverlay({
         setLocalSubmitting(false);
       }
     },
-    [effectiveProjectPath, normalizedModelSelection, onSubmit],
+    [effectiveProjectPath, onSubmit],
   );
 
   const handleBackdropMouseDown = useCallback(

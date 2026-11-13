@@ -10,12 +10,16 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   PromptComposer: ({
     disabled,
     selectedModel,
+    selectedEngine,
+    selectedEffort,
     onBeforeSubmit,
     onSubmit,
   }: {
     disabled: boolean;
     selectedModel: string;
-    onBeforeSubmit: () => Promise<boolean>;
+    selectedEngine: string;
+    selectedEffort?: string;
+    onBeforeSubmit: () => Promise<boolean | { model?: string; engine?: string; effort?: string }>;
     onSubmit: (
       text: string,
       files: File[],
@@ -33,7 +37,12 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
         disabled={disabled}
         onClick={() =>
           void (async () => {
-            if (await onBeforeSubmit()) await onSubmit("hello", [], [], {});
+            const verified = await onBeforeSubmit();
+            if (verified) {
+              await onSubmit("hello", [], [], typeof verified === "object"
+                ? verified
+                : { model: selectedModel, engine: selectedEngine, effort: selectedEffort });
+            }
           })()
         }
       >
@@ -223,6 +232,33 @@ describe("Quick Prompt model discovery", () => {
       ).toBe(status !== "ok");
     },
   );
+
+  it("submits the configured fallback returned by the pre-submit refresh", async () => {
+    const fallback = { ...model, engine: "anthropic", model: "claude-test" };
+    const listModels = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "ok", models: [model], selected: model })
+      .mockResolvedValueOnce({ status: "ok", models: [fallback], selected: fallback });
+    const onSubmit = vi.fn(async () => {});
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        codeAgents: { listModels, listProjects: vi.fn(async () => ({ projects: [] })) },
+        quickPrompt: { setSetupRequired: vi.fn(), onHidden: () => () => {}, setPickerOpen: vi.fn() },
+      },
+    });
+    await act(async () => root.render(<QuickPromptOverlay onSubmit={onSubmit} onDismiss={vi.fn()} />));
+    expect(container.querySelector("textarea")?.getAttribute("data-model")).toBe(model.model);
+    await act(async () => {
+      [...container.querySelectorAll("button")].find((button) => button.textContent === "Send")!.click();
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit).toHaveBeenCalledWith("hello", [], undefined, {
+      engine: fallback.engine,
+      model: fallback.model,
+      effort: "high",
+    });
+  });
 
   it.each(["rejection", "unavailable"])(
     "ignores an older focus %s after a forced refresh succeeds",

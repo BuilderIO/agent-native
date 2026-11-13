@@ -140,9 +140,7 @@ export interface PromptComposerProps {
   /** Run the host's empty-composer action when Enter is pressed. */
   onEmptySubmit?: () => void | Promise<void>;
   /** Return false to stop a submit before it reaches the host runtime. */
-  onBeforeSubmit?: (
-    draft?: ComposerDraftSnapshot,
-  ) => boolean | Promise<boolean>;
+  onBeforeSubmit?: TiptapComposerProps["onBeforeSubmit"];
   onSubmissionPendingChange?: (pending: boolean) => void;
   /**
    * Called synchronously when a submit takes its draft, before any preflight
@@ -1148,9 +1146,15 @@ function PromptComposerInner({
         ...(submitOptions?.submissionId
           ? { submissionId: submitOptions.submissionId }
           : {}),
-        model: composerModel,
-        engine: composerEngine,
-        effort: composerEffort,
+        model: submitOptions?.verifiedModel
+          ? submitOptions.verifiedModel.model
+          : composerModel,
+        engine: submitOptions?.verifiedModel
+          ? submitOptions.verifiedModel.engine
+          : composerEngine,
+        effort: submitOptions?.verifiedModel
+          ? submitOptions.verifiedModel.effort
+          : composerEffort,
         attachments,
         ...(submitOptions?.composerModeContext === undefined
           ? {}

@@ -2134,6 +2134,28 @@ describe("controlled composer context", () => {
     expect(onSubmit.mock.calls[0][3].contextItems).toEqual([updatedContext]);
   });
 
+  it("submits the model returned by pre-submit verification", async () => {
+    const verified = {
+      engine: "anthropic",
+      model: "claude-test",
+      effort: "high" as const,
+    };
+    const { onSubmit } = await mount({
+      showModelSelector: true,
+      selectedEngine: "openai",
+      selectedModel: "gpt-old",
+      onBeforeSubmit: async () => verified,
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+        .click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0][3]).toMatchObject(verified);
+  });
+
   it("uses the latest host submit callback after readiness resolves", async () => {
     let resolveReadiness!: (ready: boolean) => void;
     const readiness = new Promise<boolean>((resolve) => {
