@@ -50,17 +50,17 @@ describe("DesignCanvas live embedded-frame offset", () => {
               interactMode={false}
               editMode
               registerRuntimeBridge={false}
-              embeddedFrame={
-                embedded
-                  ? {
+              {...(embedded
+                ? {
+                    embeddedFrame: {
                       viewportWidth: 800,
                       viewportHeight: 600,
                       displayWidth: 800,
                       displayHeight: 600,
                       fluid: true,
-                    }
-                  : undefined
-              }
+                    },
+                  }
+                : {})}
               onElementSelect={onElementSelect}
               onElementHover={onElementHover}
               onElementDblClickText={onElementDblClickText}
@@ -73,14 +73,16 @@ describe("DesignCanvas live embedded-frame offset", () => {
         const iframe = container.querySelector<HTMLIFrameElement>(
           "iframe[data-design-preview-iframe]",
         );
-        expect(iframe?.contentWindow).toBeTruthy();
+        const frameWindow = iframe?.contentWindow;
+        expect(frameWindow).toBeTruthy();
+        if (!frameWindow) throw new Error("Missing preview iframe window");
         const send = async (data: unknown) =>
           act(async () =>
             window.dispatchEvent(
               new MessageEvent("message", {
                 data,
                 origin: window.location.origin,
-                source: iframe!.contentWindow,
+                source: frameWindow,
               }),
             ),
           );

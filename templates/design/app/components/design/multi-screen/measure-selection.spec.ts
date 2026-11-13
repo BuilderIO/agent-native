@@ -512,6 +512,29 @@ describe("requestSelectionMeasurement", () => {
     expect(measured).toBeNull();
   });
 
+  it.each([
+    { editCapabilities: {} },
+    { editCapabilities: [null] },
+    { editCapabilities: [{ kind: 12, label: "edit", confidence: 1 }] },
+    { parentBoundingRect: { x: "invalid", y: 0, width: 1, height: 1 } },
+    { childLayouts: { children: null, complete: true, looseText: false } },
+    { portableStyleSnapshot: { version: 1, nodes: null } },
+  ])(
+    "waits for a valid response after malformed metadata %j",
+    async (metadata) => {
+      const measured = await requestSelectionMeasurement({
+        targetWindows: () => [
+          frame({ ...complete, ...metadata }),
+          frame(complete),
+        ],
+        screenId: "screen-1",
+        attempts: 1,
+        timeoutMs: 30,
+      });
+      expect(measured).toEqual(complete);
+    },
+  );
+
   it("keeps waiting past a frame that does not have the element", async () => {
     const measured = await requestSelectionMeasurement({
       targetWindows: () => [frame(null), frame(null)],

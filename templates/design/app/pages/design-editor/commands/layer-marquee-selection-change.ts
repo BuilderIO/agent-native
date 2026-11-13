@@ -128,21 +128,23 @@ export function runLayerMarqueeSelectionChange(
       let info = item.info;
       if (info.needsLiveMeasurement || !isElementInfoPayload(info)) {
         const sourceInfo = elementInfoFromCodeLayerNode(node);
+        const runtimeSelector =
+          typeof info.runtimeSelector === "string"
+            ? info.runtimeSelector
+            : typeof info.selector === "string"
+              ? info.selector
+              : undefined;
+        const runtimeSourceId =
+          typeof info.runtimeSourceId === "string"
+            ? info.runtimeSourceId
+            : typeof info.sourceId === "string"
+              ? info.sourceId
+              : undefined;
         info = {
           ...sourceInfo,
           boundingRect: info.boundingRect,
-          runtimeSelector:
-            typeof info.runtimeSelector === "string"
-              ? info.runtimeSelector
-              : typeof info.selector === "string"
-                ? info.selector
-                : undefined,
-          runtimeSourceId:
-            typeof info.runtimeSourceId === "string"
-              ? info.runtimeSourceId
-              : typeof info.sourceId === "string"
-                ? info.sourceId
-                : undefined,
+          ...(runtimeSelector === undefined ? {} : { runtimeSelector }),
+          ...(runtimeSourceId === undefined ? {} : { runtimeSourceId }),
           needsLiveMeasurement: true,
         };
       }

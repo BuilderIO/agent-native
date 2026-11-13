@@ -36,9 +36,9 @@ export function useSelectionMeasurement({
   selectedElement: ElementInfo | null;
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
   screenId: string;
-  breakpointWidth?: number;
+  breakpointWidth?: number | undefined;
   viewMode: "single" | "overview";
-  boardFileId?: string;
+  boardFileId?: string | undefined;
   activeFileIdRef: RefObject<string | null>;
 }) {
   const lastMeasured = useRef<{
@@ -92,15 +92,18 @@ export function useSelectionMeasurement({
     }).then((measured) => {
       if (cancelled || !measured || activeFileIdRef.current !== screenId)
         return;
+      const {
+        selector: _selector,
+        sourceId: _sourceId,
+        runtimeSelector: _runtimeSelector,
+        runtimeSourceId: _runtimeSourceId,
+        sourceLayerIdentity: _sourceLayerIdentity,
+        classes: _classes,
+        ...measurement
+      } = measured;
       const next: ElementInfo = {
         ...selectedElement,
-        ...measured,
-        selector: selectedElement.selector,
-        sourceId: selectedElement.sourceId,
-        runtimeSelector: selectedElement.runtimeSelector,
-        runtimeSourceId: selectedElement.runtimeSourceId,
-        sourceLayerIdentity: selectedElement.sourceLayerIdentity,
-        classes: selectedElement.classes,
+        ...measurement,
         needsLiveMeasurement: false,
       };
       lastMeasured.current = { element: next, identity, scope };
