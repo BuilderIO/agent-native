@@ -2584,11 +2584,7 @@ return requestFullscreenOnFirstInteraction;`;
       const read = await tools.callViewTool({ name: "read_view" });
       expect(read.isError).toBe(true);
       expect(read.content[0]!.text).toContain("nested frame");
-      const listed = await tools.listViewTools();
-      expect(listed.map((tool) => tool.name)).toEqual([
-        "read_view",
-        "navigate_view",
-      ]);
+      expect(await tools.listViewTools()).toEqual([]);
     });
 
     it("asks Claude to open the view in its side panel", () => {

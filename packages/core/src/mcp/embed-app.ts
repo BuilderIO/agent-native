@@ -2767,6 +2767,8 @@ export function embedApp(
     }
 
     async function listViewTools() {
+      // A nested cross-origin frame can be neither read nor moved from here.
+      if (appFrame) return [];
       const tools = [
         {
           name: readViewToolName,
