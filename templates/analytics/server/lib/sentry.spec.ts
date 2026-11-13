@@ -53,7 +53,7 @@ describe("Sentry issue events provider timeout", () => {
     "handles organization discovery delayed by $discoveryDelay ms before retrieving events",
     async ({ discoveryDelay, succeeds }) => {
       vi.useFakeTimers();
-      let started = () => {
+      let started: () => void = () => {
         throw new Error("Fetch start signal was not initialized");
       };
       const fetchStarted = new Promise<void>((resolve) => {
@@ -124,7 +124,7 @@ describe("Sentry issue events provider timeout", () => {
     "handles a response delayed by $delay ms",
     async ({ issueId, delay, succeeds }) => {
       vi.useFakeTimers();
-      let started = () => {
+      let started: () => void = () => {
         throw new Error("Fetch start signal was not initialized");
       };
       const fetchStarted = new Promise<void>((resolve) => {
