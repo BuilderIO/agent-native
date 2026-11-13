@@ -682,6 +682,63 @@ async function resolveTargetAppOrigin(
   }
 }
 
+async function resolveWorkspaceAppForUrl(
+  config: MCPConfig,
+  rawUrl: string,
+): Promise<{ appUrl: string; relUrl: string } | null> {
+  if (!/^https?:\/\//i.test(rawUrl)) return null;
+  try {
+    const { resolveWorkspace } = await import("./workspace-resolve.js");
+    const ws = await resolveWorkspace();
+    if (!ws.isWorkspace) return null;
+    const selfId = currentAppId(config);
+    for (const app of ws.apps) {
+      if (app.id.toLowerCase() === selfId) continue;
+      const appUrl = app.url.replace(/\/+$/, "");
+      if (!rawUrl.startsWith(appUrl)) continue;
+      const rest = rawUrl.slice(appUrl.length);
+      if (rest && !/^[/?#]/.test(rest)) continue;
+      return { appUrl, relUrl: rest.startsWith("/") ? rest : `/${rest}` };
+    }
+  } catch {
+    // coercion-ok: an unresolvable workspace leaves the URL as a non-embeddable foreign one.
+    return null;
+  }
+  return null;
+}
+
+// MCP hosts only let the app view frame and fetch the MCP server's own origin,
+// so only apps mounted on that origin can be embedded.
+async function startCrossAppEmbed(
+  targetAppUrl: string,
+  relUrl: string,
+  chrome: string | undefined,
+): Promise<{ startUrl: string; targetPath: string; expiresAt: number } | null> {
+  const { getRequestContext } = await import("../server/request-context.js");
+  const ownerEmail = getRequestContext()?.userEmail?.trim();
+  const { getEmbedSessionOrigin } =
+    await import("../server/embed-request-origin.js");
+  const embedOrigin = getEmbedSessionOrigin();
+  if (!ownerEmail || !embedOrigin) return null;
+  let sameOrigin = false;
+  try {
+    sameOrigin = new URL(targetAppUrl).origin === new URL(embedOrigin).origin;
+  } catch {
+    sameOrigin = false;
+  }
+  if (!sameOrigin) return null;
+  const targetPath = withMcpChatBridgeParam(relUrl);
+  const { createEmbedHandoffStartUrl } =
+    await import("../server/embed-handoff.js");
+  const started = await createEmbedHandoffStartUrl({
+    targetAppUrl,
+    targetPath,
+    ownerEmail,
+    chrome,
+  });
+  return started ? { ...started, targetPath } : null;
+}
+
 function listAppsTool(
   config: MCPConfig,
   requestMeta?: { origin?: string },
@@ -780,7 +837,8 @@ function openAppTool(config: MCPConfig): ActionEntry {
           "focused route/component. No side " +
           "effects — returns a URL the user can click to land in the running UI. " +
           "Set embed:true when a UI-capable MCP host should render the live app " +
-          "or focused route/component inline. Omit view and path to land on the " +
+          "or focused route/component inline; another workspace app on this " +
+          "server's origin embeds unless embed is false. Omit view and path to land on the " +
           "app's home page. Omit app to open this app.",
         {
           app: { type: "string", description: "App id, e.g. 'mail'" },
@@ -834,6 +892,12 @@ function openAppTool(config: MCPConfig): ActionEntry {
       }
       const embeddedParam = params?.embed;
       const chromeParam = params?.chrome;
+      const embedChosen =
+        args.embed != null ||
+        embeddedParam === true ||
+        embeddedParam === false ||
+        embeddedParam === "true" ||
+        embeddedParam === "false";
       let embed =
         (args.embed == null && !requestedApp && !view && !args.path) ||
         args.embed === true ||
@@ -882,6 +946,20 @@ function openAppTool(config: MCPConfig): ActionEntry {
       let embedStartUrl: string | undefined;
       let embedTargetPath: string | undefined;
       let embedExpiresAt: number | undefined;
+
+      if (targetApp && (embed || !embedChosen)) {
+        const started = await startCrossAppEmbed(
+          targetApp.origin,
+          relUrl,
+          chrome,
+        );
+        embed = !!started;
+        if (started) {
+          embedStartUrl = started.startUrl;
+          embedTargetPath = started.targetPath;
+          embedExpiresAt = started.expiresAt;
+        }
+      }
 
       if (embed && !targetApp) {
         const { getRequestContext } =
@@ -953,7 +1031,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
   };
 }
 
-function createEmbedSessionTool(): ActionEntry {
+function createEmbedSessionTool(config: MCPConfig): ActionEntry {
   return {
     tool: {
       ...tool(
@@ -1009,6 +1087,15 @@ function createEmbedSessionTool(): ActionEntry {
           : typeof args.path === "string"
             ? args.path
             : "";
+      const sibling = await resolveWorkspaceAppForUrl(config, rawTarget);
+      if (sibling) {
+        const started = await startCrossAppEmbed(
+          sibling.appUrl,
+          sibling.relUrl,
+          typeof args.chrome === "string" ? args.chrome : undefined,
+        );
+        if (started) return started;
+      }
       const targetPath = normalizeEmbedTargetPath(rawTarget, embedOrigin);
       if (!targetPath) {
         throw new Error(
@@ -1523,7 +1610,7 @@ export function getBuiltinCrossAppTools(
     list_apps: listAppsTool(config, requestMeta),
     open_app: openAppTool(config),
     ...(requestMeta?.inlineMcpApps === true
-      ? { create_embed_session: createEmbedSessionTool() }
+      ? { create_embed_session: createEmbedSessionTool(config) }
       : {}),
     ask_app: askAppTool(config, requestMeta),
     ask_app_status: askAppStatusTool(config, requestMeta),

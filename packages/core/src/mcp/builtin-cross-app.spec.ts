@@ -12,6 +12,7 @@ import { verifyAuth } from "./build-server.js";
 import type { MCPConfig } from "./build-server.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import * as orgDirectory from "./org-directory.js";
+import * as workspaceResolve from "./workspace-resolve.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -1565,3 +1566,126 @@ describe("ask_app — org-directory routing", () => {
     expect(getTaskSpy).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("open_app — sibling workspace apps on the same origin", () => {
+  beforeEach(() => {
+    process.env.APP_BASE_PATH = "/dispatch";
+  });
+  function mockWorkspace(mailUrl: string) {
+    vi.spyOn(workspaceResolve, "resolveWorkspace").mockResolvedValue({
+      root: "/ws",
+      isWorkspace: true,
+      apps: [
+        {
+          id: "dispatch",
+          url: "https://labs.test/dispatch",
+          port: 0,
+          running: true,
+        },
+        { id: "mail", url: mailUrl, port: 0, running: true },
+      ],
+    });
+  }
+  const dispatchContext = {
+    userEmail: "owner@example.com",
+    requestOrigin: "https://labs.test",
+  };
+  const dispatch = () =>
+    getBuiltinCrossAppTools(
+      baseConfig({ name: "Dispatch", appId: "dispatch" }),
+      { origin: "https://labs.test", inlineMcpApps: true },
+    );
+
+  it("embeds the sibling by default through a handoff to its start route", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    mockWorkspace("https://labs.test/mail-2");
+    const createTicket = vi.spyOn(embedSession, "createEmbedSessionTicket");
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().open_app.run({ app: "mail", view: "inbox" }),
+    );
+
+    expect(result.embed).toBe(true);
+    const start = new URL(result.embedStartUrl);
+    expect(`${start.origin}${start.pathname}`).toBe(
+      "https://labs.test/mail-2/_agent-native/embed/start",
+    );
+    expect(start.searchParams.get("handoff")).toBeTruthy();
+    expect(result.embedTargetPath).toContain("__an_mcp_chat_bridge=1");
+    expect(createTicket).not.toHaveBeenCalled();
+    expect(tools_link(dispatch(), result)).toBeNull();
+  });
+
+  it("falls back to a link for a sibling on another origin", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    mockWorkspace("https://mail.other.test");
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().open_app.run({ app: "mail", view: "inbox", embed: true }),
+    );
+
+    expect(result.embed).toBe(false);
+    expect(result.embedStartUrl).toBeUndefined();
+    expect(tools_link(dispatch(), result)?.url).toBe(result.url);
+  });
+
+  it("falls back to a link without the workspace secret", async () => {
+    mockWorkspace("https://labs.test/mail-2");
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().open_app.run({ app: "mail", view: "inbox" }),
+    );
+
+    expect(result.embed).toBe(false);
+    expect(result.embedStartUrl).toBeUndefined();
+  });
+
+  it("honors embed false for a sibling", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    mockWorkspace("https://labs.test/mail-2");
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().open_app.run({ app: "mail", view: "inbox", embed: false }),
+    );
+
+    expect(result.embed).toBe(false);
+    expect(result.embedStartUrl).toBeUndefined();
+  });
+
+  it("renews a sibling app URL through create_embed_session", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    mockWorkspace("https://labs.test/mail-2");
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().create_embed_session.run({
+        url: "https://labs.test/mail-2/inbox?thread=1",
+      }),
+    );
+
+    const start = new URL(result.startUrl);
+    expect(`${start.origin}${start.pathname}`).toBe(
+      "https://labs.test/mail-2/_agent-native/embed/start",
+    );
+    expect(result.targetPath).toBe("/inbox?thread=1&__an_mcp_chat_bridge=1");
+  });
+
+  it("still refuses a URL that belongs to no workspace app", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    mockWorkspace("https://labs.test/mail-2");
+
+    await expect(
+      runWithRequestContext(dispatchContext, () =>
+        dispatch().create_embed_session.run({
+          url: "https://labs.test/mail-2x/inbox",
+        }),
+      ),
+    ).rejects.toThrow(/same-origin/);
+  });
+});
+
+function tools_link(
+  tools: ReturnType<typeof getBuiltinCrossAppTools>,
+  result: unknown,
+) {
+  return tools.open_app.link?.({ result } as any) ?? null;
+}
