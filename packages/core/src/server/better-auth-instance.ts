@@ -2819,15 +2819,28 @@ async function createBetterAuthInstance(
           ],
         },
         init(ctx) {
-          const emailVerification = ctx.options.emailVerification;
-          if (!emailVerification?.sendVerificationEmail) return;
-          const sendVerificationEmail = emailVerification.sendVerificationEmail;
           const deliveries = new WeakSet<Promise<unknown>>();
-          emailVerification.sendVerificationEmail = (...args) => {
-            const delivery = sendVerificationEmail(...args);
-            if (delivery instanceof Promise) deliveries.add(delivery);
-            return delivery;
-          };
+          const emailVerification = ctx.options.emailVerification;
+          const sendVerificationEmail =
+            emailVerification?.sendVerificationEmail;
+          if (emailVerification && sendVerificationEmail) {
+            emailVerification.sendVerificationEmail = (...args) => {
+              const delivery = sendVerificationEmail(...args);
+              if (delivery instanceof Promise) deliveries.add(delivery);
+              return delivery;
+            };
+          }
+          const changeEmail = ctx.options.user?.changeEmail;
+          const sendChangeEmailConfirmation =
+            changeEmail?.sendChangeEmailConfirmation;
+          if (changeEmail && sendChangeEmailConfirmation) {
+            changeEmail.sendChangeEmailConfirmation = (...args) => {
+              const delivery = sendChangeEmailConfirmation(...args);
+              if (delivery instanceof Promise) deliveries.add(delivery);
+              return delivery;
+            };
+          }
+          if (!sendVerificationEmail && !sendChangeEmailConfirmation) return;
           const passwordOptions = ctx.options.emailAndPassword;
           const onExistingUserSignUp = passwordOptions?.onExistingUserSignUp;
           if (passwordOptions && onExistingUserSignUp) {
