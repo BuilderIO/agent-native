@@ -1,10 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import {
-  createSecret,
-  getVaultSecretMetadata,
-} from "../server/lib/vault-store.js";
+import { createSecret } from "../server/lib/vault-store.js";
 
 export default defineAction({
   description:
@@ -31,5 +28,5 @@ export default defineAction({
   // call needs the user's approval, and "always allow" is not offered.
   needsApproval: true,
   allowPersistentApproval: false,
-  run: async (args) => getVaultSecretMetadata(await createSecret(args)),
+  run: async (args) => createSecret(args),
 });

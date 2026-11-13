@@ -9,6 +9,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 - New Clips users can set up Builder automatically during signup.
 
+### Fixed
+
+- Recordings now retry automatically when the upload service has a brief hiccup at the start or end of an upload, instead of failing.
+
 ## 2026-11-10
 
 ### Fixed

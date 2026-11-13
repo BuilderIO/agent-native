@@ -68,14 +68,14 @@ async function canReadDesignatedVaultFallback(
 
   try {
     const result = await getDbExec().execute({
+      // A grant names its key itself; legacy grants without `credential_key`
+      // match nothing until they are backfilled.
       sql: `SELECT 1
-        FROM vault_grants AS grants
-        INNER JOIN vault_secrets AS secrets ON secrets.id = grants.secret_id
-        WHERE grants.org_id = ?
-          AND grants.app_id = ?
-          AND grants.status = 'active'
-          AND secrets.org_id = grants.org_id
-          AND secrets.credential_key = ?
+        FROM vault_grants
+        WHERE org_id = ?
+          AND app_id = ?
+          AND status = 'active'
+          AND credential_key = ?
         LIMIT 1`,
       args: [vaultOrgId, appId, credentialKey],
     });

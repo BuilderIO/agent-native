@@ -3,8 +3,8 @@
  *
  * A text column named like a secret (`api_key`, `access_token`, `password`)
  * holds whatever the writer puts in it, and the database cannot tell a sealed
- * value from a plaintext one. The Dispatch vault kept every provider key in a
- * plaintext `vault_secrets.value` beside an encrypted copy, so one SQL read
+ * value from a plaintext one. The Dispatch vault once kept every provider key
+ * in a plaintext `value` column beside an encrypted copy, so one SQL read
  * (a leaked connection string, a prompt-injected query) returned every key.
  *
  * Store credentials with `writeAppSecret` (`app_secrets`, AES-256-GCM) and keep

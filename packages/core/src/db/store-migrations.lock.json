@@ -215,6 +215,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "vault-metadata-columns",
+      "checksum": null
     }
   ],
   "application_state": [

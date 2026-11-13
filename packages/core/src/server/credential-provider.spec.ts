@@ -2140,11 +2140,17 @@ describe("resolveSecret (generic)", () => {
     await expect(resolveSecret("HUBSPOT_MCP_CLIENT_SECRET")).resolves.toBe(
       "granted-secret",
     );
-    expect(mockGetDbExec().execute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        args: ["dispatch-vault", "factory", "HUBSPOT_MCP_CLIENT_SECRET"],
-      }),
-    );
+    const [query] = vi.mocked(mockGetDbExec().execute).mock.calls[0] as [
+      { sql: string; args: string[] },
+    ];
+    expect(query.args).toEqual([
+      "dispatch-vault",
+      "factory",
+      "HUBSPOT_MCP_CLIENT_SECRET",
+    ]);
+    // The grant names its key itself, so no other table is read for it.
+    expect(query.sql).toMatch(/credential_key = \?/);
+    expect(query.sql).not.toMatch(/JOIN/i);
   });
 
   it("recovers the org-scoped row when request org context is transiently missing", async () => {

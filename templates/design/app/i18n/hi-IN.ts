@@ -1736,7 +1736,6 @@ export default {
     signInToRequestAccessTitle: "ऐक्सेस माँगने के लिए साइन इन करें",
     signInToRequestAccessDescription:
       "मालिक से ऐक्सेस माँगने के लिए साइन इन करें या खाता बनाएँ।",
-    signInOrSignUp: "साइन इन या साइन अप करें",
     accessCheckFailed: "इस डिज़ाइन का ऐक्सेस जाँचा नहीं जा सका।",
     retryAccessCheck: "फिर कोशिश करें",
     saveAsTemplate: "टेम्पलेट के रूप में सहेजें…",
