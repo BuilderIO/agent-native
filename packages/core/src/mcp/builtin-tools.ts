@@ -688,21 +688,28 @@ async function resolveTargetAppOrigin(
 
 // "unavailable" means a sibling might own this URL but the app lists could not
 // be read; a URL under this app's own base path is never a sibling's.
+function normalizedHttpUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return `${url.origin}${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    // coercion-ok: callers treat an unparseable URL as belonging to no sibling app.
+    return null;
+  }
+}
+
 async function resolveWorkspaceAppForUrl(
   config: MCPConfig,
-  rawUrl: string,
+  rawTarget: string,
 ): Promise<{ appUrl: string; relUrl: string } | "unavailable" | null> {
-  if (!/^https?:\/\//i.test(rawUrl)) return null;
+  if (!/^https?:\/\//i.test(rawTarget)) return null;
+  const rawUrl = normalizedHttpUrl(rawTarget);
+  if (!rawUrl) return null;
   const ownBase = getConfiguredAppBasePath();
   if (ownBase) {
-    try {
-      const { pathname } = new URL(rawUrl);
-      if (pathname === ownBase || pathname.startsWith(`${ownBase}/`))
-        return null;
-    } catch {
-      // coercion-ok: an unparseable URL is no sibling's; same-origin normalization then refuses it.
-      return null;
-    }
+    const { pathname } = new URL(rawUrl);
+    if (pathname === ownBase || pathname.startsWith(`${ownBase}/`)) return null;
   }
   const selfId = currentAppId(config);
   const candidates: string[] = [];
@@ -726,7 +733,8 @@ async function resolveWorkspaceAppForUrl(
   }
   // Longest first, so a root-mounted app cannot shadow a path-mounted sibling.
   const appUrls = candidates
-    .map((candidate) => candidate.replace(/\/+$/, ""))
+    .map((candidate) => normalizedHttpUrl(candidate)?.replace(/\/+$/, ""))
+    .filter((appUrl): appUrl is string => !!appUrl)
     .sort((a, b) => b.length - a.length);
   for (const appUrl of appUrls) {
     if (!rawUrl.startsWith(appUrl)) continue;
@@ -970,7 +978,19 @@ function openAppTool(config: MCPConfig, inlineMcpApps: boolean): ActionEntry {
         : buildDeepLink({ app, view, params });
       const sameAppUrl = path ? withConfiguredBasePath(relUrl) : relUrl;
 
-      const targetApp = await resolveTargetAppOrigin(config, app);
+      let targetApp = await resolveTargetAppOrigin(config, app);
+      if (
+        !targetApp &&
+        requestedApp &&
+        requestedApp.toLowerCase() !== currentAppId(config)
+      ) {
+        const apps = await fetchOrgApps({ selfId: currentAppId(config) });
+        const match = apps.find(
+          (candidate) =>
+            candidate.id.toLowerCase() === requestedApp.toLowerCase(),
+        );
+        if (match) targetApp = { origin: match.url, id: match.id };
+      }
       const appUrl = targetApp
         ? `${targetApp.origin.replace(/\/+$/, "")}${relUrl}`
         : sameAppUrl;

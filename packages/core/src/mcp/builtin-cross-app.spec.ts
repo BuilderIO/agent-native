@@ -1806,6 +1806,49 @@ describe("open_app — sibling workspace apps on the same origin", () => {
     );
   });
 
+  it("matches a sibling URL written with an uppercase host and default port", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    mockWorkspace("https://labs.test/mail-2");
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().create_embed_session.run({
+        url: "https://LABS.test:443/mail-2/inbox",
+      }),
+    );
+
+    expect(new URL(result.startUrl).pathname).toBe(
+      "/mail-2/_agent-native/embed/start",
+    );
+    expect(result.targetPath).toBe("/inbox?__an_mcp_chat_bridge=1");
+  });
+
+  it("embeds a sibling that only the org directory knows about", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    vi.spyOn(workspaceResolve, "resolveWorkspace").mockResolvedValue({
+      root: "/app",
+      isWorkspace: false,
+      apps: [],
+    });
+    vi.spyOn(orgDirectory, "fetchOrgApps").mockResolvedValue([
+      {
+        id: "mail",
+        name: "Mail",
+        url: "https://labs.test/mail-2",
+        a2aUrl: "https://labs.test/mail-2",
+      } as any,
+    ]);
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().open_app.run({ app: "mail", view: "inbox" }),
+    );
+
+    expect(result.embed).toBe(true);
+    expect(result.url.startsWith("https://labs.test/mail-2/")).toBe(true);
+    expect(new URL(result.embedStartUrl).pathname).toBe(
+      "/mail-2/_agent-native/embed/start",
+    );
+  });
+
   it("still refuses a URL that belongs to no workspace app", async () => {
     process.env.A2A_SECRET = "workspace-secret";
     mockWorkspace("https://labs.test/mail-2");
