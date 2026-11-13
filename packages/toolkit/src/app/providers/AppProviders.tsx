@@ -20,7 +20,6 @@ import { scheduleAfterPaint } from "@agent-native/core/client/use-after-paint";
 import { useAgentEngineConfigured } from "@agent-native/core/client/use-agent-engine-configured";
 import { useSession } from "@agent-native/core/client/use-session";
 import { SettingsShortcut } from "@agent-native/core/client/use-settings-shortcut";
-import type { AgentNativeConfig } from "@agent-native/core/config";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
@@ -59,7 +58,9 @@ import {
 import { WriteFailureToaster } from "../shared/WriteFailureToaster.js";
 import { BuilderSignupStartupGate } from "./BuilderSignupActivation.js";
 
-declare const __AGENT_NATIVE_APP_CONFIG__: AgentNativeConfig | undefined;
+declare const __AGENT_NATIVE_APP_CONFIG__: Parameters<
+  typeof isFirstRunOnboardingEnabled
+>[1];
 
 export interface AppProvidersProps {
   queryClient: QueryClient;
@@ -716,7 +717,7 @@ export function AppProviders({
           <EarlySessionBootstrapScript />
           <EarlyBetaRedirectScript />
           {isFirstRunOnboardingEnabled(
-            import.meta.env ?? {},
+            (import.meta.env as ImportMetaEnv | undefined) ?? {},
             typeof __AGENT_NATIVE_APP_CONFIG__ === "undefined"
               ? {}
               : __AGENT_NATIVE_APP_CONFIG__,
