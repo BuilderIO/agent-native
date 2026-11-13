@@ -2067,6 +2067,59 @@ export async function ensureGoogleAuthIdentityWithAdapter(
   return false;
 }
 
+type BetterAuthInitContext = Parameters<
+  NonNullable<BetterAuthPlugin["init"]>
+>[0];
+
+/**
+ * Better Auth runs mail callbacks through `runInBackgroundOrAwait`, which logs
+ * and swallows their errors. Track the delivery promises so the runner can hand
+ * them back and a failed send fails the request.
+ */
+export function trackAuthEmailDeliveries(ctx: BetterAuthInitContext) {
+  const deliveries = new WeakSet<Promise<unknown>>();
+  const emailVerification = ctx.options.emailVerification;
+  const sendVerificationEmail = emailVerification?.sendVerificationEmail;
+  if (emailVerification && sendVerificationEmail) {
+    emailVerification.sendVerificationEmail = (...args) => {
+      const delivery = sendVerificationEmail(...args);
+      if (delivery instanceof Promise) deliveries.add(delivery);
+      return delivery;
+    };
+  }
+  const changeEmail = ctx.options.user?.changeEmail;
+  const sendChangeEmailConfirmation = changeEmail?.sendChangeEmailConfirmation;
+  if (changeEmail && sendChangeEmailConfirmation) {
+    changeEmail.sendChangeEmailConfirmation = (...args) => {
+      const delivery = sendChangeEmailConfirmation(...args);
+      if (delivery instanceof Promise) deliveries.add(delivery);
+      return delivery;
+    };
+  }
+  if (!sendVerificationEmail && !sendChangeEmailConfirmation) return;
+  const passwordOptions = ctx.options.emailAndPassword;
+  const onExistingUserSignUp = passwordOptions?.onExistingUserSignUp;
+  if (passwordOptions && onExistingUserSignUp) {
+    passwordOptions.onExistingUserSignUp = (...args) => {
+      const delivery = onExistingUserSignUp(...args);
+      deliveries.add(delivery);
+      return delivery;
+    };
+  }
+  const runInBackgroundOrAwait = ctx.runInBackgroundOrAwait.bind(ctx);
+  return {
+    context: {
+      runInBackgroundOrAwait(task) {
+        // Better Auth swallows even awaited task errors; verification and
+        // email-change mail must fail the request before the UI can claim
+        // mail was sent.
+        if (task instanceof Promise && deliveries.has(task)) return task;
+        return runInBackgroundOrAwait(task);
+      },
+    },
+  };
+}
+
 export async function resetBetterAuth(): Promise<void> {
   _authInitGeneration++;
   _auth = undefined;
@@ -2818,51 +2871,7 @@ async function createBetterAuthInstance(
             },
           ],
         },
-        init(ctx) {
-          const deliveries = new WeakSet<Promise<unknown>>();
-          const emailVerification = ctx.options.emailVerification;
-          const sendVerificationEmail =
-            emailVerification?.sendVerificationEmail;
-          if (emailVerification && sendVerificationEmail) {
-            emailVerification.sendVerificationEmail = (...args) => {
-              const delivery = sendVerificationEmail(...args);
-              if (delivery instanceof Promise) deliveries.add(delivery);
-              return delivery;
-            };
-          }
-          const changeEmail = ctx.options.user?.changeEmail;
-          const sendChangeEmailConfirmation =
-            changeEmail?.sendChangeEmailConfirmation;
-          if (changeEmail && sendChangeEmailConfirmation) {
-            changeEmail.sendChangeEmailConfirmation = (...args) => {
-              const delivery = sendChangeEmailConfirmation(...args);
-              if (delivery instanceof Promise) deliveries.add(delivery);
-              return delivery;
-            };
-          }
-          if (!sendVerificationEmail && !sendChangeEmailConfirmation) return;
-          const passwordOptions = ctx.options.emailAndPassword;
-          const onExistingUserSignUp = passwordOptions?.onExistingUserSignUp;
-          if (passwordOptions && onExistingUserSignUp) {
-            passwordOptions.onExistingUserSignUp = (...args) => {
-              const delivery = onExistingUserSignUp(...args);
-              deliveries.add(delivery);
-              return delivery;
-            };
-          }
-          const runInBackgroundOrAwait = ctx.runInBackgroundOrAwait.bind(ctx);
-          return {
-            context: {
-              runInBackgroundOrAwait(task) {
-                // Better Auth swallows even awaited task errors; verification
-                // must fail the request before the UI can claim mail was sent.
-                if (task instanceof Promise && deliveries.has(task))
-                  return task;
-                return runInBackgroundOrAwait(task);
-              },
-            },
-          };
-        },
+        init: trackAuthEmailDeliveries,
       },
     ],
   });
