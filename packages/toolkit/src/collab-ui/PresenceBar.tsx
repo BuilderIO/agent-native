@@ -81,7 +81,13 @@ function injectStyles() {
   styleInjected = true;
 }
 
-function UserAvatarImage({ url, initial }: { url?: string; initial: string }) {
+function UserAvatarImage({
+  url,
+  initial,
+}: {
+  url: string | undefined;
+  initial: string;
+}) {
   const [failed, setFailed] = useState(false);
 
   if (!url || failed) return initial;
