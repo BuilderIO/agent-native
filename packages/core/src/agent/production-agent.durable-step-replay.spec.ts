@@ -226,6 +226,7 @@ describe("late outcome error reporting", () => {
     "private",
     "aborted",
     "aborted-after-write",
+    "read-only-post-abort",
     "stop",
     "stop-after-write",
     "validation",
@@ -260,6 +261,8 @@ describe("late outcome error reporting", () => {
       const runStore = await import("./run-store.js");
       const lateWrite = vi.mocked(runStore.recordLateAgentExecutionStepOutcome);
       lateWrite.mockReset();
+      const markUnknown = vi.mocked(runStore.markAgentExecutionStepUnknown);
+      markUnknown.mockClear();
       const persistenceError = Object.assign(
         new Error("password authentication failed for user example"),
         { code: "28P01" },
@@ -299,6 +302,20 @@ describe("late outcome error reporting", () => {
         schema: z.object({ required: z.number(), payload: z.string() }),
         readOnly: true,
         run: async () => "ok",
+      });
+      if (outcome === "read-only-post-abort") {
+        vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok"));
+      }
+      const readOnlyPostAction = defineAction({
+        description: "Read a deck using POST",
+        schema: z.object({}),
+        readOnly: true,
+        run: async () => {
+          await fetch("https://example.com/query", { method: "POST" });
+          actionStarted.resolve();
+          await actionResult.promise;
+          throw new DOMException("Action aborted", "AbortError");
+        },
       });
       const parentAction = defineAction({
         description: "Create a deck and validate nested input",
@@ -371,32 +388,34 @@ describe("late outcome error reporting", () => {
               "create-deck":
                 outcome === "output-contract"
                   ? outputAction
-                  : outcome === "nested-validation-after-write" ||
-                      outcome === "nested-validation-no-write" ||
-                      outcome === "setup-after-write" ||
-                      outcome === "aborted-after-write" ||
-                      outcome === "stop-after-write" ||
-                      outcome === "post-write-contract" ||
-                      outcome === "post-write-503"
-                    ? parentAction
-                    : {
-                        tool: {
-                          description: "Create a deck",
-                          parameters: { type: "object", properties: {} },
+                  : outcome === "read-only-post-abort"
+                    ? readOnlyPostAction
+                    : outcome === "nested-validation-after-write" ||
+                        outcome === "nested-validation-no-write" ||
+                        outcome === "setup-after-write" ||
+                        outcome === "aborted-after-write" ||
+                        outcome === "stop-after-write" ||
+                        outcome === "post-write-contract" ||
+                        outcome === "post-write-503"
+                      ? parentAction
+                      : {
+                          tool: {
+                            description: "Create a deck",
+                            parameters: { type: "object", properties: {} },
+                          },
+                          readOnly: false,
+                          ...(outcome === "unexpected-timeout"
+                            ? { timeoutMs: 10 }
+                            : {}),
+                          ...(outcome === "private" ||
+                          outcome === "private-persistence-fails"
+                            ? { persistInChatHistory: false }
+                            : {}),
+                          run: () => {
+                            actionStarted.resolve();
+                            return actionResult.promise;
+                          },
                         },
-                        readOnly: false,
-                        ...(outcome === "unexpected-timeout"
-                          ? { timeoutMs: 10 }
-                          : {}),
-                        ...(outcome === "private" ||
-                        outcome === "private-persistence-fails"
-                          ? { persistInChatHistory: false }
-                          : {}),
-                        run: () => {
-                          actionStarted.resolve();
-                          return actionResult.promise;
-                        },
-                      },
             },
             threadId: fence.threadId,
             turnId: fence.turnId,
@@ -420,6 +439,7 @@ describe("late outcome error reporting", () => {
           outcome === "nested-validation-after-write" ||
           outcome === "setup-after-write" ||
           outcome === "aborted-after-write" ||
+          outcome === "read-only-post-abort" ||
           outcome === "stop-after-write" ||
           outcome === "post-write-contract" ||
           outcome === "post-write-503"
@@ -480,12 +500,17 @@ describe("late outcome error reporting", () => {
         }
       } else {
         expect(lateWrite).not.toHaveBeenCalled();
+        if (outcome === "read-only-post-abort") {
+          expect(markUnknown).toHaveBeenCalledOnce();
+        }
         if (
           outcome === "validation" ||
           outcome === "contract" ||
           outcome === "setup-required" ||
           outcome === "nested-validation-no-write" ||
           outcome === "aborted" ||
+          outcome === "aborted-after-write" ||
+          outcome === "read-only-post-abort" ||
           outcome === "stop"
         ) {
           expect(capture).not.toHaveBeenCalled();
