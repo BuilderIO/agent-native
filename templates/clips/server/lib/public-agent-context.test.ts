@@ -1353,6 +1353,46 @@ describe("loadRecordingMediaBytes", () => {
     }
   });
 
+  it.each(["remote", "local"])(
+    "admits another small %s download while a completed file is held",
+    async (source) => {
+      const reserve = 128 * 1024 * 1024;
+      const available = 1024 * 1024;
+      const bytes = Buffer.alloc(4096, 1);
+      process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES = String(available);
+      process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = String(available);
+      mockStatfs.mockResolvedValueOnce({
+        bsize: 1,
+        bavail: reserve + available,
+      });
+      mockSsrfSafeFetch.mockImplementation(async () => new Response(bytes));
+      mockAppStateGet.mockResolvedValue({ data: bytes.toString("base64") });
+      const recording = makeRecording({
+        videoFormat: "mp4",
+        ...(source === "local" ? { videoUrl: "/api/video/synthetic" } : {}),
+      }) as PublicAgentRecording;
+      const first = await loadRecordingMediaFile(recording);
+      let second:
+        | Awaited<ReturnType<typeof loadRecordingMediaFile>>
+        | undefined;
+      try {
+        const allocated = (await stat(first.path)).blocks * 512;
+        expect(allocated).toBeGreaterThan(0);
+        expect(allocated + bytes.length).toBeLessThan(available);
+        mockStatfs.mockResolvedValueOnce({
+          bsize: 1,
+          bavail: reserve + available - allocated,
+        });
+        second = await loadRecordingMediaFile(recording);
+        expect(await readFile(first.path)).toEqual(bytes);
+        expect(await readFile(second.path)).toEqual(bytes);
+      } finally {
+        await second?.cleanup();
+        await first.cleanup();
+      }
+    },
+  );
+
   it("keeps a conservative reservation when a file grows during statfs", async () => {
     process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES = "8192";
     const reserve = 128 * 1024 * 1024;

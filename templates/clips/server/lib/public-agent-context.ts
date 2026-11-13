@@ -243,6 +243,7 @@ async function acquireAgentFrameMediaFileAdmission(
   maxBytes: number;
   release: () => void;
   recordAllocation: (blocks: number) => void;
+  finishDownload: () => void;
 } | null> {
   await Promise.allSettled(
     [...pendingAgentFrameCleanups].map((cleanup) => cleanup()),
@@ -305,6 +306,10 @@ async function acquireAgentFrameMediaFileAdmission(
           throw new Error("Recording temporary file allocation is invalid.");
         }
         entry.allocated = Math.min(budget, bytes);
+      },
+      finishDownload: () => {
+        // Older statfs snapshots retain the pre-close growth reservation.
+        entry.budget = entry.allocated;
       },
       release: () => {
         agentFrameFileReservations.delete(reservation);
@@ -1607,6 +1612,7 @@ export async function loadRecordingMediaFile(
       );
       await writeFile(path, media.bytes);
       admission.recordAllocation((await stat(path)).blocks);
+      admission.finishDownload();
       return { path, mimeType: media.mimeType, cleanup };
     }
 
@@ -1621,6 +1627,7 @@ export async function loadRecordingMediaFile(
       maxFileBytes,
       admission.recordAllocation,
     );
+    admission.finishDownload();
     return {
       path,
       mimeType: pickSourceMimeType(
