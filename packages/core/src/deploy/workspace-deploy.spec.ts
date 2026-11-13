@@ -10,6 +10,7 @@ import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
+import { WORKSPACE_DEPLOY_BUILD_ENV } from "../cli/process.js";
 import { addVercelSweepCron } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 import {
@@ -249,6 +250,26 @@ afterEach(() => {
 });
 
 describe("workspace deploy", () => {
+  it("reports its progress and keeps app builds from reporting for themselves", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    const progress: Array<{ step: string; preset?: string }> = [];
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+      onProgress: (update) => progress.push(update),
+    });
+
+    expect(progress).toEqual([
+      { step: "build", preset: "netlify" },
+      { step: "package" },
+    ]);
+    expect(buildCallForApp("dispatch")?.env).toMatchObject({
+      [WORKSPACE_DEPLOY_BUILD_ENV]: "1",
+    });
+  });
+
   it("preserves an explicitly configured hosted feedback URL", async () => {
     process.env.VITE_AGENT_NATIVE_FEEDBACK_URL =
       "https://feedback.example.com/f/workspace/form-id";
@@ -2387,14 +2408,21 @@ describe("buildStart", () => {
     });
   });
 
-  it("starts a quoted line through a shell on Windows", () => {
+  it("starts a line through a shell on Windows, arguments quoted", () => {
     expect(
       buildStart("pnpm", ["--filter", "my app", "build"], "win32"),
     ).toEqual({
-      command: '"pnpm" "--filter" "my app" "build"',
+      command: 'pnpm "--filter" "my app" "build"',
       args: [],
       shell: true,
     });
+  });
+
+  it("quotes a command path on Windows", () => {
+    expect(
+      buildStart("C:\\Program Files\\nodejs\\node.exe", ["-v"], "win32")
+        .command,
+    ).toBe('"C:\\Program Files\\nodejs\\node.exe" "-v"');
   });
 });
 

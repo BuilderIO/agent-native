@@ -46,6 +46,7 @@ import {
   startOfMonth,
   type DatabaseFilter,
 } from "./DatabaseView";
+import { databaseRowOpenTarget } from "./row-open-target";
 
 export function DatabaseTimelineView({
   databaseId,
@@ -171,7 +172,7 @@ export function DatabaseTimelineView({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                <DropdownMenuLabel className="text-muted-foreground">
                   {dbText("startDate")}
                 </DropdownMenuLabel>
                 {dateProperties.map((property) => {
@@ -215,7 +216,7 @@ export function DatabaseTimelineView({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                <DropdownMenuLabel className="text-muted-foreground">
                   {dbText("endDate")}
                 </DropdownMenuLabel>
                 <DropdownMenuItem
@@ -483,6 +484,7 @@ function DatabaseTimelineCard({
   return (
     <div
       className="group/card cursor-pointer rounded-md border border-border bg-background px-2 py-2 text-xs shadow-sm transition-colors hover:bg-accent/60"
+      {...databaseRowOpenTarget(item.document.id)}
       onClick={openDatabaseItemOnClick(onPreview)}
     >
       <div className="flex min-w-0 items-start gap-1">
@@ -490,6 +492,7 @@ function DatabaseTimelineCard({
           <button
             type="button"
             className="flex min-w-0 items-center gap-1.5 rounded text-left font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            {...databaseRowOpenTarget(item.document.id)}
             onClick={onPreview}
           >
             <DatabaseItemPageIcon

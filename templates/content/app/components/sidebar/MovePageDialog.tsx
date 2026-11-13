@@ -1,6 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import type { ContentDatabaseNavigationPageResponse } from "@shared/api";
 import {
   IconAlertTriangle,
   IconChevronDown,
@@ -26,7 +25,10 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { filesNavigationPageParams } from "@/lib/files-navigation";
+import {
+  filesNavigationPageParams,
+  useFilesNavigationPage,
+} from "@/lib/files-navigation";
 
 import { SidebarRowIcon } from "./SidebarNavigationRow";
 
@@ -92,12 +94,12 @@ export function MovePageDialog({
   const crossSpace = Boolean(space && page && space.id !== page.spaceId);
   const open = page !== null && space !== null;
 
-  const roots = useActionQuery(
-    "query-content-database-items",
+  const roots = useFilesNavigationPage(
     filesNavigationPageParams({
       databaseId: space?.filesDatabaseId ?? "",
       parentId: null,
     }),
+    undefined,
     { enabled: open && query === "" },
   );
   const results = useActionQuery(
@@ -115,10 +117,7 @@ export function MovePageDialog({
 
   const destinations: Destination[] =
     query === ""
-      ? (
-          (roots.data as ContentDatabaseNavigationPageResponse | undefined)
-            ?.items ?? []
-        )
+      ? (roots.data && !("available" in roots.data) ? roots.data.items : [])
           .filter((item) => item.type === "page")
           .map((item) => ({
             id: item.documentId,

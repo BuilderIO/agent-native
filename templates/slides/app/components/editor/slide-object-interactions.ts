@@ -1491,7 +1491,7 @@ function inlineValuePaints(
     style.setProperty(property, value, "important");
     return computed.getPropertyValue(property) === plain;
   } finally {
-    style.setProperty(property, ...kept);
+    writeInlineStyleDeclaration(element, property, ...kept);
     // Settled before `transition` returns: put back together, they would start
     // a transition from the probe's value.
     computed.getPropertyValue(property);
@@ -1676,8 +1676,17 @@ function writeInlineStyleDeclaration(
   value: string,
   priority: string,
 ): void {
-  if (value) element.style.setProperty(property, value, priority);
-  else element.style.removeProperty(property);
+  const { style } = element;
+  const wasImportant = style.getPropertyPriority(property) === "important";
+  if (!value) {
+    style.removeProperty(property);
+    return;
+  }
+  style.setProperty(property, value, priority);
+  // Chrome 157 keeps an !important inline declaration rewritten in place as a
+  // plain one winning over a stylesheet !important rule. Reparsing the style
+  // re-cascades it; removing and re-adding would reorder the saved HTML.
+  if (wasImportant && priority !== "important") style.cssText = style.cssText;
 }
 
 function restoreTemporaryInlineStyleOverride(

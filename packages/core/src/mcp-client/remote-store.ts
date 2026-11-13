@@ -701,6 +701,7 @@ export function toHttpServerConfig(
   return {
     type: "http",
     url: stored.url,
+    secretRequestOrigin: new URL(stored.url).origin,
     headers: stored.headers,
     ...(stored.firstParty ? { firstParty: true } : {}),
     ...(stored.firstPartyAppId
@@ -744,6 +745,7 @@ export async function toHttpServerConfigAsync(
   return {
     type: "http",
     url: stored.url,
+    secretRequestOrigin: new URL(stored.url).origin,
     headers,
     ...(oauthAccessRefresh ? { oauthAccessRefresh } : {}),
     ...(stored.firstParty ? { firstParty: true } : {}),

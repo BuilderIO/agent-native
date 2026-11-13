@@ -14,9 +14,14 @@ const mocks = vi.hoisted(() => ({
   activeRunIds: [] as string[],
   runs: {} as Record<string, { status: string }>,
   cancel: vi.fn(async () => undefined),
+  requestComposerFocus: vi.fn(),
 }));
 
 vi.mock("./context.js", () => ({
+  useAgentKit: () => ({
+    requestComposerFocus: mocks.requestComposerFocus,
+    threadId: "thread-1",
+  }),
   useAgentThread: () => ({
     activeRunIds: mocks.activeRunIds,
     runs: mocks.runs,
@@ -48,6 +53,7 @@ describe("useAgentKitStopButton", () => {
     mocks.cancel.mockReset();
     mocks.cancel.mockResolvedValue(undefined);
     onError.mockClear();
+    mocks.requestComposerFocus.mockClear();
     beforeCancel = undefined;
   });
 
@@ -75,7 +81,7 @@ describe("useAgentKitStopButton", () => {
     );
   });
 
-  it("steps down to secondary only while Send sits beside it", async () => {
+  it("steps down to secondary only while End voice chat sits beside it", async () => {
     mocks.activeRunIds = ["run-1"];
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -247,6 +253,40 @@ describe("useAgentKitStopButton", () => {
     await act(async () => button()!.click());
     expect(mocks.cancel).toHaveBeenLastCalledWith("run-2");
     await act(async () => cancelled.resolve(undefined));
+  });
+
+  it.each([
+    ["keyboard", 0, 1],
+    ["pointer", 1, 0],
+  ] as const)(
+    "after a %s stop, hands focus to the composer only for the keyboard",
+    async (_input, detail, focusCalls) => {
+      mocks.activeRunIds = ["run-1"];
+      await render();
+      await act(async () => {
+        container
+          .querySelector('[data-agent-composer-slot="stop-button"]')
+          ?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail }));
+      });
+      mocks.activeRunIds = [];
+      await act(async () => root.render(<Harness />));
+      expect(container.querySelector("button")).toBeNull();
+      expect(mocks.requestComposerFocus).toHaveBeenCalledTimes(focusCalls);
+    },
+  );
+
+  it("leaves focus alone when beforeCancel keeps the run going", async () => {
+    mocks.activeRunIds = ["run-1"];
+    beforeCancel = () => false;
+    await render();
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
+    });
+    mocks.activeRunIds = [];
+    await act(async () => root.render(<Harness />));
+    expect(mocks.requestComposerFocus).not.toHaveBeenCalled();
   });
 
   it("hides Stop once every retained run is terminal", async () => {

@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core/action";
 import type { CredentialContext } from "@agent-native/core/credentials";
 import { resolveCredential } from "@agent-native/core/credentials";
 import {
@@ -7,6 +8,7 @@ import {
 import type { MissingKeyResponse } from "@agent-native/core/server";
 
 import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract";
+import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import { getUserSegmentation, queryEvents } from "./amplitude";
 import { runQuery } from "./bigquery";
 import { runDemoPanel, serializeDemoDescriptorInput } from "./demo-source";
@@ -349,11 +351,14 @@ function flattenAmplitudeResponse(
  * program author's) — the security-load-bearing choice for shared
  * dashboards. Errors carry a structured `code: message` shape so the
  * existing panel error card surfaces something actionable, and a stale
- * `lastGoodRun` is preferred over a broken panel whenever one exists.
+ * `lastGoodRun` is preferred over a broken panel whenever one exists. Rows
+ * carry the time their run finished, so the panel's clock says how old a
+ * cached or stale result is.
  */
 async function runProgramPanel(
   raw: string,
   ctx: CredentialContext,
+  forceRefresh?: boolean,
 ): Promise<DashboardPanelQueryResult> {
   const descriptor = parseProgramDescriptor(raw);
   const result = await runDataProgram({
@@ -368,6 +373,7 @@ async function runProgramPanel(
         : {}),
     },
     triggeredBy: "panel_view",
+    ...(forceRefresh ? { forceRefresh: true } : {}),
   });
 
   if (result.ok) {
@@ -375,6 +381,8 @@ async function runProgramPanel(
       rows: result.rows,
       schema: result.schema,
       truncated: result.truncated,
+      cached: result.cacheHit,
+      fetchedAt: new Date(result.asOfMs).toISOString(),
     };
   }
 
@@ -383,20 +391,27 @@ async function runProgramPanel(
       rows: result.lastGoodRun.rows,
       schema: result.lastGoodRun.schema,
       truncated: result.lastGoodRun.truncated,
+      cached: true,
+      fetchedAt: new Date(result.lastGoodRun.asOfMs).toISOString(),
     };
   }
 
+  // A sandbox_error message can carry server detail, so the panel gets a
+  // fixed one. A program_error message is what the program's own code threw.
   const friendlyMessages: Partial<Record<string, string>> = {
     access_denied: "You don't have access to this data program",
     archived: "This data program was archived",
     background_pending:
       "This data program is still computing — check back shortly",
+    sandbox_error: "This data program couldn't run. Try again.",
   };
   const friendly = friendlyMessages[result.error.code];
-  throw new Error(
+  // Typed, so the panel shows the message instead of a bare server error.
+  fail(
     friendly
       ? `${result.error.code}: ${friendly}`
       : `${result.error.code}: ${result.error.message}`,
+    { errorCode: `data_program_${result.error.code}`, statusCode: 422 },
   );
 }
 
@@ -409,6 +424,8 @@ export async function runDashboardPanelQuery(args: {
   signal?: AbortSignal;
   /** Billed-byte cap for warehouse-backed sources; the others ignore it. */
   maxBytesBilled?: number;
+  /** First-party panels only; the other sources have no traffic to filter. */
+  trafficEnvironment?: TrafficEnvironment;
 }): Promise<
   DashboardPanelQueryResult | MissingKeyResponse | UnsupportedBackendResponse
 > {
@@ -420,6 +437,7 @@ export async function runDashboardPanelQuery(args: {
     forceRefresh,
     signal,
     maxBytesBilled,
+    trafficEnvironment,
   } = args;
 
   if (source === "bigquery") {
@@ -481,8 +499,10 @@ export async function runDashboardPanelQuery(args: {
         },
         {
           cache: true,
+          ...(signal ? { signal } : {}),
           ...(timeoutMs !== undefined ? { timeoutMs } : {}),
           ...(maxBytesBilled !== undefined ? { maxBytesBilled } : {}),
+          ...(trafficEnvironment ? { trafficEnvironment } : {}),
         },
       );
     } catch (error) {
@@ -520,7 +540,7 @@ export async function runDashboardPanelQuery(args: {
   }
 
   if (source === "program") {
-    return await runProgramPanel(query, ctx);
+    return await runProgramPanel(query, ctx, forceRefresh);
   }
 
   throw new Error("Unsupported source");

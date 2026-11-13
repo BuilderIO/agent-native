@@ -1,0 +1,331 @@
+// oracle-change(templates/design/app/components/design/DesignImportPanel.test.ts): the Import panel is deleted; File → Import is covered here.
+// oracle-change(templates/design/app/components/design/DesignImportPanel.home-import.test.tsx): the panel's page picker, sources and home handoff are gone; the whole-file import and refusals are covered here and in HomeImportButton.test.tsx.
+// oracle-change(templates/design/app/lib/pending-import.test.ts): parking a decoded .fig for a remounted panel is deleted with the panel.
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const toastMock = vi.hoisted(() => ({
+  loading: vi.fn(),
+  success: vi.fn(),
+  warning: vi.fn(),
+  error: vi.fn(),
+  dismiss: vi.fn(),
+}));
+vi.mock("sonner", () => ({ toast: toastMock }));
+vi.mock("@agent-native/core/client/hooks", () => ({ callAction: vi.fn() }));
+
+import type { ImportResult } from "@/lib/design-import";
+import type { PreparedFigImport } from "@/lib/fig-client-import";
+import { FIG_IMPORT_TOAST_ID } from "@/lib/pending-import";
+
+import { BROWSER_FIG_LIMITS } from "../../../../server/lib/fig-file-limits.js";
+import {
+  runImportDesignFile,
+  type ImportDesignFileArgs,
+  type ImportDesignFileDeps,
+} from "./import-design-file";
+
+const t = (key: string) => key;
+
+/** A bare fig-kiwi file whose document chunk declares `documentBytes`. */
+function kiwiFile(documentBytes: number): File {
+  const document = new Uint8Array(17);
+  document.set([0x28, 0xb5, 0x2f, 0xfd, 0xe0], 0);
+  new DataView(document.buffer).setBigUint64(5, BigInt(documentBytes), true);
+  const schema = new Uint8Array([1, 2, 3, 4]);
+  const bytes = new Uint8Array(12 + 4 + schema.length + 4 + document.length);
+  const view = new DataView(bytes.buffer);
+  bytes.set(new TextEncoder().encode("fig-kiwi"), 0);
+  view.setUint32(8, 48, true);
+  view.setUint32(12, schema.length, true);
+  bytes.set(schema, 16);
+  view.setUint32(16 + schema.length, document.length, true);
+  bytes.set(document, 20 + schema.length);
+  return new File([bytes], "Brand.fig");
+}
+
+function prepared(frameCount: number): PreparedFigImport {
+  return {
+    file: kiwiFile(1024),
+    summary: {
+      pageCount: 3,
+      frameCount,
+      nodeCount: 10,
+      imageCount: 0,
+      pages: [],
+    },
+    render: vi.fn(),
+    dispose: vi.fn(),
+  };
+}
+
+function workerCrash() {
+  return Object.assign(
+    new Error("The .fig import worker failed: out of memory."),
+    { workerFailed: true },
+  );
+}
+
+const imported: ImportResult = {
+  designId: "design-1",
+  files: [
+    { id: "f1", filename: "a.html" },
+    { id: "f2", filename: "b.html" },
+  ],
+};
+
+function setup(overrides: Partial<ImportDesignFileDeps> = {}) {
+  const deps = {
+    prepareFigImport: vi.fn(async () => prepared(24)),
+    importFigInBrowser: vi.fn(async () => imported),
+    uploadDesignFile: vi.fn(async () => imported),
+    importHtml: vi.fn(async () => imported),
+    isUploadStorageConfigured: vi.fn(async () => true),
+    ...overrides,
+  };
+  const onImported = vi.fn(async () => {});
+  const onRetry = vi.fn();
+  const args = (file: File): ImportDesignFileArgs => ({
+    designId: "design-1",
+    file,
+    t,
+    formatNumber: String,
+    formatList: (items) => items.join(", "),
+    onImported,
+    onRetry,
+    deps,
+  });
+  return { deps, onImported, onRetry, args };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe("runImportDesignFile", () => {
+  it("imports every page of a .fig with no selection step", async () => {
+    const { deps, onImported, args } = setup();
+    const file = kiwiFile(40 * 1024 * 1024);
+
+    const running = runImportDesignFile(args(file));
+    expect(toastMock.loading).toHaveBeenCalledWith(
+      "designEditor.import.figImportAnalyzing",
+      { id: FIG_IMPORT_TOAST_ID, description: "Brand.fig" },
+    );
+    await expect(running).resolves.toEqual({
+      status: "imported",
+      result: imported,
+    });
+
+    expect(deps.prepareFigImport).toHaveBeenCalledWith(file);
+    const options = vi.mocked(deps.importFigInBrowser).mock.calls[0]![0];
+    expect(options).toMatchObject({ designId: "design-1", file });
+    expect(options).not.toHaveProperty("selection");
+    expect(onImported).toHaveBeenCalledWith(imported);
+    expect(toastMock.success).toHaveBeenCalledWith("Imported 2 screens.", {
+      id: FIG_IMPORT_TOAST_ID,
+      description: "Brand.fig",
+    });
+  });
+
+  it("refuses an oversized .fig before decoding it and suggests a link", async () => {
+    const { deps, onImported, args } = setup();
+
+    await expect(
+      runImportDesignFile(args(kiwiFile(600 * 1024 * 1024))),
+    ).resolves.toEqual({ status: "refused", reason: "too-large" });
+
+    expect(deps.prepareFigImport).not.toHaveBeenCalled();
+    expect(deps.uploadDesignFile).not.toHaveBeenCalled();
+    expect(onImported).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.importFailed",
+      {
+        id: FIG_IMPORT_TOAST_ID,
+        description: "designEditor.import.errors.figFileTooLarge",
+      },
+    );
+  });
+
+  it("refuses a whole file with more frames than the limit instead of importing part of it", async () => {
+    const tooMany = prepared(BROWSER_FIG_LIMITS.frames + 1);
+    const { deps, args } = setup({
+      prepareFigImport: vi.fn(async () => tooMany),
+    });
+
+    await expect(runImportDesignFile(args(kiwiFile(1024)))).resolves.toEqual({
+      status: "refused",
+      reason: "too-large",
+    });
+
+    expect(tooMany.dispose).toHaveBeenCalledOnce();
+    expect(deps.importFigInBrowser).not.toHaveBeenCalled();
+    expect(deps.uploadDesignFile).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.importFailed",
+      expect.objectContaining({
+        description: "designEditor.import.errors.figFileTooLarge",
+      }),
+    );
+  });
+
+  it("refuses a file it cannot read as a .fig before decoding it, with no retry", async () => {
+    const { deps, onRetry, args } = setup();
+
+    await expect(
+      runImportDesignFile(args(new File(["not a fig"], "Broken.fig"))),
+    ).resolves.toEqual({ status: "refused", reason: "unreadable" });
+
+    expect(deps.prepareFigImport).not.toHaveBeenCalled();
+    expect(deps.uploadDesignFile).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.importFailed",
+      {
+        id: FIG_IMPORT_TOAST_ID,
+        description: "designEditor.import.errors.figFileUnreadable",
+      },
+    );
+    expect(onRetry).not.toHaveBeenCalled();
+  });
+
+  it("imports a file the home page already decoded without decoding it again", async () => {
+    const { deps, args } = setup();
+    const ready = prepared(24);
+    const file = kiwiFile(1024);
+
+    await expect(
+      runImportDesignFile({ ...args(file), prepared: ready }),
+    ).resolves.toMatchObject({ status: "imported" });
+
+    expect(deps.prepareFigImport).not.toHaveBeenCalled();
+    expect(vi.mocked(deps.importFigInBrowser).mock.calls[0]?.[0]).toMatchObject(
+      { prepared: ready },
+    );
+  });
+
+  it("offers no retry after a failure that already saved part of the file", async () => {
+    const partial = Object.assign(
+      new Error(
+        "Saving failed. Cleanup failed for 3 partially imported screens.",
+      ),
+      { remoteMutationStarted: true },
+    );
+    const { deps, args } = setup({
+      importFigInBrowser: vi.fn(async () => {
+        throw partial;
+      }),
+    });
+
+    await expect(runImportDesignFile(args(kiwiFile(1024)))).resolves.toEqual({
+      status: "failed",
+      error: partial,
+    });
+
+    expect(deps.uploadDesignFile).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.importFailed",
+      { id: FIG_IMPORT_TOAST_ID, description: partial.message },
+    );
+  });
+
+  it("falls back to the upload route when the decode worker crashes on a small file", async () => {
+    const { deps, args } = setup({
+      prepareFigImport: vi.fn(async () => {
+        throw workerCrash();
+      }),
+    });
+
+    await expect(
+      runImportDesignFile(args(kiwiFile(1024))),
+    ).resolves.toMatchObject({ status: "imported" });
+    expect(deps.uploadDesignFile).toHaveBeenCalledOnce();
+  });
+
+  it("offers no retry when the upload fallback fails, since it may have saved screens", async () => {
+    const { deps, args } = setup({
+      prepareFigImport: vi.fn(async () => {
+        throw workerCrash();
+      }),
+      uploadDesignFile: vi.fn(async () => {
+        throw new Error("Seeding collaboration failed");
+      }),
+    });
+
+    await expect(
+      runImportDesignFile(args(kiwiFile(1024))),
+    ).resolves.toMatchObject({ status: "failed" });
+    expect(deps.uploadDesignFile).toHaveBeenCalledOnce();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.importFailed",
+      { id: FIG_IMPORT_TOAST_ID, description: "Seeding collaboration failed" },
+    );
+  });
+
+  it("does not upload a file the decoder rejected, since the server runs the same decoder", async () => {
+    const { deps, onRetry, args } = setup({
+      prepareFigImport: vi.fn(async () => {
+        throw new Error("Invalid Zstandard frame");
+      }),
+    });
+
+    await expect(
+      runImportDesignFile(args(kiwiFile(1024))),
+    ).resolves.toMatchObject({ status: "failed" });
+    expect(deps.uploadDesignFile).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.importFailed",
+      {
+        id: FIG_IMPORT_TOAST_ID,
+        description: "Invalid Zstandard frame",
+        action: { label: "homeContext.retry", onClick: onRetry },
+      },
+    );
+  });
+
+  it("reports a worker crash with a retry when no upload fallback is available", async () => {
+    const { deps, onRetry, args } = setup({
+      prepareFigImport: vi.fn(async () => {
+        throw workerCrash();
+      }),
+      isUploadStorageConfigured: vi.fn(async () => false),
+    });
+
+    await expect(
+      runImportDesignFile(args(kiwiFile(1024))),
+    ).resolves.toMatchObject({ status: "failed" });
+    expect(deps.uploadDesignFile).not.toHaveBeenCalled();
+    expect(toastMock.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.importFailed",
+      {
+        id: FIG_IMPORT_TOAST_ID,
+        description: "The .fig import worker failed: out of memory.",
+        action: { label: "homeContext.retry", onClick: onRetry },
+      },
+    );
+  });
+
+  it("imports a standalone HTML file", async () => {
+    const { deps, onImported, args } = setup();
+    const file = new File(["<main>Hello</main>"], "page.html");
+
+    await expect(runImportDesignFile(args(file))).resolves.toMatchObject({
+      status: "imported",
+    });
+    expect(deps.importHtml).toHaveBeenCalledWith({
+      designId: "design-1",
+      content: "<main>Hello</main>",
+      originalName: "page.html",
+    });
+    expect(onImported).toHaveBeenCalledWith(imported);
+    expect(deps.prepareFigImport).not.toHaveBeenCalled();
+  });
+
+  it("refuses other file types without starting an import", async () => {
+    const { deps, args } = setup();
+
+    await expect(
+      runImportDesignFile(args(new File(["x"], "notes.txt"))),
+    ).resolves.toEqual({ status: "refused", reason: "unsupported" });
+    expect(toastMock.loading).not.toHaveBeenCalled();
+    expect(deps.importHtml).not.toHaveBeenCalled();
+  });
+});

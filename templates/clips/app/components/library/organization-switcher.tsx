@@ -76,7 +76,7 @@ export function OrganizationSwitcher({ className }: OrganizationSwitcherProps) {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64">
-          <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          <DropdownMenuLabel className="uppercase tracking-wide text-muted-foreground">
             {t("organizationSwitcher.organizations")}
           </DropdownMenuLabel>
           {orgs.length === 0 && (

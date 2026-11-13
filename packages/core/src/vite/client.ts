@@ -24,6 +24,7 @@ import {
 import {
   DEV_SERVER_RECOVERY_EXIT_CODE,
   DEV_SERVER_SUPERVISOR_ENV,
+  markDevServerReady,
 } from "../cli/process.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
 import {
@@ -50,7 +51,10 @@ import {
 import { validateEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { resolveEmbedSessionTokenForOrigin } from "../server/embed-session.js";
 import { getForwardedRequestOriginFromHeaders } from "../server/request-origin.js";
-import { resolveAgentNativeBuildId } from "../shared/build-id.js";
+import {
+  resolveAgentNativeBuildId,
+  resolveAgentNativeCommitSha,
+} from "../shared/build-id.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
@@ -91,10 +95,12 @@ import {
   readAgentNativeJsonConfig,
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
+  resolveRequiredEnvBuildReplacement,
   writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { boundedTaskSourcePlugin } from "./bounded-task-plugin.js";
+import { browserChunkNamesPlugin } from "./browser-chunk-names-plugin.js";
 import { migrationDiagnosticPlugin } from "./migration-diagnostic-plugin.js";
 import { motionSourceProvenancePlugin } from "./motion-source-provenance-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
@@ -1146,6 +1152,25 @@ const CORE_CLIENT_SUBPATHS = [
 const disableDepSourcemapsPlugin: Plugin = {
   name: "agent-native:no-dep-prebundle-sourcemaps",
   outputOptions: (options) => ({ ...options, sourcemap: false }),
+};
+
+const disableServedDepSourcemapsPlugin: Plugin = {
+  name: "agent-native:no-served-dep-sourcemaps",
+  apply: "serve",
+  enforce: "post",
+  transform(code, id) {
+    if (
+      process.env.AGENT_NATIVE_DEP_SOURCEMAPS === "1" ||
+      this.environment.name !== "client" ||
+      this.environment.mode !== "dev" ||
+      !this.environment.depsOptimizer?.isOptimizedDepFile(id)
+    ) {
+      return;
+    }
+    // Vite injects an identity map when no map is present. It only takes the
+    // transformed map when the code changes, so add a trailing newline.
+    return { code: `${code}\n`, map: { mappings: "" } };
+  },
 };
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
@@ -3056,6 +3081,7 @@ function portExposer(): Plugin {
       server.httpServer?.once("listening", () => {
         const addr = server.httpServer?.address();
         if (addr && typeof addr === "object" && addr.port) {
+          markDevServerReady();
           process.env.PORT = String(addr.port); // guard:allow-env-mutation — Vite dev server port published once at boot before any request
         }
       });
@@ -4713,6 +4739,7 @@ function createAgentNativePlugins(
   return [
     migrationDiagnosticPlugin(),
     motionSourceProvenancePlugin(),
+    browserChunkNamesPlugin(),
     persistent5xxRecovery(),
     presetMarkerPlugin,
     ssrStubPlugin([
@@ -4725,6 +4752,7 @@ function createAgentNativePlugins(
     clientOptionalPeerStubPlugin(cwd),
     ...userPlugins,
     externalStoreShimPlugin(),
+    disableServedDepSourcemapsPlugin,
     appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
@@ -4877,14 +4905,17 @@ function createAgentNativeConfig(
     runtimeEnv,
   );
   const harnessMode = resolveHarnessBuildReplacement(resolvedAppConfig);
+  const requiredEnv = resolveRequiredEnvBuildReplacement(resolvedAppConfig);
   if (command === "build") {
     writeAgentNativeBuildConfigMarker(cwd, {
       firstRunOnboarding: firstRunOnboardingMode,
       harness: harnessMode,
+      requiredEnv,
     });
   }
   const firstRunOnboardingBuildMode = JSON.stringify(firstRunOnboardingMode);
   const harnessBuildMode = JSON.stringify(harnessMode);
+  const requiredEnvBuildValue = JSON.stringify(requiredEnv);
   const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
   const frameworkRoutePrefix =
@@ -4975,6 +5006,7 @@ function createAgentNativeConfig(
         "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
           firstRunOnboardingBuildMode,
         "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
+        "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": requiredEnvBuildValue,
       },
     },
     logLevel:
@@ -4987,6 +5019,9 @@ function createAgentNativeConfig(
       ...(userConfig.define ?? {}),
       ...(options.define ?? {}),
       __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
+      __AGENT_NATIVE_COMMIT_SHA__: JSON.stringify(
+        resolveAgentNativeCommitSha(process.env),
+      ),
       __AGENT_NATIVE_PACKAGE_VERSIONS__: JSON.stringify(packageVersions),
       __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
         options.clientCompatibilityVersion?.trim() || "",
@@ -5022,6 +5057,7 @@ function createAgentNativeConfig(
       "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
         firstRunOnboardingBuildMode,
       "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
+      "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": requiredEnvBuildValue,
       ...(resolvedAppConfig.deployment?.environment
         ? {
             "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(

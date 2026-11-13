@@ -5,6 +5,8 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
+import type { CommentThread } from "@/hooks/use-comments";
+import type { DocumentUpdateResult } from "@/hooks/use-documents";
 import { documentQueryKey } from "@/lib/document-query";
 import {
   documentReadFailure,
@@ -29,11 +31,12 @@ import {
   observeAcceptedCanonicalSettlement,
   documentEditorReservesInlineReviewSpace,
   documentEditorReviewReadsSettled,
+  documentEditorHasFreshAiResolution,
   documentEditorShowsInlineComments,
-  documentEditorShowsUtilityPanelSheet,
-  utilityPanelRegionShouldReceiveFocus,
+  documentPagePanelTab,
   dismissDocumentCommentFocus,
   documentEditorLoadState,
+  collabDocHasText,
   documentTitleWidthChanged,
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
@@ -44,6 +47,7 @@ import {
   lifecycleKeepaliveDisposition,
   loadedUpdatedAtForSave,
   metadataUpdatesWithPendingTitle,
+  namedViewLinkMatchesPage,
   type OwnContentSaveLineage,
   ownConfirmedContentBase,
   pendingCommentTargetMatches,
@@ -62,16 +66,21 @@ import {
   suggestionDecisionPreviewContent,
   suggestionToDecideAfterSave,
   sameSuggestionAnchorIds,
+  previewDraftSuggestions,
   singleSuggestionDecisionLockAfterMismatch,
   suggestionAmendmentTargetIsResolved,
   suggestionAmendmentResolutionConflicts,
   refreshUnchangedTitleSaveWatermark,
   resizeDocumentTitleTextarea,
   retainThenAdoptDisplacedWinner,
+  shouldAdoptServerTitle,
   shouldAttestUnchangedEditorSave,
   shouldSubmitDocumentContent,
   subscribeToAuthoritativeQuerySuccess,
   titleMatchConfirmsSave,
+  failedSaveRestoresSavedTitle,
+  createTitleMarkCarriers,
+  unansweredTitleAfterSave,
   updateAdditionalBlockContents,
   updateDocumentLoadFailureState,
   utilityPanelAfterCommentFocusDismissal,
@@ -569,6 +578,16 @@ describe("document editor layout", () => {
     expect(sameSuggestionAnchorIds(["two", "one"], ["one", "two"])).toBe(true);
     expect(sameSuggestionAnchorIds(["one"], ["two"])).toBe(false);
     expect(sameSuggestionAnchorIds(null, [])).toBe(false);
+  });
+
+  it("keeps one list for a draft it can't map, so the highlights don't redraw every render", () => {
+    const unmapped = () =>
+      previewDraftSuggestions({
+        status: "unsupported-formatting",
+        content: "Draft",
+      });
+    expect(unmapped()).toEqual([]);
+    expect(unmapped()).toBe(unmapped());
   });
 
   it("does not feed suggestion anchor decoration transactions back into the parent", () => {
@@ -1245,15 +1264,8 @@ describe("document editor layout", () => {
       to: deletion!.anchor.to,
     });
   });
-  it("lets nested menus consume Escape before dismissing comment focus", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain(
-      'if (event.key !== "Escape" || event.defaultPrevented) return;',
-    );
-  });
+  // oracle-change: the page's Escape moved into usePagePanelEscape; that a
+  // menu's Escape leaves comment focus alone is pressed in CommentsSidebar.escape.
   it("measures an untransformed comment lane without an offset feedback loop", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -1290,10 +1302,13 @@ describe("document editor layout", () => {
     );
     expect(source).not.toContain('result.suggestion.status === "stale"');
     expect(source).toMatch(
-      /isSuggestionStaleActionError\(error\)[\s\S]*?setUnplaceableSuggestionRevisions[\s\S]*?setCommentsBrowseOpen\(true\)[\s\S]*?toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
+      /const showUnplaceableEdit =[\s\S]*?setUnplaceableSuggestionRevisions[\s\S]*?setCommentsBrowseOpen\(true\)/,
     );
     expect(source).toMatch(
-      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?void decideSingleSuggestion\(suggestion, decision\)/,
+      /isSuggestionStaleActionError\(error\);\s+if \(unplaceable\) showUnplaceableEdit\(\[decided\]\);\s+toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
+    );
+    expect(source).toMatch(
+      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?showUnplaceableEdit\(currentMembers\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?void decideSingleSuggestion\(suggestion, decision\)/,
     );
   });
   it("dismisses mobile comment focus without closing Info", () => {
@@ -1303,42 +1318,27 @@ describe("document editor layout", () => {
   });
 
   it.each([
-    [959, true, true],
-    [960, true, false],
-    [1040, true, false],
-    [1087, true, false],
-    [1088, true, false],
-    [959, false, true],
-    [960, false, true],
-    [1040, false, true],
-    [1087, false, true],
-    [1088, false, false],
+    [true, true, false],
+    [true, false, false],
+    [false, true, false],
+    [false, false, true],
   ] as const)(
-    "dismisses comment focus at width %i with history=%s without closing a desktop owner: closes=%s",
-    (width, commentsHistoryDrawerOpen, closesPanel) => {
+    "dismisses comment focus with history=%s and margin=%s without closing what still shows it: closes=%s",
+    (commentsHistoryDrawerOpen, hasInlineCommentSpace, closesPanel) => {
       const closeReply = vi.fn();
       const clearFocus = vi.fn();
       const closePanel = vi.fn();
       dismissDocumentCommentFocus({
         commentsHistoryDrawerOpen,
-        hasUtilityRailSpace: width >= 960,
-        hasInlineCommentSpace: width >= 1088,
+        hasInlineCommentSpace,
         closeReply,
         clearFocus,
         closePanel,
       });
       expect(closeReply).toHaveBeenCalledOnce();
       expect(clearFocus).toHaveBeenCalledOnce();
+      // oracle-change: the old utility panel layout became DocumentPagePanel, tested by its own suites.
       expect(closePanel).toHaveBeenCalledTimes(closesPanel ? 1 : 0);
-      expect(
-        documentEditorShowsUtilityPanelSheet({
-          utilityPanel: "comments",
-          commentsHistoryDrawerOpen,
-          hasUtilityRailSpace: width >= 960,
-          hasInlineCommentSpace: width >= 1088,
-          selectedSuggestionId: "saved-suggestion",
-        }),
-      ).toBe(closesPanel);
     },
   );
 
@@ -1346,9 +1346,7 @@ describe("document editor layout", () => {
     expect(
       documentEditorShowsInlineComments({
         showIndicators: true,
-        hasUtilityRailSpace: true,
-        commentsHistoryDrawerOpen: false,
-        utilityPanel: "comments",
+        hasInlineCommentSpace: true,
         hasOpenCommentThreads: false,
         hasSelectedCommentThread: true,
         hasPendingComment: false,
@@ -1356,107 +1354,127 @@ describe("document editor layout", () => {
     ).toBe(true);
   });
 
-  it("keeps history activation in browse mode instead of replacing the desktop list", () => {
+  it("keeps the margin for a thread AI just resolved, even the page's last", () => {
+    const resolved = {
+      threadId: "quoted",
+      resolved: true,
+      quotedText: "soft labels",
+    } as CommentThread;
+    const onPage = {
+      threadId: "page",
+      resolved: true,
+      quotedText: null,
+    } as CommentThread;
+    const fresh = new Map([
+      ["quoted", {}],
+      ["page", {}],
+    ]);
+    expect(documentEditorHasFreshAiResolution([resolved], null, fresh)).toBe(
+      true,
+    );
+    // Once its Resolved by AI mark fades, it no longer holds the margin.
     expect(
-      documentEditorShowsInlineComments({
-        showIndicators: true,
-        hasUtilityRailSpace: true,
-        commentsHistoryDrawerOpen: true,
-        utilityPanel: "comments",
-        hasOpenCommentThreads: true,
-        hasSelectedCommentThread: true,
-        hasPendingComment: false,
-      }),
+      documentEditorHasFreshAiResolution([resolved], null, new Map()),
+    ).toBe(false);
+    // A comment on the whole page lives in Discussion, not the margin.
+    expect(documentEditorHasFreshAiResolution([onPage], null, fresh)).toBe(
+      false,
+    );
+    expect(documentEditorHasFreshAiResolution(undefined, null, fresh)).toBe(
+      false,
+    );
+  });
+
+  it("holds the margin only for a thread AI just resolved in the open tab", () => {
+    const inNotes = {
+      threadId: "notes",
+      resolved: true,
+      quotedText: "soft labels",
+      field: { fieldId: "notes-field", fieldName: "Notes" },
+    } as CommentThread;
+    const inBody = {
+      threadId: "body",
+      resolved: true,
+      quotedText: "soft labels",
+    } as CommentThread;
+    const fresh = new Map([["body", {}]]);
+    const threads = [inNotes, inBody];
+    expect(documentEditorHasFreshAiResolution(threads, null, fresh)).toBe(true);
+    // In another tab its mark isn't on screen to fade, so it would hold an
+    // empty margin until the body's tab came back.
+    expect(
+      documentEditorHasFreshAiResolution(threads, "notes-field", fresh),
     ).toBe(false);
   });
 
-  it("keeps desktop comments history as the sole surface when deciding a draft selects its saved suggestion", () => {
-    const state = {
-      utilityPanel: "comments" as const,
-      commentsHistoryDrawerOpen: true,
-      hasUtilityRailSpace: true,
-      hasInlineCommentSpace: false,
+  it("does not clip a printed page at the root's screen height", () => {
+    const css = readFileSync("app/global.css", { encoding: "utf8" });
+    const printRoot = css.match(
+      /@media print[\s\S]*?\n  \[data-document-print-root\] \{([^}]*)\}/,
+    )?.[1];
+
+    expect(printRoot).toContain("overflow: visible !important");
+    expect(printRoot).toContain("height: auto !important");
+    expect(printRoot).toContain("inset: 0 0 auto !important");
+  });
+
+  describe("documentPagePanelTab", () => {
+    const closed = {
+      agentInPanel: false,
+      commentsHistoryDrawerOpen: false,
+      utilityPanel: null,
       selectedSuggestionId: null,
+      hasInlineCommentSpace: true,
     };
 
-    expect(documentEditorShowsUtilityPanelSheet(state)).toBe(false);
-    expect(
-      documentEditorShowsUtilityPanelSheet({
-        ...state,
-        selectedSuggestionId: "materialized-suggestion",
-      }),
-    ).toBe(false);
-  });
-
-  it("moves comments above a forced agent overlay", () => {
-    expect(
-      documentEditorShowsUtilityPanelSheet({
-        utilityPanel: "comments",
-        commentsHistoryDrawerOpen: true,
-        hasUtilityRailSpace: true,
-        hasInlineCommentSpace: false,
-        selectedSuggestionId: null,
-        agentPanelOverlay: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("enters a utility region when the menu opener unmounts", () => {
-    expect(
-      utilityPanelRegionShouldReceiveFocus({
-        openerConnected: false,
-        focusOnBody: false,
-      }),
-    ).toBe(true);
-    expect(
-      utilityPanelRegionShouldReceiveFocus({
-        openerConnected: true,
-        focusOnBody: false,
-      }),
-    ).toBe(false);
-  });
-
-  it.each([
-    [940, true, null, true],
-    [940, true, "saved-suggestion", true],
-    [1040, true, "saved-suggestion", false],
-    [1120, true, "saved-suggestion", false],
-    [940, false, "saved-suggestion", true],
-    [1040, false, "saved-suggestion", true],
-    [1120, false, "saved-suggestion", false],
-    [1040, false, null, false],
-  ] as const)(
-    "chooses the comments Sheet at layout width %i with history=%s and selection=%s: %s",
-    (width, commentsHistoryDrawerOpen, selectedSuggestionId, expected) => {
+    it("leaves a comment in focus to the margin", () => {
       expect(
-        documentEditorShowsUtilityPanelSheet({
+        documentPagePanelTab({ ...closed, utilityPanel: "comments" }),
+      ).toBeNull();
+    });
+
+    it("opens for Discussion, Info and the agent, the agent first", () => {
+      expect(
+        documentPagePanelTab({
+          ...closed,
           utilityPanel: "comments",
-          commentsHistoryDrawerOpen,
-          hasUtilityRailSpace: width >= 960,
-          hasInlineCommentSpace: width >= 1088,
-          selectedSuggestionId,
+          commentsHistoryDrawerOpen: true,
         }),
-      ).toBe(expected);
-    },
-  );
-
-  it.each([
-    [940, true],
-    [1040, false],
-  ] as const)(
-    "preserves the Info Sheet at layout width %i: %s",
-    (width, expected) => {
+      ).toBe("comments");
+      expect(documentPagePanelTab({ ...closed, utilityPanel: "info" })).toBe(
+        "info",
+      );
       expect(
-        documentEditorShowsUtilityPanelSheet({
+        documentPagePanelTab({
+          ...closed,
+          agentInPanel: true,
           utilityPanel: "info",
-          commentsHistoryDrawerOpen: false,
-          hasUtilityRailSpace: width >= 960,
-          hasInlineCommentSpace: width >= 1088,
-          selectedSuggestionId: "saved-suggestion",
         }),
-      ).toBe(expected);
-    },
-  );
+      ).toBe("agent");
+    });
+
+    it("shows a selected suggestion that has no margin to open beside", () => {
+      const selected = {
+        ...closed,
+        utilityPanel: "comments" as const,
+        selectedSuggestionId: "saved-suggestion",
+      };
+      expect(documentPagePanelTab(selected)).toBeNull();
+      expect(
+        documentPagePanelTab({ ...selected, hasInlineCommentSpace: false }),
+      ).toBe("comments");
+    });
+
+    it("does not open merely because a draft changed", () => {
+      expect(
+        documentPagePanelTab({
+          ...closed,
+          utilityPanel: "comments",
+          hasInlineCommentSpace: false,
+        }),
+      ).toBeNull();
+    });
+  });
 
   it("rejects a pending comment target when its exact rendered text disappears or changes", () => {
     expect(
@@ -1727,6 +1745,77 @@ describe("document editor layout", () => {
         error: null,
       }),
     ).toEqual({ view: "skeleton", admittedDocumentId: null });
+  });
+
+  it("draws a visited collab page from its cached read while this open's read runs", () => {
+    const visited = {
+      documentId: "document-a",
+      admittedDocumentId: null,
+      hasDocument: true,
+      isDocumentCreationPending: false,
+      isFetchedAfterMount: false,
+      isFetching: true,
+      isError: false,
+      hasLoadFailure: false,
+      isManualRetrying: false,
+      error: null,
+    };
+    expect(
+      documentEditorLoadState({ ...visited, canOpenFromCache: true }),
+    ).toEqual({ view: "editor", admittedDocumentId: "document-a" });
+    // A page whose body is not a collab doc waits for the read.
+    expect(documentEditorLoadState(visited)).toEqual({
+      view: "skeleton",
+      admittedDocumentId: null,
+    });
+  });
+
+  it("gives a page drawn from its cached read up when this open's read fails", () => {
+    const drawn = {
+      documentId: "document-a",
+      admittedDocumentId: "document-a",
+      hasDocument: true,
+      canOpenFromCache: true,
+      isDocumentCreationPending: false,
+      isFetchedAfterMount: false,
+      isFetching: false,
+      isManualRetrying: false,
+    };
+    // Deleted, trashed, or no longer shared since the cached read.
+    expect(
+      documentEditorLoadState({
+        ...drawn,
+        isError: true,
+        hasLoadFailure: true,
+        error: { status: 404 },
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
+    expect(
+      documentEditorLoadState({
+        ...drawn,
+        isError: true,
+        hasLoadFailure: true,
+        error: { status: 500 },
+      }),
+    ).toEqual({ view: "error", admittedDocumentId: "document-a" });
+  });
+
+  it("reads text from a collab doc before any editor projects it", () => {
+    const doc = new Y.Doc();
+    const fragment = doc.getXmlFragment("default");
+    expect(collabDocHasText(null)).toBe(false);
+    expect(collabDocHasText(doc)).toBe(false);
+    const empty = new Y.XmlElement("paragraph");
+    const image = new Y.XmlElement("image");
+    image.setAttribute("src", "https://example.test/a.png");
+    fragment.insert(0, [empty, image]);
+    // Markup and attributes are not text, so such a doc waits for a fresh read.
+    expect(collabDocHasText(doc)).toBe(false);
+    const paragraph = new Y.XmlElement("paragraph");
+    paragraph.insert(0, [new Y.XmlText("Saved words")]);
+    fragment.insert(2, [paragraph]);
+    expect(collabDocHasText(doc)).toBe(true);
+    doc.destroy();
   });
 
   it("shows a successful create response while its first read is pending", () => {
@@ -2858,22 +2947,209 @@ describe("document editor layout", () => {
   });
 
   it("does not mistake an optimistic title cache patch for a confirmed save", () => {
+    const renamed = {
+      serverTitle: "Renamed page",
+      localTitle: "Renamed page",
+      lastSavedTitle: "Untitled",
+    };
     expect(
       titleMatchConfirmsSave({
-        serverTitle: "Renamed page",
-        localTitle: "Renamed page",
-        lastSavedTitle: "Untitled",
+        ...renamed,
         pendingTitle: "Renamed page",
+        unansweredTitle: "Renamed page",
+      }),
+    ).toBe(false);
+    // The save is in flight: the cached title is still the one typed.
+    expect(
+      titleMatchConfirmsSave({
+        ...renamed,
+        pendingTitle: null,
+        unansweredTitle: "Renamed page",
+      }),
+    ).toBe(false);
+    // Another writer gave the page the same name.
+    expect(
+      titleMatchConfirmsSave({
+        ...renamed,
+        pendingTitle: null,
+        unansweredTitle: null,
+      }),
+    ).toBe(true);
+    expect(
+      titleMatchConfirmsSave({
+        serverTitle: "Untitled",
+        localTitle: "Untitled",
+        lastSavedTitle: "Untitled",
+        pendingTitle: null,
+        unansweredTitle: "Untitled",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not adopt this editor's unanswered title from a newer page copy", () => {
+    // A save of another field, such as the favorite star, made the cached page
+    // newer while the title typed into it is still waiting for its save.
+    const newerPage = {
+      serverTitle: "Renamed page",
+      localTitle: "Renamed page",
+      lastSavedTitle: "Untitled",
+      serverIsNewer: true,
+      titleFocused: false,
+    };
+    expect(
+      shouldAdoptServerTitle({ ...newerPage, unansweredTitle: "Renamed page" }),
+    ).toBe(false);
+    expect(
+      shouldAdoptServerTitle({ ...newerPage, unansweredTitle: null }),
+    ).toBe(true);
+    expect(
+      shouldAdoptServerTitle({
+        ...newerPage,
+        serverTitle: "Renamed elsewhere",
+        unansweredTitle: "Renamed page",
+      }),
+    ).toBe(true);
+    expect(
+      shouldAdoptServerTitle({
+        ...newerPage,
+        serverTitle: "Renamed elsewhere",
+        titleFocused: true,
+        unansweredTitle: "Renamed page",
       }),
     ).toBe(false);
     expect(
-      titleMatchConfirmsSave({
-        serverTitle: "Renamed page",
-        localTitle: "Renamed page",
-        lastSavedTitle: "Untitled",
-        pendingTitle: null,
+      shouldAdoptServerTitle({
+        ...newerPage,
+        serverTitle: "Renamed elsewhere",
+        localTitle: "Untitled",
+        serverIsNewer: false,
+        unansweredTitle: null,
       }),
     ).toBe(true);
+  });
+
+  it("keeps a title unanswered through an answer that may send it again", () => {
+    // A conflict answer puts the server's page back in the cache, and the
+    // rebased retry writes the same title into it again before it answers.
+    const page = { id: "page", title: "Renamed page" } as DocumentUpdateResult;
+    const typed = { title: "Renamed page" };
+    const sent = { unanswered: typed, sent: typed };
+    expect(unansweredTitleAfterSave({ ...sent, answer: page })).toBeNull();
+    expect(unansweredTitleAfterSave({ ...sent, answer: null })).toBeNull();
+    for (const answer of [
+      { conflict: true, document: page },
+      { superseded: true, document: page },
+      { preservationRequired: true, document: page },
+    ] as DocumentUpdateResult[]) {
+      expect(unansweredTitleAfterSave({ ...sent, answer })).toBe(typed);
+    }
+    expect(
+      unansweredTitleAfterSave({ unanswered: typed, sent: null, answer: page }),
+    ).toBe(typed);
+  });
+
+  it("keeps a title typed after a save was sent through that save's answer", () => {
+    // Typing "A", then "B", then "A" again while the first save of "A" is out
+    // makes a new mark, so the old save's answer settles neither.
+    const page = { id: "page", title: "A" } as DocumentUpdateResult;
+    const first = { title: "A" };
+    const retyped = { title: "A" };
+    expect(
+      unansweredTitleAfterSave({
+        unanswered: retyped,
+        sent: first,
+        answer: page,
+      }),
+    ).toBe(retyped);
+    expect(
+      unansweredTitleAfterSave({
+        unanswered: retyped,
+        sent: first,
+        answer: null,
+      }),
+    ).toBe(retyped);
+  });
+
+  it("leaves a typed title to the save still carrying it when another carrier fails", () => {
+    // The title's own save and an icon save both carry "Renamed page"; the
+    // icon save fails first.
+    const page = { id: "page", title: "Renamed page" } as DocumentUpdateResult;
+    const typed = { title: "Renamed page" };
+    const carriers = createTitleMarkCarriers();
+    carriers.send(typed);
+    carriers.send(typed);
+    const iconSave = carriers.settle(typed, true);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed page",
+        unanswered: typed,
+        sent: iconSave,
+      }),
+    ).toBe(false);
+    expect(
+      unansweredTitleAfterSave({
+        unanswered: typed,
+        sent: iconSave,
+        answer: null,
+      }),
+    ).toBe(typed);
+    const titleSave = carriers.settle(typed, false);
+    expect(
+      unansweredTitleAfterSave({
+        unanswered: typed,
+        sent: titleSave,
+        answer: page,
+      }),
+    ).toBeNull();
+  });
+
+  it("settles a typed title when the last save carrying it fails", () => {
+    const typed = { title: "Renamed page" };
+    const carriers = createTitleMarkCarriers();
+    carriers.send(typed);
+    carriers.send(typed);
+    expect(carriers.settle(typed, false)).toBe(typed);
+    expect(carriers.settle(typed, true)).toBe(typed);
+    expect(carriers.settle(null, true)).toBeNull();
+  });
+
+  it("keeps a newer typed title in the cache when an older save fails", () => {
+    const typed = { title: "Renamed page" };
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed page",
+        unanswered: typed,
+        sent: typed,
+      }),
+    ).toBe(true);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed page",
+        unanswered: null,
+        sent: null,
+      }),
+    ).toBe(true);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed",
+        unanswered: typed,
+        sent: { title: "Renamed" },
+      }),
+    ).toBe(false);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: "Renamed page",
+        unanswered: typed,
+        sent: { title: "Renamed page" },
+      }),
+    ).toBe(false);
+    expect(
+      failedSaveRestoresSavedTitle({
+        sentTitle: undefined,
+        unanswered: null,
+        sent: null,
+      }),
+    ).toBe(false);
   });
 
   it("keeps prose titles on the reading column", () => {
@@ -2940,18 +3216,14 @@ describe("document editor layout", () => {
     );
     expect(infoPanel).toContain("<DescriptionField");
     expect(infoPanel).toContain("<DocumentProperties");
-    expect(source).toContain("ref={setUtilityPanelSheetContainer}");
-    expect(source).toContain("utilityPanelSheetContainer,");
-    expect(infoPanel).toContain("popoverContainer={popoverContainer}");
     expect(properties).toMatch(
       /<PropertyValuePopover[\s\S]*?container=\{popoverContainer\}/,
     );
     expect(properties).toMatch(
       /<PropertyManagementPopover[\s\S]*?popoverContainer=\{popoverContainer\}/,
     );
-    expect(properties).toMatch(
-      /<HiddenPropertiesMenu[\s\S]*?popoverContainer=\{popoverContainer\}/,
-    );
+    // oracle-change: the Hidden properties menu is gone, so its popover has no
+    // container to pass; the line that replaced it opens in place.
     expect(properties).toMatch(
       /<AddProperty[\s\S]*?popoverContainer=\{popoverContainer\}/,
     );
@@ -2983,6 +3255,42 @@ describe("document editor layout", () => {
         databaseDocumentId: "membership-b",
       }),
     );
+  });
+
+  it("opens a named view link on its collection's page, with or without a databaseId", () => {
+    const page = { pageDatabaseId: "database-a" };
+    // The view and setup actions link `/page/<collection>?viewId=<view>`.
+    expect(
+      namedViewLinkMatchesPage({ ...page, viewId: "view-1", databaseId: null }),
+    ).toBe(true);
+    expect(
+      namedViewLinkMatchesPage({
+        ...page,
+        viewId: "view-1",
+        databaseId: "database-a",
+      }),
+    ).toBe(true);
+    expect(
+      namedViewLinkMatchesPage({
+        ...page,
+        viewId: "view-1",
+        databaseId: "database-b",
+      }),
+    ).toBe(false);
+    expect(
+      namedViewLinkMatchesPage({
+        viewId: "view-1",
+        databaseId: null,
+        pageDatabaseId: undefined,
+      }),
+    ).toBe(false);
+    expect(
+      namedViewLinkMatchesPage({
+        viewId: null,
+        databaseId: null,
+        pageDatabaseId: undefined,
+      }),
+    ).toBe(true);
   });
 
   it("flushes pending document saves when leaving an editor", () => {
@@ -3063,12 +3371,13 @@ describe("document editor layout", () => {
       "utf8",
     );
 
-    expect(source).toContain("const pathOwner = path.find(");
+    expect(source).toContain("const pathOwner = event\n    .composedPath()");
     expect(source).toContain(
       'activeElement.closest<HTMLElement>("[data-page-editor-owner]")',
     );
+    // oracle-change: the owner check is shared by the page's keys and Escape.
     expect(source).toContain(
-      "eventOwner?.dataset.pageEditorOwner === pageEditorOwner",
+      'return owner ? owner === pageEditorOwner : host === "page";',
     );
     expect(source).not.toContain("path.includes(editorRoot)");
   });
@@ -3173,10 +3482,10 @@ describe("document editor layout", () => {
     );
 
     expect(documentEditorSource).toContain(
-      "canEdit &&\n                    !canEditWithoutCollaboration &&\n                    !collabSynced",
+      "canEdit &&\n                    !canEditWithoutCollaboration &&\n                    !collabReady",
     );
     expect(documentEditorSource).toContain(
-      "(isLocalFileDocument ||\n      mcpDirectoryWidgetReadOnly ||\n      collabSynced ||\n      canEditWithoutCollaboration)",
+      "(isLocalFileDocument ||\n      mcpDirectoryWidgetReadOnly ||\n      collabReady ||\n      canEditWithoutCollaboration)",
     );
     expect(documentEditorSource).toContain(
       "!canEdit ||\n      !hydrationContext?.sourceId",
@@ -3224,8 +3533,8 @@ describe("document editor layout", () => {
     expect(activationStart).toBeGreaterThan(-1);
     expect(activation).toContain("setSelectedThreadId(threadId)");
     // A comment on the whole page opens in the Discussion panel.
-    expect(activation).toContain(
-      "setCommentsBrowseOpen(preserveBrowseContext || !!pageThread)",
+    expect(activation).toMatch(
+      /setCommentsBrowseOpen\(\s+preserveBrowseContext \|\| !!pageThread \|\| pagePanelOpenRef\.current,\s+\)/,
     );
     expect(activation).toContain("isPageCommentThread(thread)");
     expect(activation).toContain('setUtilityPanel("comments")');
@@ -3341,7 +3650,7 @@ describe("document editor layout", () => {
     const bounds = [
       source.indexOf("const sendKeepaliveSave"),
       source.indexOf("const onVisibilityChange"),
-      source.indexOf("return await updateDocument.mutateAsync("),
+      source.indexOf("answer = await updateDocument.mutateAsync("),
       source.indexOf("editorSnapshotTitle: options.editorSnapshotTitle"),
     ];
     expect(bounds).not.toContain(-1);
@@ -3598,18 +3907,6 @@ describe("document editor layout", () => {
     expect(source).toContain("suggestions={visualSuggestions}");
   });
 
-  it("does not open the narrow suggestion Sheet merely because a draft changed", () => {
-    expect(
-      documentEditorShowsUtilityPanelSheet({
-        utilityPanel: "comments",
-        commentsHistoryDrawerOpen: false,
-        hasUtilityRailSpace: false,
-        hasInlineCommentSpace: false,
-        selectedSuggestionId: null,
-      }),
-    ).toBe(false);
-  });
-
   it("opens comments for deep links and conflicts without coupling mode exit to navigation", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -3620,7 +3917,7 @@ describe("document editor layout", () => {
       source.match(
         /setUtilityPanel\("comments"\);\s+setCommentsBrowseOpen\(true\)/g,
       ),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
     expect(source).not.toMatch(
       /setIsSuggesting\(false\);[\s\S]{0,240}setUtilityPanel\("comments"\)/,
     );

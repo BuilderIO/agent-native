@@ -6,6 +6,7 @@
  * mechanism every agent-native app uses to report client-side events. Nothing
  * here ever blocks or throws into the install flow: sends are fire-and-forget
  * and `flush()` awaits any in-flight requests with a short cap before exit.
+ * `trackAtExit` is for an "exit" handler, where nothing can be awaited.
  *
  * Privacy: telemetry-sanitize.ts holds the only list of what may be sent, and
  * docs/content/telemetry.mdx documents all of it. A random per-machine install
@@ -16,6 +17,7 @@
  * AGENT_NATIVE_TELEMETRY_DISABLED=1. AGENT_NATIVE_TELEMETRY_DEBUG=1 prints each
  * event instead of sending it.
  */
+import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 
 import { canonicalTrackingEvent } from "../shared/analytics-events.js";
@@ -45,6 +47,15 @@ const EMBEDDED_PUBLIC_KEY =
   "anpk_dc523e34b99bc34d76e82d94c46593544e4a8509a4bfc93c";
 const DEFAULT_ENDPOINT = "https://analytics.agent-native.com/track";
 const FLUSH_TIMEOUT_MS = 1500;
+// Reads the JSON bodies from stdin and posts each to the endpoint in argv.
+export const EXIT_SENDER_SCRIPT = `
+const bodies = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+Promise.allSettled(bodies.map((body) => fetch(process.argv[1], {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body,
+}))).finally(() => process.exit(0));
+`;
 
 export interface CliTelemetryOptions {
   cli: string;
@@ -55,6 +66,8 @@ export interface CliTelemetryOptions {
 
 export interface CliTelemetry {
   track(event: string, properties?: Record<string, unknown>): void;
+  /** Blocks for up to 1.5 seconds, so call it only as the process exits. */
+  trackAtExit(event: string, properties?: Record<string, unknown>): void;
   captureException(error: unknown, context?: CliExceptionContext): void;
   flush(): Promise<void>;
 }
@@ -133,7 +146,43 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
     runId,
   };
 
-  function emit(event: string, properties: Record<string, unknown>): void {
+  function sendInBackground(bodies: string[]): void {
+    for (const body of bodies) {
+      // No timeout on the send itself. After blocking work straight after this
+      // call, a timer would fire first and drop an event the network could still take.
+      const promise = fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      })
+        .then(() => undefined)
+        .catch(() => undefined);
+      inFlight.add(promise);
+      void promise.finally(() => inFlight.delete(promise));
+    }
+  }
+
+  // A fetch can't finish once the process is exiting, so a short-lived child
+  // sends the events and the exit waits for it.
+  function sendBeforeExit(bodies: string[]): void {
+    const env = { ...process.env };
+    // A debugger or loader flag meant for the CLI has no business in the sender.
+    delete env.NODE_OPTIONS;
+    spawnSync(process.execPath, ["-e", EXIT_SENDER_SCRIPT, endpoint], {
+      input: JSON.stringify(bodies),
+      stdio: ["pipe", "ignore", "ignore"],
+      timeout: FLUSH_TIMEOUT_MS,
+      windowsHide: true,
+      env,
+    });
+  }
+
+  function emit(
+    event: string,
+    properties: Record<string, unknown>,
+    send: (bodies: string[]) => void = sendInBackground,
+  ): void {
     // Read for each event, so disabling telemetry also stops a running command.
     const mode = publicKey ? cliTelemetryMode() : "off";
     if (mode === "off") return;
@@ -152,28 +201,18 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
       return;
     }
     printTelemetryNoticeOnce();
-    for (const emitted of events) {
-      const body = JSON.stringify({
-        publicKey,
-        event: emitted.name,
-        anonymousId: installId,
-        sessionId: runId,
-        timestamp: new Date().toISOString(),
-        properties: emitted.properties,
-      });
-      // No timeout on the send itself. After blocking work straight after this
-      // call, a timer would fire first and drop an event the network could still take.
-      const promise = fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-        keepalive: true,
-      })
-        .then(() => undefined)
-        .catch(() => undefined);
-      inFlight.add(promise);
-      void promise.finally(() => inFlight.delete(promise));
-    }
+    send(
+      events.map((emitted) =>
+        JSON.stringify({
+          publicKey,
+          event: emitted.name,
+          anonymousId: installId,
+          sessionId: runId,
+          timestamp: new Date().toISOString(),
+          properties: emitted.properties,
+        }),
+      ),
+    );
   }
 
   async function flush(): Promise<void> {
@@ -187,6 +226,8 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
   return {
     track: (event, properties) =>
       emit(event, sanitizeEventProperties(properties)),
+    trackAtExit: (event, properties) =>
+      emit(event, sanitizeEventProperties(properties), sendBeforeExit),
     captureException: (error, context = {}) => {
       if (isTestHarnessError(error)) return;
       emit(

@@ -3,6 +3,7 @@
 import { execFileSync, execSync, spawn } from "child_process";
 import fs from "fs";
 import { createRequire } from "module";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -12,9 +13,23 @@ import {
 } from "../deploy/nitro-preset.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
+import {
+  CREATE_FINISHED_EVENT,
+  createFinishedProperties,
+  DEPLOY_FINISHED_EVENT,
+  deployFinishedProperties,
+  noteCreateReturned,
+  readPresetForReport,
+  reportAtExit,
+  startDevReadyReport,
+} from "./activation-telemetry.js";
 import { buildStepFailureReport } from "./build-failure-report.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
-import { cliSpawnOptions, runDevServer } from "./process.js";
+import {
+  cliSpawnOptions,
+  runDevServer,
+  WORKSPACE_DEPLOY_BUILD_ENV,
+} from "./process.js";
 import {
   findBinUpwards,
   findReactRouterInvocation,
@@ -336,6 +351,26 @@ function extractNodeInspectFlag(args: string[]): {
   return { inspectFlag, rest };
 }
 
+/**
+ * The exit status the CLI reports for a finished child (57526).
+ *
+ * `code ?? 0` made a child killed by a signal look successful, so a SIGKILLed `tsc` passed a preflight that then shipped. A signal exit is 128 plus the
+ * signal's number, the shell convention: nonzero for a caller that only asks "did it fail", and still the signal for a caller that asks which.
+ */
+export function childExitCode(
+  code: number | null,
+  signal: NodeJS.Signals | string | null,
+): number {
+  if (signal) {
+    const number =
+      typeof signal === "string"
+        ? (os.constants.signals as Record<string, number>)[signal]
+        : undefined;
+    return typeof number === "number" ? 128 + number : 1;
+  }
+  return code ?? 1;
+}
+
 function run(
   cmd: string,
   cmdArgs: string[],
@@ -346,7 +381,7 @@ function run(
   },
 ) {
   const child = spawn(cmd, cmdArgs, cliSpawnOptions(opts));
-  child.on("exit", (code) => process.exit(code ?? 0));
+  child.on("exit", (code, signal) => process.exit(childExitCode(code, signal)));
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => {
       child.kill(sig);
@@ -371,6 +406,9 @@ function inferFirstPartyTemplate(cwd: string): string | undefined {
   }
   return template;
 }
+
+// What `build` was doing when it ended, for its finished event.
+let buildStep = "doctor";
 
 function runBuildStep(
   cmd: string,
@@ -433,23 +471,39 @@ function runBuildStep(
   });
 }
 
+function runWorkspaceDevCommand(): void {
+  let appCount = 0;
+  const env = startDevReadyReport(cliTelemetry, {
+    workspace: true,
+    appCount: () => appCount,
+  });
+  import("./workspace-dev.js")
+    .then((m) => m.runWorkspaceDev({ args, env }))
+    .then((workspace) => {
+      appCount = workspace.apps.length;
+    })
+    .catch((err) => {
+      console.error(err?.message ?? err);
+      process.exit(1);
+    });
+}
+
 if (shouldTrackCliRun(command, args)) trackCli("cli.run");
 
 switch (command) {
   case "dev": {
     if (isWorkspaceRoot()) {
-      import("./workspace-dev.js")
-        .then((m) => m.runWorkspaceDev({ args }))
-        .catch((err) => {
-          console.error(err?.message ?? err);
-          process.exit(1);
-        });
+      runWorkspaceDevCommand();
       break;
     }
+    const devEnv = startDevReadyReport(cliTelemetry, {
+      workspace: false,
+      appCount: () => 1,
+    });
     const vite = findViteBin();
     const { inspectFlag, rest } = extractNodeInspectFlag(args);
     if (!inspectFlag) {
-      runDevServer(vite, rest);
+      runDevServer(vite, rest, { env: devEnv });
       break;
     }
     const viteJsEntry = findViteJsEntry();
@@ -458,7 +512,7 @@ switch (command) {
         "[agent-native] Could not resolve Vite's JS entry; starting dev " +
           "server without the debugger.",
       );
-      runDevServer(vite, rest);
+      runDevServer(vite, rest, { env: devEnv });
       break;
     }
     const parsed = inspectFlag.match(/^--(inspect(?:-brk)?)(?:=(.+))?$/);
@@ -471,8 +525,8 @@ switch (command) {
         `process.env.NODE_OPTIONS=((process.env.NODE_OPTIONS??"")+" ${directive}").trim();`,
       );
     const env = {
-      ...process.env,
-      NITRO_DEV_RUNNER: process.env.NITRO_DEV_RUNNER ?? "node-process",
+      ...devEnv,
+      NITRO_DEV_RUNNER: devEnv.NITRO_DEV_RUNNER ?? "node-process",
     };
     console.log(`[agent-native] API server debugger listening on ${target}`);
     runDevServer(
@@ -487,16 +541,19 @@ switch (command) {
   }
 
   case "workspace-dev": {
-    import("./workspace-dev.js")
-      .then((m) => m.runWorkspaceDev({ args }))
-      .catch((err) => {
-        console.error(err?.message ?? err);
-        process.exit(1);
-      });
+    runWorkspaceDevCommand();
     break;
   }
 
   case "build": {
+    if (!process.env[WORKSPACE_DEPLOY_BUILD_ENV]) {
+      reportAtExit(cliTelemetry, DEPLOY_FINISHED_EVENT, (exitCode) =>
+        deployFinishedProperties(exitCode, {
+          step: buildStep,
+          preset: readPresetForReport(resolveAgentNativeNitroPreset),
+        }),
+      );
+    }
     (async () => {
       try {
         const { runDoctorBuildHook } = await import("./doctor.js");
@@ -518,6 +575,7 @@ switch (command) {
       }
 
       if (isReactRouterFramework()) {
+        buildStep = "react-router-build";
         clearAgentNativeNitroPresetMarker();
         const { clearAgentNativeBuildConfigMarker } =
           await import("../vite/agent-native-config-loader.js");
@@ -530,12 +588,14 @@ switch (command) {
           shell: rr.shell,
         });
       } else {
+        buildStep = "vite-build";
         const vite = findViteBin();
         console.log("Building...");
         await runBuildStep(vite, ["build"], { label: "vite-build" });
       }
 
       if (isReactRouterFramework()) {
+        buildStep = "deploy-build";
         const configuredNitroPreset = resolveAgentNativeNitroPreset();
         const deployEnv = configuredNitroPreset
           ? { ...process.env, NITRO_PRESET: configuredNitroPreset }
@@ -577,7 +637,7 @@ switch (command) {
       );
       process.exit(1);
     }
-    run(process.execPath, [serverEntry, ...args]);
+    run(process.execPath, [serverEntry, ...args], { shell: false });
     break;
   }
 
@@ -617,7 +677,7 @@ switch (command) {
         declarations,
         ...identityArgs,
       ]);
-    else run(process.execPath, [script, ...identityArgs]);
+    else run(process.execPath, [script, ...identityArgs], { shell: false });
     break;
   }
 
@@ -698,6 +758,7 @@ switch (command) {
       console.log(CREATE_HELP);
       break;
     }
+    reportAtExit(cliTelemetry, CREATE_FINISHED_EVENT, createFinishedProperties);
     const parsed = parseScaffoldArgs(args);
     import("./create.js")
       .then((m) =>
@@ -706,6 +767,7 @@ switch (command) {
           standalone: parsed.standalone,
         }),
       )
+      .then(noteCreateReturned)
       .catch(handleScaffoldImportError);
     break;
   }
@@ -977,8 +1039,17 @@ switch (command) {
   }
 
   case "deploy": {
+    const deployRun: { step: string; preset?: string } = { step: "prepare" };
+    reportAtExit(cliTelemetry, DEPLOY_FINISHED_EVENT, (exitCode) =>
+      deployFinishedProperties(exitCode, deployRun),
+    );
     import("../deploy/workspace-deploy.js")
-      .then((m) => m.runWorkspaceDeploy({ args }))
+      .then((m) =>
+        m.runWorkspaceDeploy({
+          args,
+          onProgress: (progress) => Object.assign(deployRun, progress),
+        }),
+      )
       .catch((err) => {
         console.error("Deploy failed:", err?.message ?? err);
         process.exit(1);
@@ -1229,7 +1300,7 @@ Options:
   --eager                       With workspace dev, start every app immediately
   --prewarm                     With workspace dev, warm non-default apps in the background
   --no-prewarm                  With workspace dev, keep non-default apps lazy
-  --no-open                     With workspace dev, do not open a browser
+  --no-open                     With dev or workspace dev, do not open a browser
   --url <url>                   URL to audit with audit-agent-web
 
 Feedback:  ${FEEDBACK_URL}

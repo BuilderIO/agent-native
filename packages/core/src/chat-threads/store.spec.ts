@@ -32,6 +32,13 @@ function storeBootstrapResult(sql: string) {
   if (/CREATE TABLE IF NOT EXISTS chat_thread_viewer_state/i.test(sql)) {
     return { rows: [], rowsAffected: 0 };
   }
+  if (
+    /^(?:CREATE TABLE IF NOT EXISTS|CREATE INDEX IF NOT EXISTS|ALTER TABLE)\s+agent_chat_submission_inbox/i.test(
+      sql.trimStart(),
+    )
+  ) {
+    return { rows: [], rowsAffected: 0 };
+  }
   if (/FROM information_schema\.columns/i.test(sql)) {
     return { rows: [], rowsAffected: 0 };
   }
@@ -781,6 +788,35 @@ describe("chat thread store", () => {
       updateThreadData("thread-1", incoming, "Thread", "Example", 1),
     ).resolves.toBe(true);
     expect(row!.thread_data).toContain("Example data URL");
+  });
+
+  it("saves generated code that mentions a data: URL prefix without a payload", async () => {
+    const source =
+      "else src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent('<svg/>');";
+    const incoming = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "design-edit",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "edit-1",
+                toolName: "edit-design",
+                args: { source },
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    });
+
+    await expect(
+      updateThreadData("thread-1", incoming, "Thread", "Design", 1),
+    ).resolves.toBe(true);
+    expect(row!.thread_data).toContain("charset=utf-8,'+encodeURIComponent");
   });
 
   it("cleans legacy inline image bodies before saving a later chat turn", async () => {

@@ -16,7 +16,7 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
@@ -27,6 +27,7 @@ import {
   personalContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
+import { assertAgentsMayEditPagesText } from "./_document-agent-lock.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getLocalFileDocument,
@@ -99,7 +100,7 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async ({ id }) => {
+  run: async ({ id }, ctx) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("Not authenticated");
 
@@ -188,6 +189,11 @@ export default defineAction({
           operation: "share-local-file-document",
           content: localDocument.content,
         });
+        await assertAgentsMayEditPagesText(
+          tx as unknown as ReturnType<typeof getDb>,
+          [existing.id],
+          ctx,
+        );
         await tx
           .update(schema.documents)
           .set({
@@ -214,7 +220,7 @@ export default defineAction({
             orgId,
           },
         );
-        await syncPrivateCalloutReferences(
+        await syncPrivateBodyReferences(
           tx as unknown as ReturnType<typeof getDb>,
           {
             documentId: existing.id,
@@ -294,7 +300,7 @@ export default defineAction({
               orgId,
             },
           );
-          await syncPrivateCalloutReferences(
+          await syncPrivateBodyReferences(
             tx as unknown as ReturnType<typeof getDb>,
             {
               documentId,

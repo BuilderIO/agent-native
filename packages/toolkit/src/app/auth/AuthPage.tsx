@@ -304,7 +304,10 @@ function trackAuth(
     );
     const legacyProperties = {
       app,
-      ...(app === "design" ? builderSignupTelemetry : {}),
+      hostname: window.location.hostname,
+      ...(["design", "clips", "slides"].includes(app)
+        ? builderSignupTelemetry
+        : {}),
       ...properties,
     };
     const events: Array<{
@@ -669,12 +672,14 @@ export function AuthPage(props: AuthPageProps) {
   } = props;
   const [builderSignup, setBuilderSignup] =
     React.useState<BuilderSignupAssignment | null>(
-      trackingApp === "design" ? null : { status: "disabled" },
+      ["design", "clips", "slides"].includes(trackingApp)
+        ? null
+        : { status: "disabled" },
     );
   const builderSignupRequest =
     React.useRef<Promise<BuilderSignupAssignment> | null>(null);
   React.useEffect(() => {
-    if (trackingApp !== "design") return;
+    if (!["design", "clips", "slides"].includes(trackingApp)) return;
     builderSignupTelemetry = {};
     let disposed = false;
     builderSignupRequest.current ??= getBuilderSignupAssignment();
@@ -713,7 +718,8 @@ export function AuthPage(props: AuthPageProps) {
       return;
     builderSignupExposure.current = builderSignup.id;
     builderSignupTelemetry = {
-      experiment_id: "design_builder_signup_v1",
+      experiment_id:
+        builderSignup.experimentId ?? `${trackingApp}_builder_signup_v1`,
       experiment_variant: builderSignup.variant,
       assignment_id: builderSignup.id,
     };
@@ -1476,7 +1482,7 @@ export function AuthPage(props: AuthPageProps) {
     if (googleAuthMode === "popup" || googleAuthMode === "redirect") {
       return googleAuthMode;
     }
-    return isAgentNativeDesktop() ? "redirect" : "popup";
+    return isInFrame() && !isAgentNativeDesktop() ? "popup" : "redirect";
   }, [googleAuthMode]);
 
   const googleAuthUrlPath = React.useCallback(
@@ -1533,7 +1539,6 @@ export function AuthPage(props: AuthPageProps) {
       const targetUrl = new URL(url, window.location.origin);
       if (attemptId)
         targetUrl.searchParams.set("builder_signup_attempt", attemptId);
-      targetUrl.searchParams.set("flow_id", flowId);
       window.location.replace(targetUrl.toString());
     };
     try {

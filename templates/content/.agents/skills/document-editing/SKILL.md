@@ -256,6 +256,12 @@ unavailable for local-file, source-owned, externally linked, or trashed Pages,
 Collection Pages, Pages with inline databases, and collection-item Pages without
 an accessible primary Blocks field.
 
+People can also suggest edits in a collection page's other Blocks field tabs.
+Those suggestions use adapter kind `content.blocks-field-markdown`: each
+operation's `targetId` is the field's ID, and `baseRevision` reads
+`blocks-field:<fieldId>:<revision>`. Decide one as above; accepting it writes
+only that field. `suggest-document-edit` suggests on the page body only.
+
 ```bash
 pnpm action suggest-document-edit --id abc123 \
   --baseRevision 'body:0:sha256:…' --idempotencyKey '<uuid>' \
@@ -297,9 +303,11 @@ Pass `quotedText` exactly as the page reads: text from one block, without Markdo
 
 Resolving a thread clears its highlight and moves it to a collapsible **"Resolved (n)"** sidebar section, from which it can be **reopened**. Comments support **@mentions** of org members and agents. Keep the readable `@Name` in `content` and pass `mentions` in text order: `{"kind":"person","email","name"}` or `{"kind":"agent","model","name"}`. One entry covers every `@Name` of one person; when two people share a name, the k-th `@Name` is the k-th entry with that name. `add-comment` and `update-comment` reject a malformed list, or an entry no `@Name` in `content` reaches, with a 400. The app draws each matched name as a pill when it stands alone, followed by a space or punctuation (`@Sam,` matches, `@Samantha` does not); an `@Name` in inline code, a Markdown link, or a URL is not a mention. A name with no entry stays plain text. An AI comment records its model, thinking effort, and agent conversation automatically.
 
-On a collection page, each Blocks field tab has its own comments. Pass `fieldId` to `add-comment` to start a thread in a field's tab; `quotedText` and the anchor fields then come from that field's text. Field IDs are the Blocks-type properties `get-document` returns, and `navigation.fieldId` names the tab the person has open (none means the first tab). Omitting `fieldId`, or passing the primary field's ID, means the page body. Replies stay in their thread's tab, so leave `fieldId` off a reply. `fieldId` and `propertyId` can't be combined. `list-comments` and `list-content-database-comments` return `field_id` and `field_name` (the field's name when the thread started) on each comment; a null `field_id` is the page body. When a field is deleted, its threads stay listed under the saved name and can still be resolved, but have no highlight. Ask AI on a comment thread works only in the page body.
+On a collection page, each Blocks field tab has its own comments. Pass `fieldId` to `add-comment` to start a thread in a field's tab; `quotedText` and the anchor fields then come from that field's text. Field IDs are the Blocks-type properties `get-document` returns, and `navigation.fieldId` names the tab the person has open (none means the first tab). Omitting `fieldId`, or passing the primary field's ID, means the page body. Replies stay in their thread's tab, so leave `fieldId` off a reply. `fieldId` and `propertyId` can't be combined. `list-comments` and `list-content-database-comments` return `field_id` and `field_name` (the field's name when the thread started) on each comment; a null `field_id` is the page body. When a field is deleted, its threads stay listed under the saved name and can still be resolved, but have no highlight. Ask AI works on a tab's threads as on the body's: it reads that tab's text, and any change it makes there is a suggestion on that tab, never applied straight.
 
 A thread can sit on a whole video instead of on text. Pass `blockId` with the video's `id` attribute from `get-document`'s content (`<video src="…" id="video-…">`), plus `fieldId` for a video in another tab. The thread quotes no text; people see it beside the video, and `list-comments` returns `block_id` and `block_type` on it. A video saved without an `id` has none to pass: give it a new unique `video-` id with `edit-document`, then comment with that id. `add-comment` refuses the id such a video goes by until then (`comment_block_id_unsaved`), because that id passes to another video when videos with its source are added or reordered. Each video's `id` is its own: when you copy a `<video>` line, give the copy a new unique `video-` id or none. An edit that gives a second video an id the page already uses is refused (`DOCUMENT_VIDEO_ID_SHARED`); a new page isn't checked, since no thread is on it yet. Videos that already share an id show none of its threads, and `add-comment` refuses that id (`comment_block_id_shared`); give the video you mean a new id with `edit-document` first. Never give it a `block_id` from `list-comments`; one no video carries may be a deleted video's, and reusing it moves that thread onto this video. A thread made before videos had ids quotes the word "Video"; on a page with exactly one video it shows on that video, and with more it stays on its quote.
+
+People can also start a thread on a whole image or audio clip from its Comment button. `list-comments` returns it with `block_type` `image` or `audio` and a `block_id` derived from the file and how many copies of that file come before it on the page; nothing writes that id into the content. You can't start one: `add-comment` refuses those ids (`comment_block_id_unsaved`), so quote text beside the image instead. Replacing the file, or adding or removing a copy of the same file above it, moves the id, so the thread then shows on no block or on whichever copy now has the id.
 
 A Clip block (`<ClipEmbed recordingId="…" />`, behind the `content.clip-embed` flag) keeps its comments in Clips, so `list-comments` never returns them and every page holding that Clip shows the same ones. People see each open thread as its own card beside the Clip, at its moment of the video. `list-clip-comments` returns a Clip's open threads in the order of their moments, with replies; `add-clip-comment` starts a thread at `videoTimestampMs` (milliseconds from the start of the video) or replies with a `threadId` from that list; `resolve-clip-comment` resolves a thread, which Clips lets only the thread's author and the Clip's editors do (`clip_forbidden`). Writing needs comment access to the page. Clip comments take no `mentions` and no Ask AI, and Content sends no email for them. When the Clip's comments are off, every write fails with `clip_comments_disabled`, and so does reading for anyone but the Clip's owner.
 
@@ -434,6 +442,21 @@ $$
   unsupported expressions remain visible as source so they can be repaired.
 - Markdown exports preserve these delimiters. HTML and PDF-ready exports render
   the equation.
+
+### Diagrams
+
+A Mermaid diagram is a fenced code block whose language is `mermaid`. Its
+source is the diagram, so it stays the editable copy.
+
+- Write a new diagram as a `mermaid` code block, and change a diagram by
+  editing its source.
+- Never replace a diagram's source with a picture: no image you render,
+  generate or upload (SVG, PNG, screenshot), and no other block type. Don't add
+  a title or caption the source doesn't have. Swap the source out only when the
+  user asks for an image instead of the diagram.
+- Content shows Mermaid code blocks as code; it doesn't draw them yet. When
+  asked to draw or show one as a diagram, say so and leave the source in place.
+  If the source has a syntax error, fix it there.
 
 ## Parent-Child Hierarchy
 
