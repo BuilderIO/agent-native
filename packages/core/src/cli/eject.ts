@@ -951,7 +951,10 @@ function targetForSource(
   const sourceRelative = packageRelative.startsWith("src/")
     ? packageRelative.slice("src/".length)
     : packageRelative;
-  return resolveInside(targetRoot, path.join(unit.targetRoot!, sourceRelative));
+  return resolveInside(
+    targetRoot,
+    path.posix.join(unit.targetRoot!, sourceRelative),
+  );
 }
 
 function walkConsumerFiles(root: string, ejectedTargetRoot: string): string[] {
@@ -1574,6 +1577,7 @@ function isSafeRelative(value: string): boolean {
   return (
     value.length > 0 &&
     !path.isAbsolute(value) &&
+    !/^[A-Za-z]:/.test(value) &&
     !value.includes("\\") &&
     !value.split("/").includes("..")
   );

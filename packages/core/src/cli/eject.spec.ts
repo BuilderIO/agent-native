@@ -170,6 +170,136 @@ describe("feature eject CLI", () => {
     );
   });
 
+  it("plans source-copy ejection when native joins use Windows separators", async () => {
+    const { root, loaded } = fixture();
+    vi.resetModules();
+    vi.doMock("node:path", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:path")>();
+      return {
+        ...actual,
+        default: {
+          ...actual.default,
+          join: (...parts: string[]) =>
+            parts.every((part) => !actual.default.isAbsolute(part))
+              ? actual.default.win32.join(...parts)
+              : actual.default.join(...parts),
+        },
+      };
+    });
+    try {
+      const { runEject: runWithWindowsJoins } = await import("./eject.js");
+      const output = capture();
+      const result = await runWithWindowsJoins(
+        ["toolkit/chat-history", "--json"],
+        { cwd: root, io: output.io, loadManifests: async () => [loaded] },
+      );
+      expect({ result, error: output.err }).toEqual({ result: 0, error: "" });
+      expect(JSON.parse(output.out)).toMatchObject({
+        apply: false,
+        collisions: [],
+        changes: expect.arrayContaining([
+          {
+            action: "create",
+            path: "app/ejected/toolkit/chat-history/ChatHistoryList.tsx",
+          },
+          { action: "create", path: "app/ejected/toolkit/utils.ts" },
+          { action: "update", path: "app/page.tsx" },
+        ]),
+      });
+      expect(
+        fs.existsSync(path.join(root, "agent-native.ejections.json")),
+      ).toBe(false);
+    } finally {
+      vi.doUnmock("node:path");
+      vi.resetModules();
+    }
+  });
+
+  it.each([
+    "../outside",
+    "app/../outside",
+    "..\\outside",
+    "app\\..\\outside",
+    "C:/outside",
+    "C:outside",
+    "C:\\outside",
+    "\\\\server\\share",
+  ])("rejects unsafe manifest paths at discovery: %s", async (unsafePath) => {
+    for (const field of ["targetRoot", "sourceEntries", "styles"] as const) {
+      const { root, loaded } = fixture();
+      const unit = loaded.manifest.units[0];
+      unit.catalogItems = ["chat-history"];
+      if (field === "targetRoot") unit.targetRoot = unsafePath;
+      if (field === "sourceEntries") unit.sourceEntries = [unsafePath];
+      if (field === "styles") unit.styles![0].source = unsafePath;
+      const installed = path.join(
+        root,
+        "node_modules",
+        "@agent-native",
+        "toolkit",
+      );
+      fs.mkdirSync(path.dirname(installed), { recursive: true });
+      fs.cpSync(loaded.packageDir, installed, { recursive: true });
+      const packageJson = JSON.parse(
+        fs.readFileSync(path.join(installed, "package.json"), "utf8"),
+      );
+      packageJson.agentNativeEjectManifest = "agent-native.eject.json";
+      fs.writeFileSync(
+        path.join(installed, "package.json"),
+        JSON.stringify(packageJson),
+      );
+      fs.writeFileSync(
+        path.join(installed, "agent-native.eject.json"),
+        JSON.stringify(loaded.manifest),
+      );
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        JSON.stringify({
+          name: "example-app",
+          dependencies: { "@agent-native/toolkit": "1.2.3" },
+        }),
+      );
+      const output = capture();
+      expect(
+        await runEject(["toolkit/chat-history"], { cwd: root, io: output.io }),
+      ).toBe(1);
+      expect(output.err).toContain(
+        field === "targetRoot"
+          ? "unsafe targetRoot"
+          : field === "sourceEntries"
+            ? "sourceEntries contains an invalid value"
+            : "has an invalid style",
+      );
+      expect(
+        fs.existsSync(path.join(root, "agent-native.ejections.json")),
+      ).toBe(false);
+    }
+  });
+
+  it.each([
+    "../outside",
+    "..\\outside",
+    "C:/outside",
+    "C:outside",
+    "C:\\outside",
+  ])(
+    "rejects an unsafe package manifest location at discovery: %s",
+    async (unsafePath) => {
+      const { root } = fixture();
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        JSON.stringify({
+          name: "example-app",
+          version: "1.0.0",
+          agentNativeEjectManifest: unsafePath,
+        }),
+      );
+      const output = capture();
+      expect(await runEject(["--list"], { cwd: root, io: output.io })).toBe(1);
+      expect(output.err).toContain("unsafe agentNativeEjectManifest");
+    },
+  );
+
   it("copies a transitive closure, rewrites consumers, and records committed provenance", async () => {
     const { root, loaded } = fixture();
     const dryRun = capture();
