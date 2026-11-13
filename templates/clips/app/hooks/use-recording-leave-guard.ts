@@ -32,56 +32,90 @@ export function useRecordingLeaveGuard(hasRecordingAtRisk: () => boolean) {
     ),
   );
 
+  const getCurrentBlockers = useCallback(() => {
+    if (!router)
+      throw new Error("Recording leave guard requires a data router");
+    return Array.from(router.state.blockers.values());
+  }, [router]);
   const [leavePromptOpen, setLeavePromptOpen] = useState(false);
   const confirmedBlockerRef = useRef<Blocker | null>(null);
+  const promptRef = useRef<{ blocker: Blocker | null; key: number }>({
+    blocker: null,
+    key: 0,
+  });
+  const mountedRef = useRef(false);
+  const timersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+
+  if (blocker.state === "blocked" && promptRef.current.blocker !== blocker) {
+    promptRef.current = { blocker, key: promptRef.current.key + 1 };
+  }
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      confirmedBlockerRef.current = null;
+      for (const timer of timersRef.current) clearTimeout(timer);
+      timersRef.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     setLeavePromptOpen(blocker.state === "blocked");
   }, [blocker]);
 
   const confirmLeave = useCallback(() => {
-    confirmedBlockerRef.current = blocker.state === "blocked" ? blocker : null;
+    if (blocker.state === "blocked" && getCurrentBlockers().includes(blocker)) {
+      confirmedBlockerRef.current = blocker;
+    }
     setLeavePromptOpen(false);
-  }, [blocker]);
+  }, [blocker, getCurrentBlockers]);
 
   const onDialogOpenChange = useCallback(
     (open: boolean) => {
       if (open) return;
       setLeavePromptOpen(false);
       if (
-        !confirmedBlockerRef.current &&
+        confirmedBlockerRef.current !== blocker &&
         blocker.state === "blocked" &&
-        Array.from(router?.state.blockers.values() ?? []).includes(blocker)
+        getCurrentBlockers().includes(blocker)
       ) {
         blocker.reset();
       }
     },
-    [blocker, router],
+    [blocker, getCurrentBlockers],
   );
 
   const onCloseAutoFocus = useCallback(
     (event: { preventDefault(): void }) => {
-      const confirmedBlocker = confirmedBlockerRef.current;
-      if (!confirmedBlocker) return;
+      if (!mountedRef.current) return;
+      const currentBlockers = getCurrentBlockers();
+      if (
+        confirmedBlockerRef.current ||
+        currentBlockers.some((current) => current.state === "blocked")
+      ) {
+        event.preventDefault();
+      }
+      if (confirmedBlockerRef.current !== blocker) return;
       confirmedBlockerRef.current = null;
-      event.preventDefault();
-      setTimeout(() => {
-        // Router state can change before React renders, including to a different blocked navigation.
+      const timer = setTimeout(() => {
+        timersRef.current.delete(timer);
+        // A later navigation may replace the confirmed blocker before React renders.
         if (
-          confirmedBlocker.state === "blocked" &&
-          Array.from(router?.state.blockers.values() ?? []).includes(
-            confirmedBlocker,
-          )
+          blocker.state === "blocked" &&
+          getCurrentBlockers().includes(blocker)
         ) {
-          confirmedBlocker.proceed();
+          blocker.proceed();
         }
       }, 0);
+      timersRef.current.add(timer);
     },
-    [router],
+    [blocker, getCurrentBlockers],
   );
 
   return {
     leavePromptOpen,
+    leavePromptKey: promptRef.current.key,
     onDialogOpenChange,
     onCloseAutoFocus,
     confirmLeave,

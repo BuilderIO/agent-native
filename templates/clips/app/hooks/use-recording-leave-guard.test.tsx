@@ -6,12 +6,27 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+import {
   useRecordingLeaveGuard,
   useUnsavedRecordingUnloadWarning,
 } from "./use-recording-leave-guard";
 
-function RecordProbe({ atRisk }: { atRisk: boolean }) {
+function RecordProbe({
+  atRisk,
+  delayCloseAutoFocus = false,
+}: {
+  atRisk: boolean;
+  delayCloseAutoFocus?: boolean;
+}) {
   const atRiskRef = useRef(atRisk);
+  const closeAutoFocusQueue = useRef<Array<() => void>>([]);
   atRiskRef.current = atRisk;
   const {
     leavePromptOpen,
@@ -29,7 +44,14 @@ function RecordProbe({ atRisk }: { atRisk: boolean }) {
       <button
         type="button"
         id="cancel-leave"
-        onClick={() => onDialogOpenChange(false)}
+        onClick={() => {
+          if (delayCloseAutoFocus) {
+            closeAutoFocusQueue.current.push(() =>
+              onCloseAutoFocus({ preventDefault() {} }),
+            );
+          }
+          onDialogOpenChange(false);
+        }}
       >
         cancel
       </button>
@@ -38,12 +60,57 @@ function RecordProbe({ atRisk }: { atRisk: boolean }) {
         id="confirm-leave"
         onClick={() => {
           confirmLeave();
-          onCloseAutoFocus({ preventDefault() {} });
+          if (delayCloseAutoFocus) {
+            closeAutoFocusQueue.current.push(() =>
+              onCloseAutoFocus({ preventDefault() {} }),
+            );
+          } else {
+            onCloseAutoFocus({ preventDefault() {} });
+          }
         }}
       >
         confirm
       </button>
+      <button
+        type="button"
+        id="close-autofocus"
+        onClick={() => {
+          const callback = closeAutoFocusQueue.current.shift();
+          if (!callback) throw new Error("Missing delayed autofocus callback");
+          callback();
+        }}
+      >
+        close autofocus
+      </button>
     </div>
+  );
+}
+
+function RecordDialogProbe({ onClose }: { onClose: () => void }) {
+  const {
+    leavePromptOpen,
+    leavePromptKey,
+    onDialogOpenChange,
+    onCloseAutoFocus,
+    confirmLeave,
+  } = useRecordingLeaveGuard(useCallback(() => true, []));
+  return (
+    <AlertDialog open={leavePromptOpen} onOpenChange={onDialogOpenChange}>
+      <AlertDialogContent
+        key={leavePromptKey}
+        onCloseAutoFocus={(event) => {
+          onClose();
+          onCloseAutoFocus(event);
+        }}
+      >
+        <AlertDialogTitle>Leave recording?</AlertDialogTitle>
+        <AlertDialogDescription>Confirm leaving.</AlertDialogDescription>
+        <AlertDialogCancel id="dialog-cancel">Cancel</AlertDialogCancel>
+        <button id="dialog-confirm" type="button" onClick={confirmLeave}>
+          Leave
+        </button>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -51,10 +118,22 @@ function OtherProbe() {
   return <output data-testid="other-probe" />;
 }
 
-function renderProbe(container: HTMLDivElement, atRisk: boolean) {
+function renderProbe(
+  container: HTMLDivElement,
+  atRisk: boolean,
+  delayCloseAutoFocus = false,
+) {
   const router = createMemoryRouter(
     [
-      { path: "/record", Component: () => <RecordProbe atRisk={atRisk} /> },
+      {
+        path: "/record",
+        Component: () => (
+          <RecordProbe
+            atRisk={atRisk}
+            delayCloseAutoFocus={delayCloseAutoFocus}
+          />
+        ),
+      },
       { path: "/other", Component: OtherProbe },
       { path: "/another", Component: OtherProbe },
     ],
@@ -71,6 +150,12 @@ async function flush() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+}
+
+function click(container: HTMLElement, id: string) {
+  const button = container.querySelector<HTMLButtonElement>(`#${id}`);
+  if (!button) throw new Error(`Missing test button: ${id}`);
+  button.click();
 }
 
 describe("useRecordingLeaveGuard", () => {
@@ -187,6 +272,191 @@ describe("useRecordingLeaveGuard", () => {
     });
     await flush();
     expect(rendered.router.state.location.pathname).toBe("/another");
+  });
+
+  it("clears a second cancelled blocker before the first dialog's delayed autofocus", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    const rendered = renderProbe(container, true, true);
+    root = rendered.root;
+
+    act(() => {
+      void rendered.router.navigate("/other");
+    });
+    await flush();
+    act(() => {
+      click(container, "confirm-leave");
+    });
+    act(() => {
+      void rendered.router.navigate("/another");
+    });
+    await flush();
+    expect(
+      container
+        .querySelector('[data-testid="record-probe"]')
+        ?.getAttribute("data-prompt-open"),
+    ).toBe("true");
+
+    act(() => {
+      click(container, "cancel-leave");
+    });
+    expect(
+      [...rendered.router.state.blockers.values()].map(
+        (blocker) => blocker.state,
+      ),
+    ).toEqual(["unblocked"]);
+
+    act(() => {
+      void rendered.router.navigate("/another");
+    });
+    await flush();
+    act(() => {
+      click(container, "close-autofocus");
+    });
+    await flush();
+    expect(rendered.router.state.location.pathname).toBe("/record");
+    expect(
+      container
+        .querySelector('[data-testid="record-probe"]')
+        ?.getAttribute("data-prompt-open"),
+    ).toBe("true");
+    expect(
+      [...rendered.router.state.blockers.values()].map(
+        (blocker) => blocker.state,
+      ),
+    ).toEqual(["blocked"]);
+  });
+
+  it("cancels a reopened real dialog before the previous focus scope closes", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    let closeCount = 0;
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/record",
+          Component: () => <RecordDialogProbe onClose={() => closeCount++} />,
+        },
+        { path: "/other", Component: OtherProbe },
+        { path: "/another", Component: OtherProbe },
+      ],
+      { initialEntries: ["/record"] },
+    );
+    root = createRoot(container);
+    act(() => root?.render(<RouterProvider router={router} />));
+    act(() => {
+      void router.navigate("/other");
+    });
+    act(() => click(document.body, "dialog-confirm"));
+    act(() => {
+      void router.navigate("/another");
+    });
+    expect(closeCount).toBe(0);
+    act(() => click(document.body, "dialog-cancel"));
+    expect(
+      [...router.state.blockers.values()].map((blocker) => blocker.state),
+    ).toEqual(["unblocked"]);
+
+    act(() => {
+      void router.navigate("/another");
+    });
+    await flush();
+    expect(closeCount).toBeGreaterThan(0);
+    expect(router.state.location.pathname).toBe("/record");
+    expect(document.body.querySelector("#dialog-cancel")).not.toBeNull();
+    expect(
+      [...router.state.blockers.values()].map((blocker) => blocker.state),
+    ).toEqual(["blocked"]);
+  });
+
+  it("waits for the second confirmed dialog's autofocus before proceeding", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    const rendered = renderProbe(container, true, true);
+    root = rendered.root;
+
+    act(() => {
+      void rendered.router.navigate("/other");
+    });
+    await flush();
+    act(() => {
+      click(container, "confirm-leave");
+    });
+    act(() => {
+      void rendered.router.navigate("/another");
+    });
+    await flush();
+    act(() => {
+      click(container, "confirm-leave");
+    });
+    act(() => {
+      click(container, "close-autofocus");
+    });
+    await flush();
+    expect(rendered.router.state.location.pathname).toBe("/record");
+    expect(
+      [...rendered.router.state.blockers.values()].map(
+        (blocker) => blocker.state,
+      ),
+    ).toEqual(["blocked"]);
+
+    act(() => {
+      click(container, "close-autofocus");
+    });
+    await flush();
+    expect(rendered.router.state.location.pathname).toBe("/another");
+  });
+
+  it("does not confirm a replaced blocker before React rerenders", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    const rendered = renderProbe(container, true, true);
+    root = rendered.root;
+
+    act(() => {
+      void rendered.router.navigate("/other");
+    });
+    await flush();
+    act(() => {
+      void rendered.router.navigate("/another");
+      click(container, "confirm-leave");
+    });
+    await flush();
+    act(() => {
+      click(container, "close-autofocus");
+    });
+    await flush();
+    expect(rendered.router.state.location.pathname).toBe("/record");
+    expect(
+      [...rendered.router.state.blockers.values()].map(
+        (blocker) => blocker.state,
+      ),
+    ).toEqual(["blocked"]);
+    expect(
+      container
+        .querySelector('[data-testid="record-probe"]')
+        ?.getAttribute("data-prompt-open"),
+    ).toBe("true");
+  });
+
+  it("does not proceed after the recorder unmounts", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    const rendered = renderProbe(container, true, true);
+    root = rendered.root;
+
+    act(() => {
+      void rendered.router.navigate("/other");
+    });
+    await flush();
+    act(() => {
+      click(container, "confirm-leave");
+      click(container, "close-autofocus");
+      rendered.root.unmount();
+    });
+    root = undefined;
+    await flush();
+    expect(rendered.router.state.location.pathname).toBe("/record");
   });
 
   it("stays put and clears the prompt when the user cancels leaving", async () => {
