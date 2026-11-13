@@ -696,6 +696,13 @@ describe("apply-visual-edit deleteNode and font-family on design files (real cod
         { breakpoints: [{ widthPx: "390" }] },
       ],
       ["a breakpoint set that is not an object", "oops"],
+      ["a breakpoint set that is an array", []],
+      [
+        "one invalid width among valid ones",
+        { breakpoints: [{ widthPx: 390 }, { widthPx: "810" }] },
+      ],
+      ["an entry that is not an object", { breakpoints: [390, "810"] }],
+      ["a null entry", { breakpoints: [{ widthPx: 390 }, null] }],
     ])(
       "refuses, without writing, when the design has %s",
       async (_label, breakpointSet) => {

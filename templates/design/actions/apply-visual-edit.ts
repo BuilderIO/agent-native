@@ -216,13 +216,21 @@ function scopeIntentToFramerBound(
 }
 
 // An absent set, or one whose list is missing or empty, means "no
-// breakpoints". Anything else that yields no width is damaged data: treating it
-// as "no breakpoints" would let a delete remove the layer at every width.
-function breakpointSetIsDamaged(rawSet: unknown): boolean {
-  if (rawSet == null) return false;
-  if (typeof rawSet !== "object") return true;
+// breakpoints". A set or entry of any other shape is damaged data: reading
+// around it would let a delete remove the layer at every width.
+function readBreakpointWidths(rawSet: unknown): number[] | "damaged" {
+  if (rawSet == null) return [];
+  if (typeof rawSet !== "object" || Array.isArray(rawSet)) return "damaged";
   const list = (rawSet as { breakpoints?: unknown }).breakpoints;
-  return list !== undefined && !(Array.isArray(list) && list.length === 0);
+  if (list === undefined) return [];
+  if (!Array.isArray(list)) return "damaged";
+  const widths: number[] = [];
+  for (const entry of list) {
+    const width = (entry as { widthPx?: unknown } | null)?.widthPx;
+    if (typeof width !== "number" || !Number.isFinite(width)) return "damaged";
+    widths.push(width);
+  }
+  return widths;
 }
 
 function resolveFramerBoundFromDesignData(
@@ -237,24 +245,9 @@ function resolveFramerBoundFromDesignData(
   if (!designData) return { kind: "unknown" };
   try {
     const parsed = JSON.parse(designData) as Record<string, unknown>;
-    const rawSet = parsed.breakpointSet as
-      | { breakpoints?: Array<{ widthPx?: unknown }> }
-      | undefined;
-    const widths = Array.isArray(rawSet?.breakpoints)
-      ? rawSet.breakpoints
-          .map((bp) => bp?.widthPx)
-          .filter(
-            (width): width is number =>
-              typeof width === "number" && Number.isFinite(width),
-          )
-      : [];
-    if (widths.length === 0) {
-      return {
-        kind: breakpointSetIsDamaged(parsed.breakpointSet)
-          ? "unreadable"
-          : "unknown",
-      };
-    }
+    const widths = readBreakpointWidths(parsed.breakpointSet);
+    if (widths === "damaged") return { kind: "unreadable" };
+    if (widths.length === 0) return { kind: "unknown" };
 
     const metadataByFileId = parsed.screenMetadata as
       | Record<string, { width?: unknown } | undefined>
