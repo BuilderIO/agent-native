@@ -237,14 +237,75 @@ function findTsxBin(): string {
   return "tsx";
 }
 
-function findTypeScriptCompilerBin(): string {
-  const localTsc = path.resolve("node_modules/.bin/tsc");
-  if (fs.existsSync(localTsc)) return localTsc;
+function findTypeScriptCompilerBin(): string | undefined {
+  const names =
+    process.platform === "win32"
+      ? ["tsc.cmd", "tsc", "tsgo.cmd", "tsgo"]
+      : ["tsc", "tsgo"];
+  return findBinUpwards(names);
+}
 
-  const localTsgo = path.resolve("node_modules/.bin/tsgo");
-  if (fs.existsSync(localTsgo)) return localTsgo;
+function pathHasTsc(): boolean {
+  const windows = process.platform === "win32";
+  const pathValue = windows
+    ? (Object.entries(process.env).find(
+        ([key]) => key.toLowerCase() === "path",
+      )?.[1] ?? "")
+    : (process.env.PATH ?? "/usr/bin:/bin");
+  const dirs = pathValue.split(path.delimiter);
+  if (windows) dirs.unshift(process.cwd());
+  const extensions = windows
+    ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
+    : [""];
+  for (const dir of dirs) {
+    for (const extension of extensions) {
+      const directory = windows ? dir.replace(/^"|"$/g, "") : dir;
+      const candidate = path.resolve(directory || ".", `tsc${extension}`);
+      try {
+        fs.lstatSync(candidate);
+        return true;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
+      }
+    }
+  }
+  return false;
+}
 
-  return "tsc";
+function missingTypeScriptCompiler(): never {
+  console.error(
+    "TypeScript compiler (tsc) not found. Install TypeScript in your project, for example: npm install --save-dev typescript",
+  );
+  process.exit(1);
+}
+
+function runTypeScriptCompiler(args: string[]): void {
+  const compiler = findTypeScriptCompilerBin();
+  const fallback = !compiler;
+  if (process.platform === "win32") {
+    if (fallback && !pathHasTsc()) missingTypeScriptCompiler();
+    const tokens = [compiler ?? "tsc", ...args].map((arg) => {
+      if (/["%]/.test(arg)) {
+        throw new Error(
+          `Cannot run the TypeScript compiler on Windows: argument contains '"' or '%': ${arg}`,
+        );
+      }
+      return /[\s&|<>^()!]/.test(arg)
+        ? `"${arg.replace(/(\\*)$/, "$1$1")}"`
+        : arg;
+    });
+    run(tokens.join(" "), [], { shell: true });
+    return;
+  }
+  run(compiler ?? "tsc", args, {
+    onError: (error) => {
+      if (fallback && error.code === "ENOENT" && !pathHasTsc()) {
+        missingTypeScriptCompiler();
+      }
+      throw error;
+    },
+  });
 }
 
 function isReactRouterFramework(): boolean {
@@ -378,9 +439,11 @@ function run(
     stdio?: "inherit" | "pipe";
     env?: NodeJS.ProcessEnv;
     shell?: boolean;
+    onError?: (error: NodeJS.ErrnoException) => void;
   },
 ) {
   const child = spawn(cmd, cmdArgs, cliSpawnOptions(opts));
+  if (opts?.onError) child.on("error", opts.onError);
   child.on("exit", (code, signal) => process.exit(childExitCode(code, signal)));
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(sig, () => {
@@ -749,7 +812,7 @@ switch (command) {
         process.exit((error as { status?: number | null }).status ?? 1);
       }
     }
-    run(findTypeScriptCompilerBin(), ["--noEmit", ...args]);
+    runTypeScriptCompiler(["--noEmit", ...args]);
     break;
   }
 

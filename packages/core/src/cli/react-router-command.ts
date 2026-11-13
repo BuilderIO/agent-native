@@ -3,13 +3,16 @@ import { createRequire } from "module";
 import path from "path";
 
 export function findBinUpwards(
-  binName: string,
+  binName: string | string[],
   cwd = process.cwd(),
 ): string | undefined {
-  let dir = cwd;
-  for (let i = 0; i < 20; i++) {
-    const candidate = path.join(dir, "node_modules", ".bin", binName);
-    if (fs.existsSync(candidate)) return candidate;
+  let dir = path.resolve(cwd);
+  const names = typeof binName === "string" ? [binName] : binName;
+  while (true) {
+    for (const name of names) {
+      const candidate = path.join(dir, "node_modules", ".bin", name);
+      if (fs.existsSync(candidate)) return candidate;
+    }
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
