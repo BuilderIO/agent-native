@@ -60,7 +60,7 @@ async function apiGet<T>(
     method: "GET",
     path,
     connectionId,
-    timeoutMs: 8_000,
+    timeoutMs: 20_000,
     maxBytes: 1_000_000,
   })) as { response?: { ok?: boolean; status?: number; json?: unknown } };
   if (!result.response || result.response.ok !== true) {
