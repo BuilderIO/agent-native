@@ -37,6 +37,11 @@ import DesktopAiSetupCard from "./DesktopAiSetupCard.js";
 
 import "./QuickPromptOverlay.css";
 
+type VerifiedCodeAgentSelection = CodeAgentModelSelectionType & {
+  engine: string;
+  model: string;
+};
+
 type QuickPromptOverlayProps = {
   onSubmit: (
     prompt: string,
@@ -188,7 +193,7 @@ export default function QuickPromptOverlay({
   const modelRefreshGeneration = useRef(0);
   const activeModelRefresh = useRef<{
     forced: boolean;
-    promise: Promise<CodeAgentModelSelectionType | false>;
+    promise: Promise<VerifiedCodeAgentSelection | false>;
   } | null>(null);
   useEffect(() => {
     normalizedSelectionRef.current = modelOptions.length
@@ -230,21 +235,19 @@ export default function QuickPromptOverlay({
   }, []);
 
   const refreshModels = useCallback(
-    (force = false): Promise<CodeAgentModelSelectionType | false> => {
+    (force = false): Promise<VerifiedCodeAgentSelection | false> => {
       const active = activeModelRefresh.current;
       if (active && (active.forced || !force)) return active.promise;
 
       const generation = ++modelRefreshGeneration.current;
-      const api = window.electronAPI?.codeAgents;
       const promise = (async () => {
         try {
-          const result = api
-            ? await (force
-                ? api.listModels({ refresh: true })
-                : api.listModels())
-            : null;
+          const api = window.electronAPI.codeAgents;
+          const result = await (force
+            ? api.listModels({ refresh: true })
+            : api.listModels());
           if (generation !== modelRefreshGeneration.current) return false;
-          if (!result || result.status !== "ok") {
+          if (result.status !== "ok") {
             setModelListUnavailable(true);
             setModelListLoading(false);
             return false;
@@ -258,9 +261,17 @@ export default function QuickPromptOverlay({
           setModelSelection(selection);
           setModelListUnavailable(false);
           setModelListLoading(false);
-          return isCodeAgentModelConfigured(result.models, selection)
-            ? selection
-            : false;
+          if (
+            selection.engine === undefined ||
+            selection.model === undefined ||
+            !isCodeAgentModelConfigured(result.models, selection)
+          )
+            return false;
+          return {
+            ...selection,
+            engine: selection.engine,
+            model: selection.model,
+          };
         } catch {
           if (generation === modelRefreshGeneration.current) {
             setModelListUnavailable(true);

@@ -251,8 +251,8 @@ export type ComposerSubmitIntent = "immediate" | "queued";
 export const DEFAULT_VOICE_DICTATION_ENABLED = false;
 
 export interface ComposerVerifiedModel {
-  model?: string;
-  engine?: string;
+  model: string;
+  engine: string;
   effort?: ReasoningEffort;
 }
 
