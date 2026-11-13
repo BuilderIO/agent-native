@@ -3,6 +3,8 @@ import { act, createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("../design-canvas/native-public-worker-preview", () => ({}));
+
 import { deriveOverviewScreens } from "@/pages/design-editor/derive/overview-screens";
 
 import { sizeNeedsMeasurement } from "../edit-panel/element-classification";
