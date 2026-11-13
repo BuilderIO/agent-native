@@ -33,7 +33,10 @@ import {
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import { type StyleChangeMeta } from "@/components/design/EditPanel";
 import { sendLinkedScreenPreviewInteractionStateStyle } from "@/components/design/multi-screen/linked-screen-preview";
-import { useSelectionMeasurement } from "@/components/design/multi-screen/measure-selection";
+import {
+  selectionMeasurementBreakpoint,
+  useSelectionMeasurement,
+} from "@/components/design/multi-screen/measure-selection";
 import { isWheelCameraGestureActive } from "@/components/design/multi-screen/wheel-gesture-state";
 import type {
   CanvasLayerHitCandidate,
@@ -754,9 +757,12 @@ export function useEditorSelectionAndStyles({
     selectedElement,
     setSelectedElement,
     screenId: activeFile?.id ?? "",
-    breakpointWidth: overviewScreens.find(
-      (screen) => screen.id === activeFile?.id,
-    )?.activeBreakpointWidth,
+    breakpointWidth: selectionMeasurementBreakpoint(
+      viewMode,
+      activeBreakpointWidthState,
+      overviewScreens.find((screen) => screen.id === activeFile?.id)
+        ?.activeBreakpointWidth,
+    ),
     viewMode,
     boardFileId,
     activeFileIdRef,

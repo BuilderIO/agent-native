@@ -3,11 +3,14 @@ import { act, createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
+import { deriveOverviewScreens } from "@/pages/design-editor/derive/overview-screens";
+
 import { sizeNeedsMeasurement } from "../edit-panel/element-classification";
 import type { ElementInfo } from "../types";
 import {
   designPreviewWindowsForScreen,
   requestSelectionMeasurement,
+  selectionMeasurementBreakpoint,
   useSelectionMeasurement,
 } from "./measure-selection";
 
@@ -106,93 +109,213 @@ describe("selection measurement lifecycle", () => {
     },
   );
 
-  it("remeasures a source-derived selection after switching breakpoints", async () => {
+  it.each([
+    { viewMode: "overview" as const, editBeforeSwitch: true },
+    { viewMode: "overview" as const, editBeforeSwitch: false },
+    { viewMode: "single" as const, editBeforeSwitch: false },
+  ])(
+    "remeasures $viewMode after breakpoint changes (edit=$editBeforeSwitch)",
+    async ({ viewMode, editBeforeSwitch }) => {
+      const container = document.createElement("div");
+      document.body.append(container);
+      const desktop = document.createElement("iframe");
+      desktop.dataset.screenIframeId = "screen-a";
+      const mobile = document.createElement("iframe");
+      mobile.dataset.screenIframeId = "screen-a::bp-390";
+      document.body.append(desktop, mobile);
+      const desktopPost = vi
+        .spyOn(desktop.contentWindow!, "postMessage")
+        .mockImplementation(() => {});
+      const mobilePost = vi
+        .spyOn(mobile.contentWindow!, "postMessage")
+        .mockImplementation(() => {});
+      const initial: ElementInfo = {
+        tagName: "div",
+        sourceId: "a",
+        selector: "#a",
+        classes: [],
+        computedStyles: { width: "50%" },
+        boundingRect: { x: 0, y: 0, width: 120, height: 30 },
+        isFlexChild: false,
+        isFlexContainer: false,
+        needsLiveMeasurement: true,
+      };
+      const activeFileIdRef = { current: "screen-a" };
+      let current: ElementInfo | null = null;
+      let editSelection = () => {};
+      function Harness({ breakpointWidth }: { breakpointWidth?: number }) {
+        const [selected, setSelected] = useState<ElementInfo | null>(initial);
+        current = selected;
+        editSelection = () =>
+          setSelected((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  computedStyles: { ...prev.computedStyles, color: "green" },
+                }
+              : prev,
+          );
+        const [screen] = deriveOverviewScreens({
+          designDataJson: {
+            breakpointSet: {
+              id: "set",
+              breakpoints: [{ id: "mobile", widthPx: 390 }],
+            },
+          },
+          files: [
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              fileType: "html",
+              content: "",
+              createdAt: "2026-01-01",
+              updatedAt: "2026-01-01",
+            },
+          ],
+          activeBreakpointWidthState: breakpointWidth,
+          breakpointFramesHidden: viewMode === "single",
+          locallyPinnedHeightIds: new Set(),
+        });
+        useSelectionMeasurement({
+          selectedElement: selected,
+          setSelectedElement: setSelected,
+          screenId: "screen-a",
+          breakpointWidth: selectionMeasurementBreakpoint(
+            viewMode,
+            breakpointWidth,
+            screen?.activeBreakpointWidth,
+          ),
+          viewMode,
+          activeFileIdRef,
+        });
+        return null;
+      }
+      const root = createRoot(container);
+      const reply = async (
+        frame: HTMLIFrameElement,
+        correlationId: string,
+        width: number,
+      ) =>
+        act(async () =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              source: frame.contentWindow,
+              data: {
+                type: "agent-native:selection-measured",
+                screenId: "screen-a",
+                correlationId,
+                payload: {
+                  ...initial,
+                  computedStyles: { width: `${width}px` },
+                  boundingRect: { ...initial.boundingRect, width },
+                },
+              },
+            }),
+          ),
+        );
+      try {
+        await act(async () => root.render(createElement(Harness, {})));
+        const first = desktopPost.mock.calls[0]![0] as {
+          correlationId: string;
+        };
+        await reply(desktop, first.correlationId, 120);
+        expect(current).toMatchObject({
+          computedStyles: { width: "120px" },
+          needsLiveMeasurement: false,
+        });
+        if (editBeforeSwitch) await act(async () => editSelection());
+        await act(async () =>
+          root.render(createElement(Harness, { breakpointWidth: 390 })),
+        );
+        const targetPost = viewMode === "single" ? desktopPost : mobilePost;
+        const target = viewMode === "single" ? desktop : mobile;
+        expect(targetPost).toHaveBeenCalledTimes(viewMode === "single" ? 2 : 1);
+        const second = targetPost.mock.calls[
+          viewMode === "single" ? 1 : 0
+        ]![0] as { correlationId: string };
+        await reply(target, second.correlationId, 60);
+        expect(current).toMatchObject({
+          computedStyles: { width: "60px" },
+          boundingRect: { width: 60 },
+        });
+      } finally {
+        await act(async () => root.unmount());
+        desktopPost.mockRestore();
+        mobilePost.mockRestore();
+        desktop.remove();
+        mobile.remove();
+        container.remove();
+      }
+    },
+  );
+
+  it("does not remeasure an unrelated selection sharing the selector", async () => {
     const container = document.createElement("div");
     document.body.append(container);
-    const desktop = document.createElement("iframe");
-    desktop.dataset.screenIframeId = "screen-a";
-    const mobile = document.createElement("iframe");
-    mobile.dataset.screenIframeId = "screen-a::bp-390";
-    document.body.append(desktop, mobile);
-    const desktopPost = vi
-      .spyOn(desktop.contentWindow!, "postMessage")
-      .mockImplementation(() => {});
-    const mobilePost = vi
-      .spyOn(mobile.contentWindow!, "postMessage")
+    const frame = document.createElement("iframe");
+    frame.dataset.screenIframeId = "screen-a";
+    document.body.append(frame);
+    const post = vi
+      .spyOn(frame.contentWindow!, "postMessage")
       .mockImplementation(() => {});
     const initial: ElementInfo = {
       tagName: "div",
       sourceId: "a",
-      selector: "#a",
+      selector: "#same",
       classes: [],
       computedStyles: { width: "50%" },
-      boundingRect: { x: 0, y: 0, width: 120, height: 30 },
+      boundingRect: { x: 0, y: 0, width: 90, height: 30 },
       isFlexChild: false,
       isFlexContainer: false,
       needsLiveMeasurement: true,
     };
     const activeFileIdRef = { current: "screen-a" };
-    let current: ElementInfo | null = null;
+    let selectOther = () => {};
     function Harness({ breakpointWidth }: { breakpointWidth?: number }) {
       const [selected, setSelected] = useState<ElementInfo | null>(initial);
-      current = selected;
+      selectOther = () =>
+        setSelected({
+          ...initial,
+          sourceId: "b",
+          computedStyles: { width: "60px" },
+          needsLiveMeasurement: false,
+        });
       useSelectionMeasurement({
         selectedElement: selected,
         setSelectedElement: setSelected,
         screenId: "screen-a",
         breakpointWidth,
-        viewMode: "overview",
+        viewMode: "single",
         activeFileIdRef,
       });
       return null;
     }
     const root = createRoot(container);
-    const reply = async (
-      frame: HTMLIFrameElement,
-      correlationId: string,
-      width: number,
-    ) =>
-      act(async () =>
+    try {
+      await act(async () => root.render(createElement(Harness, {})));
+      const request = post.mock.calls[0]![0] as { correlationId: string };
+      await act(async () =>
         window.dispatchEvent(
           new MessageEvent("message", {
             source: frame.contentWindow,
             data: {
               type: "agent-native:selection-measured",
               screenId: "screen-a",
-              correlationId,
-              payload: {
-                ...initial,
-                computedStyles: { width: `${width}px` },
-                boundingRect: { ...initial.boundingRect, width },
-              },
+              correlationId: request.correlationId,
+              payload: { ...initial, computedStyles: { width: "90px" } },
             },
           }),
         ),
       );
-    try {
-      await act(async () => root.render(createElement(Harness, {})));
-      const first = desktopPost.mock.calls[0]![0] as { correlationId: string };
-      await reply(desktop, first.correlationId, 120);
-      expect(current).toMatchObject({
-        computedStyles: { width: "120px" },
-        needsLiveMeasurement: false,
-      });
+      await act(async () => selectOther());
       await act(async () =>
         root.render(createElement(Harness, { breakpointWidth: 390 })),
       );
-      expect(mobilePost).toHaveBeenCalledTimes(1);
-      const second = mobilePost.mock.calls[0]![0] as { correlationId: string };
-      await reply(mobile, second.correlationId, 60);
-      expect(current).toMatchObject({
-        computedStyles: { width: "60px" },
-        boundingRect: { width: 60 },
-      });
+      expect(post).toHaveBeenCalledTimes(1);
     } finally {
       await act(async () => root.unmount());
-      desktopPost.mockRestore();
-      mobilePost.mockRestore();
-      desktop.remove();
-      mobile.remove();
+      post.mockRestore();
+      frame.remove();
       container.remove();
     }
   });

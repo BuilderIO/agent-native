@@ -14,6 +14,16 @@ import {
   getBreakpointIframeId,
 } from "./iframe-targeting";
 
+export function selectionMeasurementBreakpoint(
+  viewMode: "single" | "overview",
+  activeBreakpointWidth: number | undefined,
+  overviewBreakpointWidth: number | undefined,
+): number | undefined {
+  return viewMode === "single"
+    ? activeBreakpointWidth
+    : overviewBreakpointWidth;
+}
+
 export function useSelectionMeasurement({
   selectedElement,
   setSelectedElement,
@@ -31,22 +41,34 @@ export function useSelectionMeasurement({
   boardFileId?: string;
   activeFileIdRef: RefObject<string | null>;
 }) {
-  const lastMeasured = useRef<{ element: ElementInfo; scope: string } | null>(
-    null,
-  );
+  const lastMeasured = useRef<{
+    element: ElementInfo;
+    identity: string;
+    scope: string;
+  } | null>(null);
   const scope = JSON.stringify([
     screenId,
     breakpointWidth,
     viewMode,
     boardFileId,
   ]);
+  const selectionSelector =
+    selectedElement?.runtimeSelector ?? selectedElement?.selector ?? null;
+  const identity = JSON.stringify([
+    screenId,
+    selectedElement?.sourceLayerIdentity?.screenId,
+    selectedElement?.sourceLayerIdentity?.nodeId,
+    selectedElement?.sourceId,
+    selectedElement?.runtimeSourceId,
+    selectionSelector,
+  ]);
   const selector =
     selectedElement &&
     (selectedElement.needsLiveMeasurement ||
       sizeNeedsMeasurement(selectedElement.computedStyles) ||
-      (lastMeasured.current?.element === selectedElement &&
+      (lastMeasured.current?.identity === identity &&
         lastMeasured.current.scope !== scope))
-      ? (selectedElement.runtimeSelector ?? selectedElement.selector ?? null)
+      ? selectionSelector
       : null;
   useEffect(() => {
     if (
@@ -81,7 +103,7 @@ export function useSelectionMeasurement({
         classes: selectedElement.classes,
         needsLiveMeasurement: false,
       };
-      lastMeasured.current = { element: next, scope };
+      lastMeasured.current = { element: next, identity, scope };
       setSelectedElement((prev) =>
         prev === selectedElement && activeFileIdRef.current === screenId
           ? next
@@ -101,6 +123,7 @@ export function useSelectionMeasurement({
     activeFileIdRef,
     setSelectedElement,
     scope,
+    identity,
   ]);
 }
 
