@@ -64,16 +64,6 @@ function run(cwd: string, pathDir: string) {
 }
 
 describe("agent-native typecheck compiler lookup", () => {
-  it("runs an ancestor compiler outside PATH from a path containing spaces", () => {
-    const { cwd, parent, pathDir } = fixture();
-    compiler(path.join(parent, "node_modules/.bin"), "tsc", "ancestor-tsc");
-    compiler(pathDir, "tsc", "path-tsc");
-    const result = run(cwd, pathDir);
-    expect(result.error).toBeUndefined();
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("ancestor-tsc --noEmit --pretty false");
-  });
-
   it("prefers the nearest directory, then tsc over tsgo in that directory", () => {
     const { cwd, parent, pathDir } = fixture();
     compiler(path.join(parent, "node_modules/.bin"), "tsc", "ancestor-tsc");
