@@ -81,6 +81,7 @@ const readFreeSpace: FreeSpaceReader = async (dir) => {
   try {
     const stats = await statfs(dir);
     return stats.bavail * stats.bsize;
+    // coercion-ok: null means unknown, so the caller downloads unchecked, as before.
   } catch {
     return null;
   }
