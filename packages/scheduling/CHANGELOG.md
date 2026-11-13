@@ -1,5 +1,22 @@
 # @agent-native/scheduling
 
+## 0.2.59
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+- Updated dependencies [75f2dbb]
+  - @agent-native/toolkit@0.228.2
+
+## 0.2.58
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.228.1
+
 ## 0.2.57
 
 ### Patch Changes
@@ -1273,24 +1290,5 @@
 
 - Updated dependencies [106af0e]
   - @agent-native/toolkit@0.13.0
-
-## 0.1.35
-
-### Patch Changes
-
-- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
-  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
-  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
-  config merges it in.
-- Updated dependencies [f499dff]
-  - @agent-native/toolkit@0.12.2
-
-## 0.1.34
-
-### Patch Changes
-
-- Updated dependencies [c0e7d64]
-- Updated dependencies [c0e7d64]
-  - @agent-native/toolkit@0.12.0
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

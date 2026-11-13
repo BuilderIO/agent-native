@@ -13002,6 +13002,45 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(refusedOrigin).toMatchObject({ error: "Unauthorized" });
   });
 
+  it("trusts an owner hint behind the dev proxy only when NODE_ENV is development", async () => {
+    process.env.ACCESS_TOKEN = "test-access-token";
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    const makeProxied = () => {
+      const event = makeWebEvent({
+        method: "POST",
+        node: true,
+        ip: "127.0.0.1",
+        headers: {
+          authorization: "Bearer test-access-token",
+          host: "127.0.0.1:8100",
+          origin: "http://127.0.0.1:8100",
+          "x-agent-native-owner-email": "local@example.com",
+        },
+        body: { jsonrpc: "2.0", id: 16, method: "tools/list", params: {} },
+      });
+      event.node.req.socket = {
+        localAddress: "127.0.0.1",
+        localPort: 61586,
+        remoteAddress: "127.0.0.1",
+        encrypted: false,
+      };
+      delete event._headers["x-forwarded-proto"];
+      event.req.headers.delete("x-forwarded-proto");
+      return event;
+    };
+
+    const production = makeProxied();
+    vi.stubEnv("NODE_ENV", "production");
+    const refused = await handleMcpRequest(production, config as any);
+    expect(production._status).toBe(401);
+    expect(refused).toMatchObject({ error: "Unauthorized" });
+
+    vi.stubEnv("NODE_ENV", "development");
+    const admitted = await handleMcpRequest(makeProxied(), config as any);
+    expect(admitted).toBeInstanceOf(Response);
+    expect((admitted as Response).status).toBe(200);
+  });
+
   it("keeps a remote static-token caller scoped to the server-pinned owner", async () => {
     const whoami = defineAction({
       description: "Read the authenticated caller.",

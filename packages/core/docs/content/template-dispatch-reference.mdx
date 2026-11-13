@@ -136,21 +136,26 @@ Dispatch ships close to a hundred actions. Most of the UI-facing ones are alread
   id="doc-block-dispatch11"
   title="Secrets vault schema"
   summary={
-    "A secret is stored once. A grant gives a named app access. A request plus review gates sensitive access before a grant exists. The audit log records who used which secret, when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
+    "A key is stored once, encrypted, as a row of the credential store (app_secrets, owned by @agent-native/core). A grant gives a named app access to it by key name. A request plus review gates sensitive access before a grant exists. The audit log records who changed which key, when. The grant, request, and audit tables are defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
   }
   entities={[
     {
       id: "secrets",
-      name: "vault_secrets",
-      note: "Stored credential values",
+      name: "app_secrets",
+      note: "Stored credentials, encrypted",
       fields: [
         { name: "id", type: "text", pk: true },
-        { name: "owner_email", type: "text" },
-        { name: "org_id", type: "text", nullable: true },
-        { name: "name", type: "text" },
-        { name: "credential_key", type: "text" },
-        { name: "value", type: "text", note: "secret value" },
+        {
+          name: "scope",
+          type: "text",
+          note: "org, or workspace for a solo vault",
+        },
+        { name: "scope_id", type: "text" },
+        { name: "key", type: "text", note: "credential key" },
+        { name: "encrypted_value", type: "text", note: "ciphertext only" },
+        { name: "label", type: "text", nullable: true },
         { name: "provider", type: "text", nullable: true },
+        { name: "created_by", type: "text", nullable: true },
       ],
     },
     {
@@ -159,7 +164,8 @@ Dispatch ships close to a hundred actions. Most of the UI-facing ones are alread
       note: "Per-app access grant",
       fields: [
         { name: "id", type: "text", pk: true },
-        { name: "secret_id", type: "text", fk: "vault_secrets.id" },
+        { name: "secret_id", type: "text", fk: "app_secrets.id" },
+        { name: "credential_key", type: "text", nullable: true },
         { name: "app_id", type: "text" },
         { name: "granted_by", type: "text" },
         { name: "status", type: "text" },
@@ -187,7 +193,7 @@ Dispatch ships close to a hundred actions. Most of the UI-facing ones are alread
         {
           name: "secret_id",
           type: "text",
-          fk: "vault_secrets.id",
+          fk: "app_secrets.id",
           nullable: true,
         },
         { name: "app_id", type: "text", nullable: true },

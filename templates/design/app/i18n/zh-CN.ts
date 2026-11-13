@@ -1702,7 +1702,6 @@ export default {
       "请求已记录。获得批准后，你就可以打开此设计。",
     signInToRequestAccessTitle: "登录以请求访问",
     signInToRequestAccessDescription: "登录或创建账户，向所有者请求访问权限。",
-    signInOrSignUp: "登录或注册",
     accessCheckFailed: "无法检查此设计的访问权限。",
     retryAccessCheck: "重试",
     saveAsTemplate: "保存为模板…",
@@ -2158,6 +2157,10 @@ export default {
         "另一位协作者有待应用的更改。请先应用或清除这些更改，再发送新更改。",
       codingHandoffCopied: "编码交接已复制",
       clipboardBlocked: "剪贴板被阻止",
+      pasteMediaTooMany_other:
+        "{{count}} 个文件未粘贴。一次最多可粘贴 {{limit}} 个文件。",
+      pasteMediaTooLarge_other:
+        "{{count}} 个文件因超过 {{limitMb}} MB 而未粘贴。",
       htmlCreateError: "无法创建 HTML 下载",
       htmlDownloaded: "HTML 已下载",
       htmlExportError: "无法导出 HTML",
