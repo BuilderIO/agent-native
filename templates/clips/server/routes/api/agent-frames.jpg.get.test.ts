@@ -187,7 +187,9 @@ describe("agent-frames.jpg route", () => {
       mockExtractJpegFrameSheetFromFile.mockRejectedValueOnce(
         new MockVideoFrameExtractionError(code, "sheet extraction failed"),
       );
-      mockCleanupMediaFile.mockRejectedValueOnce(new Error("media cleanup failed"));
+      mockCleanupMediaFile.mockRejectedValueOnce(
+        new Error("media cleanup failed"),
+      );
       const { event, body } = await run({ startMs: "0", fps: "30" });
       expect(event.status).toBe(status);
       expect(body).toMatchObject({ error: "sheet extraction failed" });
@@ -202,10 +204,15 @@ describe("agent-frames.jpg route", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       mockProbeFrameSheetFpsFromFile.mockResolvedValueOnce(60);
-      mockCleanupMediaFile.mockRejectedValueOnce(new Error("media cleanup failed"));
+      mockCleanupMediaFile.mockRejectedValueOnce(
+        new Error("media cleanup failed"),
+      );
       const { event, body } = await run({ startMs: "0", endMs: "1000" });
       expect(event.status).toBe(400);
-      expect(body).toMatchObject({ failureKind: "request", nextStep: expect.stringContaining("fps=36") });
+      expect(body).toMatchObject({
+        failureKind: "request",
+        nextStep: expect.stringContaining("fps=36"),
+      });
       expect(mockCleanupMediaFile).toHaveBeenCalledOnce();
       expect(log).toHaveBeenCalledOnce();
     } finally {

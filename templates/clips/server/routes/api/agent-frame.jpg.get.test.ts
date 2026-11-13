@@ -187,9 +187,13 @@ describe("agent-frame.jpg route", () => {
       mockExtractJpegFrameFromFile.mockRejectedValueOnce(
         new MockVideoFrameExtractionError("frame extraction failed", code),
       );
-      mockCleanupMediaFile.mockRejectedValueOnce(new Error("media cleanup failed"));
+      mockCleanupMediaFile.mockRejectedValueOnce(
+        new Error("media cleanup failed"),
+      );
       const event = makeEvent({ id: `combined-${code}`, atMs: "1000" });
-      const result = await handler(event as unknown as Parameters<typeof handler>[0]);
+      const result = await handler(
+        event as unknown as Parameters<typeof handler>[0],
+      );
       expect(event.status).toBe(status);
       expect(result).toMatchObject({ error: "frame extraction failed" });
       expect(mockCleanupMediaFile).toHaveBeenCalledOnce();

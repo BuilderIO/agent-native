@@ -1605,7 +1605,8 @@ describe("loadRecordingMediaBytes", () => {
         videoFormat: "mp4",
       }) as PublicAgentRecording;
       await expect(loadRecordingMediaFile(recording)).rejects.toMatchObject({
-        message: "Recording media download failed while reading the response body.",
+        message:
+          "Recording media download failed while reading the response body.",
         statusCode: 502,
         cleanupError: expect.objectContaining({ code: "EACCES" }),
       });
@@ -1628,27 +1629,42 @@ describe("loadRecordingMediaBytes", () => {
     }
   });
 
-  it.each([413, 503, 504])("preserves status %i when download and cleanup fail", async (status) => {
-    const remove = mockRm.getMockImplementation();
-    mockRm.mockRejectedValue(Object.assign(new Error("removal failed"), { code: "EACCES" }));
-    const recording = makeRecording({ videoFormat: "mp4" }) as PublicAgentRecording;
-    if (status === 413) {
-      mockSsrfSafeFetch.mockResolvedValueOnce(new Response("123456789", { headers: { "content-length": String(512 * 1024 * 1024 + 1) } }));
-    } else {
-      mockSsrfSafeFetch.mockResolvedValueOnce(new Response(null, { status }));
-    }
-    try {
-      const error = await loadRecordingMediaFile(recording).catch((failure: unknown) => failure);
-      const { frameFailureStatus } = await import("./agent-frame-request.js");
-      expect(frameFailureStatus(error)).toBe(status);
-      expect(error).toMatchObject({ cleanupError: expect.objectContaining({ code: "EACCES" }) });
-    } finally {
-      if (remove) mockRm.mockImplementation(remove);
-      mockSsrfSafeFetch.mockResolvedValueOnce(new Response("1"));
-      const media = await loadRecordingMediaFile(recording);
-      await media.cleanup();
-    }
-  });
+  it.each([413, 503, 504])(
+    "preserves status %i when download and cleanup fail",
+    async (status) => {
+      const remove = mockRm.getMockImplementation();
+      mockRm.mockRejectedValue(
+        Object.assign(new Error("removal failed"), { code: "EACCES" }),
+      );
+      const recording = makeRecording({
+        videoFormat: "mp4",
+      }) as PublicAgentRecording;
+      if (status === 413) {
+        mockSsrfSafeFetch.mockResolvedValueOnce(
+          new Response("123456789", {
+            headers: { "content-length": String(512 * 1024 * 1024 + 1) },
+          }),
+        );
+      } else {
+        mockSsrfSafeFetch.mockResolvedValueOnce(new Response(null, { status }));
+      }
+      try {
+        const error = await loadRecordingMediaFile(recording).catch(
+          (failure: unknown) => failure,
+        );
+        const { frameFailureStatus } = await import("./agent-frame-request.js");
+        expect(frameFailureStatus(error)).toBe(status);
+        expect(error).toMatchObject({
+          cleanupError: expect.objectContaining({ code: "EACCES" }),
+        });
+      } finally {
+        if (remove) mockRm.mockImplementation(remove);
+        mockSsrfSafeFetch.mockResolvedValueOnce(new Response("1"));
+        const media = await loadRecordingMediaFile(recording);
+        await media.cleanup();
+      }
+    },
+  );
 
   it("fails closed on unavailable or insufficient disk-space information", async () => {
     const recording = makeRecording({
