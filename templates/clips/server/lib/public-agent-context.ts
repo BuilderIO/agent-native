@@ -1,4 +1,4 @@
-import { mkdtemp, open, rm, statfs, writeFile } from "node:fs/promises";
+import { mkdtemp, open, rm, stat, statfs, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -181,7 +181,10 @@ const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES = 512 * 1024 * 1024;
 const MAX_CONCURRENT_AGENT_FRAME_MEDIA_FILES = 2;
 const AGENT_FRAME_DISK_RESERVE_BYTES = 128 * 1024 * 1024;
-const agentFrameFileReservations = new Map<symbol, number>();
+const agentFrameFileReservations = new Map<
+  symbol,
+  { budget: number; allocated: number }
+>();
 const pendingAgentFrameCleanups = new Set<() => Promise<void>>();
 export const MAX_PUBLIC_AGENT_HISTORY_ITEMS = 100;
 export const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
@@ -235,7 +238,12 @@ function maxAgentFrameMediaFileBytes(): number {
 async function acquireAgentFrameMediaFileAdmission(
   maxBytes: number,
   tempRoot: string,
-): Promise<{ maxBytes: number; release: () => void }> {
+  rangeFallbackSize?: number,
+): Promise<{
+  maxBytes: number;
+  release: () => void;
+  recordAllocation: (blocks: number) => void;
+} | null> {
   await Promise.allSettled(
     [...pendingAgentFrameCleanups].map((cleanup) => cleanup()),
   );
@@ -248,30 +256,56 @@ async function acquireAgentFrameMediaFileAdmission(
     );
   }
   const reservation = Symbol();
-  agentFrameFileReservations.set(reservation, 0);
+  const entry = { budget: 0, allocated: 0 };
+  agentFrameFileReservations.set(reservation, entry);
   try {
+    // Allocations made after this snapshot may not be reflected by statfs.
+    const snapshot = new Map(
+      [...agentFrameFileReservations].map(([key, value]) => [
+        key,
+        { ...value },
+      ]),
+    );
     const { bavail, bsize } = await statfs(tempRoot);
     const available = bavail * bsize;
     if (!Number.isSafeInteger(available) || available < 0) {
       throw new Error("Recording temporary storage availability is invalid.");
     }
-    const reserved = [...agentFrameFileReservations.values()].reduce(
-      (sum, bytes) => sum + bytes,
-      0,
-    );
+    let reserved = 0;
+    for (const [key, value] of snapshot) {
+      if (key === reservation) continue;
+      reserved +=
+        value.budget > 0
+          ? value.budget - value.allocated
+          : (agentFrameFileReservations.get(key)?.budget ?? 0);
+    }
+    for (const [key, value] of agentFrameFileReservations) {
+      if (!snapshot.has(key)) reserved += value.budget;
+    }
     const budget = Math.min(
       maxBytes,
       available - AGENT_FRAME_DISK_RESERVE_BYTES - reserved,
     );
+    if (rangeFallbackSize !== undefined && budget < rangeFallbackSize) {
+      agentFrameFileReservations.delete(reservation);
+      return null;
+    }
     if (budget < 1) {
       throw new RecordingMediaFetchError(
         "Recording temporary storage capacity exceeded.",
         503,
       );
     }
-    agentFrameFileReservations.set(reservation, budget);
+    entry.budget = budget;
     return {
       maxBytes: budget,
+      recordAllocation: (blocks) => {
+        const bytes = blocks * 512;
+        if (!Number.isSafeInteger(bytes) || bytes < 0) {
+          throw new Error("Recording temporary file allocation is invalid.");
+        }
+        entry.allocated = Math.min(budget, bytes);
+      },
       release: () => {
         agentFrameFileReservations.delete(reservation);
       },
@@ -381,6 +415,7 @@ async function writeResponseBodyToFileWithLimit(
   path: string,
   maxBytes: number,
   configuredMaxBytes: number,
+  recordAllocation: (blocks: number) => void,
 ): Promise<void> {
   const contentLength = Number(response.headers.get("content-length"));
   try {
@@ -408,6 +443,7 @@ async function writeResponseBodyToFileWithLimit(
       }
       assertFrameMediaFileSize(bytes.byteLength, maxBytes, configuredMaxBytes);
       await file.write(bytes);
+      recordAllocation((await file.stat()).blocks);
       return;
     }
 
@@ -431,6 +467,7 @@ async function writeResponseBodyToFileWithLimit(
         totalBytes += value.byteLength;
         assertFrameMediaFileSize(totalBytes, maxBytes, configuredMaxBytes);
         await file.write(value);
+        recordAllocation((await file.stat()).blocks);
       }
     } catch (error) {
       await reader.cancel().catch(() => {});
@@ -1421,14 +1458,26 @@ export async function loadRecordingMediaFile(
   }
   const fallbackMimeType = recordingFallbackMimeType(recording);
   const maxFileBytes = maxAgentFrameMediaFileBytes();
-  // Unknown or understated sizes retain the capped download path; they cannot
-  // authorize a signed read of an otherwise unverified source.
-  if (
+  const rangeEligible =
     typeof recording.videoSizeBytes === "number" &&
-    recording.videoSizeBytes > maxFileBytes &&
+    Number.isSafeInteger(recording.videoSizeBytes) &&
+    recording.videoSizeBytes > 0 &&
     (recording.storageMode === "own" || recording.storageMode === "hosted") &&
     isRangeVideoFormat(recording.videoFormat) &&
-    !isLocalRecordingBlob(videoUrl)
+    !isLocalRecordingBlob(videoUrl);
+  const oversized = (recording.videoSizeBytes ?? 0) > maxFileBytes;
+  const tempRoot = tmpdir();
+  const admission = oversized
+    ? null
+    : await acquireAgentFrameMediaFileAdmission(
+        maxFileBytes,
+        tempRoot,
+        rangeEligible ? recording.videoSizeBytes : undefined,
+      );
+  if (
+    rangeEligible &&
+    !admission &&
+    (recording.storageMode === "own" || recording.storageMode === "hosted")
   ) {
     const storageMode = recording.storageMode;
     const deadline = Date.now() + FRAME_RANGE_DEADLINE_MS;
@@ -1507,11 +1556,12 @@ export async function loadRecordingMediaFile(
     }
   }
   assertFrameMediaFileSize(recording.videoSizeBytes, maxFileBytes);
-  const tempRoot = tmpdir();
-  const admission = await acquireAgentFrameMediaFileAdmission(
-    maxFileBytes,
-    tempRoot,
-  );
+  if (!admission) {
+    throw new RecordingMediaFetchError(
+      "Recording temporary storage capacity exceeded.",
+      503,
+    );
+  }
   const { release } = admission;
   let dir: string;
   try {
@@ -1556,6 +1606,7 @@ export async function loadRecordingMediaFile(
         maxFileBytes,
       );
       await writeFile(path, media.bytes);
+      admission.recordAllocation((await stat(path)).blocks);
       return { path, mimeType: media.mimeType, cleanup };
     }
 
@@ -1568,6 +1619,7 @@ export async function loadRecordingMediaFile(
       path,
       admission.maxBytes,
       maxFileBytes,
+      admission.recordAllocation,
     );
     return {
       path,

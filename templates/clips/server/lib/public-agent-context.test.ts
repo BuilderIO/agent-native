@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, open, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, open, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -1324,6 +1324,177 @@ describe("loadRecordingMediaBytes", () => {
     } finally {
       await Promise.all(loaded.map((media) => media.cleanup()));
     }
+  });
+
+  it("does not reserve completed file bytes again after free space decreases", async () => {
+    const reserve = 128 * 1024 * 1024;
+    process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES = "8192";
+    mockStatfs.mockResolvedValueOnce({ bsize: 1, bavail: reserve + 12288 });
+    mockSsrfSafeFetch.mockImplementation(
+      async () => new Response(Buffer.alloc(4096, 1)),
+    );
+    const recording = makeRecording({
+      videoFormat: "mp4",
+    }) as PublicAgentRecording;
+    const first = await loadRecordingMediaFile(recording);
+    let second: Awaited<ReturnType<typeof loadRecordingMediaFile>> | undefined;
+    try {
+      const allocated = Math.min(8192, (await stat(first.path)).blocks * 512);
+      expect(allocated).toBeGreaterThan(0);
+      mockStatfs.mockResolvedValueOnce({
+        bsize: 1,
+        bavail: reserve + 8192 - allocated + 4096,
+      });
+      second = await loadRecordingMediaFile(recording);
+      expect((await readFile(second.path)).byteLength).toBe(4096);
+    } finally {
+      await second?.cleanup();
+      await first.cleanup();
+    }
+  });
+
+  it("keeps a conservative reservation when a file grows during statfs", async () => {
+    process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES = "8192";
+    const reserve = 128 * 1024 * 1024;
+    mockStatfs.mockResolvedValueOnce({ bsize: 1, bavail: reserve + 12288 });
+    let finishSnapshot!: (value: { bsize: number; bavail: number }) => void;
+    let snapshotStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      snapshotStarted = resolve;
+    });
+    mockStatfs.mockImplementationOnce(() => {
+      snapshotStarted();
+      return new Promise((resolve) => {
+        finishSnapshot = resolve;
+      });
+    });
+    let continueDownload!: () => void;
+    let downloadPaused!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      downloadPaused = resolve;
+    });
+    let sent = false;
+    const stream = new ReadableStream(
+      {
+        async pull(controller) {
+          if (!sent) {
+            sent = true;
+            controller.enqueue(Buffer.alloc(4096, 1));
+            return;
+          }
+          downloadPaused();
+          await new Promise<void>((resolve) => {
+            continueDownload = resolve;
+          });
+          controller.enqueue(Buffer.alloc(4096, 1));
+          controller.close();
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    mockSsrfSafeFetch.mockResolvedValueOnce(new Response(stream));
+    mockSsrfSafeFetch.mockResolvedValueOnce(
+      new Response(Buffer.alloc(8192, 2)),
+    );
+    const recording = makeRecording({
+      videoFormat: "mp4",
+    }) as PublicAgentRecording;
+    const firstPending = loadRecordingMediaFile(recording);
+    await paused;
+    const secondPending = loadRecordingMediaFile(recording);
+    const secondOutcome = secondPending.then(
+      (media) => ({ media }),
+      (error: unknown) => ({ error }),
+    );
+    await started;
+    continueDownload();
+    const first = await firstPending;
+    try {
+      const allocated = Math.min(4096, (await stat(first.path)).blocks * 512);
+      expect(allocated).toBeGreaterThan(0);
+      finishSnapshot({ bsize: 1, bavail: reserve + 12288 - allocated });
+      const outcome = await secondOutcome;
+      if ("media" in outcome) await outcome.media.cleanup();
+      expect(outcome).toMatchObject({
+        error: expect.objectContaining({ statusCode: 503 }),
+      });
+    } finally {
+      await first.cleanup();
+    }
+  });
+
+  it.each(["own", "hosted"] as const)(
+    "uses scoped %s ranges for known-sized media when disk space is insufficient",
+    async (storageMode) => {
+      mockStatfs.mockResolvedValueOnce({
+        bsize: 1,
+        bavail: 128 * 1024 * 1024 + 2,
+      });
+      mockSsrfSafeFetch.mockResolvedValue(new Response("12345"));
+      mockFetchS3ObjectByUrl.mockResolvedValue(new Response("12345"));
+      mockOpenS3Recording.mockResolvedValueOnce(
+        async () =>
+          new Response("a", {
+            status: 206,
+            headers: { etag: '"stable"', "content-range": "bytes 0-0/5" },
+          }),
+      );
+      const recording = makeRecording({
+        videoFormat: "mp4",
+        videoSizeBytes: 5,
+        storageMode,
+      }) as PublicAgentRecording;
+      const media = await loadRecordingMediaFile(recording);
+      try {
+        expect(media.remote).toBeDefined();
+        expect(mockOpenS3Recording).toHaveBeenCalledWith(
+          recording.videoUrl,
+          expect.objectContaining({ recordingId: recording.id, storageMode }),
+        );
+        expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+        expect(mockFetchS3ObjectByUrl).not.toHaveBeenCalled();
+      } finally {
+        await media.cleanup();
+      }
+    },
+  );
+
+  it.each([
+    { videoSizeBytes: null, storageMode: "own", videoFormat: "mp4" },
+    { videoSizeBytes: 5, storageMode: null, videoFormat: "mp4" },
+    { videoSizeBytes: 5, storageMode: "own", videoFormat: "unsupported" },
+  ])(
+    "does not use ranges for unknown or unsupported sources under disk pressure",
+    async (overrides) => {
+      mockOpenS3Recording.mockReset();
+      mockStatfs.mockResolvedValueOnce({
+        bsize: 1,
+        bavail: 128 * 1024 * 1024 + 2,
+      });
+      mockSsrfSafeFetch.mockResolvedValueOnce(new Response("12345"));
+      await expect(
+        loadRecordingMediaFile(
+          makeRecording(overrides as RecordingFixture) as PublicAgentRecording,
+        ),
+      ).rejects.toMatchObject({ statusCode: 503 });
+      expect(mockOpenS3Recording).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects an unbound S3 source under disk pressure without downloading it", async () => {
+    mockStatfs.mockResolvedValueOnce({ bsize: 1, bavail: 128 * 1024 * 1024 });
+    mockOpenS3Recording.mockResolvedValueOnce(null);
+    await expect(
+      loadRecordingMediaFile(
+        makeRecording({
+          videoFormat: "mp4",
+          videoSizeBytes: 5,
+          storageMode: "own",
+        }) as PublicAgentRecording,
+      ),
+    ).rejects.toMatchObject({ statusCode: 503 });
+    expect(mockOpenS3Recording).toHaveBeenCalledOnce();
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
 
   it("retains admission when cleanup fails and releases it after a retry", async () => {
