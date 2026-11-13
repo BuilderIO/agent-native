@@ -70,6 +70,9 @@ export function embedApp(
   return {
     title,
     requiresEmbedSession: true,
+    // Claude reads this from the resources/read content item and moves the
+    // view to its side panel; hosts that do not know the field ignore it.
+    _meta: { ui: { preferredDisplayMode: "fullscreen" } },
     ...(options.description ? { description: options.description } : {}),
     html: (ctx) => {
       const remoteBridgeFallbackEnabled = ctx.catalogMode !== "directory";
@@ -1402,6 +1405,7 @@ export function embedApp(
         window.history.replaceState(window.history.state, "", localPathFromUrl(appUrl, false));
       } catch {}
       await mountTransplantedHtml(html, appUrl);
+      notifyViewToolsChanged();
       embedSessionRefreshAttempts = 0;
       notifyHostHeightRepeatedly();
     }
@@ -2681,6 +2685,181 @@ export function embedApp(
       if (bridge && (!appFrame || openAiBridge)) syncOpenAiBridge(bridge);
     }, { passive: true });
 
+    // App tools: the host calls these on this open view, so a "filter it" or
+    // "open that one" turn changes the panel in place instead of opening a new view.
+    const readViewToolName = "read_view";
+    const navigateViewToolName = "navigate_view";
+    const maxViewTextChars = 6000;
+    const maxPageTools = 60;
+    const pageToolWaitMs = 40000;
+
+    function appPageToolHelper() {
+      if (appFrame) return null;
+      const helper = window.__agentNativeWebMcp;
+      return helper && typeof helper.tools === "function" && typeof helper.call === "function"
+        ? helper
+        : null;
+    }
+
+    function currentViewUrl() {
+      if (appFrame) {
+        try {
+          return new URL(appFrame.src, window.location.href);
+          // coercion-ok: null means "no readable view URL"; read_view and navigate_view report it as an error
+        } catch {
+          return null;
+        }
+      }
+      return lastFrameSrc ? new URL(window.location.href) : null;
+    }
+
+    function readViewState() {
+      const url = currentViewUrl();
+      if (!url) throw new Error("No app page has loaded in this view yet.");
+      const state = {
+        path: localPathFromUrl(url, false),
+        title: appFrame ? "" : document.title
+      };
+      if (!appFrame) {
+        const selection = typeof window.getSelection === "function"
+          ? String(window.getSelection() || "").trim()
+          : "";
+        if (selection) state.selectedText = selection.slice(0, maxViewTextChars);
+        const root = document.querySelector("main") || document.body;
+        state.visibleText = root
+          ? String(root.innerText || "").replace(/\\s+/g, " ").trim().slice(0, maxViewTextChars)
+          : "";
+      }
+      return state;
+    }
+
+    function navigateView(rawPath) {
+      const path = typeof rawPath === "string" ? rawPath.trim() : "";
+      if (!path.startsWith("/") || path.startsWith("//")) {
+        throw new Error("path must start with / and stay inside the open app, e.g. the path read_view returns.");
+      }
+      const base = currentViewUrl();
+      if (!base) throw new Error("No app page has loaded in this view yet.");
+      const target = new URL(path, base);
+      if (target.origin !== base.origin) throw new Error("path must stay inside the open app.");
+      const nextPath = localPathFromUrl(target, false);
+      if (appFrame) {
+        appFrame.src = target.href;
+        return { path: nextPath };
+      }
+      // React Router reads the location on popstate, so a pushed entry plus a
+      // popstate event moves the transplanted app without reloading it.
+      const current = window.history.state;
+      const idx = current && typeof current.idx === "number" ? current.idx + 1 : 0;
+      window.history.pushState(
+        { usr: null, key: Math.random().toString(36).slice(2, 10), idx },
+        "",
+        nextPath
+      );
+      window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+      return { path: nextPath };
+    }
+
+    async function listViewTools() {
+      const tools = [
+        {
+          name: readViewToolName,
+          title: "Read open app view",
+          description: "Read the app page open beside the chat: its path, title, selected text and visible text. Call it before acting on what the user is looking at.",
+          inputSchema: { type: "object", properties: {} },
+          annotations: { readOnlyHint: true }
+        },
+        {
+          name: navigateViewToolName,
+          title: "Navigate open app view",
+          description: "Show another page of the open app in place, such as a filtered list or one record. Pass a path in the form read_view returns.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: {
+                type: "string",
+                description: "App path starting with /, in the form read_view returns, e.g. a list with a search query."
+              }
+            },
+            required: ["path"]
+          }
+        }
+      ];
+      const helper = appPageToolHelper();
+      if (!helper) return tools;
+      try {
+        const summaries = await helper.tools();
+        for (const summary of (Array.isArray(summaries) ? summaries : []).slice(0, maxPageTools)) {
+          if (!summary || typeof summary.name !== "string") continue;
+          if (tools.some((tool) => tool.name === summary.name)) continue;
+          const full = typeof helper.describe === "function"
+            ? await helper.describe(summary.name, summary.origin)
+            : null;
+          const schema = full && full.inputSchema && full.inputSchema.type === "object"
+            ? full.inputSchema
+            : { type: "object", properties: {} };
+          tools.push({
+            name: summary.name,
+            ...(summary.title ? { title: summary.title } : {}),
+            description: String((full && full.description) || summary.description || summary.name),
+            inputSchema: schema,
+            ...(summary.readOnly ? { annotations: { readOnlyHint: true } } : {})
+          });
+        }
+      } catch (err) {
+        console.warn("[agent-native] page tools unavailable to the MCP host", err);
+      }
+      return tools;
+    }
+
+    async function callViewTool(params) {
+      const record = objectValue(params);
+      const name = typeof record.name === "string" ? record.name : "";
+      const args = objectValue(record.arguments);
+      try {
+        let result;
+        if (name === readViewToolName) {
+          result = readViewState();
+        } else if (name === navigateViewToolName) {
+          result = navigateView(args.path);
+        } else {
+          const helper = appPageToolHelper();
+          if (!helper) throw new Error("Unknown view tool: " + name);
+          const outcome = await helper.call(name, args, { waitMs: pageToolWaitMs });
+          if (!outcome || outcome.state !== "done") {
+            throw new Error("Page tool " + name + " did not finish.");
+          }
+          if (!outcome.ok) throw new Error(outcome.error || "Page tool " + name + " failed.");
+          result = outcome.result;
+        }
+        const structured = result && typeof result === "object" && !Array.isArray(result)
+          ? result
+          : undefined;
+        return {
+          content: [{
+            type: "text",
+            text: typeof result === "string" ? result : JSON.stringify(result === undefined ? null : result)
+          }],
+          ...(structured ? { structuredContent: structured } : {})
+        };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: err && err.message ? err.message : String(err) }]
+        };
+      }
+    }
+
+    function notifyViewToolsChanged() {
+      if (app && typeof app.sendToolListChanged === "function") {
+        try {
+          app.sendToolListChanged();
+        } catch (error) {
+          console.warn("[agent-native] tools/list_changed notification failed", error);
+        }
+      }
+    }
+
     function createNativeMcpAppsBridge() {
       let rpcId = 0;
       let connectPromise = null;
@@ -2784,7 +2963,10 @@ export function embedApp(
               "ui/initialize",
               {
                 appInfo: { name: "Agent-Native Embed", version: "1.0.0" },
-                appCapabilities: {},
+                appCapabilities: {
+                  availableDisplayModes: ["inline", "fullscreen"],
+                  tools: { listChanged: true }
+                },
                 protocolVersion: "2026-01-26"
               },
               nativeBridgeInitializeTimeoutMs
@@ -2830,17 +3012,43 @@ export function embedApp(
         sendSizeChanged(params) {
           rpcNotify("ui/notifications/size-changed", objectValue(params));
         },
+        sendToolListChanged() {
+          if (connectPromise) rpcNotify("notifications/tools/list_changed", {});
+        },
         async sendMessage(params) {
           await nativeApp.connect();
           return await rpcRequest("ui/message", objectValue(params));
         }
       };
 
+      async function answerHostRequest(message) {
+        let reply;
+        try {
+          if (message.method === "tools/list") {
+            reply = { result: { tools: await listViewTools() } };
+          } else if (message.method === "tools/call") {
+            reply = { result: await callViewTool(message.params) };
+          } else if (message.method === "ping" || message.method === "ui/resource-teardown") {
+            reply = { result: {} };
+          } else {
+            reply = { error: { code: -32601, message: "Method not found: " + message.method } };
+          }
+        } catch (err) {
+          reply = { error: { code: -32603, message: err && err.message ? err.message : String(err) } };
+        }
+        window.parent.postMessage({ jsonrpc: "2.0", id: message.id, ...reply }, "*");
+      }
+
       function onMessage(event) {
         if (event.source !== window.parent) return;
         const message = event.data;
         if (!message || message.jsonrpc !== "2.0") return;
-        if (typeof message.id === "number" || typeof message.id === "string") {
+        const hasId = typeof message.id === "number" || typeof message.id === "string";
+        if (hasId && typeof message.method === "string") {
+          void answerHostRequest(message);
+          return;
+        }
+        if (hasId) {
           settleRpcResponse(message);
           return;
         }
@@ -2921,9 +3129,11 @@ export function embedApp(
       const { App } = await import("${MCP_APP_IMPORT}");
       app = new App(
         { name: "Agent-Native Embed", version: "1.0.0" },
-        {},
+        { availableDisplayModes: ["inline", "fullscreen"], tools: { listChanged: true } },
         { autoResize: false }
       );
+      app.onlisttools = async () => ({ tools: await listViewTools() });
+      app.oncalltool = async (params) => await callViewTool(params);
       appConnectPromise = null;
       app.ontoolinput = (params) => {
         toolInput = params.arguments || {};

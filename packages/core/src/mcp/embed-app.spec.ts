@@ -2354,6 +2354,191 @@ return requestFullscreenOnFirstInteraction;`;
     });
   });
 
+  describe("app tools on the open view", () => {
+    const viewToolsFor = (options: {
+      href: string;
+      pageHelper?: unknown;
+      frameSrc?: string;
+    }) => {
+      const resource = embedApp({ title: "Mail" });
+      const html =
+        typeof resource.html === "function"
+          ? resource.html({ actionName: "open_app", appId: "mail" })
+          : resource.html;
+      const source = html.match(
+        /const readViewToolName = [\s\S]*?(?=\n    function createNativeMcpAppsBridge\(\))/,
+      )?.[0];
+      expect(source).toBeTruthy();
+      const { window } = parseHTML(
+        "<html><head><title>Inbox</title></head><body><main>Invoice from Acme   due Friday</main></body></html>",
+      );
+      const pushed: Array<{ state: unknown; url: string }> = [];
+      const popstates: unknown[] = [];
+      const fakeWindow = {
+        location: { href: options.href },
+        history: {
+          state: { usr: null, key: "a", idx: 3 },
+          pushState(state: unknown, _title: string, url: string) {
+            pushed.push({ state, url });
+            this.state = state;
+          },
+        },
+        dispatchEvent(event: { type: string }) {
+          popstates.push(event.type);
+          return true;
+        },
+        getSelection: () => "",
+        __agentNativeWebMcp: options.pageHelper,
+      };
+      const objectValue = (value: unknown) =>
+        value && typeof value === "object" && !Array.isArray(value)
+          ? value
+          : {};
+      const localPathFromUrl = (url: URL) =>
+        url.pathname + url.search + url.hash;
+      class FakePopStateEvent {
+        constructor(readonly type: string) {}
+      }
+      const appFrame = options.frameSrc ? { src: options.frameSrc } : null;
+      return new Function(
+        "window",
+        "document",
+        "objectValue",
+        "localPathFromUrl",
+        "PopStateEvent",
+        "appFrame",
+        "lastFrameSrc",
+        "app",
+        `${source}; return { listViewTools, callViewTool };`,
+      )(
+        fakeWindow,
+        window.document,
+        objectValue,
+        localPathFromUrl,
+        FakePopStateEvent,
+        appFrame,
+        "https://labs.example.com/_agent-native/embed/start?t=1",
+        null,
+      ) as {
+        listViewTools(): Promise<Array<{ name: string }>>;
+        callViewTool(params: unknown): Promise<{
+          isError?: boolean;
+          content: Array<{ text: string }>;
+          structuredContent?: Record<string, unknown>;
+        }>;
+      } & { pushed: typeof pushed; popstates: typeof popstates };
+    };
+
+    it("lists read and navigate tools plus the page's own tools", async () => {
+      const pageHelper = {
+        tools: async () => [
+          {
+            name: "select_thread",
+            description: "Select a thread",
+            required: ["id"],
+            readOnly: false,
+          },
+        ],
+        describe: async () => ({
+          name: "select_thread",
+          description: "Select a thread in the list",
+          inputSchema: {
+            type: "object",
+            properties: { id: { type: "string" } },
+            required: ["id"],
+          },
+        }),
+        call: async (name: string, args: unknown) => ({
+          id: "1",
+          state: "done",
+          ok: true,
+          tool: name,
+          attempts: 1,
+          result: { selected: args },
+        }),
+      };
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+        pageHelper,
+      });
+
+      const listed = await tools.listViewTools();
+      expect(listed.map((tool) => tool.name)).toEqual([
+        "read_view",
+        "navigate_view",
+        "select_thread",
+      ]);
+      expect(listed[2]).toMatchObject({
+        description: "Select a thread in the list",
+        inputSchema: { required: ["id"] },
+      });
+
+      const called = await tools.callViewTool({
+        name: "select_thread",
+        arguments: { id: "t1" },
+      });
+      expect(called.isError).toBeUndefined();
+      expect(called.structuredContent).toEqual({ selected: { id: "t1" } });
+    });
+
+    it("reads what the open page shows", async () => {
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox?q=acme",
+      });
+      const read = await tools.callViewTool({ name: "read_view" });
+      expect(read.structuredContent).toEqual({
+        path: "/mail/inbox?q=acme",
+        title: "Inbox",
+        visibleText: "Invoice from Acme due Friday",
+      });
+    });
+
+    it("moves the transplanted app in place and refuses other origins", async () => {
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+      });
+      const moved = await tools.callViewTool({
+        name: "navigate_view",
+        arguments: { path: "/mail/inbox?q=invoice" },
+      });
+      expect(moved.structuredContent).toEqual({
+        path: "/mail/inbox?q=invoice",
+      });
+
+      for (const path of ["//evil.example/x", "https://evil.example/x", ""]) {
+        const refused = await tools.callViewTool({
+          name: "navigate_view",
+          arguments: { path },
+        });
+        expect(refused.isError).toBe(true);
+      }
+    });
+
+    it("navigates a nested app frame by its own URL", async () => {
+      const tools = viewToolsFor({
+        href: "https://sandbox.example/shell",
+        frameSrc: "https://labs.example.com/calendar/week",
+      });
+      const moved = await tools.callViewTool({
+        name: "navigate_view",
+        arguments: { path: "/calendar/event/e1" },
+      });
+      expect(moved.structuredContent).toEqual({ path: "/calendar/event/e1" });
+      const listed = await tools.listViewTools();
+      expect(listed.map((tool) => tool.name)).toEqual([
+        "read_view",
+        "navigate_view",
+      ]);
+    });
+
+    it("asks Claude to open the view in its side panel", () => {
+      const resource = embedApp({ title: "Mail" });
+      expect(resource._meta).toEqual({
+        ui: { preferredDisplayMode: "fullscreen" },
+      });
+    });
+  });
+
   it("provides a local MCP App payload fixture for renderer tests", async () => {
     const fixture = await createLocalMcpAppEmbedHarness({
       actionName: "open_app",
