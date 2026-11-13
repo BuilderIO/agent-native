@@ -49,36 +49,48 @@ export class NetlifyManifestExpiredError extends Error {
   }
 }
 
+function readCliPackage(dir: string): NetlifyCli | undefined {
+  const pkgPath = path.join(dir, "package.json");
+  if (!fs.existsSync(pkgPath)) return undefined;
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as {
+    name?: string;
+    version?: string;
+    bin?: string | Record<string, string>;
+  };
+  if (pkg.name !== "netlify-cli" || !pkg.version) return undefined;
+  const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.netlify;
+  if (!bin) throw new Error("netlify-cli package.json declares no netlify bin");
+  return {
+    packageDir: dir,
+    version: pkg.version,
+    entryPoint: path.resolve(dir, bin),
+  };
+}
+
+const SHIM_NAMES = ["netlify", "netlify.cmd", "netlify.ps1", "netlify.exe"];
+
 export function findNetlifyCli(
   pathEnv: string | undefined = process.env.PATH,
 ): NetlifyCli {
   for (const dir of (pathEnv ?? "").split(path.delimiter)) {
     if (!dir) continue;
-    const bin = path.join(dir, "netlify");
-    if (!fs.existsSync(bin)) continue;
-    let current = path.dirname(fs.realpathSync(bin));
-    for (;;) {
-      const pkgPath = path.join(current, "package.json");
-      if (fs.existsSync(pkgPath)) {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as {
-          name?: string;
-          version?: string;
-          bin?: string | Record<string, string>;
-        };
-        if (pkg.name === "netlify-cli" && pkg.version) {
-          const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.netlify;
-          if (!bin)
-            throw new Error("netlify-cli package.json declares no netlify bin");
-          return {
-            packageDir: current,
-            version: pkg.version,
-            entryPoint: path.resolve(current, bin),
-          };
-        }
+    for (const name of SHIM_NAMES) {
+      const bin = path.join(dir, name);
+      if (!fs.existsSync(bin)) continue;
+      // Unix: the shim is a symlink into the package. Windows npm: a .cmd file
+      // beside node_modules/netlify-cli.
+      let current = path.dirname(fs.realpathSync(bin));
+      for (;;) {
+        const found = readCliPackage(current);
+        if (found) return found;
+        const parent = path.dirname(current);
+        if (parent === current) break;
+        current = parent;
       }
-      const parent = path.dirname(current);
-      if (parent === current) break;
-      current = parent;
+      const sibling = readCliPackage(
+        path.join(dir, "node_modules", "netlify-cli"),
+      );
+      if (sibling) return sibling;
     }
   }
   throw new Error(

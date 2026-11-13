@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { functionsDirOf, withPathDefaults } from "./netlify-deploy.js";
+import {
+  assertStatusOutputEnabled,
+  functionsDirOf,
+  withPathDefaults,
+} from "./netlify-deploy.js";
 
 describe("netlify-deploy argument handling", () => {
   it("uses the full default publish with no args", () => {
@@ -31,5 +35,26 @@ describe("netlify-deploy argument handling", () => {
     expect(functionsDirOf(["--functions=a/b"])).toBe("a/b");
     expect(functionsDirOf(["--functions", "c"])).toBe("c");
     expect(functionsDirOf([])).toBe(".netlify/functions-internal");
+  });
+});
+
+describe("netlify-deploy argument validation", () => {
+  it("rejects repeated or empty functions flags", () => {
+    expect(() => functionsDirOf(["-f", "a", "--functions=b"])).toThrow(
+      /more than once/,
+    );
+    expect(() => withPathDefaults(["--dir="])).toThrow(/needs a directory/);
+  });
+});
+
+describe("netlify-deploy status output", () => {
+  it("refuses flags that hide the manifest-discard marker", () => {
+    expect(() => assertStatusOutputEnabled(["--json"])).toThrow(
+      /hides the CLI status line/,
+    );
+    expect(() => assertStatusOutputEnabled(["--silent"])).toThrow(
+      /hides the CLI status line/,
+    );
+    expect(() => assertStatusOutputEnabled(["--prod"])).not.toThrow();
   });
 });

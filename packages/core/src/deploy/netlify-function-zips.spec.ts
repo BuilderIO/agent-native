@@ -11,6 +11,7 @@ import {
   NetlifyManifestExpiredError,
   assertManifestFresh,
   assertSupportedZipItVersion,
+  findNetlifyCli,
   prepareNetlifyFunctionZips,
   type ZipItModule,
 } from "./netlify-function-zips.js";
@@ -214,5 +215,25 @@ describe("prepareNetlifyFunctionZips input safety", () => {
       }),
     ).rejects.toThrow(/inside the output directory/);
     expect(fs.existsSync(path.join(functionsDir, "keep.mjs"))).toBe(true);
+  });
+});
+
+describe("findNetlifyCli", () => {
+  it("finds the package beside a Windows-style .cmd shim", () => {
+    const bin = tmp();
+    const pkg = path.join(bin, "node_modules", "netlify-cli");
+    fs.mkdirSync(pkg, { recursive: true });
+    fs.writeFileSync(
+      path.join(pkg, "package.json"),
+      JSON.stringify({
+        name: "netlify-cli",
+        version: "27.16.1",
+        bin: { netlify: "bin/run.js" },
+      }),
+    );
+    fs.writeFileSync(path.join(bin, "netlify.cmd"), "@echo off");
+    const cli = findNetlifyCli(bin);
+    expect(cli.version).toBe("27.16.1");
+    expect(cli.entryPoint).toBe(path.join(pkg, "bin", "run.js"));
   });
 });

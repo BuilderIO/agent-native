@@ -24,13 +24,28 @@ function optionValue(
   long: string,
   short: string,
 ): string | undefined {
+  const values: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? "";
-    if (arg.startsWith(`${long}=`)) return arg.slice(long.length + 1);
-    if (arg === long || arg === short) return args[i + 1] ?? "";
-    if (arg.startsWith(`${short}=`)) return arg.slice(short.length + 1);
+    if (arg.startsWith(`${long}=`)) values.push(arg.slice(long.length + 1));
+    else if (arg.startsWith(`${short}=`))
+      values.push(arg.slice(short.length + 1));
+    else if (arg === long || arg === short) values.push(args[i + 1] ?? "");
   }
-  return undefined;
+  if (values.length > 1) {
+    throw new Error(`${long} was given more than once; pass it a single time`);
+  }
+  if (values[0] === "") throw new Error(`${long} needs a directory`);
+  return values[0];
+}
+
+export function assertStatusOutputEnabled(args: string[]): void {
+  const suppressed = args.find((arg) => arg === "--json" || arg === "--silent");
+  if (suppressed) {
+    throw new Error(
+      `${suppressed} hides the CLI status line netlify-deploy watches to detect a discarded functions manifest; run without it`,
+    );
+  }
 }
 
 /** No args means the full default publish; otherwise only the paths the manifest depends on are filled in. */
@@ -55,6 +70,7 @@ export function functionsDirOf(args: string[]): string {
  * their digest and are not re-uploaded.
  */
 export async function runNetlifyDeploy(rawArgs: string[]): Promise<void> {
+  assertStatusOutputEnabled(rawArgs);
   const deployArgs = withPathDefaults(rawArgs);
   const siteRoot = process.cwd();
   const functionsDir = path.resolve(siteRoot, functionsDirOf(deployArgs));
