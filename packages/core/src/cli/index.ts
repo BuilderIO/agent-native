@@ -264,7 +264,7 @@ function pathHasTsc(): boolean {
       const directory = windows ? dir.replace(/^"|"$/g, "") : dir;
       const candidate = path.resolve(directory || ".", `tsc${extension}`);
       try {
-        fs.lstatSync(candidate);
+        fs.statSync(candidate);
         return true;
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;

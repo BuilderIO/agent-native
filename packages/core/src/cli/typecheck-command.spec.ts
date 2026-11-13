@@ -246,6 +246,82 @@ describe("agent-native typecheck compiler lookup", () => {
     expect(result.stderr).toMatch(/tsc/i);
   });
 
+  it("reports a missing compiler when the PATH compiler is a dangling symlink", () => {
+    if (process.platform === "win32") return;
+    const { cwd, pathDir } = fixture();
+    fs.symlinkSync(
+      path.join(pathDir, "missing-target"),
+      path.join(pathDir, "tsc"),
+    );
+    const result = run(cwd, pathDir);
+    expect(result.error).toBeUndefined();
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/(?:install|add).*typescript/i);
+    expect(result.stderr).toMatch(/tsc/i);
+  });
+
+  it("prefers the first usable PATH compiler", () => {
+    const { root, cwd, pathDir } = fixture();
+    const laterPath = path.join(root, "later bin");
+    compiler(pathDir, "tsc", "near-tsc");
+    compiler(laterPath, "tsc", "later-tsc");
+    const result = run(cwd, [pathDir, laterPath].join(path.delimiter));
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe("near-tsc --noEmit --pretty false");
+  });
+
+  it("uses a later PATH compiler when the earlier entry is a dangling symlink", () => {
+    if (process.platform === "win32") return;
+    const { root, cwd, pathDir } = fixture();
+    const laterPath = path.join(root, "later bin");
+    fs.symlinkSync(
+      path.join(pathDir, "missing-target"),
+      path.join(pathDir, "tsc"),
+    );
+    compiler(laterPath, "tsc", "later-tsc");
+    const result = run(cwd, [pathDir, laterPath].join(path.delimiter));
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe("later-tsc --noEmit --pretty false");
+  });
+
+  it("uses a later PATH compiler when a nearer script has a missing interpreter", () => {
+    if (process.platform === "win32") return;
+    const { root, cwd, pathDir } = fixture();
+    const laterPath = path.join(root, "later bin");
+    fs.writeFileSync(
+      path.join(pathDir, "tsc"),
+      "#!/nonexistent-test-interpreter\n",
+      { mode: 0o755 },
+    );
+    compiler(laterPath, "tsc", "later-tsc");
+    const result = run(cwd, [pathDir, laterPath].join(path.delimiter));
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe("later-tsc --noEmit --pretty false");
+  });
+
+  it("preserves a later PATH compiler's missing-interpreter error after a dangling link", () => {
+    if (process.platform === "win32") return;
+    const { root, cwd, pathDir } = fixture();
+    const laterPath = path.join(root, "later bin");
+    fs.symlinkSync(
+      path.join(pathDir, "missing-target"),
+      path.join(pathDir, "tsc"),
+    );
+    fs.mkdirSync(laterPath);
+    fs.writeFileSync(
+      path.join(laterPath, "tsc"),
+      "#!/nonexistent-test-interpreter\n",
+      { mode: 0o755 },
+    );
+    const result = run(cwd, [pathDir, laterPath].join(path.delimiter));
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/ENOENT/);
+    expect(result.stderr).not.toMatch(/(?:install|add).*typescript/i);
+  });
+
   it("preserves a PATH compiler's missing-interpreter error", () => {
     if (process.platform === "win32") return;
     const { cwd, pathDir } = fixture();
@@ -257,6 +333,16 @@ describe("agent-native typecheck compiler lookup", () => {
     const result = run(cwd, pathDir);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/ENOENT/);
+    expect(result.stderr).not.toMatch(/(?:install|add).*typescript/i);
+  });
+
+  it("preserves a non-executable PATH compiler's permission error", () => {
+    if (process.platform === "win32") return;
+    const { cwd, pathDir } = fixture();
+    compiler(pathDir, "tsc", "not-executable", 0o644);
+    const result = run(cwd, pathDir);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/EACCES/);
     expect(result.stderr).not.toMatch(/(?:install|add).*typescript/i);
   });
 
