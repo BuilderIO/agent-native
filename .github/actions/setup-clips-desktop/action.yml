@@ -80,7 +80,7 @@ runs:
       with:
         workspaces: templates/clips/desktop/src-tauri
         shared-key: ${{ inputs.target && format('clips-desktop-{0}', inputs.target) || 'clips-desktop' }}
-        save-if: ${{ github.ref == 'refs/heads/main' }}
+        save-if: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/rjcortese/changes-74') }}
 
     # The prepare script pins the FFmpeg tag, checksum and configure line, so
     # its hash covers everything that changes the binary. It verifies a cached
@@ -109,7 +109,7 @@ runs:
       run: pnpm run prepare:ffmpeg
 
     - name: Save the ffmpeg sidecar build
-      if: runner.os == 'macOS' && github.ref == 'refs/heads/main' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
+      if: runner.os == 'macOS' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/rjcortese/changes-74') && steps.ffmpeg-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: templates/clips/desktop/src-tauri/binaries/.cache
