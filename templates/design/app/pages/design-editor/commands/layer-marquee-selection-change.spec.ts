@@ -25,17 +25,15 @@ function elementInfo(sourceId: string, tagName: string): ElementInfo {
 function runMarqueeSelection(
   selection: CanvasLayerMarqueeSelection[],
   metaKey: boolean,
+  html = '<main data-agent-native-node-id="card"><section data-agent-native-node-id="kid-a">Kid A</section><section data-agent-native-node-id="kid-b">Kid B</section></main>',
 ) {
-  const projection = buildCodeLayerProjection(
-    '<main data-agent-native-node-id="card"><section data-agent-native-node-id="kid-a">Kid A</section><section data-agent-native-node-id="kid-b">Kid B</section></main>',
-    {
-      source: {
-        kind: "design-file",
-        fileId: "screen-a",
-        filename: "screen-a.html",
-      },
+  const projection = buildCodeLayerProjection(html, {
+    source: {
+      kind: "design-file",
+      fileId: "screen-a",
+      filename: "screen-a.html",
     },
-  );
+  });
   let selectedLayerIds: string[] = [];
   const setSelectedLayerIdsState = vi.fn<
     LayerMarqueeSelectionChangeArgs["setSelectedLayerIdsState"]
@@ -70,10 +68,47 @@ function runMarqueeSelection(
     additive: false,
   });
 
-  return { projection, selectedLayerIds };
+  const calls = vi.mocked(args.setSelectedElement).mock.calls;
+  return {
+    projection,
+    selectedLayerIds,
+    selectedElement: calls[calls.length - 1]?.[0],
+  };
 }
 
 describe("runLayerMarqueeSelectionChange", () => {
+  it("resolves geometry-only hits with source styles and requests live measurement", () => {
+    const info = {
+      tagName: "section",
+      sourceId: "kid-a",
+      boundingRect: { x: 12, y: 18, width: 90, height: 30 },
+    } as ElementInfo;
+    const result = runMarqueeSelection(
+      [{ screenId: "screen-a", info }],
+      false,
+      '<main><section data-agent-native-node-id="kid-a" style="width: 50%; color: red">Kid A</section></main>',
+    );
+
+    expect(result.selectedElement).toMatchObject({
+      sourceId: "kid-a",
+      boundingRect: { x: 12, y: 18, width: 90, height: 30 },
+      computedStyles: { width: "50%", color: "red" },
+      needsLiveMeasurement: true,
+    });
+  });
+
+  it("preserves live computed styles for a full marquee hit", () => {
+    const info = elementInfo("kid-a", "section");
+    info.computedStyles = { width: "90px", color: "blue" };
+    const result = runMarqueeSelection(
+      [{ screenId: "screen-a", info }],
+      false,
+      '<main><section data-agent-native-node-id="kid-a" style="width: 50%; color: red">Kid A</section></main>',
+    );
+    expect(result.selectedElement).toMatchObject({
+      computedStyles: { width: "90px", color: "blue" },
+    });
+  });
   it("replaces an intermediate ancestor hit during a Cmd deep marquee", () => {
     const projection = buildCodeLayerProjection(
       '<main data-agent-native-node-id="card"><section data-agent-native-node-id="kid-a">Kid A</section><section data-agent-native-node-id="kid-b">Kid B</section></main>',

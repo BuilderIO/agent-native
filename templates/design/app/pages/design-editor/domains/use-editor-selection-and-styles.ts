@@ -755,7 +755,9 @@ export function useEditorSelectionAndStyles({
   }, []);
 
   const measureTargetSelector =
-    selectedElement && sizeNeedsMeasurement(selectedElement.computedStyles)
+    selectedElement &&
+    (selectedElement.needsLiveMeasurement ||
+      sizeNeedsMeasurement(selectedElement.computedStyles))
       ? (selectedElement.runtimeSelector ?? selectedElement.selector ?? null)
       : null;
   const measureTargetScreenId = activeFile?.id ?? "";
@@ -783,6 +785,7 @@ export function useEditorSelectionAndStyles({
               ...prev,
               boundingRect: measured.boundingRect,
               computedStyles: measured.computedStyles,
+              needsLiveMeasurement: false,
               inlineStyles: measured.inlineStyles,
               authoredSizeStyles: measured.authoredSizeStyles,
             }

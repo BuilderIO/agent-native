@@ -4,6 +4,36 @@ import {
   getBreakpointIframeId,
 } from "./iframe-targeting";
 
+function isStringMap(value: unknown): value is Record<string, string> {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === "string")
+  );
+}
+
+function isMeasurement(value: unknown): value is ElementInfo {
+  if (!value || typeof value !== "object") return false;
+  const info = value as Partial<ElementInfo>;
+  const rect = info.boundingRect;
+  return (
+    typeof info.tagName === "string" &&
+    Array.isArray(info.classes) &&
+    info.classes.every((name) => typeof name === "string") &&
+    isStringMap(info.computedStyles) &&
+    (info.inlineStyles === undefined || isStringMap(info.inlineStyles)) &&
+    (info.authoredSizeStyles === undefined ||
+      isStringMap(info.authoredSizeStyles)) &&
+    typeof info.isFlexChild === "boolean" &&
+    typeof info.isFlexContainer === "boolean" &&
+    !!rect &&
+    [rect.x, rect.y, rect.width, rect.height].every(
+      (number) => typeof number === "number" && Number.isFinite(number),
+    )
+  );
+}
+
 export async function requestSelectionMeasurement(args: {
   targetWindows: () => (Window | null | undefined)[];
   screenId: string;
@@ -52,14 +82,7 @@ function measureOnce(args: {
         return;
       }
       const payload: unknown = event.data.payload;
-      if (
-        payload &&
-        typeof payload === "object" &&
-        typeof (payload as ElementInfo).tagName === "string" &&
-        (payload as ElementInfo).boundingRect
-      ) {
-        settle(payload as ElementInfo);
-      }
+      if (isMeasurement(payload)) settle(payload);
     };
     window.addEventListener("message", listener);
     for (const target of targets) {

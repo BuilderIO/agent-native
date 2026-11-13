@@ -39,6 +39,14 @@ describe("sizeNeedsMeasurement", () => {
 
 describe("requestSelectionMeasurement", () => {
   const rect = { x: 0, y: 0, width: 101, height: 20 };
+  const complete = {
+    tagName: "div",
+    classes: [],
+    computedStyles: { width: "101px", color: "blue" },
+    boundingRect: rect,
+    isFlexChild: false,
+    isFlexContainer: false,
+  };
 
   function frame(payload: unknown, screenId = "screen-1"): Window {
     const target = {
@@ -61,14 +69,38 @@ describe("requestSelectionMeasurement", () => {
 
   it("resolves with the measurement from the frame that has the element", async () => {
     const measured = await requestSelectionMeasurement({
-      targetWindows: () => [
-        frame(null),
-        frame({ tagName: "div", boundingRect: rect }),
-      ],
+      targetWindows: () => [frame(null), frame(complete)],
       screenId: "screen-1",
       selector: '[data-agent-native-node-id="a"]',
     });
     expect(measured?.boundingRect.width).toBe(101);
+  });
+
+  it("ignores incomplete responses and waits for a full live measurement", async () => {
+    const measured = await requestSelectionMeasurement({
+      targetWindows: () => [
+        frame({ tagName: "div", boundingRect: rect }),
+        frame(complete),
+      ],
+      screenId: "screen-1",
+      attempts: 1,
+      timeoutMs: 30,
+    });
+    expect(measured).toEqual(complete);
+  });
+
+  it("does not accept malformed style or geometry data as a measurement", async () => {
+    const measured = await requestSelectionMeasurement({
+      targetWindows: () => [
+        frame({ ...complete, computedStyles: null }),
+        frame({ ...complete, boundingRect: { ...rect, x: "invalid" } }),
+        frame({ ...complete, inlineStyles: { width: 101 } }),
+      ],
+      screenId: "screen-1",
+      attempts: 1,
+      timeoutMs: 30,
+    });
+    expect(measured).toBeNull();
   });
 
   it("keeps waiting past a frame that does not have the element", async () => {
@@ -95,7 +127,7 @@ describe("requestSelectionMeasurement", () => {
           type: "agent-native:selection-measured",
           correlationId: "measure-anything",
           screenId: "screen-1",
-          payload: { tagName: "div", boundingRect: rect },
+          payload: complete,
         },
         source: {} as Window,
       }),
@@ -116,9 +148,7 @@ describe("requestSelectionMeasurement", () => {
 
   it("ignores a positive match from a different screen", async () => {
     const measured = await requestSelectionMeasurement({
-      targetWindows: () => [
-        frame({ tagName: "div", boundingRect: rect }, "screen-mobile"),
-      ],
+      targetWindows: () => [frame(complete, "screen-mobile")],
       screenId: "screen-desktop",
       attempts: 1,
       timeoutMs: 40,
@@ -137,7 +167,7 @@ describe("requestSelectionMeasurement", () => {
               type: "agent-native:selection-measured",
               correlationId: message.correlationId,
               screenId: "screen-1",
-              payload: { tagName: "div", boundingRect: rect },
+              payload: complete,
             },
             source: target,
           }),
@@ -161,7 +191,7 @@ describe("requestSelectionMeasurement", () => {
   it("sees a frame that only mounts after the first attempt", async () => {
     const late: Window[] = [];
     window.setTimeout(() => {
-      late.push(frame({ tagName: "div", boundingRect: rect }));
+      late.push(frame(complete));
     }, 60);
 
     const measured = await requestSelectionMeasurement({

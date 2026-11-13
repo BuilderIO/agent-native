@@ -8,6 +8,7 @@ import type {
 } from "@/components/design/types";
 import {
   canonicalizeElementInfoFromProjection,
+  elementInfoFromCodeLayerNode,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
 import {
@@ -122,13 +123,24 @@ export function runLayerMarqueeSelectionChange(
       const projection = getCodeLayerProjectionForScreen(item.screenId);
       if (!projection) return null;
       const node = resolveCodeLayerNodeFromElementInfo(projection, item.info);
+      if (!node) return null;
+      let info = item.info;
+      if (!info.computedStyles) {
+        const sourceInfo = elementInfoFromCodeLayerNode(node);
+        info = {
+          ...sourceInfo,
+          ...info,
+          computedStyles: sourceInfo.computedStyles,
+          needsLiveMeasurement: true,
+        };
+      }
       const canonical = canonicalizeElementInfoFromProjection(
         projection,
-        item.info,
+        info,
         item.screenId,
         node,
       );
-      if (!node || isScreenRootElementInfo(canonical)) return null;
+      if (isScreenRootElementInfo(canonical)) return null;
       return {
         screenId: item.screenId,
         node,
