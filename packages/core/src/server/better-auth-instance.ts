@@ -2109,7 +2109,9 @@ export function trackAuthEmailDeliveries(ctx: BetterAuthInitContext) {
   const runInBackgroundOrAwait = ctx.runInBackgroundOrAwait.bind(ctx);
   return {
     context: {
-      runInBackgroundOrAwait(task) {
+      runInBackgroundOrAwait(
+        task: Parameters<BetterAuthInitContext["runInBackgroundOrAwait"]>[0],
+      ) {
         // Better Auth swallows even awaited task errors; verification and
         // email-change mail must fail the request before the UI can claim
         // mail was sent.
