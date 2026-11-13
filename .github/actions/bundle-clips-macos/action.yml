@@ -23,7 +23,9 @@ inputs:
     required: false
     default: ""
   apple-signing-identity:
-    description: "Identity in apple-certificate to sign with. Required for `sign: true`."
+    description: >-
+      Identity in apple-certificate to sign with. Empty signs with the
+      certificate's own identity, which is how the release signs.
     required: false
     default: ""
   apple-id:
@@ -63,10 +65,10 @@ runs:
         esac
 
     - name: Require signing credentials
-      if: inputs.sign == 'true' && (inputs.apple-certificate == '' || inputs.apple-certificate-password == '' || inputs.apple-signing-identity == '' || inputs.apple-id == '' || inputs.apple-password == '' || inputs.apple-team-id == '' || inputs.updater-private-key == '')
+      if: inputs.sign == 'true' && (inputs.apple-certificate == '' || inputs.apple-certificate-password == '' || inputs.apple-id == '' || inputs.apple-password == '' || inputs.apple-team-id == '' || inputs.updater-private-key == '')
       shell: bash
       run: |
-        echo "::error::bundle-clips-macos: sign: true needs every Apple credential and the updater private key."
+        echo "::error::bundle-clips-macos: sign: true needs the Apple certificate, its password, the notarization Apple ID, password and team, and the updater private key."
         exit 1
 
     # Bundling runs only the Tauri CLI, not the app's build.
@@ -111,6 +113,8 @@ runs:
         TAURI_BUNDLER_DMG_IGNORE_CI: "true"
       run: pnpm tauri bundle --target universal-apple-darwin --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
+    # The Tauri CLI imports APPLE_CERTIFICATE into a temporary keychain itself,
+    # as it does under tauri-action; there is no separate import step.
     - name: Sign, notarize and bundle the app
       if: inputs.sign == 'true'
       working-directory: templates/clips/desktop
