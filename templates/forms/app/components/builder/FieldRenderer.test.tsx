@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FieldRenderer } from "./FieldRenderer";
 
-describe("FieldRenderer file fields", () => {
+describe("FieldRenderer", () => {
   let container: HTMLDivElement | undefined;
   let root: Root | undefined;
 
@@ -15,6 +15,53 @@ describe("FieldRenderer file fields", () => {
     act(() => root?.unmount());
     container?.remove();
   });
+
+  it.each([
+    {
+      language: "Arabic",
+      label: "الاسم",
+      answer: "أحمد",
+      expected: /^(rtl|auto)$/,
+    },
+    {
+      language: "English",
+      label: "Name",
+      answer: "Alice",
+      expected: /^(ltr|auto)$/,
+    },
+  ])(
+    "gives $language field content an appropriate text direction",
+    ({ language, label, answer, expected }) => {
+      const field = {
+        id: "name",
+        type: "text",
+        label,
+        required: false,
+      } as FormField;
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+
+      act(() => {
+        root?.render(<FieldRenderer field={field} value={answer} />);
+      });
+
+      const fieldLabel = container.querySelector("label");
+      const input = container.querySelector<HTMLInputElement>("input");
+      expect(fieldLabel?.textContent).toBe(label);
+      expect(input?.value).toBe(answer);
+      if (!fieldLabel || !input) throw new Error("Field content missing");
+      for (const element of [fieldLabel, input]) {
+        const direction =
+          getComputedStyle(element).direction ||
+          element.closest("[dir]")?.getAttribute("dir") ||
+          "ltr";
+        expect
+          .soft(direction, `${element.tagName} containing ${language} content`)
+          .toMatch(expected);
+      }
+    },
+  );
 
   it("renders a native multi-file input and forwards selected files", () => {
     const onChange = vi.fn();

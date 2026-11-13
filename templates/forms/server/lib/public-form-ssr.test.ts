@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -61,6 +63,74 @@ function createDbWithRows(rows: unknown[]) {
 }
 
 describe("public form SSR", () => {
+  it.each([
+    {
+      language: "Arabic",
+      title: "نموذج التواصل",
+      label: "الاسم",
+      answer: "أحمد",
+      expected: /^(rtl|auto)$/,
+    },
+    {
+      language: "English",
+      title: "Contact form",
+      label: "Name",
+      answer: "Alice",
+      expected: /^(ltr|auto)$/,
+    },
+  ])(
+    "gives $language form content an appropriate text direction",
+    async ({ language, title, label, answer, expected }) => {
+      const slug = `direction-${language.toLowerCase()}`;
+      mockGetDb.mockReturnValue(
+        createDbWithRows([
+          {
+            id: `form-${slug}`,
+            slug,
+            title,
+            description: null,
+            ownerEmail: "owner@example.test",
+            updatedAt: "2026-07-23T12:00:00.000Z",
+            fields: JSON.stringify([
+              { id: "name", type: "text", label, required: false },
+            ]),
+            settings: "{}",
+            status: "published",
+            deletedAt: null,
+          },
+        ]),
+      );
+
+      const { html } = await renderPublicFormHtml(
+        `https://forms.example.test/f/${slug}`,
+      );
+      const parsed = new DOMParser().parseFromString(
+        html.replace(/<link\b[^>]*>/g, ""),
+        "text/html",
+      );
+      const heading = parsed.querySelector(".header h1");
+      const fieldLabel = parsed.querySelector(".field-label");
+      const input =
+        parsed.querySelector<HTMLInputElement>('input[name="name"]');
+      expect(heading?.textContent).toBe(title);
+      expect(fieldLabel?.textContent).toBe(label);
+      expect(input).not.toBeNull();
+      if (!heading || !fieldLabel || !input)
+        throw new Error("Form content missing");
+      input.value = answer;
+
+      for (const element of [heading, fieldLabel, input]) {
+        const direction =
+          getComputedStyle(element).direction ||
+          element.closest("[dir]")?.getAttribute("dir") ||
+          "ltr";
+        expect
+          .soft(direction, `${element.tagName} containing ${language} content`)
+          .toMatch(expected);
+      }
+    },
+  );
+
   it("does not emit CSP headers on direct public form HTML responses", async () => {
     mockGetRequestURL.mockReturnValue(
       new URL("https://forms.example.test/f/nope"),
