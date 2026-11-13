@@ -586,10 +586,13 @@ export async function deleteSecret(
     }
   }
 
-  await deleteAppSecret({
+  const removed = await deleteAppSecret({
     key: existing.credentialKey,
     ...credentialStoreScopeForVaultCtx(ctx),
   });
+  // Another admin renamed or deleted the key after the lookup: say so rather
+  // than record a delete that never happened.
+  if (!removed) throw new Error("Secret not found");
 
   await recordVaultAudit({
     action: "secret.deleted",

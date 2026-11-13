@@ -660,6 +660,59 @@ describe("deleting a key", () => {
     ).rejects.toThrow("Secret not found");
     expect(await secrets.readAppSecret(orgRef("APP_OWNED_KEY"))).not.toBeNull();
   });
+
+  it("fails, and records no delete, when another admin renames the key mid-delete", async () => {
+    const { as, exec, rows, vault } = await load();
+    await as(admin, () => vault.setVaultAccessSettings({ mode: "manual" }));
+    const raced = await as(admin, () =>
+      vault.createSecret({
+        credentialKey: "RACED_KEY",
+        value: PLAINTEXT,
+        name: "Raced",
+      }),
+    );
+    await as(admin, () => vault.createGrant(raced.id, "mail"));
+    // Revoking the grant is the last write before the delete, so a rename
+    // fired from it lands between the store's lookup and its delete.
+    await exec.execute({
+      sql: `CREATE FUNCTION rename_key_mid_delete() RETURNS trigger AS $$
+        BEGIN
+          UPDATE app_secrets SET key = 'RACED_KEY_RENAMED' WHERE id = NEW.secret_id;
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql`,
+      args: [],
+    });
+    await exec.execute({
+      sql: `CREATE TRIGGER rename_key_mid_delete AFTER UPDATE ON vault_grants
+        FOR EACH ROW EXECUTE FUNCTION rename_key_mid_delete()`,
+      args: [],
+    });
+    try {
+      await expect(
+        as(admin, () => vault.deleteSecret(raced.id)),
+      ).rejects.toThrow("Secret not found");
+    } finally {
+      await exec.execute({
+        sql: "DROP TRIGGER rename_key_mid_delete ON vault_grants",
+        args: [],
+      });
+      await exec.execute({
+        sql: "DROP FUNCTION rename_key_mid_delete()",
+        args: [],
+      });
+    }
+
+    // The key is still stored, under its new name, and no log line says it
+    // was deleted.
+    expect(
+      (await rows("SELECT key FROM app_secrets")).map((r) => r.key),
+    ).toEqual(["RACED_KEY_RENAMED"]);
+    expect(
+      await rows(
+        "SELECT action FROM vault_audit_log WHERE action = 'secret.deleted'",
+      ),
+    ).toEqual([]);
+  });
 });
 
 describe("what the vault lists", () => {

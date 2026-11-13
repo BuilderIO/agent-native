@@ -121,4 +121,119 @@ describe("dispatch migrations", () => {
       ["updated_at", "bigint"],
     ]);
   });
+
+  it("fills credential_key on grants that predate it, from the key they pointed at", async () => {
+    const [{ getDbExec, runMigrations, closeDbExec }, { dispatchMigrations }] =
+      await Promise.all([
+        import("@agent-native/core/db"),
+        import("./migrations.js"),
+      ]);
+    const exec = getDbExec();
+    await exec.execute(`
+      CREATE TABLE vault_secrets (
+        id TEXT PRIMARY KEY,
+        org_id TEXT,
+        credential_key TEXT NOT NULL
+      )
+    `);
+    await exec.execute(`
+      CREATE TABLE vault_grants (
+        id TEXT PRIMARY KEY,
+        org_id TEXT,
+        secret_id TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        status TEXT NOT NULL
+      )
+    `);
+    await exec.execute(
+      "CREATE TABLE dispatch_migrations (version INTEGER PRIMARY KEY)",
+    );
+    await exec.execute({
+      sql: "INSERT INTO dispatch_migrations VALUES (?)",
+      args: [9],
+    });
+    for (const [id, org, key] of [
+      ["secret-a", "org-a", "HUBSPOT_ACCESS_TOKEN"],
+      ["secret-b", "org-b", "OTHER_KEY"],
+    ]) {
+      await exec.execute({
+        sql: "INSERT INTO vault_secrets (id, org_id, credential_key) VALUES (?, ?, ?)",
+        args: [id, org, key],
+      });
+    }
+    for (const [id, org, secretId] of [
+      ["grant-matches", "org-a", "secret-a"],
+      ["grant-other-org", "org-a", "secret-b"],
+      ["grant-orphan", "org-a", "secret-gone"],
+    ]) {
+      await exec.execute({
+        sql: "INSERT INTO vault_grants (id, org_id, secret_id, app_id, status) VALUES (?, ?, ?, 'coach', 'active')",
+        args: [id, org, secretId],
+      });
+    }
+
+    await runMigrations(dispatchMigrations, {
+      table: "dispatch_migrations",
+    })({});
+
+    await closeDbExec();
+    const { rows } = await (
+      await import("@agent-native/core/db")
+    )
+      .getDbExec()
+      .execute("SELECT id, credential_key FROM vault_grants ORDER BY id");
+    // Only a grant whose key sits in the same organization is filled in; the
+    // rest stay NULL and grant nothing until someone backfills them.
+    expect(rows).toEqual([
+      { id: "grant-matches", credential_key: "HUBSPOT_ACCESS_TOKEN" },
+      { id: "grant-orphan", credential_key: null },
+      { id: "grant-other-org", credential_key: null },
+    ]);
+  });
+
+  it("still applies the grant migration once the retired vault_secrets table is gone", async () => {
+    const [{ getDbExec, runMigrations, closeDbExec }, { dispatchMigrations }] =
+      await Promise.all([
+        import("@agent-native/core/db"),
+        import("./migrations.js"),
+      ]);
+    const exec = getDbExec();
+    await exec.execute(`
+      CREATE TABLE vault_grants (
+        id TEXT PRIMARY KEY,
+        org_id TEXT,
+        secret_id TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        status TEXT NOT NULL
+      )
+    `);
+    await exec.execute({
+      sql: "INSERT INTO vault_grants (id, org_id, secret_id, app_id, status) VALUES ('grant-1', 'org-a', 'secret-a', 'coach', 'active')",
+      args: [],
+    });
+    await exec.execute(
+      "CREATE TABLE dispatch_migrations (version INTEGER PRIMARY KEY)",
+    );
+    await exec.execute({
+      sql: "INSERT INTO dispatch_migrations VALUES (?)",
+      args: [9],
+    });
+
+    await runMigrations(dispatchMigrations, {
+      table: "dispatch_migrations",
+    })({});
+
+    await closeDbExec();
+    const freshExec = (await import("@agent-native/core/db")).getDbExec();
+    const { rows: columns } = await freshExec.execute({
+      sql: `SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = ? AND column_name = ?`,
+      args: ["vault_grants", "credential_key"],
+    });
+    expect(columns).toHaveLength(1);
+    const { rows: grants } = await freshExec.execute(
+      "SELECT id, credential_key FROM vault_grants",
+    );
+    expect(grants).toEqual([{ id: "grant-1", credential_key: null }]);
+  });
 });
