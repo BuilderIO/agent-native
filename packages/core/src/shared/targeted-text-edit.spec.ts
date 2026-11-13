@@ -242,21 +242,45 @@ describe("findTargetedMatches", () => {
     expect("content" in result).toBe(false);
   });
 
-  it("keeps a distinct same-line candidate after a flexible hit", () => {
-    const content = `alpha   beta${" ".repeat(220)}alpha gamma beta`;
-    const result = findTargetedMatches(content, "alpha beta");
+  it.each([" ", " ".repeat(220)])(
+    "keeps a distinct same-line candidate after a flexible hit with separator %j",
+    (separator) => {
+      const content = `alpha   beta${separator}alpha gamma beta`;
+      const result = findTargetedMatches(content, "alpha beta");
+      expect(result).toMatchObject({ ok: false, reason: "not_found" });
+      if (result.ok || result.reason !== "not_found")
+        throw new Error("Expected a miss");
+      expect(result.candidates[0]).toMatchObject({
+        text: "alpha   beta",
+        whitespaceOnly: true,
+      });
+      const adjacent = result.candidates.find((candidate) =>
+        candidate.text.includes("alpha gamma beta"),
+      );
+      expect(adjacent).toMatchObject({ excerpt: true });
+      expect(adjacent?.whitespaceOnly).not.toBe(true);
+    },
+  );
+
+  it("shows a late mismatch in highly repetitive text without applying it", () => {
+    const find = `${"a ".repeat(5000)}a`;
+    const content = `${"a ".repeat(4999)}b a`;
+    const result = applyTargetedReplace(content, find, "replacement");
     expect(result).toMatchObject({ ok: false, reason: "not_found" });
     if (result.ok || result.reason !== "not_found")
       throw new Error("Expected a miss");
-    expect(result.candidates[0]).toMatchObject({
-      text: "alpha   beta",
-      whitespaceOnly: true,
-    });
+    const mismatch = result.candidates.find((candidate) =>
+      candidate.text.includes("b a"),
+    );
+    expect(mismatch).toMatchObject({ excerpt: true });
+    expect(mismatch?.whitespaceOnly).not.toBe(true);
     expect(
-      result.candidates.some((candidate) =>
-        candidate.text.includes("alpha gamma beta"),
-      ),
+      result.candidates.every((candidate) => candidate.text.length <= 162),
     ).toBe(true);
+    expect(
+      result.candidates.every((candidate) => candidate.similarity < 1),
+    ).toBe(true);
+    expect("content" in result).toBe(false);
   });
 
   it("shows a middle mismatch in a long near-identical find without applying it", () => {

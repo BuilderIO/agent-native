@@ -362,9 +362,104 @@ function computeCandidates(content: string, find: string): TargetedCandidate[] {
     find,
     flexibleMatches,
     lineStarts,
-  ).slice(0, remaining);
+  );
+  const mismatch = longPrefixMismatch(content, find, lineStarts);
+  if (
+    mismatch &&
+    !flexibleMatches.some(
+      (match) => mismatch.start < match.end && mismatch.end > match.index,
+    ) &&
+    !scored
+      .slice(0, remaining)
+      .some(
+        (candidate) =>
+          candidate.start <= mismatch.point && candidate.end > mismatch.point,
+      )
+  ) {
+    const distinct = scored.filter(
+      (candidate) =>
+        candidate.end <= mismatch.start || candidate.start >= mismatch.end,
+    );
+    const { point: _point, ...candidate } = mismatch;
+    scored.splice(
+      0,
+      scored.length,
+      ...distinct.slice(0, remaining - 1),
+      candidate,
+    );
+  }
 
-  return [...flexible, ...scored];
+  return [
+    ...flexible,
+    ...scored
+      .slice(0, remaining)
+      .map(
+        ({ start: _start, end: _end, rank: _rank, ...candidate }) => candidate,
+      ),
+  ];
+}
+
+interface ScoredCandidate extends TargetedCandidate {
+  start: number;
+  end: number;
+  rank: number;
+}
+
+function longPrefixMismatch(
+  content: string,
+  find: string,
+  lineStarts: number[],
+): (ScoredCandidate & { point: number }) | undefined {
+  if (find.length <= 8192) return undefined;
+  const anchor = find.slice(0, 64);
+  let from = 0;
+  let before = content.length;
+  let bestStart = -1;
+  let bestLength = 0;
+  for (let attempt = 0; attempt < 8 && from <= before; attempt += 1) {
+    const forward = attempt % 2 === 0;
+    const start = forward
+      ? content.indexOf(anchor, from)
+      : content.lastIndexOf(anchor, before);
+    if (start < from || start > before) break;
+    let length = anchor.length;
+    while (
+      length < find.length &&
+      start + length < content.length &&
+      content[start + length] === find[length]
+    )
+      length += 1;
+    if (length > bestLength) {
+      bestStart = start;
+      bestLength = length;
+    }
+    if (forward) from = start + 1;
+    else before = start - 1;
+  }
+  if (bestStart < 0 || bestLength < 256) return undefined;
+  const point = bestStart + bestLength;
+  const start = Math.max(
+    0,
+    Math.min(point - SNIPPET_MAX_CHARS / 2, content.length - SNIPPET_MAX_CHARS),
+  );
+  const end = Math.min(content.length, start + SNIPPET_MAX_CHARS);
+  const findStart = Math.max(0, bestLength - SNIPPET_MAX_CHARS / 2);
+  const rank = diceSimilarity(
+    tokenize(find.slice(findStart, findStart + SNIPPET_MAX_CHARS)),
+    tokenize(content.slice(start, end)),
+  );
+  const similarity =
+    Math.round(rank * Math.min(1, (end - start) / find.length) * 100) / 100;
+  return {
+    start,
+    end,
+    rank,
+    point,
+    line: lineNumberFor(lineStarts, point),
+    text: excerptAround(content, point, SNIPPET_MAX_CHARS),
+    similarity,
+    excerpt: true,
+  };
 }
 
 function tokenOverlapCandidates(
@@ -372,7 +467,7 @@ function tokenOverlapCandidates(
   find: string,
   excluded: RawMatch[],
   lineStarts: number[],
-): TargetedCandidate[] {
+): ScoredCandidate[] {
   // Bound the scoring work per window even for arbitrarily large find strings.
   const sampleSize = 4096;
   const middle = Math.max(0, Math.floor((find.length - sampleSize) / 2));
@@ -388,59 +483,88 @@ function tokenOverlapCandidates(
   const flexibleLines = new Set(
     excluded.map((match) => lineNumberFor(lineStarts, match.index)),
   );
-  const scored: Array<TargetedCandidate & { start: number }> = [];
+  const scored: ScoredCandidate[] = [];
   let offset = 0;
   for (const [line, text] of lines.entries()) {
     if (line % 2 !== 0) continue;
-    const lastStart = Math.max(0, text.length - SNIPPET_MAX_CHARS);
-    for (
-      let start = 0;
-      ;
-      start = Math.min(start + SNIPPET_MAX_CHARS / 2, lastStart)
-    ) {
-      const window = text.slice(start, start + SNIPPET_MAX_CHARS);
-      const absoluteStart = offset + start;
-      if (
-        excluded.some(
-          (match) =>
-            absoluteStart < match.end &&
-            absoluteStart + window.length > match.index,
-        )
+    let segments = [{ start: 0, end: text.length }];
+    for (const match of excluded) {
+      const matchStart = match.index - offset;
+      const matchEnd = match.end - offset;
+      segments = segments.flatMap((segment) => {
+        if (matchEnd <= segment.start || matchStart >= segment.end)
+          return [segment];
+        return [
+          ...(matchStart > segment.start
+            ? [{ start: segment.start, end: matchStart }]
+            : []),
+          ...(matchEnd < segment.end
+            ? [{ start: matchEnd, end: segment.end }]
+            : []),
+        ];
+      });
+    }
+    for (const segment of segments) {
+      const lastStart = Math.max(
+        segment.start,
+        segment.end - SNIPPET_MAX_CHARS,
+      );
+      for (
+        let start = segment.start;
+        ;
+        start = Math.min(start + SNIPPET_MAX_CHARS / 2, lastStart)
       ) {
+        const window = text.slice(
+          start,
+          Math.min(start + SNIPPET_MAX_CHARS, segment.end),
+        );
+        const absoluteStart = offset + start;
+        const windowTokens = tokenize(window);
+        const rank = diceSimilarity(needleTokens, windowTokens);
+        // A clipped gap between flexible hits is often markup, not another match.
+        if (
+          flexibleLines.has(line / 2 + 1) &&
+          needleTokens.size > 0 &&
+          [...windowTokens].filter((token) => needleTokens.has(token)).length <
+            Math.ceil(needleTokens.size * 0.75)
+        ) {
+          if (start === lastStart) break;
+          continue;
+        }
+        const similarity =
+          Math.round(rank * Math.min(1, window.length / find.length) * 100) /
+          100;
+        const excerpt =
+          multilineFind || start > 0 || start + window.length < text.length;
+        const candidate = {
+          line: line / 2 + 1,
+          start: absoluteStart,
+          end: absoluteStart + window.length,
+          rank,
+          text: `${start > 0 ? "…" : ""}${window}${start + window.length < text.length ? "…" : ""}`,
+          similarity,
+          ...(excerpt ? { excerpt: true } : {}),
+        };
+        const overlapping = scored.filter(
+          (c) => c.start < candidate.end && c.end > candidate.start,
+        );
+        if (overlapping.some((prior) => prior.rank >= rank)) {
+          if (start === lastStart) break;
+          continue;
+        }
+        for (const prior of overlapping)
+          scored.splice(scored.indexOf(prior), 1);
+        scored.push(candidate);
+        scored.sort(
+          (a, b) =>
+            Number(flexibleLines.has(a.line)) -
+              Number(flexibleLines.has(b.line)) || b.rank - a.rank,
+        );
+        if (scored.length > MAX_CANDIDATES) scored.pop();
         if (start === lastStart) break;
-        continue;
       }
-      const similarity =
-        Math.round(diceSimilarity(needleTokens, tokenize(window)) * 100) / 100;
-      const excerpt =
-        multilineFind || start > 0 || start + window.length < text.length;
-      const candidate = {
-        line: line / 2 + 1,
-        start: absoluteStart,
-        text: `${start > 0 ? "…" : ""}${window}${start + window.length < text.length ? "…" : ""}`,
-        similarity,
-        ...(excerpt ? { excerpt: true } : {}),
-      };
-      const overlapping = scored.filter(
-        (c) =>
-          c.line === candidate.line &&
-          Math.abs(c.start - absoluteStart) < SNIPPET_MAX_CHARS,
-      );
-      if (overlapping.some((prior) => prior.similarity >= similarity)) {
-        if (start === lastStart) break;
-        continue;
-      }
-      for (const prior of overlapping) scored.splice(scored.indexOf(prior), 1);
-      scored.push(candidate);
-      scored.sort(
-        (a, b) =>
-          Number(flexibleLines.has(a.line)) -
-            Number(flexibleLines.has(b.line)) || b.similarity - a.similarity,
-      );
-      if (scored.length > MAX_CANDIDATES) scored.pop();
-      if (start === lastStart) break;
     }
     offset += text.length + (lines[line + 1]?.length ?? 0);
   }
-  return scored.map(({ start: _start, ...candidate }) => candidate);
+  return scored;
 }
