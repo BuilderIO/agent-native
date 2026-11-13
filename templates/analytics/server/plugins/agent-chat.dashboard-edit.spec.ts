@@ -475,6 +475,31 @@ describe("realDataFinalGuard dashboard edits", () => {
     }
   });
 
+  it("lets a read-only answer through when the request rules out dashboard writes", () => {
+    for (const { userText, draftText } of [
+      {
+        userText:
+          "Read-only. Don't create, edit or duplicate any dashboard. Which data sources are connected for this workspace right now? Just list them by name.",
+        draftText: "Google Drive, Sigma and the dbt Semantic Layer.",
+      },
+      {
+        userText:
+          "Read-only. Run the SELECT below once. Don't run any other query, and don't save or create any dashboard, analysis, panel or staged dataset.\n\n```sql\nSELECT 1\n```",
+        draftText:
+          "The query failed: BigQuery returned Access Denied for that table, so there are no rows to report.",
+      },
+    ]) {
+      const result = realDataFinalGuard(guardContext({ userText, draftText }));
+
+      expect(result?.retryMessage ?? "").not.toContain(
+        "dashboard construction/template-clone",
+      );
+      expect(result?.fallbackMessage ?? "").not.toContain(
+        "inspect the template dashboard",
+      );
+    }
+  });
+
   it("does not steer report-framed refresh-rate queries into dashboard construction", () => {
     for (const userText of [
       "Create a report showing the dashboard refresh rate",
