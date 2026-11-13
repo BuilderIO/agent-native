@@ -14,6 +14,7 @@ import {
   isResumableEngineError,
   isRetryableError,
   isTransientProviderRateLimitError,
+  runAgentLoop,
 } from "./production-agent.js";
 
 const credentialState = vi.hoisted(() => ({
@@ -411,6 +412,45 @@ describe("gateway failures classify identically on both lanes", () => {
       }
     });
   }
+
+  it("retains gateway request metadata when detail-only overflow reaches the agent loop", async () => {
+    vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            detail: "prompt is too long",
+            requestId: "req_overflow_example",
+          },
+        ]),
+      ),
+    );
+
+    await expect(
+      runAgentLoop({
+        engine: createBuilderEngine(),
+        model: BASE_OPTS.model,
+        systemPrompt: BASE_OPTS.systemPrompt,
+        tools: [],
+        messages: BASE_OPTS.messages,
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "context_length_exceeded",
+      requestId: "req_overflow_example",
+      requestShape: {
+        model: BASE_OPTS.model,
+        payloadBytes: expect.any(Number),
+        toolCount: 0,
+        messageCount: 1,
+      },
+    });
+  });
 
   it("registers every gateway-failure classifier in these two modules", () => {
     const MARKERS = [

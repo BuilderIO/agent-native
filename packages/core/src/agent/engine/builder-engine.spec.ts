@@ -2689,6 +2689,57 @@ describe("createBuilderEngine", () => {
     expect(stop?.providerRetryable).toBeUndefined();
   });
 
+  it.each([
+    {
+      name: "object detail",
+      event: { detail: { message: "invalid" } },
+      error: "Builder gateway returned an invalid error detail.",
+    },
+    {
+      name: "array detail",
+      event: { detail: ["invalid"] },
+      error: "Builder gateway returned an invalid error detail.",
+    },
+    {
+      name: "numeric detail",
+      event: { detail: 42 },
+      error: "Builder gateway returned an invalid error detail.",
+    },
+    {
+      name: "invalid error with valid detail",
+      event: { error: { toString: null }, detail: "Invalid request detail" },
+      error: "Invalid request detail",
+    },
+  ])(
+    "handles non-string invalid_request stream fields ($name)",
+    async ({ event, error }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "invalid_request",
+              requestId: "req_untrusted_example",
+              ...event,
+            },
+          ]),
+        ),
+      );
+
+      const events = await collectEvents(
+        createBuilderEngine().stream(BASE_OPTS),
+      );
+      expect(events.find((item) => item.type === "stop")).toMatchObject({
+        reason: "error",
+        error,
+        errorCode: "invalid_request",
+        providerRetryable: false,
+        requestId: "req_untrusted_example",
+      });
+    },
+  );
+
   it("retains the request ID at the invalid_request stream boundary", async () => {
     vi.stubGlobal(
       "fetch",

@@ -1104,11 +1104,21 @@ async function* parseJsonlStream(
               providerRetryable: true,
             });
           } else if (reason === "invalid_request") {
+            const messageFields: unknown[] = [
+              event.error,
+              event.message,
+              event.detail,
+            ];
             const errMsg =
-              event.error ||
-              event.message ||
-              event.detail ||
-              "Builder gateway rejected the request as malformed.";
+              messageFields.find(
+                (value): value is string =>
+                  typeof value === "string" && value.length > 0,
+              ) ??
+              (messageFields.some(
+                (value) => value != null && typeof value !== "string",
+              )
+                ? "Builder gateway returned an invalid error detail."
+                : "Builder gateway rejected the request as malformed.");
             const gatewayErrCode =
               typeof event.errorCode === "string"
                 ? event.errorCode
