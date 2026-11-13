@@ -7,7 +7,6 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useSession } from "@agent-native/core/client/use-session";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  useCallback,
   useEffect,
   useRef,
   useState,
