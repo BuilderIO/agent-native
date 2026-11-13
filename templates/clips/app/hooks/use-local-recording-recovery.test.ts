@@ -316,6 +316,50 @@ describe("watchLocalRecordings", () => {
     stop();
   });
 
+  it("cancels an obsolete status check so a remounted watcher can scan", async () => {
+    await saveCopy(meta("unfinished", { serverRecordingId: "srv-1" }));
+    mocks.fetchServerUploadStatus
+      .mockImplementationOnce(
+        (_id: string, signal: AbortSignal) =>
+          new Promise((_resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
+          }),
+      )
+      .mockResolvedValue({ found: false });
+    const oldResult = vi.fn();
+    const oldError = vi.fn();
+    const stop = watchLocalRecordings("me@example.com", {
+      onResult: oldResult,
+      onError: oldError,
+    });
+    await vi.waitFor(() =>
+      expect(mocks.fetchServerUploadStatus).toHaveBeenCalledOnce(),
+    );
+    stop();
+    const newResult = vi.fn();
+    const newError = vi.fn();
+    const stopRemounted = watchLocalRecordings("me@example.com", {
+      onResult: newResult,
+      onError: newError,
+    });
+    try {
+      await vi.waitFor(() => expect(newResult).toHaveBeenCalledOnce());
+      expect(newResult).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pending: [expect.objectContaining({ recordingId: "unfinished" })],
+        }),
+        expect.any(Number),
+      );
+      expect(oldResult).not.toHaveBeenCalled();
+      expect(oldError).not.toHaveBeenCalled();
+      expect(newError).not.toHaveBeenCalled();
+    } finally {
+      stopRemounted();
+    }
+  });
+
   it("reports an unreadable store as an error, never as nothing to recover", async () => {
     vi.spyOn(IDBFactory.prototype, "open").mockImplementation(() => {
       throw new Error("blocked");

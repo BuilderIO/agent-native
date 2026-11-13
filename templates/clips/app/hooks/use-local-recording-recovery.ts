@@ -23,6 +23,8 @@ import {
 } from "@/lib/recording-backup";
 
 const RECOVERY_TOAST_ID = "clips-local-recording-recovery";
+let recoveryToastRevision = 0;
+let recoveryScanQueue: Promise<void> = Promise.resolve();
 
 /** Rechecks while a copy's server row is still processing; the last repeats. */
 const PROCESSING_RECHECK_MS = [15_000, 30_000, 60_000, 120_000, 300_000];
@@ -75,6 +77,7 @@ async function deleteConfirmedCopy(
 export async function findLocalRecordingsToFinish(
   ownerEmail: string,
   nowMs = Date.now(),
+  signal?: AbortSignal,
 ): Promise<LocalRecordingScan> {
   const [metas, liveIds] = await Promise.all([
     listRecordingBackupMetas(),
@@ -88,6 +91,7 @@ export async function findLocalRecordingsToFinish(
     ownerEmail,
   })) {
     try {
+      signal?.throwIfAborted();
       const serverId =
         meta.serverRecordingId ?? (meta.localOnly ? null : meta.recordingId);
       if (!serverId) {
@@ -95,7 +99,12 @@ export async function findLocalRecordingsToFinish(
         continue;
       }
       // coercion-ok: null is "server unreachable" (unlike { found: false }); the copy is still offered.
-      const server = await fetchServerUploadStatus(serverId).catch(() => null);
+      const server = await fetchServerUploadStatus(serverId, signal).catch(
+        (error: unknown) => {
+          if (signal?.aborted) throw error;
+          return null;
+        },
+      );
       if (server?.found && server.status === "processing") {
         if (isProcessingStuck(meta, nowMs)) pending.push(meta);
         else waitingOnServer += 1;
@@ -131,6 +140,7 @@ export async function findLocalRecordingsToFinish(
       }
       pending.push(meta);
     } catch (err) {
+      if (signal?.aborted) throw err;
       console.warn(
         `[clips] checking local recording ${meta.recordingId} failed:`,
         err,
@@ -165,33 +175,51 @@ export async function remindLaterAboutLocalRecording(
 export function watchLocalRecordings(
   ownerEmail: string,
   handlers: {
-    onResult: (scan: LocalRecordingScan) => void;
+    onResult: (scan: LocalRecordingScan, toastRevision: number) => void;
     onError: (error: unknown, retry: () => void) => void;
   },
   delaysMs: readonly number[] = PROCESSING_RECHECK_MS,
 ): () => void {
   let stopped = false;
+  const controller = new AbortController();
   let attempt = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const scan = () => {
     if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
-    void findLocalRecordingsToFinish(ownerEmail).then(
-      (result) => {
-        if (stopped) return;
-        handlers.onResult(result);
-        if (result.waitingOnServer > 0) {
-          const delay = delaysMs[Math.min(attempt, delaysMs.length - 1)];
-          attempt += 1;
-          timer = setTimeout(scan, delay);
-        } else {
-          attempt = 0;
-        }
-      },
-      (error: unknown) => {
+    // Both mounts share a toast and scans may temporarily lock a copy while
+    // deleting it. Never let one scan observe another scan's cleanup lock.
+    const run = async () => {
+      if (stopped) return;
+      const toastRevision = recoveryToastRevision;
+      let result: LocalRecordingScan;
+      try {
+        result = await findLocalRecordingsToFinish(
+          ownerEmail,
+          Date.now(),
+          controller.signal,
+        );
+      } catch (error) {
         if (!stopped) handlers.onError(error, scan);
-      },
-    );
+        return;
+      }
+      if (stopped) return;
+      handlers.onResult(result, toastRevision);
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+      if (result.waitingOnServer > 0) {
+        const delay = delaysMs[Math.min(attempt, delaysMs.length - 1)];
+        attempt += 1;
+        timer = setTimeout(scan, delay);
+      } else {
+        attempt = 0;
+      }
+    };
+    const turn = recoveryScanQueue.then(run, run);
+    recoveryScanQueue = turn;
+    void turn.catch((error: unknown) => {
+      console.error("[clips] local recording recovery handler failed:", error);
+    });
   };
   const onVisible = () => {
     if (
@@ -208,6 +236,7 @@ export function watchLocalRecordings(
   scan();
   return () => {
     stopped = true;
+    controller.abort();
     if (timer !== undefined) clearTimeout(timer);
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", onVisible);
@@ -233,6 +262,7 @@ export function offerLocalRecording(options: {
   const unclaimed = !meta.ownerEmail;
   // Uploaded and kept, or still processing on the server.
   const kept = !!meta.keptAfterUpload || meta.state === "uploaded";
+  recoveryToastRevision += 1;
   toast.warning(
     unclaimed
       ? t("recordRoute.unclaimedRecording")
@@ -299,9 +329,15 @@ export function useLocalRecordingRecovery(
   useEffect(() => {
     if (!enabled || !ownerEmail || !recordingBackupAvailable()) return;
     return watchLocalRecordings(ownerEmail, {
-      onResult: ({ pending }) => {
+      onResult: ({ pending }, toastRevision) => {
         const newest = pending[0];
-        if (!newest) return;
+        if (!newest) {
+          // A recorder can offer a copy directly while this scan is in flight.
+          if (toastRevision === recoveryToastRevision) {
+            toast.dismiss(RECOVERY_TOAST_ID);
+          }
+          return;
+        }
         // One prompt for the newest; finishing it rescans on the next load.
         offerLocalRecording({
           meta: newest,
@@ -314,6 +350,7 @@ export function useLocalRecordingRecovery(
       },
       onError: (error, retry) => {
         console.warn("[clips] local recording recovery scan failed:", error);
+        recoveryToastRevision += 1;
         toast.error(t("recordRoute.savedRecordingsUnreadable"), {
           id: RECOVERY_TOAST_ID,
           duration: Infinity,
