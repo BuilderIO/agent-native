@@ -661,7 +661,33 @@ describe("deleting a key", () => {
     expect(await secrets.readAppSecret(orgRef("APP_OWNED_KEY"))).not.toBeNull();
   });
 
-  it("fails, and records no delete, when another admin renames the key mid-delete", async () => {
+  // Runs `body` with a trigger that fires when a grant is revoked, the last
+  // write before the store's delete, so whatever the trigger does to
+  // app_secrets lands between the store's lookup and its delete.
+  // raw-sql-ok: a test helper; each caller passes a literal CREATE FUNCTION.
+  async function whileRevokeRaces(
+    exec: Awaited<ReturnType<typeof load>>["exec"],
+    functionSql: string,
+    body: () => Promise<void>,
+  ) {
+    await exec.execute({ sql: functionSql, args: [] });
+    await exec.execute({
+      sql: `CREATE TRIGGER race_on_revoke AFTER UPDATE ON vault_grants
+        FOR EACH ROW EXECUTE FUNCTION race_on_revoke()`,
+      args: [],
+    });
+    try {
+      await body();
+    } finally {
+      await exec.execute({
+        sql: "DROP TRIGGER race_on_revoke ON vault_grants",
+        args: [],
+      });
+      await exec.execute({ sql: "DROP FUNCTION race_on_revoke()", args: [] });
+    }
+  }
+
+  it("removes the key it looked up, not another that took over its old name mid-delete", async () => {
     const { as, exec, rows, vault } = await load();
     await as(admin, () => vault.setVaultAccessSettings({ mode: "manual" }));
     const raced = await as(admin, () =>
@@ -672,41 +698,59 @@ describe("deleting a key", () => {
       }),
     );
     await as(admin, () => vault.createGrant(raced.id, "mail"));
-    // Revoking the grant is the last write before the delete, so a rename
-    // fired from it lands between the store's lookup and its delete.
-    await exec.execute({
-      sql: `CREATE FUNCTION rename_key_mid_delete() RETURNS trigger AS $$
+
+    await whileRevokeRaces(
+      exec,
+      `CREATE FUNCTION race_on_revoke() RETURNS trigger AS $$
         BEGIN
           UPDATE app_secrets SET key = 'RACED_KEY_RENAMED' WHERE id = NEW.secret_id;
+          INSERT INTO app_secrets (id, scope, scope_id, key, encrypted_value, created_at, updated_at)
+            SELECT 'replacement-id', scope, scope_id, 'RACED_KEY', encrypted_value, created_at, updated_at
+            FROM app_secrets WHERE id = NEW.secret_id;
           RETURN NEW;
         END $$ LANGUAGE plpgsql`,
-      args: [],
-    });
-    await exec.execute({
-      sql: `CREATE TRIGGER rename_key_mid_delete AFTER UPDATE ON vault_grants
-        FOR EACH ROW EXECUTE FUNCTION rename_key_mid_delete()`,
-      args: [],
-    });
-    try {
-      await expect(
-        as(admin, () => vault.deleteSecret(raced.id)),
-      ).rejects.toThrow("Secret not found");
-    } finally {
-      await exec.execute({
-        sql: "DROP TRIGGER rename_key_mid_delete ON vault_grants",
-        args: [],
-      });
-      await exec.execute({
-        sql: "DROP FUNCTION rename_key_mid_delete()",
-        args: [],
-      });
-    }
+      async () => {
+        await as(admin, () => vault.deleteSecret(raced.id));
+      },
+    );
 
-    // The key is still stored, under its new name, and no log line says it
-    // was deleted.
+    // Only the row that was looked up is gone; the replacement keeps the name.
+    expect(await rows("SELECT id, key FROM app_secrets")).toEqual([
+      { id: "replacement-id", key: "RACED_KEY" },
+    ]);
     expect(
-      (await rows("SELECT key FROM app_secrets")).map((r) => r.key),
-    ).toEqual(["RACED_KEY_RENAMED"]);
+      await rows(
+        "SELECT secret_id FROM vault_audit_log WHERE action = 'secret.deleted'",
+      ),
+    ).toEqual([{ secret_id: raced.id }]);
+  });
+
+  it("fails, and records no delete, when another admin deleted the key mid-delete", async () => {
+    const { as, exec, rows, vault } = await load();
+    await as(admin, () => vault.setVaultAccessSettings({ mode: "manual" }));
+    const raced = await as(admin, () =>
+      vault.createSecret({
+        credentialKey: "RACED_KEY",
+        value: PLAINTEXT,
+        name: "Raced",
+      }),
+    );
+    await as(admin, () => vault.createGrant(raced.id, "mail"));
+
+    await whileRevokeRaces(
+      exec,
+      `CREATE FUNCTION race_on_revoke() RETURNS trigger AS $$
+        BEGIN
+          DELETE FROM app_secrets WHERE id = NEW.secret_id;
+          RETURN NEW;
+        END $$ LANGUAGE plpgsql`,
+      async () => {
+        await expect(
+          as(admin, () => vault.deleteSecret(raced.id)),
+        ).rejects.toThrow("Secret not found");
+      },
+    );
+
     expect(
       await rows(
         "SELECT action FROM vault_audit_log WHERE action = 'secret.deleted'",

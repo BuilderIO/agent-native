@@ -1779,6 +1779,126 @@ describe("Vault metadata on app_secrets (real pglite)", () => {
         },
       );
     });
+
+    it("keeps a rename another admin made after the edit read the row", async () => {
+      const id = await seed();
+      const { getDbExec } = await import("../db/client.js");
+      const exec = getDbExec() as unknown as {
+        execute: (
+          input: string | { sql: string; args?: unknown[] },
+        ) => Promise<unknown>;
+      };
+      const execute = exec.execute.bind(exec);
+      let renamed = false;
+      // raw-sql-ok: a test wrapper that forwards each statement unchanged; nothing is interpolated.
+      exec.execute = async (input) => {
+        const result = await execute(input);
+        // The edit has just read the row's key; a peer renames the row before
+        // the edit's UPDATE runs.
+        if (
+          !renamed &&
+          typeof input !== "string" &&
+          input.sql.startsWith("SELECT key FROM app_secrets WHERE id")
+        ) {
+          renamed = true;
+          await pglite
+            .prepare(`UPDATE app_secrets SET key = ? WHERE id = ?`)
+            .run("RENAMED_BY_PEER", id);
+        }
+        return result;
+      };
+
+      await mod.updateAppSecretById(
+        { id, ...orgScope },
+        { label: "New label" },
+      );
+
+      expect(await mod.readAppSecret(keyRef("OLD_KEY"))).toBeNull();
+      expect(
+        await mod.readAppSecretMetaById({ id, ...orgScope }),
+      ).toMatchObject({ key: "RENAMED_BY_PEER", label: "New label" });
+    });
+  });
+
+  describe("deleteAppSecretById", () => {
+    it("removes the row with that id and leaves the rest of the scope", async () => {
+      const first = await mod.writeAppSecret({
+        ...keyRef("FIRST_KEY"),
+        value: "fake-first-value",
+      });
+      await mod.writeAppSecret({
+        ...keyRef("SECOND_KEY"),
+        value: "fake-second-value",
+      });
+
+      expect(await mod.deleteAppSecretById({ id: first, ...orgScope })).toBe(
+        true,
+      );
+
+      expect(await mod.readAppSecret(keyRef("FIRST_KEY"))).toBeNull();
+      expect((await mod.readAppSecret(keyRef("SECOND_KEY")))?.value).toBe(
+        "fake-second-value",
+      );
+      expect(await mod.deleteAppSecretById({ id: first, ...orgScope })).toBe(
+        false,
+      );
+    });
+
+    it("finds nothing for another scope's id", async () => {
+      const id = await mod.writeAppSecret({
+        ...keyRef("SCOPED_KEY"),
+        value: "fake-value",
+      });
+
+      expect(await mod.deleteAppSecretById({ id, ...otherOrgScope })).toBe(
+        false,
+      );
+      expect(await mod.readAppSecret(keyRef("SCOPED_KEY"))).not.toBeNull();
+    });
+
+    it("does not remove a different row that took over the key's old name", async () => {
+      const original = await mod.writeAppSecret({
+        ...keyRef("OLD_KEY"),
+        value: "fake-original-value",
+      });
+      await mod.updateAppSecretById(
+        { id: original, ...orgScope },
+        { key: "RENAMED_KEY" },
+      );
+      await mod.writeAppSecret({
+        ...keyRef("OLD_KEY"),
+        value: "fake-replacement-value",
+      });
+
+      expect(await mod.deleteAppSecretById({ id: original, ...orgScope })).toBe(
+        true,
+      );
+
+      expect(await mod.readAppSecret(keyRef("RENAMED_KEY"))).toBeNull();
+      expect((await mod.readAppSecret(keyRef("OLD_KEY")))?.value).toBe(
+        "fake-replacement-value",
+      );
+    });
+
+    it("drops a stale per-request read of the deleted key", async () => {
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      const id = await mod.writeAppSecret({
+        ...keyRef("CACHED_KEY"),
+        value: "fake-cached-value",
+      });
+
+      await runWithRequestContext(
+        { userEmail: "admin@example.test" },
+        async () => {
+          expect((await mod.readAppSecret(keyRef("CACHED_KEY")))?.value).toBe(
+            "fake-cached-value",
+          );
+          await mod.deleteAppSecretById({ id, ...orgScope });
+          expect(await mod.readAppSecret(keyRef("CACHED_KEY"))).toBeNull();
+        },
+      );
+    });
   });
 
   it("refuses to change the origin policy of a key created through the Vault", async () => {

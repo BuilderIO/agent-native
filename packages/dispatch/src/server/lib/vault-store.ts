@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
-  deleteAppSecret,
+  deleteAppSecretById,
   isVaultManagedSecret,
   listAppSecretsForScope,
   listAppSecretSummaries,
@@ -586,12 +586,13 @@ export async function deleteSecret(
     }
   }
 
-  const removed = await deleteAppSecret({
-    key: existing.credentialKey,
+  // By id, so a rename since the lookup cannot point this at another key that
+  // took over the old name. Gone already means another admin deleted it: say
+  // so rather than record a delete that never happened.
+  const removed = await deleteAppSecretById({
+    id: secretId,
     ...credentialStoreScopeForVaultCtx(ctx),
   });
-  // Another admin renamed or deleted the key after the lookup: say so rather
-  // than record a delete that never happened.
   if (!removed) throw new Error("Secret not found");
 
   await recordVaultAudit({

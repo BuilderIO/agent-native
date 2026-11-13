@@ -9,6 +9,7 @@ describe("the secrets entry point", () => {
       "readAppSecretMetaById",
       "listAppSecretSummaries",
       "updateAppSecretById",
+      "deleteAppSecretById",
       "AppSecretKeyConflictError",
       "isVaultManagedSecret",
     ] as const) {

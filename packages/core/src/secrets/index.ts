@@ -21,6 +21,7 @@ export {
   readAppSecretMeta,
   readAppSecretMetaById,
   deleteAppSecret,
+  deleteAppSecretById,
   getAppSecretMeta,
   listAppSecretsForScope,
   listAppSecretSummaries,

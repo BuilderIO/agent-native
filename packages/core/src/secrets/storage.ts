@@ -914,7 +914,7 @@ export async function updateAppSecretById(
   // keeps its stored value, and an explicit null clears it.
   const { rows: updated } = await client.execute({
     sql: `UPDATE app_secrets SET
-        key = ?,
+        key = CASE WHEN ? THEN ? ELSE key END,
         encrypted_value = CASE WHEN ? THEN ? ELSE encrypted_value END,
         shared_encrypted_value = CASE WHEN ? THEN ? ELSE shared_encrypted_value END,
         label = CASE WHEN ? THEN ? ELSE label END,
@@ -925,7 +925,8 @@ export async function updateAppSecretById(
       WHERE id = ? AND scope = ? AND scope_id = ?
       RETURNING id`,
     args: [
-      key,
+      patch.key !== undefined,
+      patch.key ?? null,
       patch.value !== undefined,
       encrypted,
       patch.value !== undefined,
@@ -955,6 +956,33 @@ export async function updateAppSecretById(
   invalidateOptionalKeyCache();
   invalidateAgentEngineStatusCache();
   return { key, previousKey };
+}
+
+/**
+ * Delete one row by its id within a scope. Unlike `deleteAppSecret` this cannot
+ * remove a different row that took over the key name after a rename. Returns
+ * whether a row was removed.
+ */
+export async function deleteAppSecretById(target: {
+  id: string;
+  scope: SecretScope;
+  scopeId: string;
+}): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `DELETE FROM app_secrets WHERE id = ? AND scope = ? AND scope_id = ? RETURNING key`,
+    args: [target.id, target.scope, target.scopeId],
+  });
+  if (rows.length === 0) return false;
+  invalidateRequestSecret({
+    key: String(rows[0].key),
+    scope: target.scope,
+    scopeId: target.scopeId,
+  });
+  invalidateOptionalKeyCache();
+  invalidateAgentEngineStatusCache();
+  return true;
 }
 
 function parseAllowlist(raw: string | null): string[] | null {
