@@ -271,6 +271,7 @@ export default function QuickPromptOverlay({
             ...selection,
             engine: selection.engine,
             model: selection.model,
+            effort: normalizeModelSelection(selection, result.models).effort,
           };
         } catch {
           if (generation === modelRefreshGeneration.current) {

@@ -244,6 +244,59 @@ describe("Quick Prompt model discovery", () => {
     },
   );
 
+  it.each([
+    { storedEffort: undefined, expectedEffort: "high" },
+    { storedEffort: "low", expectedEffort: "low" },
+  ])(
+    "submits normalized effort when verification finishes before the initial catalog",
+    async ({ storedEffort, expectedEffort }) => {
+      if (storedEffort) {
+        localStorage.setItem(
+          "agent-native-code:model-selection",
+          JSON.stringify({ effort: storedEffort }),
+        );
+      }
+      const listModels = vi
+        .fn()
+        .mockImplementationOnce(() => new Promise(() => {}))
+        .mockResolvedValueOnce({
+          status: "ok",
+          models: [model],
+          selected: model,
+        });
+      const onSubmit = vi.fn(async () => {});
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: {
+          codeAgents: {
+            listModels,
+            listProjects: vi.fn(async () => ({ projects: [] })),
+          },
+          quickPrompt: {
+            setSetupRequired: vi.fn(),
+            onHidden: () => () => {},
+            setPickerOpen: vi.fn(),
+          },
+        },
+      });
+      await act(async () =>
+        root.render(
+          <QuickPromptOverlay onSubmit={onSubmit} onDismiss={vi.fn()} />,
+        ),
+      );
+      await act(async () => {
+        [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Send")!
+          .click();
+      });
+      expect(onSubmit).toHaveBeenCalledWith("hello", [], undefined, {
+        engine: model.engine,
+        model: model.model,
+        effort: expectedEffort,
+      });
+    },
+  );
+
   it("submits the configured fallback returned by the pre-submit refresh", async () => {
     const fallback = { ...model, engine: "anthropic", model: "claude-test" };
     const listModels = vi
