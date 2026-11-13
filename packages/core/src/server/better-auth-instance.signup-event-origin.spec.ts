@@ -49,7 +49,7 @@ vi.mock("./request-context.js", () => ({
     fn(),
 }));
 
-const { emitSignupEventForCreatedUser, getAuthSecret } =
+const { emitSignupEventForCreatedUser, getAuthSecret, trackSignupEvent } =
   await import("./better-auth-instance.js");
 
 const USER = { id: "user_1", email: "new@example.com", name: "New" };
@@ -137,15 +137,19 @@ describe("emitSignupEventForCreatedUser", () => {
 
   it("labels a signup created by magic-link verification", async () => {
     const headers = headersWithCookie("an_aid=anon_magic_1");
-    await emitSignupEventForCreatedUser(USER, {
-      request: {
-        headers,
-        url: "/_agent-native/auth/ba/magic-link/verify?newUserCallbackURL=%2F",
+    await emitSignupEventForCreatedUser(
+      { ...USER, emailVerified: true },
+      {
+        request: {
+          headers,
+          url: "/_agent-native/auth/ba/magic-link/verify?newUserCallbackURL=%2F",
+        },
       },
-    });
+    );
 
     expect(tracked[0]?.properties).toMatchObject({
       signup_method: "magic_link",
+      email_verified: true,
     });
   });
 
@@ -163,6 +167,7 @@ describe("emitSignupEventForCreatedUser", () => {
 
     expect(tracked).toHaveLength(1);
     expect(tracked[0].properties).not.toHaveProperty("referral_source");
+    expect(tracked[0].properties).not.toHaveProperty("email_verified");
     expect(tracked[0].source?.anonymousId).toBeUndefined();
   });
 
@@ -556,4 +561,16 @@ describe("emitSignupEventForCreatedUser", () => {
     expect(tracked[0].source?.anonymousId).toBe("anon_real");
     expect(tracked[0].properties).toMatchObject({ utm_source: "real" });
   });
+});
+
+it("does not copy an email verification claim from attribution", async () => {
+  await trackSignupEvent({
+    authProvider: "better-auth",
+    origin: "browser_signup",
+    email: USER.email,
+    attribution: { email_verified: "true", utm_source: "newsletter" },
+  });
+
+  expect(tracked[0]?.properties).toHaveProperty("utm_source", "newsletter");
+  expect(tracked[0]?.properties).not.toHaveProperty("email_verified");
 });
