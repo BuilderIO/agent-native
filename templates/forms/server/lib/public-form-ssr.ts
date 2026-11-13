@@ -943,6 +943,7 @@ function CSS() {
   --muted:220 10% 95%;--muted-fg:220 5% 45%;
   --border:220 10% 90%;--input:220 10% 90%;
   --ring:220 10% 40%;
+  --required:239 68 68;
   --radius:0.5rem;
 }
 .dark{
@@ -970,7 +971,7 @@ body{background:hsl(var(--bg));color:hsl(var(--fg));min-height:100vh;-webkit-fon
 .field-half{width:50%}
 .field-label{font-size:0.875rem;font-weight:500;color:hsl(var(--card-fg))}
 .field-desc{font-size:0.75rem;color:hsl(var(--muted-fg))}
-.req{color:#ef4444;margin-inline-start:2px}
+.req{color:rgb(var(--required));margin-inline-start:2px}
 
 .fi{width:100%;padding:8px 12px;font-size:0.875rem;font-family:inherit;background:transparent;border:1px solid hsl(var(--input));border-radius:var(--radius);color:hsl(var(--fg));outline:none}
 .fi:focus{border-color:hsl(var(--ring));box-shadow:0 0 0 2px hsl(var(--ring)/0.15)}
