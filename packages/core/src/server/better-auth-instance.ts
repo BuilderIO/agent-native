@@ -212,14 +212,14 @@ const EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS = 5 * 60_000;
 // Signup delivery holds its transaction, connection, and per-address lock.
 const VERIFICATION_EMAIL_TIMEOUT_MS = 10_000;
 
-async function flushAuthTracking(): Promise<void> {
+async function flushSignupTracking(): Promise<void> {
   try {
     await Promise.race([
       flushTracking(),
       new Promise<void>((resolve) => setTimeout(resolve, 1500)),
     ]);
   } catch {
-    console.error("[auth] failed to flush authentication analytics");
+    console.error("[auth] failed to flush signup analytics");
   }
 }
 
@@ -491,7 +491,7 @@ export async function trackSignupEvent({
       ...(sessionId ? { sessionId } : {}),
     },
   );
-  await flushAuthTracking();
+  await flushSignupTracking();
 }
 
 export const DEV_AUTH_SECRET_PATH = path.join(
@@ -2515,24 +2515,23 @@ async function createBetterAuthInstance(
       autoSignInAfterVerification: true,
       sendVerificationEmail,
       afterEmailVerification: async (user, request) => {
-        if (user.emailVerified === true) {
-          track(
-            "email_verified",
-            { ...resolveSignupTrackingProperties(), email_verified: true },
-            { userId: user.email, authUserId: user.id },
-          );
-          await flushAuthTracking();
-        }
         if (!request) return;
         const token = new URL(request.url).searchParams.get("token");
         if (!token) return;
-        const db = getDbExec();
         const emailChange = await verifiedEmailChangeFromToken(
           token,
           secret,
           user.email,
         );
-        if (!emailChange) return;
+        if (!emailChange) {
+          track(
+            "email_verified",
+            { ...resolveSignupTrackingProperties(), email_verified: true },
+            { userId: user.email, authUserId: user.id },
+          );
+          return;
+        }
+        const db = getDbExec();
         try {
           await executeIdentityRekey(
             identityRekeyDbFromExec(db),

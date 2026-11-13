@@ -698,10 +698,19 @@ describe("password sign-up on a one-connection Neon pool", () => {
       AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_platform",
       BETTER_AUTH_TRUSTED_ORIGINS: "https://workspace.example.test",
     });
-    const email = "current-email@example.test";
-    const newEmail = "new-email@example.test";
+    const email = "current-email@example.com";
+    const newEmail = "new-email@example.com";
     const password = "correct-horse-battery";
     const callbackURL = "https://workspace.example.test/account";
+
+    const { registerTrackingProvider, unregisterTrackingProvider } =
+      await import("../tracking/index.js");
+    const track = vi.fn();
+    const providerName = "email-change-test";
+    registerTrackingProvider({ name: providerName, track });
+    onTestFinished(() => {
+      unregisterTrackingProvider(providerName);
+    });
 
     await auth.api.signUpEmail({
       body: { email, password, name: "email-change" },
@@ -830,6 +839,9 @@ describe("password sign-up on a one-connection Neon pool", () => {
     expect(
       (await pglite.query(`SELECT email, email_verified FROM "user"`)).rows,
     ).toEqual([{ email: newEmail, email_verified: true }]);
+    expect(track).not.toHaveBeenCalledWith(
+      expect.objectContaining({ name: "email_verified" }),
+    );
   });
 
   it("rejects a verified user's email change when the confirmation cannot be delivered", async () => {
