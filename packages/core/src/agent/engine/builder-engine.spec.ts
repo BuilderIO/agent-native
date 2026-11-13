@@ -1881,7 +1881,7 @@ describe("createBuilderEngine", () => {
       expect(stop?.retryAfterMs).toBe(5_000);
     });
 
-    it("shows one visitor line for an in-stream invalid_request", async () => {
+    it("masks detail and retains the request ID at the invalid_request stream boundary for visitors", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue(
@@ -1889,8 +1889,8 @@ describe("createBuilderEngine", () => {
             {
               type: "stop",
               reason: "invalid_request",
-              error:
-                "messages.3: tool_use block must have a corresponding tool_result",
+              requestId: "req_visitor_example",
+              detail: "Invalid tool result",
             },
           ]),
         ),
@@ -1902,6 +1902,8 @@ describe("createBuilderEngine", () => {
       const stop = events.find((e) => e.type === "stop");
       expect(stop?.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
       expect(stop?.errorCode).toBe("invalid_request");
+      expect(stop?.providerRetryable).toBe(false);
+      expect(stop?.requestId).toBe("req_visitor_example");
     });
 
     it("shows one visitor line for an unknown in-stream stop reason", async () => {
@@ -2686,6 +2688,111 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("provider_internal_error");
     expect(stop?.providerRetryable).toBeUndefined();
   });
+
+  it("retains the request ID at the invalid_request stream boundary", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_example",
+            error: "Invalid request",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    expect(events.find((event) => event.type === "stop")).toMatchObject({
+      reason: "error",
+      error: "Invalid request",
+      errorCode: "invalid_request",
+      providerRetryable: false,
+      requestId: "req_example",
+    });
+  });
+
+  it.each([
+    {
+      name: "detail only",
+      event: { detail: "Invalid tool result; temporarily unavailable" },
+      error: "Invalid tool result; temporarily unavailable",
+      errorCode: "invalid_request",
+      providerRetryable: false,
+    },
+    {
+      name: "message takes precedence over detail",
+      event: { message: "Invalid message", detail: "Ignored detail" },
+      error: "Invalid message",
+      errorCode: "invalid_request",
+      providerRetryable: false,
+    },
+    {
+      name: "error takes precedence over message and detail",
+      event: {
+        error: "Invalid error",
+        message: "Ignored message",
+        detail: "Ignored detail",
+      },
+      error: "Invalid error",
+      errorCode: "invalid_request",
+      providerRetryable: false,
+    },
+    {
+      name: "no detail",
+      event: {},
+      error: "Builder gateway rejected the request as malformed.",
+      errorCode: "invalid_request",
+      providerRetryable: false,
+    },
+    {
+      name: "uncoded internal error detail",
+      event: {
+        detail:
+          "Sorry, this was caused by an internal error. ERROR ID: 12345678",
+      },
+      error: "Sorry, this was caused by an internal error. ERROR ID: 12345678",
+      errorCode: "builder_gateway_internal_error",
+      providerRetryable: false,
+    },
+    {
+      name: "coded internal error detail",
+      event: {
+        errorCode: "provider_internal_error",
+        detail:
+          "Sorry, this was caused by an internal error. ERROR ID: 12345678",
+      },
+      error: "Sorry, this was caused by an internal error. ERROR ID: 12345678",
+      errorCode: "builder_gateway_internal_error",
+      providerRetryable: true,
+    },
+  ])(
+    "uses message fallback and preserves classification at the invalid_request stream boundary ($name)",
+    async ({ event, error, errorCode, providerRetryable }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            jsonlResponse([
+              { type: "stop", reason: "invalid_request", ...event },
+            ]),
+          ),
+      );
+
+      const events = await collectEvents(
+        createBuilderEngine().stream(BASE_OPTS),
+      );
+      expect(events.find((item) => item.type === "stop")).toMatchObject({
+        reason: "error",
+        error,
+        errorCode,
+        providerRetryable,
+      });
+    },
+  );
 
   it("keeps invalid_request stop reasons terminal when the message looks transient", async () => {
     const privateProviderMessage =

@@ -655,6 +655,7 @@ interface GatewayErrorStopDetails {
   statusCode?: number;
   providerRetryable?: boolean;
   retryAfterMs?: number;
+  requestId?: string;
 }
 
 const RETRYABLE_GATEWAY_STATUSES = new Set([408, 429, 500, 502, 503, 504, 529]);
@@ -1106,6 +1107,7 @@ async function* parseJsonlStream(
             const errMsg =
               event.error ||
               event.message ||
+              event.detail ||
               "Builder gateway rejected the request as malformed.";
             const gatewayErrCode =
               typeof event.errorCode === "string"
@@ -1136,6 +1138,7 @@ async function* parseJsonlStream(
               providerRetryable:
                 gatewayErrCode !== undefined &&
                 errCode === BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+              ...(gatewayRequestId ? { requestId: gatewayRequestId } : {}),
               ...(isCreditsLimitErrorCode(errCode)
                 ? { upgradeUrl: await buildUpgradeUrl() }
                 : {}),
