@@ -41,7 +41,7 @@ export function useBuilderSignupActivation(
     userId: string;
     status: "running" | "checking" | "paused" | "settled";
     failedAt?: number;
-    connected?: boolean;
+    refreshReadiness?: boolean;
   }>();
   const eligibility = useQuery({
     queryKey: ["builder-signup-eligibility", experimentId, userId],
@@ -61,7 +61,7 @@ export function useBuilderSignupActivation(
       userId &&
       refreshedConnection.current !== attemptKey &&
       (eligibility.data === "connected" ||
-        (activation?.userId === userId && activation.connected))
+        (activation?.userId === userId && activation.refreshReadiness))
     ) {
       refreshedConnection.current = attemptKey;
       // Provider readiness is cached outside React Query and may have been
@@ -101,7 +101,11 @@ export function useBuilderSignupActivation(
     ) => {
       setActivation((current) =>
         current?.userId === userId
-          ? { userId, status: "settled", connected: status === "connected" }
+          ? {
+              userId,
+              status: "settled",
+              refreshReadiness: status === "connected",
+            }
           : current,
       );
     };
@@ -139,7 +143,9 @@ export function useBuilderSignupActivation(
       activation.userId === userId &&
       (eligibility.data === "disabled" || eligibility.data === "connected")
     ) {
-      setActivation({ userId, status: "settled" });
+      // A previously confirmed activation can finish while the browser is
+      // paused. Refresh even if its recent-completion signal has expired.
+      setActivation({ userId, status: "settled", refreshReadiness: true });
       void queryClient.invalidateQueries();
     } else if (
       activation?.status === "checking" &&

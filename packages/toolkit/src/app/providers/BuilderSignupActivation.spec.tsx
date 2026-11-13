@@ -223,13 +223,20 @@ describe("BuilderSignupActivation", () => {
         .querySelector("button")
         ?.getAttribute("data-startup-interaction-blocked"),
     ).toBe("true");
-    mocks.status.mockResolvedValue("disabled");
-    await act(async () => {
-      await queryClient.invalidateQueries();
-    });
-    await vi.waitFor(() =>
-      expect(container.querySelector("[role='status']")).toBeNull(),
-    );
+    const refresh = vi.fn();
+    window.addEventListener("agent-engine:configured-changed", refresh);
+    try {
+      mocks.status.mockResolvedValue("disabled");
+      await act(async () => {
+        await queryClient.invalidateQueries();
+      });
+      await vi.waitFor(() =>
+        expect(container.querySelector("[role='status']")).toBeNull(),
+      );
+      expect(refresh).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener("agent-engine:configured-changed", refresh);
+    }
   });
 
   it("keeps unknown eligibility deferred with an interactive Retry notice until status is confirmed", async () => {
