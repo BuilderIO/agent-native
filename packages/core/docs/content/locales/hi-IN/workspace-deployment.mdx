@@ -133,6 +133,41 @@ Hosted कार्यस्थान builds के लिए deploy provider en
 
 </Callout>
 
+## Build cache {#workspace-build-cache}
+
+कार्यस्थान की तैनाती हर ऐप को build करती है, और इसका ज़्यादातर समय इसी में जाता है। Build cache ऐसे ऐप को छोड़ देता है जिसके inputs नहीं बदले, और उसकी जगह उसका पिछला build output, फ़ंक्शन bundle समेत, restore कर देता है। यह डिफ़ॉल्ट रूप से चालू रहता है और entries को `node_modules/.cache/agent-native/deploy-build` के अंदर रखता है।
+
+किसी ऐप की cache key इन पर निकाला गया SHA-256 है:
+
+- ऐप की source files, जैसी `git ls-files` सूचीबद्ध करता है (tracked और untracked, ignored नहीं), साथ में उसकी `.env*` files; build ऐप में जो directories बनाता है (`.agent-native`, `.deploy-tmp`, `.react-router`) वे शामिल नहीं होतीं
+- उन सभी कार्यस्थान packages की built सामग्री जिन पर वह निर्भर है, इसलिए दोबारा build हुआ `@agent-native/core` हर ऐप को अमान्य कर देता है (सिर्फ़ वे files जो package अपने `files` field से publish करता है, और `dist` वाले package का hash उसके `src` से नहीं बल्कि `dist` से निकलता है)
+- कार्यस्थान की root files, जिनमें `pnpm-lock.yaml` शामिल है
+- Node का major version, preset, और Core का version
+- build को दिए गए हर environment variable का नाम और मान, hash किया हुआ और कभी print नहीं किया जाता
+
+हर ऐप hit या miss log करता है। Miss कारण बताता है और, अगर कोई पुरानी entry मौजूद हो, तो यह भी कि कौन-से inputs बदले। पूरी हुई तैनाती कुल संख्याएँ और बचाया गया समय print करती है।
+
+```bash
+[workspace-deploy] cache HIT analytics (restored in 5.9s, saved ~43.8s)
+[workspace-deploy] cache MISS forms (no-entry: inputs changed: source); building
+[workspace-deploy] Build cache: 1 hit, 1 miss; build phase 32.3s, ~43.4s saved
+```
+
+Cache की समस्या कभी hit नहीं गिनी जाती। अपठनीय manifest (`entry-unreadable`), ऐसा restore जिसकी files entry से मेल नहीं खातीं (`restore-failed`), या ऐसा input जिसका hash नहीं निकाला जा सकता (`hash-failed`, जैसे ऐसा कार्यस्थान जो git repository नहीं है) कारण log करता है और ऐप को दोबारा build करता है। ख़राब entry हटा दी जाती है।
+
+| सेटिंग | Environment variable | डिफ़ॉल्ट |
+| --- | --- | --- |
+| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
+| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
+| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | कोई नहीं |
+
+हर तैनाती में दो cached ऐप्स को दोबारा build करके दोबारा बने output की cached output से file-दर-file तुलना करने के लिए `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` सेट करें; हर build में बदलने वाले मान, जैसे build timestamp और नए बने function tokens, mask कर दिए जाते हैं। कोई अंतर तैनाती को fail कर देता है और files की सूची देता है, जिसका मतलब है कि build reproducible नहीं है या key में कोई input छूट गया है। इसे हर तैनाती पर चलाने के बजाय CI में schedule पर चलाएँ।
+
+जो variables हर run में बदलते हैं पर build तक नहीं पहुँचते, जैसे `PATH`, `PWD`, `npm_*` और `PNPM_*`, वे पहले से key से बाहर हैं। अगर कोई deploy environment अपने variables जोड़ता है (जैसे run id), तो उसे `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` में सूचीबद्ध करें; अंत का `*` किसी prefix से मेल खाता है। बाकी सब कुछ गिना जाता है, इसलिए बदला हुआ `VITE_*` या `DATABASE_URL` हर ऐप को दोबारा build करवाता है।
+
+जो hosted builders हर बार साफ़ disk से शुरू होते हैं, उन्हें cache से कुछ नहीं मिलता। वहाँ `AGENT_NATIVE_DEPLOY_CACHE=false` सेट करें ताकि हर build के बाद cache जो copy बनाता है वह छोड़ दी जाए।
+
 ## Docker Compose के साथ Self-hosted कार्यस्थान {#workspace-docker-compose}
 
 एक कार्यस्थान आज एक Nitro server process नहीं है। हर ऐप अब भी अपनी खुद की `.output/` directory में build होता है और अपना खुद का Node/Nitro server चलाता है, इसलिए किसी कार्यस्थान को self-host करने का मतलब है एक ही entry point के पीछे कई servers चलाना।

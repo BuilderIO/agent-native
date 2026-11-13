@@ -133,6 +133,41 @@ npx @agent-native/core@latest deploy
 
 </Callout>
 
+## 建置快取 {#workspace-build-cache}
+
+工作區部署會建置每個應用程式，這佔了大部分時間。建置快取會略過輸入沒有變動的應用程式，改為還原它上一次的建置輸出，包括其函式 bundle。它預設為開啟，並將項目保存在 `node_modules/.cache/agent-native/deploy-build` 底下。
+
+應用程式的快取金鑰是針對以下內容計算的 SHA-256：
+
+- 應用程式的原始檔，以 `git ls-files` 列出的為準（已追蹤與未追蹤的，不含被忽略的），再加上它的 `.env*` 檔案；建置在應用程式內產生的目錄（`.agent-native`、`.deploy-tmp`、`.react-router`）不納入
+- 它所相依的每個工作區套件的建置內容，因此重新建置 `@agent-native/core` 會使所有應用程式失效（僅限該套件透過 `files` 欄位發布的檔案，且含有 `dist` 的套件是以其 `dist` 而非 `src` 計算雜湊）
+- 工作區根目錄檔案，包括 `pnpm-lock.yaml`
+- Node 主版本、預設組合（preset）與 Core 版本
+- 傳給建置的每個環境變數的名稱與值，經過雜湊，絕不會被印出
+
+每個應用程式都會記錄命中或未命中。未命中會寫明原因，並且在存在較早的項目時，指出哪些輸入有變動。部署完成後會印出總計與節省的時間。
+
+```bash
+[workspace-deploy] cache HIT analytics (restored in 5.9s, saved ~43.8s)
+[workspace-deploy] cache MISS forms (no-entry: inputs changed: source); building
+[workspace-deploy] Build cache: 1 hit, 1 miss; build phase 32.3s, ~43.4s saved
+```
+
+快取出問題時絕不會算作命中。無法讀取的資訊清單（`entry-unreadable`）、檔案與項目不相符的還原（`restore-failed`），或無法計算雜湊的輸入（`hash-failed`，例如工作區不是 git 儲存庫），都會記錄原因並重新建置該應用程式。損壞的項目會被刪除。
+
+| 設定 | 環境變數 | 預設值 |
+| --- | --- | --- |
+| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
+| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
+| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | 無 |
+
+設定 `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2`，即可在每次部署時重新建置兩個已快取的應用程式，並逐檔比較重新建置的輸出與快取的輸出，其中每次建置都會變動的值（如建置時間戳記與新產生的函式 token）會被遮蔽。出現差異會讓部署失敗並列出這些檔案，這代表建置無法重現，或快取金鑰缺少某個輸入。請在 CI 中依排程執行，而不是在每次部署時執行。
+
+每次執行都會變動但不會影響建置的變數，例如 `PATH`、`PWD`、`npm_*` 和 `PNPM_*`，已經被排除在金鑰之外。如果部署環境自行加入了這類變數（例如執行 ID），請把它列在 `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` 中；結尾的 `*` 會比對前綴。其他變數都會計入，因此 `VITE_*` 或 `DATABASE_URL` 有變動會讓所有應用程式重新建置。
+
+每次都從乾淨磁碟開始的託管建置器無法從快取中獲益。請在那裡設定 `AGENT_NATIVE_DEPLOY_CACHE=false`，以略過它在每次建置後進行的複製。
+
 ## 使用 Docker Compose 自行架設工作區 {#workspace-docker-compose}
 
 目前一個工作區並不是單一個 Nitro 伺服器行程。每個應用程式仍然會建置到自己的 `.output/` 目錄，並執行自己的 Node/Nitro 伺服器，因此自行架設工作區代表要在單一進入點後面執行多個伺服器。

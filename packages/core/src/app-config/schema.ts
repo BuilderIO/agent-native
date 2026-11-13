@@ -7,6 +7,7 @@ import { analyticsConfig } from "./analytics.js";
 import { appConfig } from "./app.js";
 import { authConfig } from "./auth.js";
 import { clipsConfig } from "./clips.js";
+import { deployCacheConfig } from "./deploy-cache.js";
 import { decisionsConfig } from "./decisions.js";
 import { dispatchConfig } from "./dispatch.js";
 import { experienceProfilesConfig } from "./experience-profiles.js";
@@ -78,6 +79,7 @@ export const appConfigSchema = z.object({
   auth: authConfig.prefault({}),
   clips: clipsConfig.prefault({}),
   decisions: decisionsConfig.prefault({}),
+  deployCache: deployCacheConfig.prefault({}),
   dispatch: dispatchConfig.prefault({}),
   experienceProfiles: experienceProfilesConfig.prefault({}),
   extensions: extensionsConfig.prefault({}),

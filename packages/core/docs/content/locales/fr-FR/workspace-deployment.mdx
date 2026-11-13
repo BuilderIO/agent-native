@@ -135,6 +135,41 @@ Vous préférez un domaine séparé par application plutôt qu'une origine parta
 
 </Callout>
 
+## Cache de build {#workspace-build-cache}
+
+Un déploiement de workspace construit chaque application, ce qui représente l'essentiel de sa durée. Le cache de build ignore une application dont les entrées n'ont pas changé et restaure à la place sa sortie de build précédente, y compris son bundle de fonction. Il est activé par défaut et conserve ses entrées dans `node_modules/.cache/agent-native/deploy-build`.
+
+La clé de cache d'une application est un SHA-256 calculé sur :
+
+- les fichiers source de l'application, tels que listés par `git ls-files` (suivis et non suivis, non ignorés), plus ses fichiers `.env*` ; les répertoires qu'un build génère dans l'application (`.agent-native`, `.deploy-tmp`, `.react-router`) sont exclus
+- le contenu construit de chaque package du workspace dont elle dépend, de sorte qu'un `@agent-native/core` reconstruit invalide toutes les applications (seuls les fichiers que le package publie via son champ `files`, et un package avec un `dist` est haché d'après son `dist`, pas son `src`)
+- les fichiers racine du workspace, y compris `pnpm-lock.yaml`
+- la version majeure de Node, le preset et la version de Core
+- le nom et la valeur de chaque variable d'environnement transmise au build, hachés et jamais affichés
+
+Chaque application journalise un succès ou un échec de cache. Un échec indique la raison et, lorsqu'une entrée antérieure existe, quelles entrées ont changé. Un déploiement terminé affiche les totaux et le temps gagné.
+
+```bash
+[workspace-deploy] cache HIT analytics (restored in 5.9s, saved ~43.8s)
+[workspace-deploy] cache MISS forms (no-entry: inputs changed: source); building
+[workspace-deploy] Build cache: 1 hit, 1 miss; build phase 32.3s, ~43.4s saved
+```
+
+Un problème de cache n'est jamais un succès. Un manifeste illisible (`entry-unreadable`), une restauration dont les fichiers ne correspondent pas à l'entrée (`restore-failed`) ou une entrée impossible à hacher (`hash-failed`, par exemple un workspace qui n'est pas un dépôt git) journalise la raison et reconstruit l'application. Une entrée défectueuse est supprimée.
+
+| Paramètre | Variable d'environnement | Valeur par défaut |
+| --- | --- | --- |
+| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
+| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
+| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | aucune |
+
+Définissez `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` pour reconstruire deux applications en cache par déploiement et comparer la sortie reconstruite à la sortie en cache fichier par fichier, en masquant les valeurs propres à chaque build comme l'horodatage du build et les jetons de fonction fraîchement générés. Une différence fait échouer le déploiement et liste les fichiers, ce qui signifie que le build n'est pas reproductible ou qu'il manque une entrée à la clé. Exécutez-le en CI selon un calendrier plutôt qu'à chaque déploiement.
+
+Les variables qui changent à chaque exécution sans atteindre un build, telles que `PATH`, `PWD`, `npm_*` et `PNPM_*`, sont déjà exclues de la clé. Si un environnement de déploiement ajoute les siennes (un identifiant d'exécution, par exemple), listez-la dans `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` ; un `*` final correspond à un préfixe. Tout le reste compte, donc un `VITE_*` ou un `DATABASE_URL` modifié reconstruit toutes les applications.
+
+Les builders hébergés qui démarrent à chaque fois avec un disque vierge ne gagnent rien avec le cache. Définissez-y `AGENT_NATIVE_DEPLOY_CACHE=false` pour éviter la copie qu'il effectue après chaque build.
+
 ## Workspace auto-hébergé avec Docker Compose {#workspace-docker-compose}
 
 Un workspace n'est pas aujourd'hui un seul processus serveur Nitro. Chaque application construit toujours dans son propre répertoire `.output/` et exécute son propre serveur Node/Nitro, donc auto-héberger un workspace signifie exécuter plusieurs serveurs derrière un seul point d'entrée.

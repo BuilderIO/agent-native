@@ -61,6 +61,13 @@ import {
   readConfiguredWorkspaceAppHomePath,
 } from "../workspace-app-config.js";
 import {
+  buildAppWithCache,
+  createDeployCacheRuntime,
+  defaultDeployCacheDir,
+  removeAppOutputs,
+  type DeployCacheRuntime,
+} from "./build-cache.js";
+import {
   assertEmittedBackgroundFunctionOnDisk,
   isRecurringJobsDeployEnabled,
   readVercelSweepCron,
@@ -362,6 +369,25 @@ export async function runWorkspaceDeploy(
   opts.onProgress?.({ step: "build", preset });
   const concurrency = workspaceBuildConcurrency();
   const runBuild: BuildRunner = opts.execFile ?? spawnBuild;
+  const cacheConfig = getAppConfig().deployCache;
+  const cache = cacheConfig.enabled
+    ? createDeployCacheRuntime({
+        dir: path.resolve(
+          workspaceRoot,
+          cacheConfig.dir ?? defaultDeployCacheDir(workspaceRoot),
+        ),
+        workspaceRoot,
+        preset,
+        envIgnore: cacheConfig.envIgnore,
+        verifySample: cacheConfig.verifySample,
+      })
+    : null;
+  if (!cache) {
+    console.log(
+      "[workspace-deploy] Build cache disabled (AGENT_NATIVE_DEPLOY_CACHE=false); rebuilding every app",
+    );
+  }
+  const buildStartedAt = Date.now();
   await runWithConcurrency(apps, concurrency, (app) =>
     buildOneApp(
       workspaceRoot,
@@ -372,8 +398,15 @@ export async function runWorkspaceDeploy(
       workspaceApps,
       workspaceAuthMode,
       concurrency > 1 ? "pipe" : "inherit",
+      cache,
     ),
   );
+  if (cache) {
+    const { hits, misses, savedMs, verified } = cache.stats;
+    console.log(
+      `[workspace-deploy] Build cache: ${hits} hit, ${misses} miss${verified ? `, ${verified} verified by rebuild` : ""}; build phase ${((Date.now() - buildStartedAt) / 1000).toFixed(1)}s, ~${(savedMs / 1000).toFixed(1)}s saved`,
+    );
+  }
   opts.onProgress?.({ step: "package" });
   // Copy in app order after all builds so shared outputs stay deterministic.
   const sweepCrons: Array<{ path: string; schedule: string }> = [];
@@ -456,6 +489,7 @@ async function buildOneApp(
   workspaceApps: WorkspaceAppManifestEntry[],
   workspaceAuthMode: "shared" | "isolated",
   stdio: "inherit" | "pipe",
+  cache: DeployCacheRuntime | null,
 ): Promise<void> {
   const appDir = path.join(appsDir, app);
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
@@ -535,17 +569,31 @@ async function buildOneApp(
     `[workspace-deploy] Building ${app} (base=/${app}, preset=${preset})`,
   );
 
-  cleanAppBuildOutputs(appDir);
-
-  const startedAt = Date.now();
-  await runBuild("pnpm", ["--filter", app, "build"], {
-    cwd: workspaceRoot,
+  const build = async () => {
+    const startedAt = Date.now();
+    await runBuild("pnpm", ["--filter", app, "build"], {
+      cwd: workspaceRoot,
+      env,
+      stdio,
+    });
+    console.log(
+      `[workspace-deploy] Built ${app} in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`,
+    );
+  };
+  if (!cache) {
+    removeAppOutputs(appDir);
+    await build();
+    return;
+  }
+  await buildAppWithCache({
+    runtime: cache,
+    app,
+    appDir,
     env,
-    stdio,
+    clean: () => removeAppOutputs(appDir),
+    build,
+    log: (message) => console.log(message),
   });
-  console.log(
-    `[workspace-deploy] Built ${app} in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`,
-  );
 }
 
 type BuildRunner = (
@@ -1718,20 +1766,6 @@ function netlifyPublicAssetPaths(app: string, staticDir: string): string[] {
 
 function netlifyFunctionsDir(workspaceRoot: string): string {
   return path.join(workspaceRoot, ".netlify", "functions-internal");
-}
-
-function cleanAppBuildOutputs(appDir: string): void {
-  for (const name of ["dist", ".output", "build"]) {
-    fs.rmSync(path.join(appDir, name), { recursive: true, force: true });
-  }
-  fs.rmSync(path.join(appDir, ".netlify", "functions-internal"), {
-    recursive: true,
-    force: true,
-  });
-  fs.rmSync(path.join(appDir, ".vercel", "output"), {
-    recursive: true,
-    force: true,
-  });
 }
 
 function appUsesNetlifyUnpooledDatabaseUrl(appDir: string): boolean {

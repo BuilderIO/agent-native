@@ -133,6 +133,41 @@ Prefere um domínio separado por app em vez de uma origem compartilhada? Todo ap
 
 </Callout>
 
+## Cache de Build {#workspace-build-cache}
+
+Uma implantação de espaço de trabalho faz o build de todos os apps, e isso é a maior parte do seu tempo. O cache de build ignora um app cujas entradas não mudaram e, em vez disso, restaura a saída de build anterior dele, incluindo o bundle da função. Ele vem ativado por padrão e mantém as entradas em `node_modules/.cache/agent-native/deploy-build`.
+
+A chave de cache de um app é um SHA-256 calculado sobre:
+
+- os arquivos-fonte do app, conforme listados por `git ls-files` (rastreados e não rastreados, não ignorados), mais seus arquivos `.env*`; os diretórios que um build gera no app (`.agent-native`, `.deploy-tmp`, `.react-router`) ficam de fora
+- o conteúdo compilado de cada pacote do espaço de trabalho de que ele depende, de modo que um `@agent-native/core` reconstruído invalida todos os apps (apenas os arquivos que o pacote publica por meio do campo `files`, e um pacote com `dist` é calculado pelo seu `dist`, não pelo seu `src`)
+- os arquivos da raiz do espaço de trabalho, incluindo `pnpm-lock.yaml`
+- a versão principal do Node, o preset e a versão do Core
+- o nome e o valor de cada variável de ambiente passada ao build, com hash e nunca impressos
+
+Cada app registra um acerto ou uma falha. Uma falha informa o motivo e, quando existe uma entrada anterior, quais entradas mudaram. Uma implantação concluída imprime os totais e o tempo economizado.
+
+```bash
+[workspace-deploy] cache HIT analytics (restored in 5.9s, saved ~43.8s)
+[workspace-deploy] cache MISS forms (no-entry: inputs changed: source); building
+[workspace-deploy] Build cache: 1 hit, 1 miss; build phase 32.3s, ~43.4s saved
+```
+
+Um problema de cache nunca é um acerto. Um manifesto ilegível (`entry-unreadable`), uma restauração cujos arquivos não correspondem à entrada (`restore-failed`) ou uma entrada que não pode ser calculada por hash (`hash-failed`, por exemplo um espaço de trabalho que não é um repositório git) registra o motivo e refaz o build do app. Uma entrada ruim é excluída.
+
+| Configuração | Variável de ambiente | Padrão |
+| --- | --- | --- |
+| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
+| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
+| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | nenhum |
+
+Defina `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` para refazer o build de dois apps em cache por implantação e comparar a saída reconstruída com a saída em cache arquivo por arquivo, mascarando valores específicos de cada build, como o carimbo de data e hora do build e os tokens de função recém-gerados. Uma diferença faz a implantação falhar e lista os arquivos, o que significa que o build não é reproduzível ou que falta uma entrada na chave. Execute isso no CI de forma agendada, em vez de a cada implantação.
+
+As variáveis que mudam a cada execução sem chegar ao build, como `PATH`, `PWD`, `npm_*` e `PNPM_*`, já ficam fora da chave. Se um ambiente de implantação adicionar as suas (um id de execução, por exemplo), liste-a em `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE`; um `*` no final corresponde a um prefixo. Todo o resto conta, então um `VITE_*` ou `DATABASE_URL` alterado refaz o build de todos os apps.
+
+Builders hospedados que começam com um disco limpo a cada vez não ganham nada com o cache. Defina `AGENT_NATIVE_DEPLOY_CACHE=false` neles para pular a cópia que o cache faz após cada build.
+
 ## Espaço de Trabalho Auto-hospedado com Docker Compose {#workspace-docker-compose}
 
 Hoje, um espaço de trabalho não é um único processo de servidor Nitro. Cada app ainda compila para seu próprio diretório `.output/` e roda seu próprio servidor Node/Nitro, então auto-hospedar um espaço de trabalho significa rodar vários servidores atrás de um único ponto de entrada.
