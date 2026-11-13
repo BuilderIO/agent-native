@@ -45,7 +45,7 @@ export function createAgentFrameMediaSource(
         return media;
       })),
     cleanup: async () => {
-      await loaded?.cleanup().catch(() => {});
+      await loaded?.cleanup();
     },
   };
 }

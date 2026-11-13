@@ -179,6 +179,8 @@ export function describeAgentAccessFailure(
 
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES = 512 * 1024 * 1024;
+const MAX_CONCURRENT_AGENT_FRAME_MEDIA_FILES = 2;
+let activeAgentFrameMediaFiles = 0;
 export const MAX_PUBLIC_AGENT_HISTORY_ITEMS = 100;
 export const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 export { CLIPS_AGENT_ACCESS_PARAM };
@@ -220,9 +222,28 @@ function maxAgentFrameMediaBytes(): number {
 function maxAgentFrameMediaFileBytes(): number {
   const configured = Number(process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES);
   if (Number.isFinite(configured) && configured > 0) {
-    return Math.max(1, Math.floor(configured));
+    return Math.min(
+      DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES,
+      Math.max(1, Math.floor(configured)),
+    );
   }
   return DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES;
+}
+
+function acquireAgentFrameMediaFileAdmission(): () => void {
+  if (activeAgentFrameMediaFiles >= MAX_CONCURRENT_AGENT_FRAME_MEDIA_FILES) {
+    throw new RecordingMediaFetchError(
+      "Recording media file capacity exceeded.",
+      503,
+    );
+  }
+  activeAgentFrameMediaFiles++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    activeAgentFrameMediaFiles--;
+  };
 }
 
 function frameMediaTooLargeMessage(size: number, maxBytes: number) {
@@ -237,9 +258,11 @@ function assertFrameMediaSize(size: number | null | undefined) {
   }
 }
 
-function assertFrameMediaFileSize(size: number | null | undefined) {
+function assertFrameMediaFileSize(
+  size: number | null | undefined,
+  maxBytes: number,
+) {
   if (!Number.isFinite(size ?? NaN) || (size ?? 0) <= 0) return;
-  const maxBytes = maxAgentFrameMediaFileBytes();
   if ((size ?? 0) > maxBytes) {
     throw new Error(frameMediaTooLargeMessage(size ?? 0, maxBytes));
   }
@@ -313,14 +336,18 @@ async function readResponseBytesWithLimit(
 async function writeResponseBodyToFileWithLimit(
   response: Response,
   path: string,
+  maxBytes: number,
 ): Promise<void> {
-  const maxBytes = maxAgentFrameMediaFileBytes();
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    await response.body?.cancel().catch(() => {});
     throw new Error(frameMediaTooLargeMessage(contentLength, maxBytes));
   }
 
-  const file = await open(path, "wx");
+  const file = await open(path, "wx").catch(async (error: unknown) => {
+    await response.body?.cancel().catch(() => {});
+    throw error;
+  });
   let totalBytes = 0;
   try {
     if (!response.body) {
@@ -359,11 +386,13 @@ async function writeResponseBodyToFileWithLimit(
         if (!value) continue;
         totalBytes += value.byteLength;
         if (totalBytes > maxBytes) {
-          await reader.cancel().catch(() => {});
           throw new Error(frameMediaTooLargeMessage(totalBytes, maxBytes));
         }
         await file.write(value);
       }
+    } catch (error) {
+      await reader.cancel().catch(() => {});
+      throw error;
     } finally {
       reader.releaseLock();
     }
@@ -1244,6 +1273,7 @@ export async function fetchRecordingMediaResponse(
   }
 
   if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
     throw new RecordingMediaFetchError(
       `Recording media fetch failed: HTTP ${response.status} ${response.statusText}`,
       response.status,
@@ -1348,11 +1378,12 @@ export async function loadRecordingMediaFile(
     throw new Error(embedFramesUnavailableReason(embedProvider));
   }
   const fallbackMimeType = recordingFallbackMimeType(recording);
+  const maxFileBytes = maxAgentFrameMediaFileBytes();
   // Unknown or understated sizes retain the capped download path; they cannot
   // authorize a signed read of an otherwise unverified source.
   if (
     typeof recording.videoSizeBytes === "number" &&
-    recording.videoSizeBytes > maxAgentFrameMediaFileBytes() &&
+    recording.videoSizeBytes > maxFileBytes &&
     (recording.storageMode === "own" || recording.storageMode === "hosted") &&
     isRangeVideoFormat(recording.videoFormat) &&
     !isLocalRecordingBlob(videoUrl)
@@ -1433,17 +1464,35 @@ export async function loadRecordingMediaFile(
       if (!handedOff && !timedOut) release();
     }
   }
-  assertFrameMediaFileSize(recording.videoSizeBytes);
-  const dir = await mkdtemp(join(tmpdir(), "clips-agent-frame-"));
+  assertFrameMediaFileSize(recording.videoSizeBytes, maxFileBytes);
+  const release = acquireAgentFrameMediaFileAdmission();
+  let dir: string;
+  try {
+    dir = await mkdtemp(join(tmpdir(), "clips-agent-frame-"));
+  } catch (error) {
+    release();
+    throw error;
+  }
   const path = join(
     dir,
     recording.videoFormat === "mp4" ? "input.mp4" : "input.webm",
   );
-  const cleanup = () => rm(dir, { recursive: true, force: true });
+  // A failed removal may leave bytes on disk, so it must keep the admission.
+  let cleanupPromise: Promise<void> | undefined;
+  const cleanup = () => {
+    cleanupPromise ??= rm(dir, { recursive: true, force: true })
+      .then(release)
+      .catch((error: unknown) => {
+        cleanupPromise = undefined;
+        throw error;
+      });
+    return cleanupPromise;
+  };
 
   try {
     if (isLocalRecordingBlob(videoUrl)) {
       const media = await loadRecordingMediaBytes(recording);
+      assertFrameMediaFileSize(media.bytes.byteLength, maxFileBytes);
       await writeFile(path, media.bytes);
       return { path, mimeType: media.mimeType, cleanup };
     }
@@ -1452,7 +1501,7 @@ export async function loadRecordingMediaFile(
       recordingId: recording.id,
       storageMode: recording.storageMode,
     });
-    await writeResponseBodyToFileWithLimit(response, path);
+    await writeResponseBodyToFileWithLimit(response, path, maxFileBytes);
     return {
       path,
       mimeType: pickSourceMimeType(
@@ -1462,7 +1511,14 @@ export async function loadRecordingMediaFile(
       cleanup,
     };
   } catch (error) {
-    await cleanup().catch(() => {});
+    try {
+      await cleanup();
+    } catch (cleanupError) {
+      throw Object.assign(
+        new Error("Recording media download and cleanup failed."),
+        { downloadError: error, cleanupError },
+      );
+    }
     throw error;
   }
 }

@@ -251,7 +251,7 @@ export default defineEventHandler(async (event: H3Event) => {
       applySheetHeaders(event, result.plan);
       return Buffer.from(result.sheet);
     } finally {
-      await media.cleanup().catch(() => {});
+      await media.cleanup();
     }
   } catch (err) {
     const status = frameFailureStatus(err);

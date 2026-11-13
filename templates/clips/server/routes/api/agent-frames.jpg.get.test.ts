@@ -159,6 +159,22 @@ describe("agent-frames.jpg route", () => {
     expect(mockCleanupMediaFile).toHaveBeenCalledTimes(1);
   });
 
+  it("reports a failed media cleanup rather than returning a sheet", async () => {
+    mockCleanupMediaFile.mockRejectedValueOnce(
+      new Error("media cleanup failed"),
+    );
+    const { event, body } = await run({
+      startMs: "1000",
+      endMs: "1200",
+      fps: "30",
+    });
+    expect(event.status).toBe(502);
+    expect(body).toMatchObject({
+      failureKind: "processing",
+      error: "media cleanup failed",
+    });
+  });
+
   it("uses the video's own frame rate when fps is left out", async () => {
     mockProbeFrameSheetFpsFromFile.mockResolvedValue(24);
     const { event } = await run({ startMs: "0", endMs: "1000" });

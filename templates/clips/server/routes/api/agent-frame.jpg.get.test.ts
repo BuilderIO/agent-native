@@ -163,6 +163,21 @@ describe("agent-frame.jpg route", () => {
     );
   });
 
+  it("reports a failed media cleanup rather than returning a frame", async () => {
+    mockCleanupMediaFile.mockRejectedValueOnce(
+      new Error("media cleanup failed"),
+    );
+    const event = makeEvent({ id: "cleanup-failure", atMs: "1000" });
+    const result = await handler(
+      event as unknown as Parameters<typeof handler>[0],
+    );
+    expect(event.status).toBe(502);
+    expect(result).toMatchObject({
+      failureKind: "processing",
+      error: "media cleanup failed",
+    });
+  });
+
   it("returns the verified requested frame when optional fill exhausts the broker", async () => {
     const assertHealthy = vi
       .fn()

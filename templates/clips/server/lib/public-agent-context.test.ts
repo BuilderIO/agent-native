@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, open, readFile, rm } from "node:fs/promises";
+import { mkdtemp, open, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const mockRm = vi.hoisted(() => vi.fn());
 const mockAppStateGet = vi.hoisted(() => vi.fn());
 const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
 const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
@@ -16,6 +17,12 @@ const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockRecordings = vi.hoisted(() => ({ rows: [] as any[] }));
 const mockResolveAccess = vi.hoisted(() => vi.fn());
 const mockIsOrgMember = vi.hoisted(() => vi.fn());
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  mockRm.mockImplementation(actual.rm);
+  return { ...actual, rm: mockRm };
+});
 
 vi.mock("@agent-native/core/org", () => ({
   isOrgMember: mockIsOrgMember,
@@ -1180,6 +1187,245 @@ describe("loadRecordingMediaBytes", () => {
       expect(mockOpenS3Recording).not.toHaveBeenCalled();
     },
   );
+
+  it("bounds full media files until cleanup and admits a replacement afterward", async () => {
+    const recording = makeRecording({
+      videoFormat: "mp4",
+    }) as PublicAgentRecording;
+    mockSsrfSafeFetch.mockImplementation(async () => new Response("12345"));
+    const results = await Promise.allSettled([
+      loadRecordingMediaFile(recording),
+      loadRecordingMediaFile(recording),
+      loadRecordingMediaFile(recording),
+    ]);
+    const loaded = results.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
+    );
+    try {
+      expect(loaded).toHaveLength(2);
+      expect(
+        await Promise.all(loaded.map((media) => readFile(media.path, "utf8"))),
+      ).toEqual(["12345", "12345"]);
+      expect(results.filter((result) => result.status === "rejected")).toEqual([
+        expect.objectContaining({
+          reason: expect.objectContaining({ statusCode: 503 }),
+        }),
+      ]);
+      await loaded[0].cleanup();
+      await loaded[0].cleanup();
+      const replacement = await loadRecordingMediaFile(recording);
+      loaded.push(replacement);
+      expect(await readFile(replacement.path, "utf8")).toBe("12345");
+      await expect(loadRecordingMediaFile(recording)).rejects.toMatchObject({
+        statusCode: 503,
+      });
+    } finally {
+      await Promise.all(loaded.map((media) => media.cleanup()));
+    }
+  });
+
+  it("removes a partial media file after a failed response stream", async () => {
+    const root = await mkdtemp(join(tmpdir(), "clips-frame-cleanup-test-"));
+    const previous = process.env.TMPDIR;
+    process.env.TMPDIR = root;
+    try {
+      let partial = "";
+      let sent = false;
+      mockSsrfSafeFetch.mockResolvedValueOnce(
+        new Response(
+          new ReadableStream(
+            {
+              async pull(controller) {
+                if (!sent) {
+                  sent = true;
+                  controller.enqueue(Buffer.from("123"));
+                  return;
+                }
+                const [dir] = await readdir(root);
+                partial = await readFile(join(root, dir, "input.mp4"), "utf8");
+                controller.error(new Error("connection reset"));
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+        ),
+      );
+      const recording = makeRecording({
+        videoFormat: "mp4",
+      }) as PublicAgentRecording;
+      await expect(loadRecordingMediaFile(recording)).rejects.toMatchObject({
+        statusCode: 502,
+        message:
+          "Recording media download failed while reading the response body.",
+      });
+      expect(partial).toBe("123");
+      expect(await readdir(root)).toEqual([]);
+      mockSsrfSafeFetch.mockImplementation(async () => new Response("12345"));
+      const media = await loadRecordingMediaFile(recording);
+      try {
+        expect(await readFile(media.path, "utf8")).toBe("12345");
+      } finally {
+        await media.cleanup();
+      }
+      expect(await readdir(root)).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = previous;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("retains admission when cleanup fails and releases it after a retry", async () => {
+    mockSsrfSafeFetch.mockImplementation(async () => new Response("12345"));
+    const recording = makeRecording({
+      videoFormat: "mp4",
+    }) as PublicAgentRecording;
+    const files = await Promise.all([
+      loadRecordingMediaFile(recording),
+      loadRecordingMediaFile(recording),
+    ]);
+    try {
+      mockRm.mockRejectedValueOnce(
+        Object.assign(new Error("removal failed"), { code: "EACCES" }),
+      );
+      await expect(files[0].cleanup()).rejects.toMatchObject({
+        code: "EACCES",
+      });
+      expect(await readFile(files[0].path, "utf8")).toBe("12345");
+      await expect(loadRecordingMediaFile(recording)).rejects.toMatchObject({
+        statusCode: 503,
+      });
+      await files[0].cleanup();
+      const replacement = await loadRecordingMediaFile(recording);
+      files.push(replacement);
+      expect(await readFile(replacement.path, "utf8")).toBe("12345");
+    } finally {
+      await Promise.all(files.map((media) => media.cleanup()));
+    }
+  });
+
+  it("does not consume file admission when temporary directory setup fails", async () => {
+    const previous = process.env.TMPDIR;
+    const root = await mkdtemp(join(tmpdir(), "clips-frame-setup-test-"));
+    const recording = makeRecording({
+      videoFormat: "mp4",
+    }) as PublicAgentRecording;
+    try {
+      process.env.TMPDIR = join(root, "missing");
+      await expect(loadRecordingMediaFile(recording)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      process.env.TMPDIR = root;
+      mockSsrfSafeFetch.mockImplementation(async () => new Response("12345"));
+      const media = await Promise.all([
+        loadRecordingMediaFile(recording),
+        loadRecordingMediaFile(recording),
+      ]);
+      try {
+        expect(
+          await Promise.all(media.map((item) => readFile(item.path, "utf8"))),
+        ).toEqual(["12345", "12345"]);
+      } finally {
+        await Promise.all(media.map((item) => item.cleanup()));
+      }
+    } finally {
+      if (previous === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = previous;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("caps oversized configuration and cancels a rejected response", async () => {
+    process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES = String(
+      1024 * 1024 * 1024,
+    );
+    let canceled = false;
+    mockSsrfSafeFetch.mockResolvedValueOnce(
+      new Response(
+        new ReadableStream({
+          cancel() {
+            canceled = true;
+          },
+        }),
+        { headers: { "content-length": String(512 * 1024 * 1024 + 1) } },
+      ),
+    );
+    await expect(
+      loadRecordingMediaFile(
+        makeRecording({ videoFormat: "mp4" }) as PublicAgentRecording,
+      ),
+    ).rejects.toThrow(/too large/i);
+    expect(canceled).toBe(true);
+  });
+
+  it("applies the file limit to decoded local blobs before writing", async () => {
+    process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES = "10";
+    process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES = "4";
+    mockAppStateGet.mockResolvedValue({
+      data: Buffer.from("12345").toString("base64"),
+    });
+    await expect(
+      loadRecordingMediaFile(
+        makeRecording({
+          videoUrl: "/api/video/synthetic",
+        }) as PublicAgentRecording,
+      ),
+    ).rejects.toThrow(/too large/i);
+  });
+
+  it("cancels a stream that exceeds the file limit", async () => {
+    let canceled = false;
+    mockSsrfSafeFetch.mockResolvedValueOnce(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(Buffer.from("1234567"));
+          },
+          cancel() {
+            canceled = true;
+          },
+        }),
+      ),
+    );
+    await expect(
+      loadRecordingMediaFile(makeRecording() as PublicAgentRecording),
+    ).rejects.toThrow(/too large/i);
+    expect(canceled).toBe(true);
+  });
+
+  it("admits range-backed media while both full-file slots are held", async () => {
+    mockSsrfSafeFetch.mockImplementation(async () => new Response("12345"));
+    mockOpenS3Recording.mockResolvedValue(
+      async () =>
+        new Response("a", {
+          status: 206,
+          headers: { etag: '"stable"', "content-range": "bytes 0-0/100" },
+        }),
+    );
+    const recording = makeRecording({
+      videoFormat: "mp4",
+    }) as PublicAgentRecording;
+    const files = await Promise.all([
+      loadRecordingMediaFile(recording),
+      loadRecordingMediaFile(recording),
+    ]);
+    try {
+      const range = await loadRecordingMediaFile(
+        makeRecording({
+          videoFormat: "mp4",
+          videoSizeBytes: 100,
+          storageMode: "own",
+        }) as PublicAgentRecording,
+      );
+      try {
+        expect(range.remote).toBeDefined();
+      } finally {
+        await range.cleanup();
+      }
+    } finally {
+      await Promise.all(files.map((media) => media.cleanup()));
+    }
+  });
 
   it("streams large remote frame media to a temporary file", async () => {
     mockSsrfSafeFetch.mockResolvedValue(
