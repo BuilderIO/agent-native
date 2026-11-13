@@ -1057,6 +1057,16 @@ switch (command) {
     break;
   }
 
+  case "netlify-deploy": {
+    import("./netlify-deploy.js")
+      .then((m) => m.runNetlifyDeploy(args))
+      .catch((err) => {
+        console.error("Netlify deploy failed:", err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "amplify-stream": {
     import("./amplify-stream.js")
       .then((m) => m.runAmplifyStream(args))
@@ -1242,6 +1252,9 @@ Usage:
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to
                                 a single origin (your-agents.com/<app>/*)
+  agent-native netlify-deploy   Zip workspace functions deterministically and
+                                run 'netlify deploy', so unchanged functions
+                                are not re-uploaded
   agent-native amplify-stream   Build a Nitro streaming Lambda and connect it
                                 to an AWS Amplify branch
   agent-native setup-agents     Create symlinks for all agent tools

@@ -356,6 +356,12 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=1
 
 將範例地址換成每個工作區首位管理員的已驗證電子郵件。在空白資料庫上，該管理員先登入並成為初始組織的擁有者，接著可在 Settings → Organization → Members 邀請團隊成員。完整的啟動流程請參閱[受管理的部署](/docs/administered-deployments)。
 
+## 確定性函式 ZIP {#workspace-netlify-function-zips}
+
+Netlify 會對每個函式的完整 ZIP 計算雜湊，而它的打包器每次執行寫入項目的順序都不同，因此未變更的函式每次部署都會重新上傳。請使用 `npx @agent-native/core@latest netlify-deploy` 發佈，而不是自己呼叫 `netlify deploy`。此指令使用已安裝的 Netlify CLI 內建的打包器壓縮函式，以排序後的項目與固定時間戳記重寫每個 ZIP，寫入函式清單，然後在同一個指令中執行 `netlify deploy`。路由、排程與背景設定都會保留。自己的 `netlify deploy` 參數放在指令之後；預設值為 `--prod --dir=dist --functions=.netlify/functions-internal`。
+
+CLI 只會在兩分鐘內讀取該清單。如果 CLI 啟動時清單更舊，或 CLI 捨棄了它，指令會輸出一行 `manifest-expired` 並以非零狀態結束，而不是悄悄使用不穩定的 ZIP 部署。
+
 ## 接下來呢
 
 - [**Deployment**](/docs/deployment) — 在部署工作區之前，先選擇一個持久性資料庫、一個 Nitro 預設集和一個平台
