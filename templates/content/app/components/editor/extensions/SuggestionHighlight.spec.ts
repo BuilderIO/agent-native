@@ -944,6 +944,118 @@ describe("SuggestionHighlight", () => {
       }
     });
 
+    it.each([
+      [
+        "callout",
+        '<callout icon="💡">\n\tFirst line.\n\tNew line.\n</callout>',
+      ],
+      [
+        "toggle",
+        "<details>\n<summary>Title</summary>\n\tFirst line.\n\tNew line.\n</details>",
+      ],
+    ])(
+      "draws a saved last line of a %s inside it, below the line before",
+      (_, source) => {
+        const boxSchema = new Schema({
+          nodes: {
+            doc: { content: "block+" },
+            paragraph: {
+              group: "block",
+              content: "text*",
+              toDOM: () => ["p", 0],
+            },
+            box: {
+              group: "block",
+              content: "block+",
+              toDOM: () => ["aside", 0],
+            },
+            text: {},
+          },
+        });
+        const prose = (text: string) =>
+          boxSchema.node("paragraph", null, boxSchema.text(text));
+        const from = source.indexOf("\tNew line.");
+        const to = source.indexOf("</", from);
+        // The point is the end of the box's first line, as the page places it.
+        const point = 2 + "First line.".length;
+        const { view, mount } = mounted(
+          [
+            boxSchema.node("box", null, [prose("First line.")]),
+            prose("After."),
+          ],
+          [
+            {
+              suggestionId: "last",
+              kind: "add_block",
+              from: point,
+              to: point,
+              insertedText: source.slice(from, to),
+              insertedPresentation: { source, from, to },
+            },
+          ],
+        );
+        try {
+          expect(
+            Array.from(
+              mount.querySelector("aside")!.children,
+              (child) =>
+                `${child.tagName.toLowerCase()}${
+                  child.classList.contains("suggestion-block-widget")
+                    ? ".widget"
+                    : ""
+                } ${child.textContent}`,
+            ),
+          ).toEqual(["p First line.", "div.widget New line."]);
+          expect(mount.textContent).not.toContain("⇥");
+        } finally {
+          view.destroy();
+        }
+      },
+    );
+
+    it("keeps lines inline when text that follows them can't go after them", () => {
+      const boxSchema = new Schema({
+        nodes: {
+          doc: { content: "block+" },
+          paragraph: {
+            group: "block",
+            content: "text*",
+            toDOM: () => ["p", 0],
+          },
+          box: { group: "block", content: "block+", toDOM: () => ["aside", 0] },
+          text: {},
+        },
+      });
+      const prose = (text: string) =>
+        boxSchema.node("paragraph", null, boxSchema.text(text));
+      const source =
+        '<callout icon="💡">\n\tFirst line.\n\tNew line.\n\tXY.\n</callout>';
+      const from = source.indexOf("\tNew line.");
+      const to = source.indexOf("Y.", from);
+      // The "X" that starts the next line would be drawn at the point, before
+      // the new line, if the line went after the block the point ends.
+      const point = 2 + "First line.".length;
+      const { view, mount } = mounted(
+        [boxSchema.node("box", null, [prose("First line."), prose("Y.")])],
+        [
+          {
+            suggestionId: "tail",
+            kind: "add_block",
+            from: point,
+            to: point,
+            insertedText: source.slice(from, to),
+            insertedPresentation: { source, from, to },
+          },
+        ],
+      );
+      try {
+        expect(mount.querySelector(".suggestion-block-widget")).toBeNull();
+        expect(mount.querySelector("aside")!.children).toHaveLength(2);
+      } finally {
+        view.destroy();
+      }
+    });
+
     it("keeps text that splits a line inline with a real line break", () => {
       const source = "Alpha X\nY one.";
       const { view, mount } = mounted(
