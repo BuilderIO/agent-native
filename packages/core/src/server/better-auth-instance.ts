@@ -283,7 +283,12 @@ function signupMethodFromRequestUrl(
 }
 
 export async function emitSignupEventForCreatedUser(
-  user: { id?: string; email?: string; name?: string | null },
+  user: {
+    id?: string;
+    email?: string;
+    name?: string | null;
+    emailVerified?: boolean;
+  },
   context?: BetterAuthUserCreateContext | null,
 ): Promise<void> {
   const email = user?.email;
@@ -395,6 +400,7 @@ export async function emitSignupEventForCreatedUser(
     signupMethod: signupMethodFromRequestUrl(context?.request?.url),
     authUserId: user.id,
     email,
+    emailVerified: user.emailVerified,
     name: user.name,
     attribution: eventAttribution,
     anonymousId: eventAnonymousId,
@@ -422,6 +428,7 @@ export async function trackSignupEvent({
   signupMethod,
   authUserId,
   email,
+  emailVerified,
   name,
   attribution,
   anonymousId,
@@ -432,6 +439,7 @@ export async function trackSignupEvent({
   signupMethod?: "google" | "magic_link" | "password";
   authUserId?: string;
   email: string;
+  emailVerified?: boolean;
   name?: string | null;
   /**
    * First-touch referral attribution derived from the visitor's `an_ft`
@@ -459,6 +467,7 @@ export async function trackSignupEvent({
       }
     }
   }
+  delete cleanAttribution.email_verified;
   track(
     "signup",
     {
@@ -468,6 +477,9 @@ export async function trackSignupEvent({
       ...(signupMethod ? { signup_method: signupMethod } : {}),
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
+      ...(typeof emailVerified === "boolean"
+        ? { email_verified: emailVerified }
+        : {}),
     },
     {
       userId: email,
@@ -2503,13 +2515,20 @@ async function createBetterAuthInstance(
         if (!request) return;
         const token = new URL(request.url).searchParams.get("token");
         if (!token) return;
-        const db = getDbExec();
         const emailChange = await verifiedEmailChangeFromToken(
           token,
           secret,
           user.email,
         );
-        if (!emailChange) return;
+        if (!emailChange) {
+          track(
+            "email_verified",
+            { ...resolveSignupTrackingProperties(), email_verified: true },
+            { userId: user.email, authUserId: user.id },
+          );
+          return;
+        }
+        const db = getDbExec();
         try {
           await executeIdentityRekey(
             identityRekeyDbFromExec(db),
