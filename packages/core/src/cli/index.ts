@@ -7,6 +7,8 @@ import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import crossSpawn from "cross-spawn";
+
 import {
   clearAgentNativeNitroPresetMarker,
   resolveAgentNativeNitroPreset,
@@ -283,22 +285,18 @@ function missingTypeScriptCompiler(): never {
 function runTypeScriptCompiler(args: string[]): void {
   const compiler = findTypeScriptCompilerBin();
   const fallback = !compiler;
-  if (process.platform === "win32") {
-    if (fallback && !pathHasTsc()) missingTypeScriptCompiler();
-    const tokens = [compiler ?? "tsc", ...args].map((arg) => {
-      if (/["%]/.test(arg)) {
-        throw new Error(
-          `Cannot run the TypeScript compiler on Windows: argument contains '"' or '%': ${arg}`,
-        );
-      }
-      return /[\s&|<>^()!]/.test(arg)
-        ? `"${arg.replace(/(\\*)$/, "$1$1")}"`
-        : arg;
-    });
-    run(tokens.join(" "), [], { shell: true });
-    return;
+  // cross-spawn's Windows cmd escaping does not cover CR/LF command separators.
+  if (process.platform === "win32" && args.some((arg) => /[\r\n]/.test(arg))) {
+    throw new Error(
+      "Cannot run the TypeScript compiler with a newline in an argument on Windows.",
+    );
+  }
+  if (process.platform === "win32" && fallback && !pathHasTsc()) {
+    missingTypeScriptCompiler();
   }
   run(compiler ?? "tsc", args, {
+    shell: false,
+    spawnProcess: process.platform === "win32" ? crossSpawn.spawn : spawn,
     onError: (error) => {
       if (fallback && error.code === "ENOENT" && !pathHasTsc()) {
         missingTypeScriptCompiler();
@@ -440,9 +438,14 @@ function run(
     env?: NodeJS.ProcessEnv;
     shell?: boolean;
     onError?: (error: NodeJS.ErrnoException) => void;
+    spawnProcess?: typeof spawn;
   },
 ) {
-  const child = spawn(cmd, cmdArgs, cliSpawnOptions(opts));
+  const child = (opts?.spawnProcess ?? spawn)(
+    cmd,
+    cmdArgs,
+    cliSpawnOptions(opts),
+  );
   if (opts?.onError) child.on("error", opts.onError);
   child.on("exit", (code, signal) => process.exit(childExitCode(code, signal)));
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {

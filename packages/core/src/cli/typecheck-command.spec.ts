@@ -96,6 +96,71 @@ describe("agent-native typecheck compiler lookup", () => {
     expect(result.stdout.trim()).toBe("near-tsgo --noEmit --pretty false");
   });
 
+  it("typechecks with the installed ancestor compiler through the CLI launcher", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "compiler %COMPILER_TEST_ENV% "),
+    );
+    roots.push(root);
+    const parent = path.join(root, "workspace");
+    const cwd = path.join(parent, "app with spaces");
+    fs.mkdirSync(cwd, { recursive: true });
+    const installedModules = fileURLToPath(
+      new URL("../../../../node_modules", import.meta.url),
+    );
+    fs.symlinkSync(
+      installedModules,
+      path.join(parent, "node_modules"),
+      "junction",
+    );
+    const config = path.join(cwd, "config %COMPILER_TEST_ENV% & test.json");
+    const source = path.join(cwd, "example.ts");
+    fs.writeFileSync(
+      config,
+      JSON.stringify({ compilerOptions: { types: [] }, files: ["example.ts"] }),
+    );
+    fs.writeFileSync(source, "const value: string = 42;\n");
+    const nodeDir = path.dirname(process.execPath);
+    const systemDir =
+      process.platform === "win32"
+        ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32")
+        : "/usr/bin:/bin";
+    const executablePath = [nodeDir, systemDir].join(path.delimiter);
+    const launcher = fileURLToPath(
+      new URL("../../bin/agent-native.js", import.meta.url),
+    );
+    const invoke = () =>
+      spawnSync(
+        process.execPath,
+        [launcher, "typecheck", "--project", config],
+        {
+          cwd,
+          env: {
+            ...process.env,
+            PATH: executablePath,
+            Path: executablePath,
+            COMPILER_TEST_ENV:
+              'expanded" & echo COMPILER_ARGUMENT_INJECTION & rem "',
+            CI: "1",
+            DO_NOT_TRACK: "1",
+          },
+          encoding: "utf8",
+          timeout: 30000,
+        },
+      );
+    const invalid = invoke();
+    expect(invalid.error).toBeUndefined();
+    expect(invalid.status, invalid.stderr).not.toBe(0);
+    expect(invalid.stdout + invalid.stderr).toMatch(/TS2322/);
+    expect(invalid.stdout + invalid.stderr).not.toContain(
+      "COMPILER_ARGUMENT_INJECTION",
+    );
+    fs.writeFileSync(source, 'const value: string = "valid";\n');
+    const valid = invoke();
+    expect(valid.error).toBeUndefined();
+    expect(valid.status, valid.stdout + valid.stderr).toBe(0);
+    expect(fs.existsSync(path.join(cwd, "example.js"))).toBe(false);
+  });
+
   it("falls back to tsc on PATH", () => {
     const { cwd, pathDir } = fixture();
     compiler(pathDir, "tsc", "path-tsc");
@@ -134,6 +199,42 @@ describe("agent-native typecheck compiler lookup", () => {
     );
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout.trim()).toBe("arg=config with spaces.json");
+  });
+
+  it("rejects Windows command separators before invoking a compiler shim", () => {
+    if (process.platform !== "win32") return;
+    const { cwd, parent, pathDir } = fixture();
+    compiler(
+      path.join(parent, "node_modules/.bin"),
+      "tsc",
+      "unexpected-compiler",
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        tsx,
+        cli,
+        "typecheck",
+        "--project",
+        "file\r\necho COMPILER_ARGUMENT_INJECTION",
+      ],
+      {
+        cwd,
+        env: {
+          ...process.env,
+          PATH: pathDir,
+          Path: pathDir,
+          CI: "1",
+          DO_NOT_TRACK: "1",
+        },
+        encoding: "utf8",
+        timeout: 30000,
+      },
+    );
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/newline/i);
+    expect(result.stdout).not.toContain("COMPILER_ARGUMENT_INJECTION");
+    expect(result.stdout).not.toContain("unexpected-compiler");
   });
 
   it("reports a missing compiler with an actionable error and a nonzero exit", () => {
