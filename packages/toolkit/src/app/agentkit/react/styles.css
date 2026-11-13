@@ -2587,6 +2587,7 @@
    card's corner. */
   .agentkit-question-footer {
     display: flex;
+    flex-wrap: wrap;
     min-inline-size: 0;
     align-items: center;
     gap: 0.5rem;
@@ -2603,10 +2604,12 @@
     border-color: var(--agentkit-composer-focus-border);
   }
 
+  /* The field keeps room to type; the actions drop to their own row only
+     when the card is too narrow for both. */
   .agentkit-question-other,
   .agentkit-question-spacer {
     display: flex;
-    flex: 1 1 auto;
+    flex: 1 1 8rem;
     min-inline-size: 0;
     align-items: center;
     gap: 0.5rem;
@@ -2639,7 +2642,10 @@
 
   .agentkit-question-actions {
     display: flex;
-    flex: none;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-inline-start: auto;
     align-items: center;
     gap: 0.25rem;
   }

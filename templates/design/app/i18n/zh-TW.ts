@@ -1242,7 +1242,6 @@ export default {
       "已記錄你的請求。存取權限核准後即可開啟此設計。",
     signInToRequestAccessTitle: "登入以請求存取權限",
     signInToRequestAccessDescription: "登入或建立帳戶，向擁有者請求存取權限。",
-    signInOrSignUp: "登入或註冊",
     accessCheckFailed: "無法檢查此設計的存取權限。",
     retryAccessCheck: "重試",
     commenterRoleLabel: "評論者",

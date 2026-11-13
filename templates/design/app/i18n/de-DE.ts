@@ -1771,7 +1771,6 @@ export default {
     signInToRequestAccessTitle: "Anmelden, um Zugriff anzufordern",
     signInToRequestAccessDescription:
       "Melden Sie sich an oder erstellen Sie ein Konto, um Zugriff beim Eigentümer anzufordern.",
-    signInOrSignUp: "Anmelden oder registrieren",
     accessCheckFailed:
       "Der Zugriff auf dieses Design konnte nicht geprüft werden.",
     retryAccessCheck: "Erneut versuchen",
