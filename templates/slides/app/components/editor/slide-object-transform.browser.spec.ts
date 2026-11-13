@@ -3389,38 +3389,16 @@ describe("a transform a stylesheet or an animation keeps over an inline one in C
       INLINE,
     );
     try {
-      const diag = (label: string) =>
-        page.evaluate((label) => {
-          const element = document.querySelector<HTMLElement>(".object")!;
-          return JSON.stringify({
-            label,
-            painted: getComputedStyle(element).transform,
-            style: element.getAttribute("style"),
-            sheet: Array.from(document.styleSheets[0].cssRules)
-              .map((r) => r.cssText)
-              .join(" | "),
-            animations: element.getAnimations().map((a) => ({
-              kind: a.constructor.name,
-              property: (a as CSSTransition).transitionProperty,
-              playState: a.playState,
-              currentTime: a.currentTime,
-              keyframes: (a.effect as KeyframeEffect | null)?.getKeyframes(),
-            })),
-          });
-        }, label);
-      console.log("DIAG", await diag("load"));
       const before = await state(page);
 
-      const setResult = await setRotation(page, 90);
-      console.log("DIAG", await diag("after-set"));
-      const readResult = await page.evaluate(() =>
-        window.slideObjects.readEditableSlideObjectRotation(
-          document.querySelector<HTMLElement>(".object")!,
+      expect(await setRotation(page, 90)).toBe(false);
+      expect(
+        await page.evaluate(() =>
+          window.slideObjects.readEditableSlideObjectRotation(
+            document.querySelector<HTMLElement>(".object")!,
+          ),
         ),
-      );
-      console.log("DIAG", await diag("after-read"));
-      expect(setResult).toBe(false);
-      expect(readResult).toBeNull();
+      ).toBeNull();
       expect(await state(page)).toEqual(before);
     } finally {
       await page.close();
