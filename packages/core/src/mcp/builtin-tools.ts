@@ -685,10 +685,11 @@ async function resolveTargetAppOrigin(
 async function resolveWorkspaceAppForUrl(
   config: MCPConfig,
   rawUrl: string,
-): Promise<{ appUrl: string; relUrl: string } | null> {
+): Promise<{ appUrl: string; relUrl: string } | "unavailable" | null> {
   if (!/^https?:\/\//i.test(rawUrl)) return null;
   const selfId = currentAppId(config);
   const candidates: string[] = [];
+  let unavailable = false;
   try {
     const { resolveWorkspace } = await import("./workspace-resolve.js");
     const ws = await resolveWorkspace();
@@ -698,10 +699,13 @@ async function resolveWorkspaceAppForUrl(
       }
     }
   } catch {
-    // coercion-ok: an unreadable local workspace still leaves the org directory to check.
+    unavailable = true;
   }
-  const orgApps = await fetchOrgApps({ selfId }).catch(() => [] as OrgApp[]);
-  for (const app of orgApps) candidates.push(app.url);
+  try {
+    for (const app of await fetchOrgApps({ selfId })) candidates.push(app.url);
+  } catch {
+    unavailable = true;
+  }
   for (const candidate of candidates) {
     const appUrl = candidate.replace(/\/+$/, "");
     if (!rawUrl.startsWith(appUrl)) continue;
@@ -709,7 +713,7 @@ async function resolveWorkspaceAppForUrl(
     if (rest && !/^[/?#]/.test(rest)) continue;
     return { appUrl, relUrl: rest.startsWith("/") ? rest : `/${rest}` };
   }
-  return null;
+  return unavailable ? "unavailable" : null;
 }
 
 // MCP hosts only let the app view frame and fetch the MCP server's own origin,
@@ -834,7 +838,7 @@ function listAppsTool(
   };
 }
 
-function openAppTool(config: MCPConfig): ActionEntry {
+function openAppTool(config: MCPConfig, inlineMcpApps: boolean): ActionEntry {
   return {
     tool: {
       ...tool(
@@ -953,11 +957,9 @@ function openAppTool(config: MCPConfig): ActionEntry {
       let embedExpiresAt: number | undefined;
 
       if (targetApp && (embed || !embedChosen)) {
-        const started = await startCrossAppEmbed(
-          targetApp.origin,
-          relUrl,
-          chrome,
-        );
+        const started = inlineMcpApps
+          ? await startCrossAppEmbed(targetApp.origin, relUrl, chrome)
+          : null;
         embed = !!started;
         if (started) {
           embedStartUrl = started.startUrl;
@@ -1093,7 +1095,7 @@ function createEmbedSessionTool(config: MCPConfig): ActionEntry {
             ? args.path
             : "";
       const sibling = await resolveWorkspaceAppForUrl(config, rawTarget);
-      if (sibling) {
+      if (sibling && sibling !== "unavailable") {
         const started = await startCrossAppEmbed(
           sibling.appUrl,
           sibling.relUrl,
@@ -1103,6 +1105,11 @@ function createEmbedSessionTool(config: MCPConfig): ActionEntry {
       }
       const targetPath = normalizeEmbedTargetPath(rawTarget, embedOrigin);
       if (!targetPath) {
+        if (sibling === "unavailable") {
+          throw new Error(
+            "create_embed_session could not look up the workspace apps; try again.",
+          );
+        }
         throw new Error(
           "create_embed_session can only embed same-origin app-relative URLs.",
         );
@@ -1613,7 +1620,7 @@ export function getBuiltinCrossAppTools(
 ): Record<string, ActionEntry> {
   return {
     list_apps: listAppsTool(config, requestMeta),
-    open_app: openAppTool(config),
+    open_app: openAppTool(config, requestMeta?.inlineMcpApps === true),
     ...(requestMeta?.inlineMcpApps === true
       ? { create_embed_session: createEmbedSessionTool(config) }
       : {}),
