@@ -351,7 +351,6 @@ function computeCandidates(content: string, find: string): TargetedCandidate[] {
   const seenLines = new Set(flexible.map((c) => c.line));
   const near = longPrefixCandidate(content, find, lineStarts);
   const prefix = near && !seenLines.has(near.line) ? [near] : [];
-  if (prefix.length > 0 && near) seenLines.add(near.line);
   const scored =
     prefix.length < remaining
       ? tokenOverlapCandidates(content, find, seenLines).slice(
@@ -371,11 +370,15 @@ function longPrefixCandidate(
   if (find.length <= 8192) return undefined;
   const anchor = find.slice(0, 64);
   let from = 0;
+  let before = content.length;
   let bestStart = -1;
   let bestLength = 0;
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const start = content.indexOf(anchor, from);
-    if (start < 0) break;
+  for (let attempt = 0; attempt < 8 && from <= before; attempt += 1) {
+    const forward = attempt % 2 === 0;
+    const start = forward
+      ? content.indexOf(anchor, from)
+      : content.lastIndexOf(anchor, before);
+    if (start < from || start > before) break;
     let length = anchor.length;
     while (
       length < find.length &&
@@ -387,7 +390,8 @@ function longPrefixCandidate(
       bestStart = start;
       bestLength = length;
     }
-    from = start + 1;
+    if (forward) from = start + 1;
+    else before = start - 1;
   }
   if (bestStart < 0 || bestLength < 256) return undefined;
   const mismatch = bestStart + bestLength;

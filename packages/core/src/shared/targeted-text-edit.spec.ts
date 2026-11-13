@@ -266,6 +266,51 @@ describe("findTargetedMatches", () => {
     expect("content" in result).toBe(false);
   });
 
+  it.each([0, 5, 8])(
+    "finds a mismatch in section %i among repeated long prefixes",
+    (targetIndex) => {
+      const prefix = `<section><style>${".card{padding:4px;color:red;}".repeat(350)}</style>`;
+      const other = `${prefix}<p>Inventory: 10 units</p></section>`;
+      const target = `${prefix}<p>Revenue: $42 million</p></section>`;
+      const sections = Array.from({ length: 9 }, (_, index) =>
+        index === targetIndex ? target : other,
+      );
+      const content = `<main>${sections.join("")}</main>`;
+      const find = `${prefix}<p>Revenue: $43 million</p></section>`;
+      expect(find.length).toBeGreaterThan(8192);
+      const result = applyTargetedReplace(content, find, "replacement");
+      expect(result).toMatchObject({ ok: false, reason: "not_found" });
+      if (result.ok || result.reason !== "not_found")
+        throw new Error("Expected a miss");
+      expect(
+        result.candidates.some(
+          (candidate) =>
+            candidate.text.includes("Revenue: $42 million") &&
+            candidate.excerpt &&
+            !candidate.whitespaceOnly,
+        ),
+      ).toBe(true);
+      expect(result.candidates.length).toBeGreaterThan(1);
+      expect(
+        result.candidates.every((candidate) => candidate.text.length <= 162),
+      ).toBe(true);
+      expect("content" in result).toBe(false);
+      expect(
+        applyTargetedReplace(
+          content,
+          "Revenue: $42 million",
+          "Revenue: $43 million",
+        ),
+      ).toMatchObject({
+        ok: true,
+        content: content.replace(
+          "Revenue: $42 million",
+          "Revenue: $43 million",
+        ),
+      });
+    },
+  );
+
   it("shows post-match context for long identical ambiguous matches", () => {
     const match = `<p>${"common".repeat(60)}</p>`;
     const prefix = "x".repeat(150);
