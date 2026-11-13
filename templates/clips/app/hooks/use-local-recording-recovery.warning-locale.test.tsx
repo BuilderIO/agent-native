@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 import { act } from "react";
-import { toast } from "sonner";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -11,7 +10,6 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 import * as upload from "@/lib/local-recording-upload";
 import {
   claimRecordingBackupLock,
-  getRecordingBackupMeta,
   updateRecordingBackupMeta,
 } from "@/lib/recording-backup";
 
@@ -22,6 +20,7 @@ import {
   spanish,
 } from "./__tests__/recovery-locale-fixture";
 
+// oracle-change: The watcher regression moved intact to the locale suite.
 describe("recovery warning localization", () => {
   const { mount, switchToSpanish, getContainer } = setupRecoveryLocale();
 
@@ -77,68 +76,6 @@ describe("recovery warning localization", () => {
       await vi.waitFor(() =>
         expectToast(spanish, "Terminar la subida", "Recordármelo mañana"),
       );
-    } finally {
-      gate.release();
-    }
-  });
-
-  it("does not reissue a snoozed reminder from a scan started before a language change", async () => {
-    const releaseLocale = await mount();
-    await updateRecordingBackupMeta("unfinished", {
-      localOnly: false,
-      serverRecordingId: "server-recording",
-      uploadedAt: new Date().toISOString(),
-    });
-    const gate = {
-      release: (): void => {
-        throw new Error("Status gate was not initialized");
-      },
-    };
-    const waiting = new Promise<void>((resolve) => {
-      gate.release = resolve;
-    });
-    const status = vi
-      .spyOn(upload, "fetchServerUploadStatus")
-      .mockImplementationOnce(async () => {
-        await waiting;
-        return { found: false };
-      })
-      .mockResolvedValue({
-        found: true,
-        status: "processing",
-        verificationPending: true,
-        sourceSizeBytes: null,
-        durationMs: null,
-      });
-    const warnings = vi.spyOn(toast, "warning");
-    try {
-      await act(async () =>
-        document.dispatchEvent(new Event("visibilitychange")),
-      );
-      await vi.waitFor(() => expect(status).toHaveBeenCalledTimes(1));
-      await switchToSpanish(releaseLocale);
-      await vi.waitFor(() =>
-        expectToast(spanish, "Terminar la subida", "Recordármelo mañana"),
-      );
-      await act(async () =>
-        renderedToast()
-          ?.querySelector<HTMLButtonElement>("[data-cancel]")
-          ?.click(),
-      );
-      await vi.waitFor(async () =>
-        expect(
-          (await getRecordingBackupMeta("unfinished"))?.remindAfter,
-        ).toEqual(expect.any(String)),
-      );
-      await vi.waitFor(() => expect(renderedToast()).toBeNull());
-      await act(async () => {
-        gate.release();
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => resolve()),
-        );
-      });
-      expect(renderedToast()).toBeNull();
-      expect(warnings).not.toHaveBeenCalled();
     } finally {
       gate.release();
     }
