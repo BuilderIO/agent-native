@@ -126,9 +126,9 @@ export function findTargetedMatches(
         line: m.line,
         occurrence: index + 1,
         snippet:
-          m.end - m.index > 50
+          m.end - m.index > 40
             ? `${excerptAround(content, m.index, 60)} ${excerptAround(content, m.end, 60)}`
-            : excerptAround(content, m.index, 100),
+            : excerptAround(content, (m.index + m.end) / 2, 100),
       })),
     };
   }
@@ -349,16 +349,63 @@ function computeCandidates(content: string, find: string): TargetedCandidate[] {
   if (remaining <= 0) return flexible;
 
   const seenLines = new Set(flexible.map((c) => c.line));
-  const scored = tokenOverlapCandidates(content, find)
-    .filter((c) => !seenLines.has(c.line))
-    .slice(0, remaining);
+  const near = longPrefixCandidate(content, find, lineStarts);
+  const prefix = near && !seenLines.has(near.line) ? [near] : [];
+  if (prefix.length > 0 && near) seenLines.add(near.line);
+  const scored =
+    prefix.length < remaining
+      ? tokenOverlapCandidates(content, find, seenLines).slice(
+          0,
+          remaining - prefix.length,
+        )
+      : [];
 
-  return [...flexible, ...scored];
+  return [...flexible, ...prefix, ...scored];
+}
+
+function longPrefixCandidate(
+  content: string,
+  find: string,
+  lineStarts: number[],
+): TargetedCandidate | undefined {
+  if (find.length <= 8192) return undefined;
+  const anchor = find.slice(0, 64);
+  let from = 0;
+  let bestStart = -1;
+  let bestLength = 0;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const start = content.indexOf(anchor, from);
+    if (start < 0) break;
+    let length = anchor.length;
+    while (
+      length < find.length &&
+      start + length < content.length &&
+      content[start + length] === find[length]
+    )
+      length += 1;
+    if (length > bestLength) {
+      bestStart = start;
+      bestLength = length;
+    }
+    from = start + 1;
+  }
+  if (bestStart < 0 || bestLength < 256) return undefined;
+  const mismatch = bestStart + bestLength;
+  return {
+    line: lineNumberFor(lineStarts, mismatch),
+    text: excerptAround(content, mismatch, SNIPPET_MAX_CHARS),
+    similarity: Math.min(
+      0.99,
+      Math.round((bestLength / find.length) * 100) / 100,
+    ),
+    excerpt: true,
+  };
 }
 
 function tokenOverlapCandidates(
   content: string,
   find: string,
+  excludedLines: Set<number>,
 ): TargetedCandidate[] {
   // Bound the scoring work per window even for arbitrarily large find strings.
   const sampleSize = 4096;
@@ -369,6 +416,7 @@ function tokenOverlapCandidates(
   const multilineFind = /[\r\n]/.test(find);
   const scored: Array<TargetedCandidate & { start: number }> = [];
   for (const [line, text] of lines.entries()) {
+    if (excludedLines.has(line + 1)) continue;
     const lastStart = Math.max(0, text.length - SNIPPET_MAX_CHARS);
     for (
       let start = 0;

@@ -202,6 +202,70 @@ describe("findTargetedMatches", () => {
     },
   );
 
+  it.each([1, 39, 40, 41, 49, 50, 51])(
+    "distinguishes the post-match context of %i-character duplicates",
+    (length) => {
+      const match = "a".repeat(length);
+      const prefix = "x".repeat(80);
+      const content = `${prefix}${match} FIRST ${prefix}${match} SECOND`;
+      const result = applyTargetedReplace(content, match, "changed");
+      expect(result).toMatchObject({ ok: false, reason: "ambiguous" });
+      if (result.ok || result.reason !== "ambiguous")
+        throw new Error("Expected ambiguity");
+      expect(result.matches[0]?.snippet).toContain("FIRST");
+      expect(result.matches[1]?.snippet).toContain("SECOND");
+      expect(result.matches[0]?.snippet).not.toEqual(
+        result.matches[1]?.snippet,
+      );
+      expect("content" in result).toBe(false);
+    },
+  );
+
+  it("includes a candidate from another line when flexible matches already occupy the best scoring line", () => {
+    const content = `alpha   beta${" ".repeat(200)}${"alpha gamma beta ".repeat(40)}\nalpha delta epsilon beta`;
+    const result = applyTargetedReplace(content, "alpha beta", "changed");
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("Expected a miss");
+    expect(
+      result.candidates.some(
+        (candidate) => candidate.line === 1 && candidate.whitespaceOnly,
+      ),
+    ).toBe(true);
+    expect(
+      result.candidates.some(
+        (candidate) =>
+          candidate.line === 2 &&
+          candidate.text.includes("alpha delta epsilon beta"),
+      ),
+    ).toBe(true);
+    expect("content" in result).toBe(false);
+  });
+
+  it("shows a middle mismatch in a long near-identical find without applying it", () => {
+    const prefix = "<p>filler</p>".repeat(500);
+    const suffix = "<p>tail</p>".repeat(500);
+    const content = `<aside>Earlier content</aside>${prefix}<p>Revenue: actual 42 million</p>${suffix}`;
+    const find = `${prefix}<p>Revenue: planned 43 million</p>${suffix}`;
+    expect(find.length).toBeGreaterThan(8192);
+    const result = applyTargetedReplace(content, find, "changed");
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("Expected a miss");
+    expect(
+      result.candidates.some(
+        (candidate) =>
+          candidate.text.includes("Revenue: actual 42 million") &&
+          candidate.excerpt &&
+          !candidate.whitespaceOnly,
+      ),
+    ).toBe(true);
+    expect(
+      result.candidates.every((candidate) => candidate.text.length <= 162),
+    ).toBe(true);
+    expect("content" in result).toBe(false);
+  });
+
   it("shows post-match context for long identical ambiguous matches", () => {
     const match = `<p>${"common".repeat(60)}</p>`;
     const prefix = "x".repeat(150);
