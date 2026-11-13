@@ -46,7 +46,7 @@ export interface TargetedCandidate {
   similarity: number;
   /**
    * `text` is the complete stored text and equals the find text apart from
-   * whitespace; false when it was cut at the snippet limit.
+   * whitespace; false when truncated or when find's boundary whitespace was omitted.
    */
   whitespaceOnly?: boolean;
   /** The displayed text is only part of the candidate, not a complete find value. */
@@ -125,7 +125,10 @@ export function findTargetedMatches(
       matches: matches.map((m, index) => ({
         line: m.line,
         occurrence: index + 1,
-        snippet: excerptAround(content, m.index, 100),
+        snippet:
+          m.end - m.index > 50
+            ? `${excerptAround(content, m.index, 60)} ${excerptAround(content, m.end, 60)}`
+            : excerptAround(content, m.index, 100),
       })),
     };
   }
@@ -321,16 +324,18 @@ function diceSimilarity(a: Set<string>, b: Set<string>): number {
  */
 function computeCandidates(content: string, find: string): TargetedCandidate[] {
   const lineStarts = buildLineIndex(content);
+  const trimmedFind = find.trim();
   const flexible: TargetedCandidate[] = scanFlexibleMatches(content, find)
     .slice(0, MAX_CANDIDATES)
     .map((m) => {
-      const excerpt = m.text.length > SNIPPET_MAX_CHARS;
+      const truncated = m.text.length > SNIPPET_MAX_CHARS;
+      const excerpt = truncated || find !== trimmedFind;
       return {
         line: lineNumberFor(lineStarts, m.index),
-        text: excerpt
+        text: truncated
           ? excerptAround(
               m.text,
-              firstDifference(m.text, find.trim()),
+              firstDifference(m.text, trimmedFind),
               SNIPPET_MAX_CHARS,
             )
           : m.text,
@@ -361,6 +366,7 @@ function tokenOverlapCandidates(
     find.slice(0, sampleSize) + " " + find.slice(-sampleSize),
   );
   const lines = content.split(/\r\n|\r|\n/);
+  const multilineFind = /[\r\n]/.test(find);
   const scored: Array<TargetedCandidate & { start: number }> = [];
   for (const [line, text] of lines.entries()) {
     const lastStart = Math.max(0, text.length - SNIPPET_MAX_CHARS);
@@ -372,7 +378,8 @@ function tokenOverlapCandidates(
       const window = text.slice(start, start + SNIPPET_MAX_CHARS);
       const similarity =
         Math.round(diceSimilarity(needleTokens, tokenize(window)) * 100) / 100;
-      const excerpt = start > 0 || start + window.length < text.length;
+      const excerpt =
+        multilineFind || start > 0 || start + window.length < text.length;
       const candidate = {
         line: line + 1,
         start,

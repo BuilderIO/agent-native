@@ -279,6 +279,21 @@ describe("extension content patching", () => {
     expect(message).toMatch(/ {4}line 2:/);
   });
 
+  it("labels multiline and boundary-whitespace candidates as incomplete", async () => {
+    for (const [content, find] of [
+      ["<div>\nHello world\n</div>", "<div>\nHello worlds\n</div>"],
+      ["<p>Alpha   Beta</p>\nNEXT", "<p>Alpha Beta</p>\r\n"],
+    ] as const) {
+      const error = await applyExtensionContentUpdate(content, {
+        edits: [{ find, replace: "changed" }],
+      }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(ExtensionContentEditError);
+      expect((error as Error).message).toContain("(incomplete excerpt)");
+      expect((error as Error).message).not.toContain("(whitespace only)");
+      expect((error as Error).message).not.toContain("copy it exactly");
+    }
+  });
+
   it("labels partial excerpts and identifies each ambiguous occurrence in diagnostics", async () => {
     const content = `<main>${"x".repeat(250)}<section id="first"><p>Same</p><p>Revenue: $42 million</p></section>${"y".repeat(250)}<section id="second"><p>Same</p></section></main>`;
     const missing = await applyExtensionContentUpdate(content, {

@@ -217,6 +217,21 @@ describe("applySlideContentEdits", () => {
     expect(message).not.toContain("copy it exactly");
   });
 
+  it("labels multiline and boundary-whitespace candidates as incomplete", async () => {
+    for (const [content, find] of [
+      ["<div>\nHello world\n</div>", "<div>\nHello worlds\n</div>"],
+      ["<p>Alpha   Beta</p>\nNEXT", "<p>Alpha Beta</p>\r\n"],
+    ] as const) {
+      const error = await applySlideContentEdits(content, [
+        { find, replace: "changed" },
+      ]).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(SlideContentEditError);
+      expect((error as Error).message).toContain("(incomplete excerpt)");
+      expect((error as Error).message).not.toContain("(whitespace only)");
+      expect((error as Error).message).not.toContain("copy it exactly");
+    }
+  });
+
   it("exposes incomplete excerpts and occurrence context for safe recovery", async () => {
     const content = `<main>${"x".repeat(250)}<section id="first"><p>Same</p><p>Revenue: $42 million</p></section>${"y".repeat(250)}<section id="second"><p>Same</p></section></main>`;
     const missing = await applySlideContentEdits(content, [

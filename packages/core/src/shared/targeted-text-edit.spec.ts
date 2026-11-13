@@ -90,7 +90,7 @@ describe("findTargetedMatches", () => {
     expect(candidates[0]?.whitespaceOnly).toBeUndefined();
   });
 
-  it("still finds a flexible hit when the quote has stray leading or trailing whitespace", () => {
+  it("marks a flexible hit incomplete when the quote's boundary whitespace was omitted", () => {
     const content = "color:red; font-size:12px;";
     const result = findTargetedMatches(content, " font-size: 12px ");
     expect(result).toMatchObject({ ok: false, reason: "not_found" });
@@ -98,7 +98,8 @@ describe("findTargetedMatches", () => {
       .candidates;
     expect(candidates[0]).toMatchObject({
       text: "font-size:12px",
-      whitespaceOnly: true,
+      whitespaceOnly: false,
+      excerpt: true,
     });
   });
 
@@ -155,6 +156,71 @@ describe("findTargetedMatches", () => {
     expect(result.reason).toBe("not_found");
     expect(result.candidates.length).toBeGreaterThan(0);
     expect(result.candidates[0]?.line).toBeGreaterThan(0);
+  });
+
+  it("marks individual lines from a multiline mismatch as incomplete excerpts", () => {
+    const content = "<div>\nHello world\n</div>";
+    const result = applyTargetedReplace(
+      content,
+      "<div>\nHello worlds\n</div>",
+      "replacement",
+    );
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("Expected a miss");
+    expect(result.candidates.length).toBeGreaterThan(0);
+    expect(
+      result.candidates.every(
+        (candidate) => candidate.excerpt && !candidate.whitespaceOnly,
+      ),
+    ).toBe(true);
+    expect(
+      result.candidates.some((candidate) =>
+        candidate.text.includes("Hello world"),
+      ),
+    ).toBe(true);
+    expect("content" in result).toBe(false);
+  });
+
+  it.each(["<p>Alpha Beta</p>\r\n", "\n<p>Alpha Beta</p>"])(
+    "never presents a whitespace-trimmed match as a complete copyable candidate: %j",
+    (find) => {
+      const content = "<p>Alpha   Beta</p>\nNEXT";
+      const result = applyTargetedReplace(content, find, "replacement");
+      expect(result).toMatchObject({ ok: false, reason: "not_found" });
+      if (result.ok || result.reason !== "not_found")
+        throw new Error("Expected a miss");
+      expect(result.candidates[0]).toMatchObject({
+        text: "<p>Alpha   Beta</p>",
+        whitespaceOnly: false,
+        excerpt: true,
+      });
+      expect("content" in result).toBe(false);
+      expect(
+        applyTargetedReplace(content, "<p>Alpha   Beta</p>\n", "replacement"),
+      ).toMatchObject({ ok: true, content: "replacementNEXT" });
+    },
+  );
+
+  it("shows post-match context for long identical ambiguous matches", () => {
+    const match = `<p>${"common".repeat(60)}</p>`;
+    const prefix = "x".repeat(150);
+    const content = `${prefix}${match}<span>first destination</span>${prefix}${match}<span>second destination</span>`;
+    const result = applyTargetedReplace(content, match, "changed");
+    expect(result).toMatchObject({ ok: false, reason: "ambiguous" });
+    if (result.ok || result.reason !== "ambiguous")
+      throw new Error("Expected ambiguity");
+    expect(result.matches[0]?.snippet).toContain("first destination");
+    expect(result.matches[1]?.snippet).toContain("second destination");
+    expect(result.matches[0]?.snippet.length).toBeLessThanOrEqual(140);
+    expect(result.matches[1]?.snippet.length).toBeLessThanOrEqual(140);
+    expect("content" in result).toBe(false);
+    expect(
+      applyTargetedReplace(content, match, "changed", { occurrence: 2 }),
+    ).toMatchObject({
+      ok: true,
+      content: `${prefix}${match}<span>first destination</span>${prefix}changed<span>second destination</span>`,
+    });
   });
 
   it("finds a useful bounded excerpt near a late one-line non-whitespace mismatch", () => {
