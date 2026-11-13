@@ -219,6 +219,8 @@ describe("extension content patching", () => {
     expect(message).toContain(DIAGNOSTIC_SNIPPET_OPEN);
     expect(message).toContain(DIAGNOSTIC_SNIPPET_CLOSE);
     expect(message).toContain("<span>Hello   World</span>");
+    expect(message).toContain("(whitespace only)");
+    expect(message).toContain("copy it exactly");
   });
 
   it("never applies a CRLF-vs-LF match — reports the original bytes as a fenced candidate", async () => {
@@ -275,6 +277,25 @@ describe("extension content patching", () => {
     expect(message).toContain(DIAGNOSTIC_SNIPPET_OPEN);
     expect(message).toContain(DIAGNOSTIC_SNIPPET_CLOSE);
     expect(message).toMatch(/ {4}line 2:/);
+  });
+
+  it("labels partial excerpts and identifies each ambiguous occurrence in diagnostics", async () => {
+    const content = `<main>${"x".repeat(250)}<section id="first"><p>Same</p><p>Revenue: $42 million</p></section>${"y".repeat(250)}<section id="second"><p>Same</p></section></main>`;
+    const missing = await applyExtensionContentUpdate(content, {
+      edits: [{ find: "<p>Revenue: $43 million</p>", replace: "changed" }],
+    }).catch((error: unknown) => error);
+    expect(missing).toBeInstanceOf(ExtensionContentEditError);
+    expect((missing as Error).message).toContain("(incomplete excerpt)");
+    expect((missing as Error).message).toContain("Revenue: $42 million");
+
+    const ambiguous = await applyExtensionContentUpdate(content, {
+      edits: [{ find: "<p>Same</p>", replace: "changed" }],
+    }).catch((error: unknown) => error);
+    expect(ambiguous).toBeInstanceOf(ExtensionContentEditError);
+    expect((ambiguous as Error).message).toContain("occurrence 1, line 1:");
+    expect((ambiguous as Error).message).toContain('id="first"');
+    expect((ambiguous as Error).message).toContain("occurrence 2, line 1:");
+    expect((ambiguous as Error).message).toContain('id="second"');
   });
 
   it("reports ambiguity instead of silently patching the first of several matches", async () => {

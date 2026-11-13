@@ -157,6 +157,77 @@ describe("findTargetedMatches", () => {
     expect(result.candidates[0]?.line).toBeGreaterThan(0);
   });
 
+  it("finds a useful bounded excerpt near a late one-line non-whitespace mismatch", () => {
+    const content = `<main>${'<div class="filler">Nothing</div>'.repeat(100)}<section id="revenue"><h2>Annual revenue</h2><p>Actual total: $42 million</p></section></main>`;
+    const result = applyTargetedReplace(
+      content,
+      '<section id="revenue"><h2>Annual revenue</h2><p>Actual total: $43 million</p></section>',
+      "replacement",
+    );
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("Expected a miss");
+    expect(result.candidates[0]?.text).toContain("Actual total: $42 million");
+    expect(result.candidates[0]?.text.length).toBeLessThanOrEqual(162);
+    expect(result.candidates[0]?.whitespaceOnly).not.toBe(true);
+    expect(result.candidates[0]).toMatchObject({ excerpt: true });
+    expect("content" in result).toBe(false);
+    const anchor = result.candidates[0]?.text.match(
+      /Actual total: \$\d+ million/,
+    )?.[0];
+    expect(anchor).toBe("Actual total: $42 million");
+    if (!anchor) throw new Error("Expected a recoverable anchor");
+    expect(applyTargetedReplace(content, anchor, "Updated")).toMatchObject({
+      ok: true,
+      content: content.replace("Actual total: $42 million", "Updated"),
+    });
+  });
+
+  it("shows the late difference in a long whitespace-only match as an incomplete excerpt", () => {
+    const stored = `<section>${"<p>Unchanged content</p>".repeat(30)}<p>Revenue   total</p></section>`;
+    const result = findTargetedMatches(
+      stored,
+      stored.replace("Revenue   total", "Revenue total"),
+    );
+    expect(result).toMatchObject({ ok: false, reason: "not_found" });
+    if (result.ok || result.reason !== "not_found")
+      throw new Error("Expected a miss");
+    expect(result.candidates[0]?.text).toContain("Revenue   total");
+    expect(result.candidates[0]).toMatchObject({
+      whitespaceOnly: false,
+      excerpt: true,
+    });
+  });
+
+  it("provides occurrence and surrounding context for safe retries on a minified line", () => {
+    const content = `<main>${"x".repeat(250)}<section id="first"><p>Same</p></section>${"y".repeat(250)}<section id="second"><p>Same</p></section></main>`;
+    const result = applyTargetedReplace(
+      content,
+      "<p>Same</p>",
+      "<p>Changed</p>",
+    );
+    expect(result).toMatchObject({ ok: false, reason: "ambiguous" });
+    if (result.ok || result.reason !== "ambiguous")
+      throw new Error("Expected ambiguity");
+    expect(result.matches).toHaveLength(2);
+    expect(result.matches[0]).toMatchObject({ line: 1, occurrence: 1 });
+    expect(result.matches[1]).toMatchObject({ line: 1, occurrence: 2 });
+    expect(result.matches[0]?.snippet).toContain('id="first"');
+    expect(result.matches[1]?.snippet).toContain('id="second"');
+    expect("content" in result).toBe(false);
+    expect(
+      applyTargetedReplace(content, "<p>Same</p>", "<p>Changed</p>", {
+        occurrence: result.matches[1]?.occurrence,
+      }),
+    ).toMatchObject({
+      ok: true,
+      content: content.replace(
+        '<section id="second"><p>Same</p>',
+        '<section id="second"><p>Changed</p>',
+      ),
+    });
+  });
+
   it("returns ambiguous when the text matches more than once and no occurrence/all is given", () => {
     const content = "<p>Same</p><p>Same</p>";
     const result = findTargetedMatches(content, "<p>Same</p>");

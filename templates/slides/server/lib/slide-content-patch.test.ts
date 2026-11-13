@@ -217,6 +217,44 @@ describe("applySlideContentEdits", () => {
     expect(message).not.toContain("copy it exactly");
   });
 
+  it("exposes incomplete excerpts and occurrence context for safe recovery", async () => {
+    const content = `<main>${"x".repeat(250)}<section id="first"><p>Same</p><p>Revenue: $42 million</p></section>${"y".repeat(250)}<section id="second"><p>Same</p></section></main>`;
+    const missing = await applySlideContentEdits(content, [
+      {
+        find: "<p>Revenue: $43 million</p>",
+        replace: "changed",
+        expectedMatches: 1,
+      },
+    ]).catch((error: unknown) => error);
+    expect(missing).toBeInstanceOf(SlideContentEditError);
+    expect((missing as Error).message).toContain("(incomplete excerpt)");
+    expect((missing as Error).message).toContain("Revenue: $42 million");
+    expect((missing as Error).message).not.toContain("copy it exactly");
+
+    const ambiguous = await applySlideContentEdits(content, [
+      { find: "<p>Same</p>", replace: "<p>Changed</p>" },
+    ]).catch((error: unknown) => error);
+    expect(ambiguous).toBeInstanceOf(SlideContentEditError);
+    expect((ambiguous as Error).message).toContain("occurrence 1, line 1:");
+    expect((ambiguous as Error).message).toContain('id="first"');
+    expect((ambiguous as Error).message).toContain("occurrence 2, line 1:");
+    expect((ambiguous as Error).message).toContain('id="second"');
+    const recovered = await applySlideContentEdits(content, [
+      {
+        find: "<p>Same</p>",
+        replace: "<p>Changed</p>",
+        occurrence: 2,
+        expectedMatches: 2,
+      },
+    ]);
+    expect(recovered.content).toBe(
+      content.replace(
+        '<section id="second"><p>Same</p>',
+        '<section id="second"><p>Changed</p>',
+      ),
+    );
+  });
+
   it("reports ambiguity instead of silently patching the first of several matches", async () => {
     await expect(
       applySlideContentEdits("<p>Same</p><p>Same</p>", [

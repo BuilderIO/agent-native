@@ -345,12 +345,22 @@ function throwLiteralMatchFailure(
 
 function formatCandidates(candidates: TargetedCandidate[]): string {
   if (candidates.length === 0) return "";
-  const lines = candidates.map((c) => `line ${c.line}: ${c.text}`).join("\n");
-  return `\nClosest matches in the current extension:\n${wrapDiagnosticSnippet(lines)}`;
+  const lines = candidates
+    .map(
+      (c) =>
+        `line ${c.line}${c.whitespaceOnly ? " (whitespace only)" : c.excerpt ? " (incomplete excerpt)" : ""}: ${c.text}`,
+    )
+    .join("\n");
+  const whitespaceOnly = candidates.some((c) => c.whitespaceOnly)
+    ? "\nA candidate marked (whitespace only) is the extension text this edit matches against, with different whitespace: copy it exactly."
+    : "";
+  return `${whitespaceOnly}\nClosest matches in the current extension:\n${wrapDiagnosticSnippet(lines)}`;
 }
 
 function formatAmbiguousMatches(matches: TargetedAmbiguousMatch[]): string {
-  const lines = matches.map((m) => `line ${m.line}: ${m.snippet}`).join("\n");
+  const lines = matches
+    .map((m) => `occurrence ${m.occurrence}, line ${m.line}: ${m.snippet}`)
+    .join("\n");
   return (
     `matched ${matches.length} places; pass occurrence to pick one, or add ` +
     `more surrounding context so it matches exactly one location:\n${wrapDiagnosticSnippet(lines)}`

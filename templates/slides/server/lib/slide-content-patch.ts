@@ -874,7 +874,7 @@ function formatCandidates(candidates: TargetedCandidate[]): string {
   const lines = candidates
     .map(
       (c) =>
-        `line ${c.line}${c.whitespaceOnly ? " (whitespace only)" : ""}: ${c.text}`,
+        `line ${c.line}${c.whitespaceOnly ? " (whitespace only)" : c.excerpt ? " (incomplete excerpt)" : ""}: ${c.text}`,
     )
     .join("\n");
   const whitespaceOnly = candidates.some((c) => c.whitespaceOnly)
@@ -884,7 +884,9 @@ function formatCandidates(candidates: TargetedCandidate[]): string {
 }
 
 function formatAmbiguousMatches(matches: TargetedAmbiguousMatch[]): string {
-  const lines = matches.map((m) => `line ${m.line}: ${m.snippet}`).join("\n");
+  const lines = matches
+    .map((m) => `occurrence ${m.occurrence}, line ${m.line}: ${m.snippet}`)
+    .join("\n");
   return (
     `matched ${matches.length} places; pass occurrence to pick one, or add ` +
     `more surrounding context so it matches exactly one location:\n${wrapDiagnosticSnippet(lines)}`

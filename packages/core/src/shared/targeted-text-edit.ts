@@ -49,10 +49,13 @@ export interface TargetedCandidate {
    * whitespace; false when it was cut at the snippet limit.
    */
   whitespaceOnly?: boolean;
+  /** The displayed text is only part of the candidate, not a complete find value. */
+  excerpt?: boolean;
 }
 
 export interface TargetedAmbiguousMatch {
   line: number;
+  occurrence: number;
   snippet: string;
 }
 
@@ -119,9 +122,10 @@ export function findTargetedMatches(
     return {
       ok: false,
       reason: "ambiguous",
-      matches: matches.map((m) => ({
+      matches: matches.map((m, index) => ({
         line: m.line,
-        snippet: truncate(lineTextAt(content, lineStarts, m.index).trim(), 100),
+        occurrence: index + 1,
+        snippet: excerptAround(content, m.index, 100),
       })),
     };
   }
@@ -278,20 +282,20 @@ function lineNumberFor(lineStarts: number[], index: number): number {
   return lo + 1;
 }
 
-function lineTextAt(
-  content: string,
-  lineStarts: number[],
-  index: number,
-): string {
-  const lineIdx = lineNumberFor(lineStarts, index) - 1;
-  const start = lineStarts[lineIdx]!;
-  const nextStart = lineStarts[lineIdx + 1];
-  const end = nextStart !== undefined ? nextStart - 1 : content.length;
-  return content.slice(start, Math.max(start, end));
+function excerptAround(text: string, index: number, max: number): string {
+  const start = Math.max(
+    0,
+    Math.min(index - Math.floor(max / 2), text.length - max),
+  );
+  const end = Math.min(text.length, start + max);
+  return `${start > 0 ? "…" : ""}${text.slice(start, end)}${end < text.length ? "…" : ""}`;
 }
 
-function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text;
+function firstDifference(a: string, b: string): number {
+  let index = 0;
+  while (index < a.length && index < b.length && a[index] === b[index])
+    index += 1;
+  return index;
 }
 
 function tokenize(text: string): Set<string> {
@@ -302,7 +306,8 @@ function diceSimilarity(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 && b.size === 0) return 1;
   if (a.size === 0 || b.size === 0) return 0;
   let overlap = 0;
-  for (const token of a) if (b.has(token)) overlap += 1;
+  const [smaller, larger] = a.size <= b.size ? [a, b] : [b, a];
+  for (const token of smaller) if (larger.has(token)) overlap += 1;
   return (2 * overlap) / (a.size + b.size);
 }
 
@@ -318,12 +323,22 @@ function computeCandidates(content: string, find: string): TargetedCandidate[] {
   const lineStarts = buildLineIndex(content);
   const flexible: TargetedCandidate[] = scanFlexibleMatches(content, find)
     .slice(0, MAX_CANDIDATES)
-    .map((m) => ({
-      line: lineNumberFor(lineStarts, m.index),
-      text: truncate(m.text, SNIPPET_MAX_CHARS),
-      similarity: 1,
-      whitespaceOnly: m.text.length <= SNIPPET_MAX_CHARS,
-    }));
+    .map((m) => {
+      const excerpt = m.text.length > SNIPPET_MAX_CHARS;
+      return {
+        line: lineNumberFor(lineStarts, m.index),
+        text: excerpt
+          ? excerptAround(
+              m.text,
+              firstDifference(m.text, find.trim()),
+              SNIPPET_MAX_CHARS,
+            )
+          : m.text,
+        similarity: 1,
+        whitespaceOnly: !excerpt,
+        ...(excerpt ? { excerpt: true } : {}),
+      };
+    });
 
   const remaining = MAX_CANDIDATES - flexible.length;
   if (remaining <= 0) return flexible;
@@ -340,27 +355,48 @@ function tokenOverlapCandidates(
   content: string,
   find: string,
 ): TargetedCandidate[] {
-  const needleLines = find.split(/\r\n|\r|\n/);
-  // A quote taller than the stored text (e.g. Prettier output against compact
-  // HTML) would otherwise leave no window to score and no hint at all.
-  const contentLines = content.split(/\r\n|\r|\n/);
-  const needleLineCount = Math.min(needleLines.length, contentLines.length);
-  const needleTokens = tokenize(needleLines[0] ?? "");
-
-  const scored: TargetedCandidate[] = [];
-  for (let i = 0; i + needleLineCount <= contentLines.length; i += 1) {
-    const windowLines = contentLines.slice(i, i + needleLineCount);
-    const similarity = diceSimilarity(
-      needleTokens,
-      tokenize(windowLines[0] ?? ""),
-    );
-    scored.push({
-      line: i + 1,
-      text: truncate(windowLines.join("\n"), SNIPPET_MAX_CHARS),
-      similarity: Math.round(similarity * 100) / 100,
-    });
+  // Bound the scoring work per window even for arbitrarily large find strings.
+  const sampleSize = 4096;
+  const needleTokens = tokenize(
+    find.slice(0, sampleSize) + " " + find.slice(-sampleSize),
+  );
+  const lines = content.split(/\r\n|\r|\n/);
+  const scored: Array<TargetedCandidate & { start: number }> = [];
+  for (const [line, text] of lines.entries()) {
+    const lastStart = Math.max(0, text.length - SNIPPET_MAX_CHARS);
+    for (
+      let start = 0;
+      ;
+      start = Math.min(start + SNIPPET_MAX_CHARS / 2, lastStart)
+    ) {
+      const window = text.slice(start, start + SNIPPET_MAX_CHARS);
+      const similarity =
+        Math.round(diceSimilarity(needleTokens, tokenize(window)) * 100) / 100;
+      const excerpt = start > 0 || start + window.length < text.length;
+      const candidate = {
+        line: line + 1,
+        start,
+        text: `${start > 0 ? "…" : ""}${window}${start + window.length < text.length ? "…" : ""}`,
+        similarity,
+        ...(excerpt ? { excerpt: true } : {}),
+      };
+      const overlapping = scored.findIndex(
+        (c) =>
+          c.line === candidate.line &&
+          Math.abs(c.start - start) < SNIPPET_MAX_CHARS,
+      );
+      if (overlapping >= 0) {
+        const prior = scored[overlapping];
+        if (prior && prior.similarity < similarity)
+          scored.splice(overlapping, 1);
+        else if (start === lastStart) break;
+        else continue;
+      }
+      scored.push(candidate);
+      scored.sort((a, b) => b.similarity - a.similarity);
+      if (scored.length > MAX_CANDIDATES) scored.pop();
+      if (start === lastStart) break;
+    }
   }
-
-  scored.sort((a, b) => b.similarity - a.similarity);
-  return scored.slice(0, MAX_CANDIDATES);
+  return scored.map(({ start: _start, ...candidate }) => candidate);
 }
