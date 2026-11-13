@@ -94,10 +94,8 @@ export type {
   OffboardMemberOptions,
   OffboardMemberResult,
 } from "../identity/offboard.js";
-export {
-  assertIdentityColumnsRegistered,
-  registerIdentityColumns,
-} from "../identity/rekey.js";
+export { registerIdentityColumns } from "../identity/rekey.js";
+export { assertIdentityColumnsRegistered } from "../identity/validate-schema.js";
 export type {
   AppIdentityColumn,
   IdentityEmailChange,

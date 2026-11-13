@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { jwtVerify } from "jose";
 
 import { AGENT_AUDIT_LOG_CREATE_SQL } from "../audit/store.js";
-import type { DbExec } from "../db/client.js";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -528,22 +527,14 @@ export function assertIdentityColumnRows(
   return resolveIdentityColumns(rows);
 }
 
-const IDENTITY_SCHEMA_COLUMNS_SQL = `SELECT table_name, column_name FROM information_schema.columns
-   WHERE table_schema = 'public'
-   ORDER BY table_name, column_name`;
-
-/** Validate a migrated app database after its identity policies are registered. */
 export async function assertIdentityColumnsRegistered(
-  db: DbExec,
-): Promise<void> {
-  const { rows } = await db.execute(IDENTITY_SCHEMA_COLUMNS_SQL);
-  resolveIdentityColumns(rows);
-}
-
-async function readIdentityColumns(
   db: IdentityRekeyDb,
 ): Promise<IdentityColumn[]> {
-  const rows = await db.unsafe(IDENTITY_SCHEMA_COLUMNS_SQL);
+  const rows = await db.unsafe(
+    `SELECT table_name, column_name FROM information_schema.columns
+     WHERE table_schema = 'public'
+     ORDER BY table_name, column_name`,
+  );
   return resolveIdentityColumns(rows);
 }
 
@@ -1089,7 +1080,7 @@ export async function rekeyIdentity(
       [identityCredentialLockKey(email)],
     );
 
-  const identityColumns = await readIdentityColumns(db);
+  const identityColumns = await assertIdentityColumnsRegistered(db);
 
   const userColumns = await columns(db, "user");
   if (!userColumns.has("id") || !userColumns.has("email"))
