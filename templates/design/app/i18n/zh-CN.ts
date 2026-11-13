@@ -1702,7 +1702,6 @@ export default {
       "请求已记录。获得批准后，你就可以打开此设计。",
     signInToRequestAccessTitle: "登录以请求访问",
     signInToRequestAccessDescription: "登录或创建账户，向所有者请求访问权限。",
-    signInOrSignUp: "登录或注册",
     accessCheckFailed: "无法检查此设计的访问权限。",
     retryAccessCheck: "重试",
     saveAsTemplate: "保存为模板…",

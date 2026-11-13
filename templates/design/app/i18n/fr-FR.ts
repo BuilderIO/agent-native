@@ -1772,7 +1772,6 @@ export default {
     signInToRequestAccessTitle: "Connectez-vous pour demander l’accès",
     signInToRequestAccessDescription:
       "Connectez-vous ou créez un compte pour demander l’accès au propriétaire.",
-    signInOrSignUp: "Se connecter ou s’inscrire",
     accessCheckFailed: "Impossible de vérifier l’accès à cette création.",
     retryAccessCheck: "Réessayer",
     saveAsTemplate: "Enregistrer comme modèle…",
