@@ -575,7 +575,7 @@ jobs:
             core.info(`Handed off current main ${mainSha} to the beta publisher.`);
 
   report:
-    name: Report to #dev-agent-native-alerts
+    name: "Report to #dev-agent-native-alerts"
     needs:
       [
         docs-source-freshness,

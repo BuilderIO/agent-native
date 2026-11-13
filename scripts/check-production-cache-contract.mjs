@@ -58,6 +58,8 @@ const HOST_CONCURRENCY = 8;
 const MAX_REDIRECTS = 3;
 const REPEAT_HIT_ATTEMPTS = 3;
 const REPEAT_HIT_RETRY_MS = 500;
+const UNREACHABLE_ATTEMPTS = 3;
+const UNREACHABLE_RETRY_MS = 2_000;
 
 function parseEnvArg() {
   const index = process.argv.indexOf("--env");
@@ -323,7 +325,29 @@ async function repeatUntilHit(observation, host, fetchImpl = fetch) {
   return { kind: "miss", observation: last };
 }
 
-export async function probeUrl(host, probe, fetchImpl = fetch) {
+export async function probeUrl(
+  host,
+  probe,
+  fetchImpl = fetch,
+  { retryDelayMs = UNREACHABLE_RETRY_MS } = {},
+) {
+  // A request cut off on the way says nothing about the site, yet one probe
+  // left unasserted fails a single-host deploy check and rolls the deploy
+  // back. A response is an answer and is never retried.
+  for (let attempt = 1; ; attempt += 1) {
+    const result = await probeUrlOnce(host, probe, fetchImpl);
+    if (result.outcome !== "unreachable") return result;
+    if (attempt === UNREACHABLE_ATTEMPTS) {
+      return {
+        ...result,
+        detail: `${result.detail} (${UNREACHABLE_ATTEMPTS} attempts)`,
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+  }
+}
+
+async function probeUrlOnce(host, probe, fetchImpl) {
   // The synthetic path is impossible to route; dynamic real pages use a unique
   // `index` key, which Netlify includes in the durable cache key. Static docs
   // use an ordinary query because their published file does not need a durable

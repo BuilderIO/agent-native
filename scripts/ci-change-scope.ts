@@ -79,6 +79,10 @@ const RELATED_SCRIPT_TESTS = new Map([
     "scripts/package-release-workflow.test.ts",
   ],
   [
+    ".github/actions/build-agent-native-desktop/action.yml",
+    "scripts/build-agent-native-desktop-action.test.ts",
+  ],
+  [
     ".github/workflows/feedback-fix-proof.yml",
     "scripts/feedback-fix-proof.test.ts",
   ],

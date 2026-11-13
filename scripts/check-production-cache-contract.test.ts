@@ -242,6 +242,62 @@ describe("production cache contract probe helpers", () => {
     assert.match(result.detail, /repeat origin\/redirect failure/);
   });
 
+  it("tries a request that was cut off again, on a fresh URL", async () => {
+    const urls: string[] = [];
+    const responses = [
+      new Response("<html>origin</html>", {
+        status: 200,
+        headers: {
+          ...cacheHeaders('"Netlify Edge"; fwd=miss; stored'),
+          "content-type": "text/html",
+        },
+      }),
+      new Response("<html>origin</html>", {
+        status: 200,
+        headers: {
+          ...cacheHeaders('"Netlify Edge"; hit; ttl=599'),
+          "content-type": "text/html",
+        },
+      }),
+    ];
+    const fetchImpl = async (url: string) => {
+      urls.push(url);
+      // undici's error when a connection drops before the body arrives.
+      if (urls.length === 1) throw new TypeError("terminated");
+      return responses[urls.length - 2].clone();
+    };
+
+    const result = await probeUrl(
+      "www.agent-native.com",
+      htmlProbe,
+      fetchImpl,
+      {
+        retryDelayMs: 0,
+      },
+    );
+
+    assert.equal(result.outcome, "ok");
+    assert.equal(urls.length, 3);
+    assert.notEqual(urls[0], urls[1]);
+    assert.equal(urls[1], urls[2]);
+  });
+
+  it("reports a request that keeps getting cut off as unreachable", async () => {
+    let calls = 0;
+    const fetchImpl = async () => {
+      calls += 1;
+      throw new TypeError("terminated");
+    };
+
+    const result = await probeUrl("clips.agent-native.com", null, fetchImpl, {
+      retryDelayMs: 0,
+    });
+
+    assert.equal(result.outcome, "unreachable");
+    assert.equal(calls, 3);
+    assert.equal(result.detail, "terminated (3 attempts)");
+  });
+
   it("uses the Netlify policy and rejects an uncacheable repeat", async () => {
     const response = (extra: Record<string, string> = {}) =>
       new Response("<html>page</html>", {

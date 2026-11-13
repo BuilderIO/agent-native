@@ -208,4 +208,19 @@ runs:
             fi
             ;;
         esac
-        pnpm exec electron-builder "$TARGET" --config --publish "${{ inputs.publish }}" "${OVERRIDES[@]}"
+        # electron-builder retries a failed upload for about 20 seconds. A
+        # GitHub server error that outlasts that fails the release, so package
+        # again after a pause; the second run replaces the files the first
+        # one uploaded.
+        BUILDER_LOG="$RUNNER_TEMP/electron-builder.log"
+        for attempt in 1 2; do
+          if pnpm exec electron-builder "$TARGET" --config --publish "${{ inputs.publish }}" "${OVERRIDES[@]}" 2>&1 | tee "$BUILDER_LOG"; then
+            exit 0
+          fi
+          if [ "$attempt" = 2 ] || ! grep -Eq 'HttpError: 5[0-9]{2}' "$BUILDER_LOG"; then
+            exit 1
+          fi
+          echo "::warning::GitHub answered electron-builder with a server error; packaging again in 2 minutes."
+          sleep 120
+          rm -rf dist
+        done
