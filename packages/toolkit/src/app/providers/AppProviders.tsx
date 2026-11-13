@@ -716,7 +716,9 @@ export function AppProviders({
           <EarlySessionBootstrapScript />
           <EarlyBetaRedirectScript />
           {isFirstRunOnboardingEnabled(
-            import.meta.env ?? {},
+            (import.meta.env as
+              | Record<string, string | boolean | undefined>
+              | undefined) ?? {},
             typeof __AGENT_NATIVE_APP_CONFIG__ === "undefined"
               ? {}
               : __AGENT_NATIVE_APP_CONFIG__,
