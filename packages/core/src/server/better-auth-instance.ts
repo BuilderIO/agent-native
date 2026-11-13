@@ -219,7 +219,7 @@ async function flushAuthTracking(): Promise<void> {
       new Promise<void>((resolve) => setTimeout(resolve, 1500)),
     ]);
   } catch {
-    // Authentication should never fail because analytics delivery did.
+    console.error("[auth] failed to flush authentication analytics");
   }
 }
 
