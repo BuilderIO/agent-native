@@ -168,6 +168,7 @@
     "guard:additive-migrations": "node scripts/guard-additive-migrations.mjs",
     "guard:no-silent-coercion": "node scripts/guard-no-silent-coercion.mjs",
     "guard:no-source-reading-tests": "node scripts/guard-no-source-reading-tests.mjs",
+    "guard:no-duplicate-vi-mock": "tsx scripts/guard-no-duplicate-vi-mock.ts",
     "guard:no-major-changeset": "node scripts/guard-no-major-changeset.mjs",
     "guard:no-raw-colors": "node scripts/guard-no-raw-colors.mjs",
     "guard:persistent-compositing": "node scripts/guard-persistent-compositing.mjs",

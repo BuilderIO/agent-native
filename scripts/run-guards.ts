@@ -75,6 +75,7 @@ const guards = [
   "guard:no-legacy-config",
   "guard:no-silent-coercion",
   "guard:no-source-reading-tests",
+  "guard:no-duplicate-vi-mock",
   "guard:no-major-changeset",
   "guard:no-raw-colors",
   "guard:persistent-compositing",
