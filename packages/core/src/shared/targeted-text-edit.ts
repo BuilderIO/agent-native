@@ -61,7 +61,12 @@ export interface TargetedAmbiguousMatch {
 
 export type TargetedMatchFailure =
   | { ok: false; reason: "not_found"; candidates: TargetedCandidate[] }
-  | { ok: false; reason: "ambiguous"; matches: TargetedAmbiguousMatch[] }
+  | {
+      ok: false;
+      reason: "ambiguous";
+      matchCount: number;
+      matches: TargetedAmbiguousMatch[];
+    }
   | { ok: false; reason: "invalid_occurrence"; occurrence: number }
   | {
       ok: false;
@@ -86,6 +91,7 @@ export type TargetedReplaceResult =
   | TargetedMatchFailure;
 
 const MAX_CANDIDATES = 3;
+const MAX_AMBIGUOUS_MATCHES = 5;
 const SNIPPET_MAX_CHARS = 160;
 
 export function findTargetedMatches(
@@ -122,7 +128,8 @@ export function findTargetedMatches(
     return {
       ok: false,
       reason: "ambiguous",
-      matches: matches.map((m, index) => ({
+      matchCount: matches.length,
+      matches: matches.slice(0, MAX_AMBIGUOUS_MATCHES).map((m, index) => ({
         line: m.line,
         occurrence: index + 1,
         snippet:
@@ -439,15 +446,14 @@ function tokenOverlapCandidates(
         similarity,
         ...(excerpt ? { excerpt: true } : {}),
       };
-      const overlapping = scored.findIndex(
+      const prior = scored.find(
         (c) =>
           c.line === candidate.line &&
           Math.abs(c.start - start) < SNIPPET_MAX_CHARS,
       );
-      if (overlapping >= 0) {
-        const prior = scored[overlapping];
-        if (prior && prior.similarity < similarity)
-          scored.splice(overlapping, 1);
+      if (prior) {
+        if (prior.similarity < similarity)
+          scored.splice(scored.indexOf(prior), 1);
         else if (start === lastStart) break;
         else continue;
       }

@@ -839,7 +839,7 @@ function throwLiteralMatchFailure(
 ): never {
   if (result.reason === "ambiguous") {
     throw new SlideContentEditError(
-      `${op} ${formatAmbiguousMatches(result.matches)}`,
+      `${op} ${formatAmbiguousMatches(result.matches, result.matchCount)}`,
     );
   }
   if (result.reason === "invalid_occurrence") {
@@ -883,13 +883,19 @@ function formatCandidates(candidates: TargetedCandidate[]): string {
   return `${whitespaceOnly}\nClosest matches in the current slide:\n${wrapDiagnosticSnippet(lines)}`;
 }
 
-function formatAmbiguousMatches(matches: TargetedAmbiguousMatch[]): string {
+function formatAmbiguousMatches(
+  matches: TargetedAmbiguousMatch[],
+  matchCount: number,
+): string {
   const lines = matches
     .map((m) => `occurrence ${m.occurrence}, line ${m.line}: ${m.snippet}`)
     .join("\n");
+  const omitted = matchCount - matches.length;
   return (
-    `matched ${matches.length} places; pass occurrence to pick one, or add ` +
-    `more surrounding context so it matches exactly one location:\n${wrapDiagnosticSnippet(lines)}`
+    `matched ${matchCount} places; pass occurrence to pick one, or add ` +
+    `more surrounding context so it matches exactly one location:` +
+    (omitted > 0 ? ` ${omitted} matches omitted.` : "") +
+    `\n${wrapDiagnosticSnippet(lines)}`
   );
 }
 

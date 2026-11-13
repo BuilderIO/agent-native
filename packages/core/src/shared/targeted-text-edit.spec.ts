@@ -412,6 +412,38 @@ describe("findTargetedMatches", () => {
     expect(result.matches).toHaveLength(2);
   });
 
+  it("bounds ambiguous previews without losing the total or high-index replacement", () => {
+    const content = Array.from(
+      { length: 100 },
+      (_, i) => `<p>${i}: Same</p>`,
+    ).join("\n");
+    const result = findTargetedMatches(content, "Same");
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "ambiguous",
+      matchCount: 100,
+    });
+    if (result.ok || result.reason !== "ambiguous")
+      throw new Error("Expected ambiguity");
+    expect(result.matches).toHaveLength(5);
+    expect(
+      result.matches.map((match) => [match.occurrence, match.line]),
+    ).toEqual([
+      [1, 1],
+      [2, 2],
+      [3, 3],
+      [4, 4],
+      [5, 5],
+    ]);
+    expect(
+      applyTargetedReplace(content, "Same", "Changed", { occurrence: 99 }),
+    ).toMatchObject({
+      ok: true,
+      content: content.replace("98: Same", "98: Changed"),
+      matchCount: 100,
+    });
+  });
+
   it("does not flag ambiguity when the caller passes occurrence", () => {
     const content = "<p>Same</p><p>Same</p>";
     const result = findTargetedMatches(content, "<p>Same</p>", {

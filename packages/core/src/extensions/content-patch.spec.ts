@@ -325,6 +325,105 @@ describe("extension content patching", () => {
     ).rejects.toThrow(/matched 2 places; pass occurrence/);
   });
 
+  it("reports omitted ambiguity previews and preserves count checks for many matches", async () => {
+    const content = Array.from(
+      { length: 100 },
+      (_, i) => `<p>${i}: Same</p>`,
+    ).join("\n");
+    for (const edit of [
+      { op: "replace" as const, find: "Same", replace: "Changed" },
+      { op: "insert-after" as const, marker: "Same", content: "!" },
+    ]) {
+      const error = await applyExtensionContentUpdate(content, {
+        edits: [edit],
+      }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(ExtensionContentEditError);
+      const message = (error as Error).message;
+      expect(message).toContain("matched 100 places");
+      expect(message).toContain("95 matches omitted");
+      expect(message).toContain("occurrence 5, line 5:");
+      expect(message).not.toContain("occurrence 6, line 6:");
+    }
+    const result = await applyExtensionContentUpdate(content, {
+      edits: [
+        {
+          find: "Same",
+          replace: "Changed",
+          occurrence: 99,
+          expectedMatches: 100,
+        },
+      ],
+    });
+    expect(result.content).toBe(content.replace("98: Same", "98: Changed"));
+    const inserted = await applyExtensionContentUpdate(content, {
+      edits: [
+        {
+          op: "insert-after",
+          marker: "Same",
+          content: "!",
+          occurrence: 99,
+          expectedMatches: 100,
+        },
+      ],
+    });
+    expect(inserted.content).toBe(content.replace("98: Same", "98: Same!"));
+    const all = await applyExtensionContentUpdate(content, {
+      edits: [
+        { find: "Same", replace: "Changed", all: true, expectedMatches: 100 },
+      ],
+    });
+    expect(all.content).toBe(content.replaceAll("Same", "Changed"));
+    await expect(
+      applyExtensionContentUpdate(content, {
+        edits: [{ find: "Same", replace: "Changed", expectedMatches: 5 }],
+      }),
+    ).rejects.toThrow("matched 100 places");
+    await expect(
+      applyExtensionContentUpdate(content, {
+        edits: [
+          { find: "Same", replace: "Changed", all: true, expectedMatches: 5 },
+        ],
+      }),
+    ).rejects.toThrow("expected 5 match(es), found 100");
+    await expect(
+      applyExtensionContentUpdate(content, {
+        edits: [
+          {
+            find: "Same",
+            replace: "Changed",
+            occurrence: 101,
+            expectedMatches: 100,
+          },
+        ],
+      }),
+    ).rejects.toThrow("could not find occurrence 101");
+    await expect(
+      applyExtensionContentUpdate(content, {
+        edits: [
+          {
+            find: "Same",
+            replace: "Changed",
+            occurrence: 101,
+            expectedMatches: 5,
+          },
+        ],
+      }),
+    ).rejects.toThrow("expected 5 match(es), found 100");
+    await expect(
+      applyExtensionContentUpdate(content, {
+        edits: [
+          {
+            op: "insert-after",
+            marker: "Same",
+            content: "!",
+            occurrence: 99,
+            expectedMatches: 5,
+          },
+        ],
+      }),
+    ).rejects.toThrow("expected 5 match(es), found 100");
+  });
+
   it("applies to a specific occurrence once the caller disambiguates", async () => {
     const content = "<p>Same</p><p>Same</p>";
     const result = await applyExtensionContentUpdate(content, {
