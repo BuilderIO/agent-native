@@ -988,6 +988,8 @@ interface AgentThreadEventIndex {
   byRun: Map<RunId, AgentEvent[]>;
   messageRunIds: Map<string, RunId>;
   finishedRunIds: Set<RunId>;
+  /** The run each task first appeared in, which is where it is listed. */
+  taskRunIds: Map<string, RunId>;
 }
 
 const threadEventIndexes = new WeakMap<
@@ -1011,7 +1013,16 @@ function agentThreadEventIndex(
   const byRun = new Map<RunId, AgentEvent[]>();
   const messageRunIds = new Map<string, RunId>();
   const finishedRunIds = new Set<RunId>();
+  const taskRunIds = new Map<string, RunId>();
   for (const event of events) {
+    if (
+      (event.type === "task.created" ||
+        event.type === "task.updated" ||
+        event.type === "task.completed") &&
+      !taskRunIds.has(event.task.id)
+    ) {
+      taskRunIds.set(event.task.id, event.runId);
+    }
     const runEvents = byRun.get(event.runId);
     if (runEvents) runEvents.push(event);
     else byRun.set(event.runId, [event]);
@@ -1051,7 +1062,7 @@ function agentThreadEventIndex(
       }
     }
   }
-  const index = { byRun, messageRunIds, finishedRunIds };
+  const index = { byRun, messageRunIds, finishedRunIds, taskRunIds };
   threadEventIndexes.set(events, index);
   latestThreadEventIndexes.delete(threadKey);
   latestThreadEventIndexes.set(threadKey, index);
@@ -1060,6 +1071,21 @@ function agentThreadEventIndex(
     if (oldest !== undefined) latestThreadEventIndexes.delete(oldest);
   }
   return index;
+}
+
+/**
+ * Task ids the given run's task group lists. A later run that reads a task
+ * updates its status in place instead of listing it again.
+ */
+export function agentRunTaskIds(
+  events: readonly AgentEvent[],
+  runId: RunId,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const [taskId, taskRunId] of agentThreadEventIndex(events).taskRunIds) {
+    if (taskRunId === runId) ids.add(taskId);
+  }
+  return ids;
 }
 
 function agentRunEvents(
@@ -4629,11 +4655,13 @@ export function AgentTaskGroup({
   const ids: string[] = [];
   const tasks = new Map<string, AgentTask>();
   const firstSequence = new Map<string, number>();
+  const taskRunIds = agentThreadEventIndex(thread.events).taskRunIds;
   for (const event of agentRunEvents(thread, runId)) {
     if (
-      event.type !== "task.created" &&
-      event.type !== "task.updated" &&
-      event.type !== "task.completed"
+      (event.type !== "task.created" &&
+        event.type !== "task.updated" &&
+        event.type !== "task.completed") ||
+      taskRunIds.get(event.task.id) !== event.runId
     ) {
       continue;
     }

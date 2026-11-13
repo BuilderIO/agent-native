@@ -6,7 +6,10 @@ import {
   normalizeAgentTeamProgressResult,
 } from "@agent-native/core/action-ui";
 
-import { AgentWidgetView } from "../../agentkit/react/components.js";
+import {
+  AgentWidgetView,
+  agentRunTaskIds,
+} from "../../agentkit/react/components.js";
 import {
   useAgentKit,
   useAgentThread,
@@ -48,16 +51,7 @@ export function AgentKitActionWidget({
       ? normalizeAgentTeamProgressResult(resultJson)?.tasks
       : undefined;
   if (teamTasks?.length && tool.runId) {
-    const runTaskIds = new Set(
-      thread.events.flatMap((event) =>
-        event.runId === tool.runId &&
-        (event.type === "task.created" ||
-          event.type === "task.updated" ||
-          event.type === "task.completed")
-          ? [event.task.id]
-          : [],
-      ),
-    );
+    const runTaskIds = agentRunTaskIds(thread.events, tool.runId);
     const untracked = teamTasks.filter((task) => !runTaskIds.has(task.taskId));
     if (untracked.length === 0) return null;
     if (untracked.length < teamTasks.length) resultJson = { tasks: untracked };
