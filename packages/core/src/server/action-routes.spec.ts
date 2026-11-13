@@ -6,6 +6,7 @@ import { A2AIdentityVerificationUnavailableError } from "../a2a/server.js";
 import type { ActionRunContext } from "../action.js";
 import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { McpOAuthRefreshUnavailableError } from "../mcp-client/oauth-client.js";
 import type { AuthSession } from "./auth.js";
 import {
   getRequestContext,
@@ -1105,33 +1106,43 @@ describe("mountActionRoutes", () => {
     );
   });
 
-  it("uses action error statusCode for HTTP responses", async () => {
-    const { mountActionRoutes } = await import("./action-routes.js");
-    const mounted: Array<{ path: string; handler: any }> = [];
-    const nitroApp = {
-      use: vi.fn((path: string, handler: any) =>
-        mounted.push({ path, handler }),
-      ),
-    };
-    const err = Object.assign(new Error("Forbidden"), { statusCode: 403 });
-    const actions: Record<string, ActionEntry> = {
-      "share-resource": {
-        run: vi.fn(async () => {
-          throw err;
-        }),
-      } as any,
-    };
+  it.each([
+    [
+      Object.assign(new Error("Forbidden"), { statusCode: 403 }),
+      403,
+      "Forbidden",
+    ],
+    [new McpOAuthRefreshUnavailableError(), 503, "Internal server error"],
+  ])(
+    "uses action error statusCode for HTTP responses",
+    async (err, status, message) => {
+      mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      const actions: Record<string, ActionEntry> = {
+        "share-resource": {
+          run: vi.fn(async () => {
+            throw err;
+          }),
+        } as any,
+      };
 
-    mountActionRoutes(nitroApp, actions, {
-      getOwnerFromEvent: async () => "owner@example.com",
-    });
+      mountActionRoutes(nitroApp, actions, {
+        getOwnerFromEvent: async () => "owner@example.com",
+      });
 
-    const event = { _method: "POST", req: { json: async () => ({}) } };
-    const result = await mounted[0].handler(event);
+      const event = { _method: "POST", req: { json: async () => ({}) } };
+      const result = await mounted[0].handler(event);
 
-    expect(result).toEqual({ error: "Forbidden" });
-    expect(event._status).toBe(403);
-  });
+      expect(result).toEqual({ error: message });
+      expect(event._status).toBe(status);
+    },
+  );
 
   it("adds a Better Auth id resolved directly from the trusted owner context", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
