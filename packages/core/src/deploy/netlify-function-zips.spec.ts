@@ -199,3 +199,20 @@ describe("assertSupportedZipItVersion", () => {
     );
   });
 });
+
+describe("prepareNetlifyFunctionZips input safety", () => {
+  it("refuses a functions dir inside the cleaned output dir", async () => {
+    const root = tmp();
+    const functionsDir = path.join(root, ".netlify", "functions");
+    fs.mkdirSync(functionsDir, { recursive: true });
+    fs.writeFileSync(path.join(functionsDir, "keep.mjs"), "x");
+    await expect(
+      prepareNetlifyFunctionZips({
+        siteRoot: root,
+        functionsDir,
+        zipIt: fakeZipIt("forward", "2025-01-01T00:00:00Z"),
+      }),
+    ).rejects.toThrow(/inside the output directory/);
+    expect(fs.existsSync(path.join(functionsDir, "keep.mjs"))).toBe(true);
+  });
+});

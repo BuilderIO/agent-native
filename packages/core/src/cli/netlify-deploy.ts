@@ -19,6 +19,17 @@ const DEFAULT_DEPLOY_ARGS = [
   `--functions=${DEFAULT_FUNCTIONS_DIR}`,
 ];
 
+/** No args means the full default publish; otherwise only the paths the manifest depends on are filled in. */
+function withPathDefaults(args: string[]): string[] {
+  if (args.length === 0) return DEFAULT_DEPLOY_ARGS;
+  const has = (flag: string) =>
+    args.some((arg) => arg === flag || arg.startsWith(`${flag}=`));
+  const merged = [...args];
+  if (!has("--dir")) merged.push("--dir=dist");
+  if (!has("--functions")) merged.push(`--functions=${DEFAULT_FUNCTIONS_DIR}`);
+  return merged;
+}
+
 function functionsDirOf(args: string[]): string {
   const inline = args.find((arg) => arg.startsWith("--functions="));
   if (inline) return inline.slice("--functions=".length);
@@ -34,7 +45,7 @@ function functionsDirOf(args: string[]): string {
  * their digest and are not re-uploaded.
  */
 export async function runNetlifyDeploy(rawArgs: string[]): Promise<void> {
-  const deployArgs = rawArgs.length > 0 ? rawArgs : DEFAULT_DEPLOY_ARGS;
+  const deployArgs = withPathDefaults(rawArgs);
   const siteRoot = process.cwd();
   const functionsDir = path.resolve(siteRoot, functionsDirOf(deployArgs));
 
@@ -66,27 +77,36 @@ export async function runNetlifyDeploy(rawArgs: string[]): Promise<void> {
   }
 
   const exitCode = await new Promise<number>((resolve, reject) => {
-    const child = spawn("netlify", ["deploy", ...deployArgs], {
-      cwd: siteRoot,
-      stdio: ["inherit", "pipe", "pipe"],
-    });
+    // The CLI prints the marker while choosing its functions, before anything
+    // is uploaded or published, so stopping it here prevents the unstable deploy.
+    const child = spawn(
+      process.execPath,
+      [cli.entryPoint, "deploy", ...deployArgs],
+      { cwd: siteRoot, stdio: ["inherit", "pipe", "pipe"] },
+    );
     let ignored = false;
-    const tee = (stream: NodeJS.ReadableStream, sink: NodeJS.WriteStream) =>
+    const watch = (stream: NodeJS.ReadableStream, sink: NodeJS.WriteStream) => {
+      let tail = "";
       stream.on("data", (chunk: Buffer) => {
-        if (chunk.toString().includes(NETLIFY_MANIFEST_IGNORED_MESSAGE)) {
-          ignored = true;
-        }
         sink.write(chunk);
+        tail = (tail + chunk.toString()).slice(
+          -(NETLIFY_MANIFEST_IGNORED_MESSAGE.length * 2),
+        );
+        if (!ignored && tail.includes(NETLIFY_MANIFEST_IGNORED_MESSAGE)) {
+          ignored = true;
+          child.kill("SIGTERM");
+        }
       });
-    tee(child.stdout, process.stdout);
-    tee(child.stderr, process.stderr);
+    };
+    watch(child.stdout, process.stdout);
+    watch(child.stderr, process.stderr);
     child.on("error", reject);
     child.on("close", (code) => {
       if (ignored) {
         console.error(
-          "[netlify-deploy] manifest-expired netlify-cli discarded the functions manifest and re-zipped; function digests are no longer stable for this deploy",
+          "[netlify-deploy] manifest-expired netlify-cli discarded the functions manifest; the deploy was stopped before upload so unstable ZIPs are not published",
         );
-        resolve(code === 0 ? 1 : (code ?? 1));
+        resolve(1);
       } else {
         resolve(code ?? 1);
       }

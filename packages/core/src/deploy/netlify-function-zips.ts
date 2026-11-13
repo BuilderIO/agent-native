@@ -27,6 +27,8 @@ export const NETLIFY_MANIFEST_IGNORED_MESSAGE =
 export interface NetlifyCli {
   packageDir: string;
   version: string;
+  /** Absolute path of the CLI's JavaScript entry point, launched with node so no .cmd shim is needed. */
+  entryPoint: string;
 }
 
 export interface ZipItModule {
@@ -61,9 +63,17 @@ export function findNetlifyCli(
         const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as {
           name?: string;
           version?: string;
+          bin?: string | Record<string, string>;
         };
         if (pkg.name === "netlify-cli" && pkg.version) {
-          return { packageDir: current, version: pkg.version };
+          const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.netlify;
+          if (!bin)
+            throw new Error("netlify-cli package.json declares no netlify bin");
+          return {
+            packageDir: current,
+            version: pkg.version,
+            entryPoint: path.resolve(current, bin),
+          };
         }
       }
       const parent = path.dirname(current);
@@ -144,6 +154,12 @@ export async function prepareNetlifyFunctionZips(opts: {
   const now = opts.now ?? Date.now;
   const dest = path.join(opts.siteRoot, ".netlify", "functions");
   const manifestPath = path.join(dest, "manifest.json");
+  const rel = path.relative(dest, opts.functionsDir);
+  if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) {
+    throw new Error(
+      `functions directory ${opts.functionsDir} is inside the output directory ${dest}, which is cleaned before zipping; use a different --functions directory (default .netlify/functions-internal)`,
+    );
+  }
   fs.rmSync(dest, { recursive: true, force: true });
   fs.mkdirSync(dest, { recursive: true });
 
