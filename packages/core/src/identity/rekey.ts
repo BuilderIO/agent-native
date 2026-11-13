@@ -323,6 +323,8 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   "tool_history.actor_email",
   "tool_history.owner_email",
   "agent_resource_versions.created_by",
+  // Creator attribution on a Vault key, kept as written; the key is owned by its scope.
+  "app_secrets.created_by",
   "agent_review_comments.created_by",
   "agent_human_review_summaries.created_by",
   "organizations.created_by",
