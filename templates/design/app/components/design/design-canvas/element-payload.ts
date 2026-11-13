@@ -25,12 +25,29 @@ function isFiniteRect(value: unknown): value is ElementInfo["boundingRect"] {
   );
 }
 
+function isStringMap(value: unknown): value is Record<string, string> {
+  return (
+    isPlainRecord(value) &&
+    Object.values(value).every((entry) => typeof entry === "string")
+  );
+}
+
 export function isElementInfoPayload(value: unknown): value is ElementInfo {
   if (!isPlainRecord(value)) return false;
   return (
     typeof value.tagName === "string" &&
     Array.isArray(value.classes) &&
-    isPlainRecord(value.computedStyles) &&
+    value.classes.every((name) => typeof name === "string") &&
+    isStringMap(value.computedStyles) &&
+    (value.inlineStyles === undefined || isStringMap(value.inlineStyles)) &&
+    (value.authoredSizeStyles === undefined ||
+      isStringMap(value.authoredSizeStyles)) &&
+    [
+      value.selector,
+      value.sourceId,
+      value.runtimeSelector,
+      value.runtimeSourceId,
+    ].every((entry) => entry === undefined || typeof entry === "string") &&
     isFiniteRect(value.boundingRect) &&
     typeof value.isFlexChild === "boolean" &&
     typeof value.isFlexContainer === "boolean"

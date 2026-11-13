@@ -1,11 +1,204 @@
 // @vitest-environment happy-dom
+import { act, createElement, useState } from "react";
+import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
 import { sizeNeedsMeasurement } from "../edit-panel/element-classification";
+import type { ElementInfo } from "../types";
 import {
   designPreviewWindowsForScreen,
   requestSelectionMeasurement,
+  useSelectionMeasurement,
 } from "./measure-selection";
+
+(
+  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
+
+describe("selection measurement lifecycle", () => {
+  it.each(["single", "overview"] as const)(
+    "measures the selected %s frame and installs live layout metadata",
+    async (viewMode) => {
+      const container = document.createElement("div");
+      document.body.append(container);
+      const desktop = document.createElement("iframe");
+      desktop.dataset.screenIframeId = "screen-a";
+      const mobile = document.createElement("iframe");
+      mobile.dataset.screenIframeId = "screen-a::bp-390";
+      document.body.append(desktop, mobile);
+      const desktopPost = vi
+        .spyOn(desktop.contentWindow!, "postMessage")
+        .mockImplementation(() => {});
+      const mobilePost = vi
+        .spyOn(mobile.contentWindow!, "postMessage")
+        .mockImplementation(() => {});
+      const initial: ElementInfo = {
+        tagName: "div",
+        sourceId: "a",
+        selector: "#a",
+        classes: [],
+        computedStyles: { width: "50%" },
+        boundingRect: { x: 1, y: 2, width: 90, height: 30 },
+        isFlexChild: false,
+        isFlexContainer: false,
+        needsLiveMeasurement: true,
+      };
+      let current: ElementInfo | null = null;
+      function Harness() {
+        const [selected, setSelected] = useState<ElementInfo | null>(initial);
+        current = selected;
+        useSelectionMeasurement({
+          selectedElement: selected,
+          setSelectedElement: setSelected,
+          screenId: "screen-a",
+          breakpointWidth: 390,
+          viewMode,
+          activeFileIdRef: { current: "screen-a" },
+        });
+        return null;
+      }
+      const root = createRoot(container);
+      try {
+        await act(async () => root.render(createElement(Harness)));
+        const target = viewMode === "single" ? desktop : mobile;
+        const targetPost = viewMode === "single" ? desktopPost : mobilePost;
+        const otherPost = viewMode === "single" ? mobilePost : desktopPost;
+        expect(targetPost).toHaveBeenCalledTimes(1);
+        const request = targetPost.mock.calls[0]![0] as {
+          correlationId: string;
+        };
+        const live = {
+          ...initial,
+          computedStyles: { width: "90px", color: "blue" },
+          isFlexChild: true,
+          parentDisplay: "flex",
+          parentBoundingRect: { x: 0, y: 0, width: 300, height: 100 },
+        };
+        await act(async () =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              source: target.contentWindow,
+              data: {
+                type: "agent-native:selection-measured",
+                screenId: "screen-a",
+                correlationId: request.correlationId,
+                payload: live,
+              },
+            }),
+          ),
+        );
+        expect(current).toMatchObject({
+          computedStyles: { width: "90px", color: "blue" },
+          isFlexChild: true,
+          parentDisplay: "flex",
+          parentBoundingRect: live.parentBoundingRect,
+          needsLiveMeasurement: false,
+        });
+        expect(otherPost).not.toHaveBeenCalled();
+      } finally {
+        await act(async () => root.unmount());
+        desktopPost.mockRestore();
+        mobilePost.mockRestore();
+        desktop.remove();
+        mobile.remove();
+        container.remove();
+      }
+    },
+  );
+
+  it("does not apply a reply to a newer same-selector selection", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const frame = document.createElement("iframe");
+    frame.dataset.screenIframeId = "screen-a";
+    document.body.append(frame);
+    const post = vi
+      .spyOn(frame.contentWindow!, "postMessage")
+      .mockImplementation(() => {});
+    const initial: ElementInfo = {
+      tagName: "div",
+      sourceId: "a",
+      selector: "#a",
+      classes: [],
+      computedStyles: { width: "50%", color: "red" },
+      boundingRect: { x: 0, y: 0, width: 90, height: 30 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      needsLiveMeasurement: true,
+    };
+    let current: ElementInfo | null = null;
+    let update: (value: ElementInfo) => void = () => {};
+    function Harness() {
+      const [selected, setSelected] = useState<ElementInfo | null>(initial);
+      current = selected;
+      update = setSelected;
+      useSelectionMeasurement({
+        selectedElement: selected,
+        setSelectedElement: setSelected,
+        screenId: "screen-a",
+        viewMode: "overview",
+        activeFileIdRef: { current: "screen-a" },
+      });
+      return null;
+    }
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(createElement(Harness)));
+      const request = post.mock.calls[0]![0] as { correlationId: string };
+      const newer = {
+        ...initial,
+        computedStyles: { width: "50%", color: "green" },
+      };
+      await act(async () => update(newer));
+      await act(async () =>
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: frame.contentWindow,
+            data: {
+              type: "agent-native:selection-measured",
+              screenId: "screen-a",
+              correlationId: request.correlationId,
+              payload: {
+                ...initial,
+                computedStyles: { width: "90px", color: "red" },
+              },
+            },
+          }),
+        ),
+      );
+      expect(current).toEqual(newer);
+      expect(post).toHaveBeenCalledTimes(2);
+      const currentRequest = post.mock.calls[1]![0] as {
+        correlationId: string;
+      };
+      await act(async () =>
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: frame.contentWindow,
+            data: {
+              type: "agent-native:selection-measured",
+              screenId: "screen-a",
+              correlationId: currentRequest.correlationId,
+              payload: {
+                ...newer,
+                computedStyles: { width: "90px", color: "green" },
+              },
+            },
+          }),
+        ),
+      );
+      expect(current).toMatchObject({
+        computedStyles: { width: "90px", color: "green" },
+        needsLiveMeasurement: false,
+      });
+    } finally {
+      await act(async () => root.unmount());
+      post.mockRestore();
+      frame.remove();
+      container.remove();
+    }
+  });
+});
 
 describe("sizeNeedsMeasurement", () => {
   it.each([

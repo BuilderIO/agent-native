@@ -284,7 +284,16 @@ it("routes Enter to the canvas after a trusted pointer selection", async () => {
 
   await fromFrame({
     type: "element-select",
-    payload: { selector: "#hero", sourceId: "hero" },
+    payload: {
+      tagName: "div",
+      selector: "#hero",
+      sourceId: "hero",
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 100, height: 30 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    },
     intent: { source: "pointer" },
   });
   expect(document.activeElement).toBe(designTab);
@@ -306,7 +315,16 @@ it("routes Enter to the canvas after a trusted pointer selection", async () => {
 
   await fromFrame({
     type: "element-select",
-    payload: { selector: "#hero", sourceId: "hero" },
+    payload: {
+      tagName: "div",
+      selector: "#hero",
+      sourceId: "hero",
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 100, height: 30 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    },
     intent: { source: "pointer" },
     trustedPointer: true,
   });

@@ -1,6 +1,7 @@
 import type { CodeLayerNode, CodeLayerProjection } from "@shared/code-layer";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
+import { isElementInfoPayload } from "@/components/design/design-canvas/element-payload";
 import type { CanvasLayerMarqueeSelection } from "@/components/design/multi-screen/types";
 import type {
   ElementInfo,
@@ -125,12 +126,23 @@ export function runLayerMarqueeSelectionChange(
       const node = resolveCodeLayerNodeFromElementInfo(projection, item.info);
       if (!node) return null;
       let info = item.info;
-      if (!info.computedStyles) {
+      if (info.needsLiveMeasurement || !isElementInfoPayload(info)) {
         const sourceInfo = elementInfoFromCodeLayerNode(node);
         info = {
           ...sourceInfo,
-          ...info,
-          computedStyles: sourceInfo.computedStyles,
+          boundingRect: info.boundingRect,
+          runtimeSelector:
+            typeof info.runtimeSelector === "string"
+              ? info.runtimeSelector
+              : typeof info.selector === "string"
+                ? info.selector
+                : undefined,
+          runtimeSourceId:
+            typeof info.runtimeSourceId === "string"
+              ? info.runtimeSourceId
+              : typeof info.sourceId === "string"
+                ? info.sourceId
+                : undefined,
           needsLiveMeasurement: true,
         };
       }

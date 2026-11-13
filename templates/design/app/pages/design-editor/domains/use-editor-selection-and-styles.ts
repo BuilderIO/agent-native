@@ -25,7 +25,6 @@ import { type CanvasContextMenuHandle } from "@/components/design/CanvasContextM
 import type { IframeContextMenuPayload } from "@/components/design/design-canvas/iframe-events";
 import { recordDesignPerformance } from "@/components/design/design-trace";
 import { type DesignExtensionSlotContext } from "@/components/design/DesignExtensionsPanel";
-import { sizeNeedsMeasurement } from "@/components/design/edit-panel/element-classification";
 import type { CapturedStyleTarget } from "@/components/design/edit-panel/style-change-types";
 import {
   mergeRotationValue,
@@ -34,10 +33,7 @@ import {
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import { type StyleChangeMeta } from "@/components/design/EditPanel";
 import { sendLinkedScreenPreviewInteractionStateStyle } from "@/components/design/multi-screen/linked-screen-preview";
-import {
-  designPreviewWindows,
-  requestSelectionMeasurement,
-} from "@/components/design/multi-screen/measure-selection";
+import { useSelectionMeasurement } from "@/components/design/multi-screen/measure-selection";
 import { isWheelCameraGestureActive } from "@/components/design/multi-screen/wheel-gesture-state";
 import type {
   CanvasLayerHitCandidate,
@@ -754,49 +750,17 @@ export function useEditorSelectionAndStyles({
     );
   }, []);
 
-  const measureTargetSelector =
-    selectedElement &&
-    (selectedElement.needsLiveMeasurement ||
-      sizeNeedsMeasurement(selectedElement.computedStyles))
-      ? (selectedElement.runtimeSelector ?? selectedElement.selector ?? null)
-      : null;
-  const measureTargetScreenId = activeFile?.id ?? "";
-  const measureTargetKey = measureTargetSelector
-    ? [
-        measureTargetScreenId,
-        measureTargetSelector,
-        selectedElement?.computedStyles.width ?? "",
-        selectedElement?.computedStyles.height ?? "",
-      ].join("|")
-    : null;
-  useEffect(() => {
-    if (!measureTargetSelector || !measureTargetKey) return;
-    let cancelled = false;
-    void requestSelectionMeasurement({
-      targetWindows: designPreviewWindows,
-      screenId: measureTargetScreenId,
-      selector: measureTargetSelector,
-    }).then((measured) => {
-      if (cancelled || !measured) return;
-      setSelectedElement((prev) =>
-        prev &&
-        (prev.runtimeSelector ?? prev.selector) === measureTargetSelector
-          ? {
-              ...prev,
-              boundingRect: measured.boundingRect,
-              computedStyles: measured.computedStyles,
-              needsLiveMeasurement: false,
-              inlineStyles: measured.inlineStyles,
-              authoredSizeStyles: measured.authoredSizeStyles,
-            }
-          : prev,
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [measureTargetKey]);
+  useSelectionMeasurement({
+    selectedElement,
+    setSelectedElement,
+    screenId: activeFile?.id ?? "",
+    breakpointWidth: overviewScreens.find(
+      (screen) => screen.id === activeFile?.id,
+    )?.activeBreakpointWidth,
+    viewMode,
+    boardFileId,
+    activeFileIdRef,
+  });
 
   const pendingLiveStyleGestureIdForPhase = useCallback(
     (phase?: StyleChangeMeta["phase"]) => {

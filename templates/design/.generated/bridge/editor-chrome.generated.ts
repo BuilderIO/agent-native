@@ -6664,6 +6664,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         selector: getSelector(el),
         classes: Array.from(el.classList),
         computedStyles: {},
+        needsLiveMeasurement: true,
         boundingRect: {
           x: rect.x + (window.scrollX || window.pageXOffset || 0),
           y: rect.y + (window.scrollY || window.pageYOffset || 0),

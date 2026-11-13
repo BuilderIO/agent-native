@@ -1,37 +1,95 @@
+import {
+  useEffect,
+  useRef,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from "react";
+
+import { isElementInfoPayload } from "../design-canvas/element-payload";
+import { sizeNeedsMeasurement } from "../edit-panel/element-classification";
 import type { ElementInfo } from "../types";
 import {
   findCanvasIframeForScreen,
   getBreakpointIframeId,
 } from "./iframe-targeting";
 
-function isStringMap(value: unknown): value is Record<string, string> {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    Object.values(value).every((entry) => typeof entry === "string")
-  );
-}
-
-function isMeasurement(value: unknown): value is ElementInfo {
-  if (!value || typeof value !== "object") return false;
-  const info = value as Partial<ElementInfo>;
-  const rect = info.boundingRect;
-  return (
-    typeof info.tagName === "string" &&
-    Array.isArray(info.classes) &&
-    info.classes.every((name) => typeof name === "string") &&
-    isStringMap(info.computedStyles) &&
-    (info.inlineStyles === undefined || isStringMap(info.inlineStyles)) &&
-    (info.authoredSizeStyles === undefined ||
-      isStringMap(info.authoredSizeStyles)) &&
-    typeof info.isFlexChild === "boolean" &&
-    typeof info.isFlexContainer === "boolean" &&
-    !!rect &&
-    [rect.x, rect.y, rect.width, rect.height].every(
-      (number) => typeof number === "number" && Number.isFinite(number),
+export function useSelectionMeasurement({
+  selectedElement,
+  setSelectedElement,
+  screenId,
+  breakpointWidth,
+  viewMode,
+  boardFileId,
+  activeFileIdRef,
+}: {
+  selectedElement: ElementInfo | null;
+  setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
+  screenId: string;
+  breakpointWidth?: number;
+  viewMode: "single" | "overview";
+  boardFileId?: string;
+  activeFileIdRef: RefObject<string | null>;
+}) {
+  const lastMeasured = useRef<ElementInfo | null>(null);
+  const selector =
+    selectedElement &&
+    (selectedElement.needsLiveMeasurement ||
+      sizeNeedsMeasurement(selectedElement.computedStyles))
+      ? (selectedElement.runtimeSelector ?? selectedElement.selector ?? null)
+      : null;
+  useEffect(() => {
+    if (
+      !selector ||
+      !selectedElement ||
+      !screenId ||
+      lastMeasured.current === selectedElement
     )
-  );
+      return;
+    let cancelled = false;
+    void requestSelectionMeasurement({
+      targetWindows: () =>
+        designPreviewWindowsForScreen(
+          screenId,
+          viewMode === "overview" ? breakpointWidth : undefined,
+          viewMode === "overview" ? boardFileId : undefined,
+        ),
+      screenId,
+      selector,
+    }).then((measured) => {
+      if (cancelled || !measured || activeFileIdRef.current !== screenId)
+        return;
+      const next: ElementInfo = {
+        ...selectedElement,
+        ...measured,
+        selector: selectedElement.selector,
+        sourceId: selectedElement.sourceId,
+        runtimeSelector: selectedElement.runtimeSelector,
+        runtimeSourceId: selectedElement.runtimeSourceId,
+        sourceLayerIdentity: selectedElement.sourceLayerIdentity,
+        classes: selectedElement.classes,
+        needsLiveMeasurement: false,
+      };
+      lastMeasured.current = next;
+      setSelectedElement((prev) =>
+        prev === selectedElement && activeFileIdRef.current === screenId
+          ? next
+          : prev,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedElement,
+    selector,
+    screenId,
+    breakpointWidth,
+    viewMode,
+    boardFileId,
+    activeFileIdRef,
+    setSelectedElement,
+  ]);
 }
 
 export async function requestSelectionMeasurement(args: {
@@ -82,7 +140,7 @@ function measureOnce(args: {
         return;
       }
       const payload: unknown = event.data.payload;
-      if (isMeasurement(payload)) settle(payload);
+      if (isElementInfoPayload(payload)) settle(payload);
     };
     window.addEventListener("message", listener);
     for (const target of targets) {

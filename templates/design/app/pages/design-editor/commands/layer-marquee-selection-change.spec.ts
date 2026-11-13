@@ -97,6 +97,38 @@ describe("runLayerMarqueeSelectionChange", () => {
     });
   });
 
+  it("uses source styles for an explicitly lightweight marquee hit", () => {
+    const info = {
+      ...elementInfo("kid-a", "section"),
+      needsLiveMeasurement: true,
+    };
+    const result = runMarqueeSelection(
+      [{ screenId: "screen-a", info }],
+      false,
+      '<main><section data-agent-native-node-id="kid-a" style="width: 50%">Kid A</section></main>',
+    );
+    expect(result.selectedElement).toMatchObject({
+      computedStyles: { width: "50%" },
+      needsLiveMeasurement: true,
+    });
+  });
+
+  it("uses source styles instead of accepting malformed live styles on a hit", () => {
+    const info = {
+      ...elementInfo("kid-a", "section"),
+      computedStyles: { width: 42 },
+    } as unknown as ElementInfo;
+    const result = runMarqueeSelection(
+      [{ screenId: "screen-a", info }],
+      false,
+      '<main><section data-agent-native-node-id="kid-a" style="width: 50%">Kid A</section></main>',
+    );
+    expect(result.selectedElement).toMatchObject({
+      computedStyles: { width: "50%" },
+      needsLiveMeasurement: true,
+    });
+  });
+
   it("preserves live computed styles for a full marquee hit", () => {
     const info = elementInfo("kid-a", "section");
     info.computedStyles = { width: "90px", color: "blue" };
