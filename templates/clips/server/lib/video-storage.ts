@@ -53,6 +53,7 @@ export const HOSTED_STORAGE_UNAVAILABLE_REASON =
   "Clips hosted storage is temporarily unavailable. Try again later.";
 
 export class VideoStorageStatusUnavailableError extends Error {
+  readonly statusCode = 503;
   readonly causes: unknown[];
 
   constructor(causes: unknown[]) {
