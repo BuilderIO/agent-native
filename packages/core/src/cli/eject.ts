@@ -1050,10 +1050,16 @@ function targetForSpecifier(
         prefix.length,
         specifier.length - suffix.length || undefined,
       );
+      const wildcardPath =
+        wildcard.startsWith("/") && !prefix.endsWith("/")
+          ? wildcard.slice(1)
+          : wildcard;
       if (
-        !isSafeRelative(wildcard) ||
-        wildcard.includes("\0") ||
-        wildcard.split("/").some((segment) => segment === "" || segment === ".")
+        !isSafeRelative(wildcardPath) ||
+        wildcardPath.includes("\0") ||
+        wildcardPath
+          .split("/")
+          .some((segment) => segment === "" || segment === ".")
       ) {
         throw new Error(`Unsafe wildcard in eject import: ${specifier}`);
       }
@@ -1065,7 +1071,7 @@ function targetForSpecifier(
         targetRoot,
         unit,
         packageDir,
-        path.join(sourceBase, wildcard),
+        path.join(sourceBase, wildcardPath),
       );
     }
     if (specifier === publicSpecifier) {
