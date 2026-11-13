@@ -19,23 +19,33 @@ const DEFAULT_DEPLOY_ARGS = [
   `--functions=${DEFAULT_FUNCTIONS_DIR}`,
 ];
 
+function optionValue(
+  args: string[],
+  long: string,
+  short: string,
+): string | undefined {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? "";
+    if (arg.startsWith(`${long}=`)) return arg.slice(long.length + 1);
+    if (arg === long || arg === short) return args[i + 1] ?? "";
+    if (arg.startsWith(`${short}=`)) return arg.slice(short.length + 1);
+  }
+  return undefined;
+}
+
 /** No args means the full default publish; otherwise only the paths the manifest depends on are filled in. */
-function withPathDefaults(args: string[]): string[] {
+export function withPathDefaults(args: string[]): string[] {
   if (args.length === 0) return DEFAULT_DEPLOY_ARGS;
-  const has = (flag: string) =>
-    args.some((arg) => arg === flag || arg.startsWith(`${flag}=`));
   const merged = [...args];
-  if (!has("--dir")) merged.push("--dir=dist");
-  if (!has("--functions")) merged.push(`--functions=${DEFAULT_FUNCTIONS_DIR}`);
+  if (optionValue(args, "--dir", "-d") === undefined) merged.push("--dir=dist");
+  if (optionValue(args, "--functions", "-f") === undefined) {
+    merged.push(`--functions=${DEFAULT_FUNCTIONS_DIR}`);
+  }
   return merged;
 }
 
-function functionsDirOf(args: string[]): string {
-  const inline = args.find((arg) => arg.startsWith("--functions="));
-  if (inline) return inline.slice("--functions=".length);
-  const flagAt = args.indexOf("--functions");
-  const next = flagAt === -1 ? undefined : args[flagAt + 1];
-  return next ?? DEFAULT_FUNCTIONS_DIR;
+export function functionsDirOf(args: string[]): string {
+  return optionValue(args, "--functions", "-f") || DEFAULT_FUNCTIONS_DIR;
 }
 
 /**
