@@ -1587,6 +1587,7 @@ describe("loadRecordingMediaBytes", () => {
     const other = await mkdtemp(join(root, "other-worker-"));
     const previous = process.env.TMPDIR;
     const remove = mockRm.getMockImplementation();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
     let blocked = true;
     process.env.TMPDIR = root;
     try {
@@ -1610,6 +1611,10 @@ describe("loadRecordingMediaBytes", () => {
         statusCode: 502,
         cleanupError: expect.objectContaining({ code: "EACCES" }),
       });
+      expect(log).toHaveBeenCalledWith(
+        "[agent-frame] Media cleanup failed.",
+        "EACCES",
+      );
       expect(await readdir(root)).toHaveLength(2);
       blocked = false;
       mockSsrfSafeFetch.mockResolvedValueOnce(new Response("12345"));
@@ -1622,6 +1627,7 @@ describe("loadRecordingMediaBytes", () => {
         await media.cleanup();
       }
     } finally {
+      log.mockRestore();
       if (remove) mockRm.mockImplementation(remove);
       if (previous === undefined) delete process.env.TMPDIR;
       else process.env.TMPDIR = previous;

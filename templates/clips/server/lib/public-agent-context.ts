@@ -63,6 +63,7 @@ import { recordAgentView } from "./agent-views.js";
 import { isSupportedImageMimeType } from "./image-signature.js";
 import {
   RecordingMediaFetchError,
+  logFrameMediaCleanupFailure,
   sanitizeRecordingMediaError,
 } from "./recording-media-fetch-error.js";
 import {
@@ -1645,6 +1646,7 @@ export async function loadRecordingMediaFile(
     try {
       await cleanup();
     } catch (cleanupError) {
+      logFrameMediaCleanupFailure(cleanupError);
       throw Object.assign(
         error instanceof Error
           ? error
