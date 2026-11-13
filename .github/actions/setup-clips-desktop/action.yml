@@ -1,22 +1,31 @@
 name: Set up the Clips desktop build
 description: >-
   Installs what a Clips desktop build needs on this runner: the workspace,
-  the Linux system libraries, Rust with the requested targets, and on macOS
-  the universal ffmpeg sidecar. The build check and the release both use it,
+  the Linux system libraries, Rust for the requested target, and on macOS
+  that target's ffmpeg sidecar. The build check and the release both use it,
   so a toolchain change that would break the release fails the check first.
   Requires actions/checkout to have already run.
 
 inputs:
-  rust-targets:
+  target:
     description: >-
-      Extra Rust targets, comma-separated. The universal macOS build needs
-      aarch64-apple-darwin and x86_64-apple-darwin.
+      Rust target to build. Required on macOS, where each architecture
+      builds on its own runner: aarch64-apple-darwin or x86_64-apple-darwin.
+      Empty builds for the runner's own platform.
     required: false
     default: ""
 
 runs:
   using: composite
   steps:
+    - name: Check the macOS target
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        case "${{ inputs.target }}" in aarch64-apple-darwin|x86_64-apple-darwin) ;; *)
+          echo "::error::setup-clips-desktop: macOS needs target aarch64-apple-darwin or x86_64-apple-darwin (got '${{ inputs.target }}')"; exit 1;;
+        esac
+
     - name: Set the macOS deployment target
       if: runner.os == 'macOS'
       shell: bash
@@ -48,7 +57,7 @@ runs:
     - name: Install Rust
       uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       with:
-        targets: ${{ inputs.rust-targets }}
+        targets: ${{ inputs.target }}
 
     - name: Link Apple compiler runtime for Rust
       if: runner.os == 'macOS'
@@ -61,7 +70,8 @@ runs:
         echo "RUSTFLAGS=${RUSTFLAGS:-} -C link-arg=${CLANG_RUNTIME}" >> "$GITHUB_ENV"
 
     # After RUSTFLAGS is set: the cache key includes it. The shared key drops
-    # the job name, which kept the daily check from ever feeding a release.
+    # the job name, which kept the daily check from ever feeding a release,
+    # and names the target, which the runner's OS and CPU in the key do not.
     # Only main saves: a release runs on its clips-v tag and a pull request on
     # its merge ref, and only later runs of that same ref can read a cache
     # saved there, so it never hits and only evicts the ones that would.
@@ -69,7 +79,7 @@ runs:
       uses: swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       with:
         workspaces: templates/clips/desktop/src-tauri
-        shared-key: clips-desktop
+        shared-key: ${{ inputs.target && format('clips-desktop-{0}', inputs.target) || 'clips-desktop' }}
         save-if: ${{ github.ref == 'refs/heads/main' }}
 
     # The prepare script pins the FFmpeg tag, checksum and configure line, so
@@ -81,29 +91,22 @@ runs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: templates/clips/desktop/src-tauri/binaries/.cache
-        key: clips-ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('templates/clips/desktop/scripts/prepare-ffmpeg-sidecar.ts') }}
+        key: clips-ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ inputs.target }}-${{ hashFiles('templates/clips/desktop/scripts/prepare-ffmpeg-sidecar.ts') }}
 
     - name: Install NASM for x86_64 ffmpeg sidecar
-      if: runner.os == 'macOS' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
+      if: runner.os == 'macOS' && inputs.target == 'x86_64-apple-darwin' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
       shell: bash
       run: if ! command -v nasm >/dev/null 2>&1; then brew install nasm; fi
 
-    # Tauri's build script checks the macOS externalBin exists, so cargo test
-    # needs the native sidecar too, not only the bundle.
-    - name: Prepare the universal macOS ffmpeg sidecar
+    # Tauri's build script checks the target's externalBin exists, so cargo
+    # needs the sidecar before it compiles, not only the bundle.
+    - name: Prepare the macOS ffmpeg sidecar
       if: runner.os == 'macOS'
       working-directory: templates/clips/desktop
       shell: bash
-      run: |
-        CLIPS_FFMPEG_TARGET_TRIPLE=aarch64-apple-darwin pnpm run prepare:ffmpeg
-        CLIPS_FFMPEG_TARGET_TRIPLE=x86_64-apple-darwin pnpm run prepare:ffmpeg
-        cd src-tauri
-        lipo -create \
-          binaries/ffmpeg-aarch64-apple-darwin \
-          binaries/ffmpeg-x86_64-apple-darwin \
-          -output binaries/ffmpeg-universal-apple-darwin
-        chmod +x binaries/ffmpeg-universal-apple-darwin
-        lipo binaries/ffmpeg-universal-apple-darwin -verify_arch arm64 x86_64
+      env:
+        CLIPS_FFMPEG_TARGET_TRIPLE: ${{ inputs.target }}
+      run: pnpm run prepare:ffmpeg
 
     - name: Save the ffmpeg sidecar build
       if: runner.os == 'macOS' && github.ref == 'refs/heads/main' && steps.ffmpeg-cache.outputs.cache-hit != 'true'
