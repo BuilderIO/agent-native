@@ -687,22 +687,27 @@ async function resolveWorkspaceAppForUrl(
   rawUrl: string,
 ): Promise<{ appUrl: string; relUrl: string } | null> {
   if (!/^https?:\/\//i.test(rawUrl)) return null;
+  const selfId = currentAppId(config);
+  const candidates: string[] = [];
   try {
     const { resolveWorkspace } = await import("./workspace-resolve.js");
     const ws = await resolveWorkspace();
-    if (!ws.isWorkspace) return null;
-    const selfId = currentAppId(config);
-    for (const app of ws.apps) {
-      if (app.id.toLowerCase() === selfId) continue;
-      const appUrl = app.url.replace(/\/+$/, "");
-      if (!rawUrl.startsWith(appUrl)) continue;
-      const rest = rawUrl.slice(appUrl.length);
-      if (rest && !/^[/?#]/.test(rest)) continue;
-      return { appUrl, relUrl: rest.startsWith("/") ? rest : `/${rest}` };
+    if (ws.isWorkspace) {
+      for (const app of ws.apps) {
+        if (app.id.toLowerCase() !== selfId) candidates.push(app.url);
+      }
     }
   } catch {
-    // coercion-ok: an unresolvable workspace leaves the URL as a non-embeddable foreign one.
-    return null;
+    // coercion-ok: an unreadable local workspace still leaves the org directory to check.
+  }
+  const orgApps = await fetchOrgApps({ selfId }).catch(() => [] as OrgApp[]);
+  for (const app of orgApps) candidates.push(app.url);
+  for (const candidate of candidates) {
+    const appUrl = candidate.replace(/\/+$/, "");
+    if (!rawUrl.startsWith(appUrl)) continue;
+    const rest = rawUrl.slice(appUrl.length);
+    if (rest && !/^[/?#]/.test(rest)) continue;
+    return { appUrl, relUrl: rest.startsWith("/") ? rest : `/${rest}` };
   }
   return null;
 }

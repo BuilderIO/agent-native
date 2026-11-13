@@ -1669,6 +1669,33 @@ describe("open_app — sibling workspace apps on the same origin", () => {
     expect(result.targetPath).toBe("/inbox?thread=1&__an_mcp_chat_bridge=1");
   });
 
+  it("renews a sibling that only the org directory knows about", async () => {
+    process.env.A2A_SECRET = "workspace-secret";
+    vi.spyOn(workspaceResolve, "resolveWorkspace").mockResolvedValue({
+      root: "/app",
+      isWorkspace: false,
+      apps: [],
+    });
+    vi.spyOn(orgDirectory, "fetchOrgApps").mockResolvedValue([
+      {
+        id: "mail",
+        name: "Mail",
+        url: "https://labs.test/mail-2",
+        a2aUrl: "https://labs.test/mail-2",
+      } as any,
+    ]);
+
+    const result: any = await runWithRequestContext(dispatchContext, () =>
+      dispatch().create_embed_session.run({
+        url: "https://labs.test/mail-2/inbox",
+      }),
+    );
+
+    expect(new URL(result.startUrl).pathname).toBe(
+      "/mail-2/_agent-native/embed/start",
+    );
+  });
+
   it("still refuses a URL that belongs to no workspace app", async () => {
     process.env.A2A_SECRET = "workspace-secret";
     mockWorkspace("https://labs.test/mail-2");
