@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import {
   SINGLE_CONNECTION_NEON_URL,
@@ -455,23 +455,49 @@ describe("password sign-up on a one-connection Neon pool", () => {
     });
     const callbackURL = "https://workspace.example.test/after-auth";
 
-    await auth.api.signUpEmail({
-      body: {
-        email: "verify-me@example.test",
-        password: "correct-horse-battery",
-        name: "verify-me",
-        callbackURL,
-      },
-      headers: new Headers({ "user-agent": "vitest" }),
+    const { registerTrackingProvider, unregisterTrackingProvider } =
+      await import("../tracking/index.js");
+    const track = vi.fn();
+    const providerName = "email-verification-test";
+    registerTrackingProvider({ name: providerName, track });
+    onTestFinished(() => {
+      unregisterTrackingProvider(providerName);
     });
 
+    const signupResponse = await auth.handler(
+      new Request(
+        "https://design.example.test/workspace/_platform/auth/ba/sign-up/email",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "https://design.example.test",
+          },
+          body: JSON.stringify({
+            email: "verify-me@example.com",
+            password: "correct-horse-battery",
+            name: "verify-me",
+            callbackURL,
+          }),
+        },
+      ),
+    );
+    expect(signupResponse.status).toBe(200);
+
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(track).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "signup",
+        userId: "verify-me@example.com",
+        properties: expect.objectContaining({ email_verified: false }),
+      }),
+    );
     expect(
       (await pglite.query(`SELECT email, email_verified FROM "user"`)).rows,
-    ).toEqual([{ email: "verify-me@example.test", email_verified: false }]);
+    ).toEqual([{ email: "verify-me@example.com", email_verified: false }]);
     expect(
       (await pglite.query(`SELECT recipient, status FROM email_log`)).rows,
-    ).toEqual([{ recipient: "verify-me@example.test", status: "sent" }]);
+    ).toEqual([{ recipient: "verify-me@example.com", status: "sent" }]);
 
     const payload = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
       html: string;
@@ -515,10 +541,13 @@ describe("password sign-up on a one-connection Neon pool", () => {
       new Request(rejectedCallbackResponse.headers.get("location")!),
     );
     expect(rejectedVerificationResponse.status).toBe(403);
+    expect(track).not.toHaveBeenCalledWith(
+      expect.objectContaining({ name: "email_verified" }),
+    );
     expect(
       (
         await pglite.query(
-          `SELECT email_verified FROM "user" WHERE email = 'verify-me@example.test'`,
+          `SELECT email_verified FROM "user" WHERE email = 'verify-me@example.com'`,
         )
       ).rows,
     ).toEqual([{ email_verified: false }]);
@@ -532,6 +561,16 @@ describe("password sign-up on a one-connection Neon pool", () => {
     );
     expect(verificationResponse.status).toBe(302);
     expect(verificationResponse.headers.get("location")).toBe(callbackURL);
+    expect(track).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "email_verified",
+        userId: "verify-me@example.com",
+        properties: expect.objectContaining({
+          auth_user_id: expect.any(String),
+          email_verified: true,
+        }),
+      }),
+    );
     const cookieHeader = verificationResponse.headers
       .getSetCookie()
       .map((cookie) => cookie.split(";")[0])
@@ -539,14 +578,14 @@ describe("password sign-up on a one-connection Neon pool", () => {
     const session = await auth.api.getSession({
       headers: new Headers({ cookie: cookieHeader }),
     });
-    expect(session?.user.email).toBe("verify-me@example.test");
+    expect(session?.user.email).toBe("verify-me@example.com");
     expect(
       (
         await pglite.query(
           `SELECT email FROM "user" WHERE email_verified = TRUE`,
         )
       ).rows,
-    ).toEqual([{ email: "verify-me@example.test" }]);
+    ).toEqual([{ email: "verify-me@example.com" }]);
     expect((await pglite.query(`SELECT id FROM "session"`)).rows).toHaveLength(
       1,
     );

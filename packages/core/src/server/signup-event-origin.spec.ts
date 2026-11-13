@@ -137,15 +137,19 @@ describe("emitSignupEventForCreatedUser", () => {
 
   it("labels a signup created by magic-link verification", async () => {
     const headers = headersWithCookie("an_aid=anon_magic_1");
-    await emitSignupEventForCreatedUser(USER, {
-      request: {
-        headers,
-        url: "/_agent-native/auth/ba/magic-link/verify?newUserCallbackURL=%2F",
+    await emitSignupEventForCreatedUser(
+      { ...USER, emailVerified: true },
+      {
+        request: {
+          headers,
+          url: "/_agent-native/auth/ba/magic-link/verify?newUserCallbackURL=%2F",
+        },
       },
-    });
+    );
 
     expect(tracked[0]?.properties).toMatchObject({
       signup_method: "magic_link",
+      email_verified: true,
     });
   });
 
@@ -163,6 +167,7 @@ describe("emitSignupEventForCreatedUser", () => {
 
     expect(tracked).toHaveLength(1);
     expect(tracked[0].properties).not.toHaveProperty("referral_source");
+    expect(tracked[0].properties).not.toHaveProperty("email_verified");
     expect(tracked[0].source?.anonymousId).toBeUndefined();
   });
 

@@ -212,14 +212,14 @@ const EXISTING_ACCOUNT_VERIFICATION_COOLDOWN_MS = 5 * 60_000;
 // Signup delivery holds its transaction, connection, and per-address lock.
 const VERIFICATION_EMAIL_TIMEOUT_MS = 10_000;
 
-async function flushSignupTracking(): Promise<void> {
+async function flushAuthTracking(): Promise<void> {
   try {
     await Promise.race([
       flushTracking(),
       new Promise<void>((resolve) => setTimeout(resolve, 1500)),
     ]);
   } catch {
-    // Signup should never fail because analytics delivery did.
+    // Authentication should never fail because analytics delivery did.
   }
 }
 
@@ -283,7 +283,12 @@ function signupMethodFromRequestUrl(
 }
 
 export async function emitSignupEventForCreatedUser(
-  user: { id?: string; email?: string; name?: string | null },
+  user: {
+    id?: string;
+    email?: string;
+    name?: string | null;
+    emailVerified?: boolean;
+  },
   context?: BetterAuthUserCreateContext | null,
 ): Promise<void> {
   const email = user?.email;
@@ -395,6 +400,7 @@ export async function emitSignupEventForCreatedUser(
     signupMethod: signupMethodFromRequestUrl(context?.request?.url),
     authUserId: user.id,
     email,
+    emailVerified: user.emailVerified,
     name: user.name,
     attribution: eventAttribution,
     anonymousId: eventAnonymousId,
@@ -422,6 +428,7 @@ export async function trackSignupEvent({
   signupMethod,
   authUserId,
   email,
+  emailVerified,
   name,
   attribution,
   anonymousId,
@@ -432,6 +439,7 @@ export async function trackSignupEvent({
   signupMethod?: "google" | "magic_link" | "password";
   authUserId?: string;
   email: string;
+  emailVerified?: boolean;
   name?: string | null;
   /**
    * First-touch referral attribution derived from the visitor's `an_ft`
@@ -454,7 +462,11 @@ export async function trackSignupEvent({
   const cleanAttribution: Record<string, string> = {};
   if (attribution) {
     for (const [key, value] of Object.entries(attribution)) {
-      if (typeof value === "string" && value.length > 0) {
+      if (
+        key !== "email_verified" &&
+        typeof value === "string" &&
+        value.length > 0
+      ) {
         cleanAttribution[key] = value;
       }
     }
@@ -468,6 +480,9 @@ export async function trackSignupEvent({
       ...(signupMethod ? { signup_method: signupMethod } : {}),
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
+      ...(typeof emailVerified === "boolean"
+        ? { email_verified: emailVerified }
+        : {}),
     },
     {
       userId: email,
@@ -476,7 +491,7 @@ export async function trackSignupEvent({
       ...(sessionId ? { sessionId } : {}),
     },
   );
-  await flushSignupTracking();
+  await flushAuthTracking();
 }
 
 export const DEV_AUTH_SECRET_PATH = path.join(
@@ -2500,6 +2515,14 @@ async function createBetterAuthInstance(
       autoSignInAfterVerification: true,
       sendVerificationEmail,
       afterEmailVerification: async (user, request) => {
+        if (user.emailVerified === true) {
+          track(
+            "email_verified",
+            { ...resolveSignupTrackingProperties(), email_verified: true },
+            { userId: user.email, authUserId: user.id },
+          );
+          await flushAuthTracking();
+        }
         if (!request) return;
         const token = new URL(request.url).searchParams.get("token");
         if (!token) return;

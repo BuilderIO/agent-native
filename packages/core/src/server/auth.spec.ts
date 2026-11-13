@@ -12451,6 +12451,7 @@ describe("server/auth", () => {
         signupMethod: "google",
         authUserId: "better-auth-user-id",
         email: "user@gmail.com",
+        emailVerified: true,
         name: "Google User",
         attribution: {
           referral_source: "plan_share",
@@ -12526,6 +12527,7 @@ describe("server/auth", () => {
         signupMethod: "google",
         authUserId: "better-auth-user-id",
         email: "user@gmail.com",
+        emailVerified: true,
         name: "Google User",
         attribution: {
           referral_source: "docs",
