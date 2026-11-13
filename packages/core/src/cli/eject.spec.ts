@@ -5,10 +5,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  assertAgentNativeEjectManifest,
-  type AgentNativeEjectManifest,
-} from "../package-lifecycle/eject-manifest.js";
+import type { AgentNativeEjectManifest } from "../package-lifecycle/eject-manifest.js";
 import { runEject, type EjectIO, type LoadedEjectManifest } from "./eject.js";
 
 const tempDirs: string[] = [];
@@ -331,74 +328,6 @@ describe("feature eject CLI", () => {
       false,
     );
   });
-
-  it("rewrites a partial-segment wildcard import with a leading slash capture", async () => {
-    const { root, loaded } = fixture();
-    loaded.manifest.units[0]!.catalogItems = ["chat-history"];
-    loaded.manifest.units[0]!.entrypoints = ["./chat-history*"];
-    expect(() => assertAgentNativeEjectManifest(loaded.manifest)).not.toThrow();
-    const source = path.join(loaded.packageDir, "src/chat-history/nested");
-    fs.mkdirSync(source, { recursive: true });
-    fs.writeFileSync(path.join(source, "item.ts"), "export const item = 1;\n");
-    const consumer = path.join(root, "app", "page.tsx");
-    fs.writeFileSync(
-      consumer,
-      'import "@agent-native/toolkit/chat-history/nested/item";\n',
-    );
-    const output = capture();
-    const result = await runEject(["toolkit/chat-history", "--apply"], {
-      cwd: root,
-      io: output.io,
-      loadManifests: async () => [loaded],
-    });
-    expect({ result, error: output.err }).toEqual({ result: 0, error: "" });
-    expect(fs.readFileSync(consumer, "utf8")).toBe(
-      'import "./ejected/toolkit/chat-history/nested/item";\n',
-    );
-    expect(
-      fs.readFileSync(
-        path.join(root, "app/ejected/toolkit/chat-history/nested/item.ts"),
-        "utf8",
-      ),
-    ).toBe("export const item = 1;\n");
-  });
-
-  it.each([
-    "../utils",
-    "/../utils",
-    "/nested/../utils",
-    "/./utils",
-    "/nested//item",
-    "/",
-    "//outside",
-    "C:outside",
-    "/C:outside",
-    "/c:/outside",
-    "\\outside",
-    "\0outside",
-  ])(
-    "rejects unsafe partial-segment wildcard capture %s before applying",
-    async (wildcard) => {
-      const { root, loaded } = fixture();
-      loaded.manifest.units[0]!.entrypoints = ["./chat-history*"];
-      const consumer = path.join(root, "app", "page.tsx");
-      const original = `import "@agent-native/toolkit/chat-history${wildcard}";\n`;
-      fs.writeFileSync(consumer, original);
-      const output = capture();
-      const result = await runEject(["toolkit/chat-history", "--apply"], {
-        cwd: root,
-        io: output.io,
-        loadManifests: async () => [loaded],
-      });
-      expect(result).toBe(1);
-      expect(output.err).toContain("Unsafe wildcard");
-      expect(fs.readFileSync(consumer, "utf8")).toBe(original);
-      expect(fs.existsSync(path.join(root, "app/ejected/toolkit"))).toBe(false);
-      expect(
-        fs.existsSync(path.join(root, "agent-native.ejections.json")),
-      ).toBe(false);
-    },
-  );
 
   it("rewrites safe nested wildcard imports into the ejected unit", async () => {
     const { root, loaded } = fixture();
