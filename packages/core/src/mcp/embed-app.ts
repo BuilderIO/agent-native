@@ -1799,6 +1799,7 @@ export function embedApp(
       ${ctx.catalogMode === "directory" ? "" : 'frame.allow = "clipboard-read; clipboard-write";'}
       appFrame = frame;
       appFrameReady = false;
+      notifyViewToolsChanged();
       lastFrameSrc = src;
       appFrameDocumentState.loadGeneration += 1;
       frame.addEventListener("load", () => {

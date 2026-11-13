@@ -2587,6 +2587,49 @@ return requestFullscreenOnFirstInteraction;`;
       expect(await tools.listViewTools()).toEqual([]);
     });
 
+    it("tells the host its tool list changed when a nested frame mounts", () => {
+      const resource = embedApp({ title: "Mail" });
+      const html =
+        typeof resource.html === "function"
+          ? resource.html({ actionName: "open_app", appId: "mail" })
+          : resource.html;
+      const renderFrameSource = html.match(
+        /    function renderFrame\([^)]*\) \{[\s\S]*?\n    \}\n/,
+      )?.[0];
+      expect(renderFrameSource).toBeTruthy();
+      let notified = 0;
+      const mount = new Function(
+        "document",
+        "body",
+        "stage",
+        "notifyViewToolsChanged",
+        `let appFrame = null;
+let appFrameReady = true;
+let lastFrameSrc = "";
+let appFrameLoadTimer = null;
+const appFrameDocumentState = { loadGeneration: 0 };
+const frameLoadTimeoutMs = 1000;
+const noop = () => {};
+const rememberActiveEmbedSessionTicket = noop;
+const clearFrameReadyTimer = noop;
+const clearFrameLoadTimer = noop;
+const notifyHostHeight = noop;
+const renderFrameFallback = noop;
+const setTimeout = () => 0;
+${renderFrameSource}
+return (src) => { renderFrame(src); return appFrame; };`,
+      )(
+        { createElement: () => ({ addEventListener() {} }) },
+        { dataset: {} },
+        { replaceChildren() {} },
+        () => notified++,
+      ) as (src: string) => { src: string } | null;
+
+      const frame = mount("https://labs.example.com/calendar/week");
+      expect(frame?.src).toBe("https://labs.example.com/calendar/week");
+      expect(notified).toBe(1);
+    });
+
     it("asks Claude to open the view in its side panel", () => {
       const resource = embedApp({ title: "Mail" });
       expect(resource._meta).toEqual({
