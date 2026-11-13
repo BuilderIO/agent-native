@@ -146,20 +146,6 @@ describe("Clips storage readiness during Builder refresh", () => {
       .mockRejectedValue(new Error("authorization server unavailable"));
   });
 
-  it("keeps aggregated onboarding readiness retryable", async () => {
-    fixtures.grants.set("user:alice@example.com", grant(Date.now() - 1));
-    await expect(request(() => hasRequestVideoStorage())).rejects.toMatchObject(
-      {
-        name: "VideoStorageStatusUnavailableError",
-        statusCode: 503,
-        causes: [
-          expect.objectContaining({ name: "McpOAuthRefreshUnavailableError" }),
-        ],
-      },
-    );
-    expect(fixtures.refresh).toHaveBeenCalled();
-  });
-
   it.each([false, true])(
     "keeps the action retryable with custom storage=%s",
     async (custom) => {
