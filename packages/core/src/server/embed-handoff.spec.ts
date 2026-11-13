@@ -144,6 +144,25 @@ describe("embed handoff between workspace apps", () => {
     expect(createEmbedSessionTicket).not.toHaveBeenCalled();
   });
 
+  it("refuses a handoff dated in the future", async () => {
+    const jose = await import("jose");
+    const now = Math.floor(Date.now() / 1000);
+    const token = await new jose.SignJWT({
+      sub: "owner@example.com",
+      scope: "embed-handoff",
+      jti: "j3",
+      embed_target: "/inbox",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setAudience(MAIL_START)
+      .setIssuedAt(now + 3600)
+      .setExpirationTime(now + 3700)
+      .sign(new TextEncoder().encode("workspace-secret"));
+
+    await expect(embedTicketFromHandoff(event, token)).resolves.toBeNull();
+    expect(createEmbedSessionTicket).not.toHaveBeenCalled();
+  });
+
   it("mints nothing without the workspace secret", async () => {
     vi.stubEnv("A2A_SECRET", "");
 

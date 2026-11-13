@@ -1733,6 +1733,32 @@ describe("open_app — sibling workspace apps on the same origin", () => {
     ).rejects.toThrow(/could not look up the workspace apps/);
   });
 
+  it("never mints a caller ticket for a sibling URL it cannot hand off", async () => {
+    delete process.env.APP_BASE_PATH;
+    mockWorkspace("https://labs.test/mail-2");
+    const createTicket = vi.spyOn(embedSession, "createEmbedSessionTicket");
+
+    await expect(
+      runWithRequestContext(dispatchContext, () =>
+        dispatch().create_embed_session.run({
+          url: "https://labs.test/mail-2/inbox",
+        }),
+      ),
+    ).rejects.toThrow(/cannot embed this workspace app/);
+
+    vi.spyOn(workspaceResolve, "resolveWorkspace").mockRejectedValue(
+      new Error("workspace unreadable"),
+    );
+    await expect(
+      runWithRequestContext(dispatchContext, () =>
+        dispatch().create_embed_session.run({
+          url: "https://labs.test/mail-2/inbox",
+        }),
+      ),
+    ).rejects.toThrow(/could not look up the workspace apps/);
+    expect(createTicket).not.toHaveBeenCalled();
+  });
+
   it("still refuses a URL that belongs to no workspace app", async () => {
     process.env.A2A_SECRET = "workspace-secret";
     mockWorkspace("https://labs.test/mail-2");

@@ -14,6 +14,7 @@ export const EMBED_HANDOFF_QUERY_PARAM = "handoff";
 
 const EMBED_HANDOFF_SCOPE = "embed-handoff";
 const EMBED_HANDOFF_TTL_SECONDS = 120;
+const EMBED_HANDOFF_CLOCK_SKEW_SECONDS = 30;
 
 function embedStartAudience(appUrl: string): string {
   const url = new URL(appUrl);
@@ -88,7 +89,8 @@ export async function embedTicketFromHandoff(
   if (
     typeof claims.iat !== "number" ||
     typeof claims.exp !== "number" ||
-    claims.exp - claims.iat > EMBED_HANDOFF_TTL_SECONDS
+    claims.exp - claims.iat > EMBED_HANDOFF_TTL_SECONDS ||
+    claims.iat > Date.now() / 1000 + EMBED_HANDOFF_CLOCK_SKEW_SECONDS
   ) {
     return null;
   }

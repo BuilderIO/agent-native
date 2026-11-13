@@ -1095,21 +1095,26 @@ function createEmbedSessionTool(config: MCPConfig): ActionEntry {
             ? args.path
             : "";
       const sibling = await resolveWorkspaceAppForUrl(config, rawTarget);
-      if (sibling && sibling !== "unavailable") {
+      if (sibling === "unavailable") {
+        throw new Error(
+          "create_embed_session could not look up the workspace apps; try again.",
+        );
+      }
+      if (sibling) {
         const started = await startCrossAppEmbed(
           sibling.appUrl,
           sibling.relUrl,
           typeof args.chrome === "string" ? args.chrome : undefined,
         );
-        if (started) return started;
+        if (!started) {
+          throw new Error(
+            "create_embed_session cannot embed this workspace app from here.",
+          );
+        }
+        return started;
       }
       const targetPath = normalizeEmbedTargetPath(rawTarget, embedOrigin);
       if (!targetPath) {
-        if (sibling === "unavailable") {
-          throw new Error(
-            "create_embed_session could not look up the workspace apps; try again.",
-          );
-        }
         throw new Error(
           "create_embed_session can only embed same-origin app-relative URLs.",
         );
