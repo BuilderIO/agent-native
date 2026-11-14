@@ -15,6 +15,14 @@ const update = vi.hoisted(() => ({
 }));
 const emailChange = vi.hoisted(() => ({
   requestEmailChange: vi.fn(async (_email: string) => undefined),
+  EmailChangeRequestError: class EmailChangeRequestError extends Error {
+    readonly serverMessage: string | null;
+    constructor(serverMessage: string | null) {
+      super(serverMessage ?? "change-email failed");
+      this.name = "EmailChangeRequestError";
+      this.serverMessage = serverMessage;
+    }
+  },
 }));
 const avatar = vi.hoisted(() => ({
   uploadAvatar: vi.fn(async (_file: File, _email: string) => "data:,"),
