@@ -171,13 +171,13 @@ vi.mock("@agent-native/core/sharing", () => ({
 const track = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/tracking", () => ({ track }));
 
+// raw-sql-ok: This test double only records fragments and never executes SQL.
 vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   eq: mocks.eq,
   inArray: mocks.inArray,
   gt: vi.fn((left, right) => ({ left, right })),
   isNull: mocks.isNull,
-  // raw-sql-ok: This test double only records fragments and never executes SQL.
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
