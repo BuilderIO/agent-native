@@ -1486,6 +1486,8 @@ CommandMenu.Separator = CommandSeparator;
 export const COMMAND_MENU_OPEN_EVENT = "agent-native:open-command-menu";
 
 const AGENT_COMPOSER_SELECTOR = '[data-agent-composer-slot="root"]';
+/** A field that takes Cmd/Ctrl+K for itself, such as a comment box's link. */
+const OWN_SHORTCUT_SELECTOR = '[data-command-menu-shortcut="own"]';
 
 export function openCommandMenu() {
   if (typeof window !== "undefined") {
@@ -1509,6 +1511,8 @@ export function useCommandMenuShortcut(
         e.key.toLowerCase() === "k"
       ) {
         const target = e.target instanceof HTMLElement ? e.target : null;
+        // Left unclaimed, so the field's own handler gets it.
+        if (target?.closest(OWN_SHORTCUT_SELECTOR)) return;
         const isContentEditable = target?.isContentEditable;
         if (
           isContentEditable &&
