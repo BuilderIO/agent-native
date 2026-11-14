@@ -447,6 +447,103 @@ describe("Design final response guard", () => {
     });
   });
 
+  it.each([
+    "Summarize this design at https://update.example.invalid/overview",
+    "Summarize this design at https://example.invalid/create/layout?mode=edit#button",
+    "https://create.example.invalid/design",
+    "Review this design at https://example.invalid/update, then suggest improvements.",
+    "Create a visual regression test for the design at https://example.invalid/edit.",
+    "Create a report for https://example.invalid/design.",
+    "Summarize this design at www.update.example.invalid/preview.",
+    "Summarize this design at ftp://update.example.invalid/preview.",
+    "Do not edit https://example.invalid/preview.",
+    "Create a report using https://example.invalid/edit https://example.invalid/reference.",
+    "Summarize this design at https://example.invalid/preview,then/fix.",
+    "Summarize this design at https://example.invalid/preview?note=edit,then.",
+    "Summarize this design at https://example.invalid/preview,fix#button.",
+    "Summarize this design at https://example.invalid/preview?note=fix,then%20edit.",
+    "Summarize the design at https://example.invalid/preview,edit with its button visible.",
+    "Summarize the design at https://example.invalid/preview?mode=view,edit and its layout.",
+    "Do not edit (https://example.invalid/preview).",
+    "Explain the update https://example.invalid/preview",
+    "Explain the latest update https://example.invalid/preview",
+    "Explain the latest product update https://example.invalid/preview",
+    "Explain this small update https://example.invalid/preview",
+    "Tell me about the edit https://example.invalid/preview",
+    "Could you please not edit https://example.invalid/preview",
+    "Explain the edit: https://example.invalid/preview",
+    "Summarize the page at example.invalid/edit",
+    "Summarize the page at example.invalid?mode=edit",
+    "Summarize the page at example.invalid#edit",
+    "Review the frame at example.invalid?mode=edit and suggest changes",
+    "Explain the edit — https://example.invalid/preview",
+    "Do not edit — https://example.invalid/preview",
+    "Summarize example.invalid/edit?mode=fix#button",
+    "Summarize example.invalid/preview,fix#button",
+    "Summarize https://example.invalid/preview,fix the button",
+    "Summarize https://example.invalid/preview,fix#button",
+    "Explain the update in welcome-email.html",
+  ])("does not infer mutation intent from URL text: %s", (request) => {
+    expect(designFinalResponseGuard(guardContext(request))).toBeNull();
+  });
+
+  it.each([
+    "Update the layout using https://example.invalid/reference",
+    "Edit https://example.invalid/preview",
+    "Could you quickly edit https://example.invalid/preview",
+    "Please use the reference to quickly edit https://example.invalid/preview",
+    "Please use a reference to edit https://example.invalid/preview",
+    "Could you please update https://example.invalid/preview",
+    "First edit https://example.invalid/preview",
+    "Fix the button; explain this small update https://example.invalid/preview",
+    "Edit: https://example.invalid/preview",
+    "Edit — https://example.invalid/preview",
+    "Edit – https://example.invalid/preview",
+    "Edit - https://example.invalid/preview",
+    "Edit example.invalid?mode=view",
+    "Edit example.invalid#preview",
+    "import a frame from https://example.invalid/file",
+    "import this frame from https://example.invalid/file",
+    "Please edit: <https://example.invalid/preview>",
+    "Edit example.invalid/preview",
+    "Edit: example.invalid/preview",
+    "Edit the file welcome-email.html",
+    "Review example.invalid/preview, then fix the button",
+    "Edit (https://example.invalid/preview)",
+    "Edit <https://example.invalid/preview>",
+    'Edit "https://example.invalid/preview"',
+    "Edit [https://example.invalid/preview]",
+    "Edit `https://example.invalid/preview`",
+    "Review https://example.invalid/preview,then fix the button",
+    "Review https://example.invalid/preview;then fix the button",
+    "Review https://example.invalid/preview, then fix the button",
+    "Review this design at https://example.invalid/reference, then update the layout",
+    "Review https://example.invalid/reference. Fix the button.",
+  ])(
+    "still requires a mutation for an affirmative request with a URL: %s",
+    (request) => {
+      expect(designFinalResponseGuard(guardContext(request))).toMatchObject({
+        expandToolSurface: true,
+      });
+    },
+  );
+
+  it("handles long dotted text without a URL", () => {
+    for (const suffix of ["", "/path", "://example.invalid/preview"]) {
+      expect(looksLikeDesignMutationRequest("a.".repeat(40_000) + suffix)).toBe(
+        false,
+      );
+    }
+  });
+
+  it("handles long punctuation within a URL", () => {
+    expect(
+      looksLikeDesignMutationRequest(
+        `example.invalid/path${",".repeat(200_000)}x`,
+      ),
+    ).toBe(false);
+  });
+
   it("retries prose-only completion for a design mutation", () => {
     const result = designFinalResponseGuard(
       guardContext("can you create another version of this"),
