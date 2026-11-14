@@ -3,6 +3,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { ActionRunContext } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
@@ -24,6 +25,11 @@ const TEST_DB_PATH = join(
 const OWNER = "files-owner@example.com";
 const ORG_ID = "files-org";
 const VIEWER = "files-viewer@example.com";
+
+// What the browser's Files tree sends when someone reads it.
+function readerContext(userEmail: string): ActionRunContext {
+  return { userEmail, caller: "frontend" };
+}
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -153,14 +159,12 @@ describe("Content Files membership reconciliation", () => {
 
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
-        queryContentDatabaseItemsAction.run(read, { userEmail: OWNER } as any),
+        queryContentDatabaseItemsAction.run(read, readerContext(OWNER)),
       ),
     ).resolves.toHaveProperty("items");
     await expect(
       runWithRequestContext({ userEmail: VIEWER, orgId: ORG_ID }, () =>
-        queryContentDatabaseItemsAction.run(read, {
-          userEmail: VIEWER,
-        } as any),
+        queryContentDatabaseItemsAction.run(read, readerContext(VIEWER)),
       ),
     ).rejects.toMatchObject({
       message: `Database "${filesDatabase.id}" not found`,
@@ -182,7 +186,7 @@ describe("Content Files membership reconciliation", () => {
       runWithRequestContext({ userEmail: VIEWER, orgId: ORG_ID }, () =>
         queryContentDatabaseItemsAction.run(
           { databaseId: filesDatabase.id, navigation: { parentId: null } },
-          { userEmail: VIEWER } as any,
+          readerContext(VIEWER),
         ),
       ),
     ).rejects.toBe(outage);
