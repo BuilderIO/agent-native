@@ -51,9 +51,9 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   isExtensionApiPath: () => false,
 }));
 
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
-import { SqlChart } from "./SqlChart";
+import { SqlChart } from "./SqlChartQuery";
 
 describe("SqlChart renderer state across a refresh", () => {
   let container: HTMLDivElement;

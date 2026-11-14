@@ -363,6 +363,6 @@ Analytics 模板旨在进行分叉和扩展。一切都存在于 `templates/anal
 
 要添加新数据源，请在 `actions/` 中放置一个脚本，该脚本调用提供程序并通过 `output()` 帮助程序返回结果。它立即可供代理使用，并且可以在仪表板面板内使用（如果您通过服务器处理程序公开结果）。
 
-要添加新的图表类型，请在`app/pages/adhoc/sql-dashboard/types.ts`中扩展`ChartType`联合，在`SqlChartCard.tsx`中进行处理，代理可以在任何面板中使用它。
+要添加新的图表类型，请在`packages/toolkit/src/dashboard/sql-dashboard-types.ts`中扩展`ChartType`联合，在`SqlChartCard.tsx`中进行处理，代理可以在任何面板中使用它。
 
 有关扩展模板的更广泛模式，请参阅 [Skills guide](/docs/skills-guide) 和 [Actions](/docs/actions-overview)。

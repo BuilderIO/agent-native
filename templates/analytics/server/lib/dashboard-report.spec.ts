@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 import type {
   DashboardFilter,
   SqlPanel,
-} from "../../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { SETUP_INCIDENT } from "../../shared/annotation-fixtures";
 import { newDashboardTrafficFilter } from "../../shared/traffic-environment";
 import type {

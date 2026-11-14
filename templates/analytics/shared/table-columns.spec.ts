@@ -1,10 +1,9 @@
-import { describe, expect, it } from "vitest";
-
 import {
   isNumericColumnFormat,
   numberTableColumns,
   tableQuantity,
-} from "./table-columns";
+} from "@agent-native/toolkit/dashboard/table-columns";
+import { describe, expect, it } from "vitest";
 
 describe("numberTableColumns", () => {
   it("right-aligns number formats and text that reads as a number", () => {

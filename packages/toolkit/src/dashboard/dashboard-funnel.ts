@@ -1,4 +1,4 @@
-import type { FunnelOutcomesConfig } from "../app/pages/adhoc/sql-dashboard/types";
+import type { FunnelOutcomesConfig } from "./sql-dashboard-types.js";
 
 export interface DashboardFunnelOutcomes {
   completed: number;

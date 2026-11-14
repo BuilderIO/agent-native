@@ -1,5 +1,9 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import type {
+  DashboardAnnotations,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import {
   dataNoteAppliesTo,
   panelDrawsDataNotes,
@@ -30,8 +34,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
-import type { DashboardAnnotations, SqlPanel } from "./types";
 
 export function AnnotationsMenu({
   dashboardId,

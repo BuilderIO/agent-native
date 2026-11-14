@@ -199,7 +199,7 @@ Keep future admin additions inside this route instead of adding more top-level s
 
 To add a new data source, drop a script in `actions/` that calls the provider and returns results via the `output()` helper. It becomes available to the agent immediately, and can be used inside dashboard panels if you expose the result through a server handler. Register its credential keys in `server/lib/credential-keys.ts` so it appears automatically on the Data Sources page.
 
-To add a new chart type, extend the `ChartType` union in `app/pages/adhoc/sql-dashboard/types.ts` and handle it in `SqlChartCard.tsx` — the agent can use it in any panel from then on.
+To add a new chart type, extend the `ChartType` union in `packages/toolkit/src/dashboard/sql-dashboard-types.ts` and handle it in `SqlChartCard.tsx` — the agent can use it in any panel from then on.
 
 <FileTree
   id="doc-block-analytics6"

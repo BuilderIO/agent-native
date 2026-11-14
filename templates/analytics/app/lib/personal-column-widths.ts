@@ -1,6 +1,5 @@
+import type { TableColumnConfig } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { useCallback, useEffect, useMemo, useState } from "react";
-
-import type { TableColumnConfig } from "@/pages/adhoc/sql-dashboard/types";
 
 const STORAGE_PREFIX = "analytics-column-widths:v1:";
 

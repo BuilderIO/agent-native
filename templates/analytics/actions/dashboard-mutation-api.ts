@@ -1,4 +1,14 @@
 import { fail, isActionContractError } from "@agent-native/core/action";
+import {
+  editDistance,
+  PANEL_CHART_TYPES,
+  PANEL_CONFIG_KEYS,
+} from "@agent-native/toolkit/dashboard/panel-render-contract";
+import {
+  clampDashboardColumns,
+  MAX_DASHBOARD_COLUMNS,
+  type SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
 import {
   buildDashboardPanelGroups,
@@ -6,16 +16,6 @@ import {
   movePanelToDropSlot,
   type DashboardDropSlot,
 } from "../app/pages/adhoc/sql-dashboard/dashboard-layout";
-import {
-  clampDashboardColumns,
-  MAX_DASHBOARD_COLUMNS,
-  type SqlPanel,
-} from "../app/pages/adhoc/sql-dashboard/types";
-import {
-  editDistance,
-  PANEL_CHART_TYPES,
-  PANEL_CONFIG_KEYS,
-} from "../shared/panel-render-contract";
 import { movePanelsById, type PanelOrderTarget } from "./dashboard-panel-order";
 
 export const DASHBOARD_MUTATION_API_TYPES = `type DashboardScript = {

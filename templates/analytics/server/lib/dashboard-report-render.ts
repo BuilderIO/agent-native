@@ -2,17 +2,34 @@ import {
   resolveOgFontFiles,
   runWithRequestContext,
 } from "@agent-native/core/server";
-
-import { resolveDualAxis } from "../../app/pages/adhoc/sql-dashboard/dual-axis";
 import {
-  interpolate,
-  panelTimeRange,
-  type PanelTimeRange,
-} from "../../app/pages/adhoc/sql-dashboard/interpolate";
+  describeFunnelOutcomeProblems,
+  resolveDashboardFunnelRows,
+} from "@agent-native/toolkit/dashboard/dashboard-funnel";
+import { resolveDualAxis } from "@agent-native/toolkit/dashboard/dual-axis";
+import { formatDollars } from "@agent-native/toolkit/dashboard/format-dollars";
+import {
+  EMPTY_DURATION,
+  formatDuration,
+  isEmptyDuration,
+} from "@agent-native/toolkit/dashboard/format-duration";
+import {
+  metricComparison,
+  type MetricComparison,
+} from "@agent-native/toolkit/dashboard/metric-comparison";
+import { resolvePanelEvents } from "@agent-native/toolkit/dashboard/panel-events";
+import {
+  chartPointLimit,
+  limitChartRows,
+  orderPanelSeries,
+  resolveSeriesColors,
+  seriesColorSlots,
+  type ChartPointLimit,
+} from "@agent-native/toolkit/dashboard/panel-render-contract";
 import {
   pivotRows,
   timeRangeDays,
-} from "../../app/pages/adhoc/sql-dashboard/pivot";
+} from "@agent-native/toolkit/dashboard/pivot";
 import type {
   ChartValueFormatter,
   ColumnFormat,
@@ -20,11 +37,14 @@ import type {
   PanelEvent,
   SqlPanel,
   TableColumnConfig,
-} from "../../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import { numberTableColumns } from "@agent-native/toolkit/dashboard/table-columns";
+
 import {
-  describeFunnelOutcomeProblems,
-  resolveDashboardFunnelRows,
-} from "../../shared/dashboard-funnel";
+  interpolate,
+  panelTimeRange,
+  type PanelTimeRange,
+} from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import {
   dataNoteInRange,
@@ -34,31 +54,11 @@ import {
   type DataNote,
   type DataNoteTone,
 } from "../../shared/data-notes";
-import { formatDollars } from "../../shared/format-dollars";
-import {
-  EMPTY_DURATION,
-  formatDuration,
-  isEmptyDuration,
-} from "../../shared/format-duration";
 import { panelEventsWithKeyDates } from "../../shared/key-dates";
-import {
-  metricComparison,
-  type MetricComparison,
-} from "../../shared/metric-comparison";
-import { resolvePanelEvents } from "../../shared/panel-events";
-import {
-  chartPointLimit,
-  limitChartRows,
-  orderPanelSeries,
-  resolveSeriesColors,
-  seriesColorSlots,
-  type ChartPointLimit,
-} from "../../shared/panel-render-contract";
 import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "../../shared/sql-query-limits";
-import { numberTableColumns } from "../../shared/table-columns";
 import {
   readTrafficFilterValue,
   TRAFFIC_FILTER_ID,

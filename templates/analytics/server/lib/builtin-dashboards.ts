@@ -6,6 +6,7 @@ import {
   mutateOrgSetting,
   mutateUserSetting,
 } from "@agent-native/core/settings";
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
 
 import {
   BUILTIN_DEMO_DASHBOARD_ID,
@@ -14,7 +15,6 @@ import {
   SEED_BUILTIN_DASHBOARD_IDS,
   nativeV2BuiltinDashboardId,
 } from "../../shared/builtin-dashboard-ids";
-import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import {

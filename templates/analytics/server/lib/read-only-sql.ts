@@ -1,6 +1,5 @@
 import { fail } from "@agent-native/core/action";
-
-import { panelDrilldownSqlProblem } from "../../shared/panel-drilldown";
+import { panelDrilldownSqlProblem } from "@agent-native/toolkit/dashboard/panel-drilldown";
 
 function rejectSourceSql(message: string): never {
   return fail(message, { errorCode: "invalid_source_sql", statusCode: 400 });

@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import type {
+  DashboardFilter,
+  FilterPresetEdit,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
@@ -11,7 +15,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { i18nCatalog } from "../../../i18n";
 import { DashboardFilterBar } from "./DashboardFilterBar";
 import { editFilterPresets } from "./filter-vars";
-import type { DashboardFilter, FilterPresetEdit } from "./types";
 
 const filters: DashboardFilter[] = [
   {

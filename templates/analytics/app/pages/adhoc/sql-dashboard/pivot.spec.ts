@@ -1,6 +1,8 @@
+import {
+  pivotRows,
+  timeRangeDays,
+} from "@agent-native/toolkit/dashboard/pivot";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import { pivotRows, timeRangeDays } from "./pivot";
 
 describe("pivotRows", () => {
   afterEach(() => vi.useRealTimers());

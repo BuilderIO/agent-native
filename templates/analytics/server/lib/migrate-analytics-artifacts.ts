@@ -8,9 +8,9 @@ import {
 } from "@agent-native/core/db/schema";
 import { recordChange } from "@agent-native/core/server";
 import { listOrgSettings } from "@agent-native/core/settings";
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
-import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import { remapDashboardViews } from "./dashboard-view-remap.js";
 

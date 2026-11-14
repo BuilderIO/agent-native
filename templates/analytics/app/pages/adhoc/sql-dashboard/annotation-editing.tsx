@@ -1,3 +1,7 @@
+import type {
+  DashboardAnnotations,
+  SqlDashboardConfig,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { isPendingAnnotation } from "@/components/dashboard/annotation-mutations";
@@ -7,7 +11,6 @@ import { AnnotationsMenu } from "./AnnotationsMenu";
 import { DataNoteDialog, type DataNoteDraft } from "./DataNoteDialog";
 import { KeyDateDialog, type KeyDateDraft } from "./KeyDateDialog";
 import { KeyDateSetsDialog } from "./KeyDateSetsDialog";
-import type { DashboardAnnotations, SqlDashboardConfig } from "./types";
 
 function dataNoteAnnotationKey(entry: { noteId: string; panelId: string }) {
   return `${entry.noteId}\u0000${entry.panelId}`;
