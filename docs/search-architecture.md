@@ -40,10 +40,14 @@ namespaced tables; this layer adds its own fixed tables.
 - **Content:** registers `documents`, installs change capture as migration
   117, and `search-documents` answers from the index when it's ready. When it
   isn't, the request falls back to the scan Content used before the index.
+  When a query finds nothing, `search-documents` runs a typo pass over the
+  words in titles and descriptions the caller can see (see
+  [Querying](#querying)).
 - **Not built yet:** the `searchResources` library call, `createSearchAction`,
   the per-app `search` action, cursors, chunks and passage snippets, audience
-  tokens, `ts_rank_cd` ordering, the typo fallback, the semantic lane, and
-  lifting the browser lane into core. Until the library call exists, an app
+  tokens, `ts_rank_cd` ordering, the `search_vocabulary` table and typo
+  correction of body words, the semantic lane, and lifting the browser lane
+  into core. Until the library call exists, an app
   composes the index into its own query (see [Querying](#querying)).
 
 ## Shape of the system
@@ -374,16 +378,26 @@ Instead:
 ## Querying
 
 Built: `indexedSearchSql({ registration, query, fields })` returns Drizzle SQL
-that the app composes into its own statement: a join to `search_resources`, the
-match condition, and the ranking terms. The app keeps its own access condition,
-filters, snippets, parents, paging, and totals, all in the same statement.
+that the app composes into its own statement: a lookup in `search_resources` for
+each row the app's query keeps, the match condition, and the ranking terms. The
+app keeps its own access condition, filters, paging, and totals in that
+statement, and reads snippets and parents for the returned page afterwards.
+
+The match reads `doc_vector` only for rows the access condition and filters
+keep, not through its GIN index across the table. The table holds every user's
+documents, and Postgres doesn't count what fetching a stored vector costs, so
+given the choice it reads most of the table for a common word. On a fixture of
+24,500 documents with 4,500 visible to the caller, that scan took 600–1,000 ms
+per word and the lookup about 50 ms for the whole query. The cost now follows
+the caller's library and filters, not the table; the trade is a rare word in a
+very large library, which the GIN index would answer sooner.
 
 Matching, for each term:
 
 - **Titles and summaries** match by substring, including mid-word ("prio"
   finds "Task Priorities").
-- **Bodies** match whole words through the GIN index, every word as a prefix.
-  A multi-word term is a phrase whose last word is a prefix.
+- **Bodies** match whole words, every word as a prefix. A multi-word term is a
+  phrase whose last word is a prefix.
 - **Fields.** A title, summary, and body share one position space, with a gap
   between them, so a phrase never spans two fields.
 - **Positions.** Postgres keeps at most 255 positions per word and none past
@@ -435,10 +449,24 @@ Cursors will encode the engine (fallback or index), `index_version`, offset,
 and signal snapshot time. A cursor from one engine is rejected by the other,
 and the search restarts.
 
-The typo fallback will draw suggestions only from vocabulary the caller may
-see. Vocabulary rows carry audience tokens, and "matched nothing" is decided
-after authorization, so a suggestion can't reveal a word from a document the
-caller can't open.
+Typo correction draws only on words the caller may see, and "matched
+nothing" is decided after authorization, so a correction can't reveal a word
+from a document the caller can't open. Content does this today without a
+vocabulary table: when an authorized search finds nothing, it reads the
+distinct words of the titles and descriptions that same search could return,
+and widens each query word that isn't among them to the closest words that
+are, using the browser lane's typo rule (one edit, two for words of eight or
+more characters, including the start of a longer word). A word inside
+punctuation is replaced in place, so "q3-roadmpa" also searches for
+"q3-roadmap". Each correction also searches for the word as stored, because
+the fallback scan compares stored text as written. Phrases, excluded words,
+and words under four characters are never corrected. The response's
+`spellingCorrections` lists what each word was matched as. The pass reads at
+most 50,000 distinct words; a library with more keeps its most-used ones, in
+a fixed order, so every page of a search sees the same corrections. That read
+scans the visible titles and descriptions on every search that finds nothing.
+Correcting body words needs `search_vocabulary`, whose rows will carry
+audience tokens.
 
 ## Library and actions
 
@@ -509,8 +537,10 @@ back a `CommandSearchProvider` when the shared command menu lands.
 
 - **PGlite (local):** the lexical lane and triggers work. PGlite never gathers
   table statistics, so the feed's statements find rows by primary key rather
-  than relying on the planner to pick a good join. The typo fallback will need
-  `pg_trgm`, which core's PGlite client must pass at construction. There is no
+  than relying on the planner to pick a good join. A trigram-backed
+  `search_vocabulary` will need `pg_trgm`, which core's PGlite client must
+  pass at construction; Content's title typo pass compares words in
+  JavaScript and needs no extension. There is no
   semantic lane; the action will report `semantic: "unavailable"`.
 - **Neon:** `pg_trgm` and `vector` are created at release when those lanes
   land. Each search reads the index state and pending changes in its own

@@ -4643,6 +4643,16 @@ fn take_prefetched_shareable_content(target_display_id: Option<u32>) -> Option<S
 pub async fn native_fullscreen_prefetch_capture_content() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
+        // This runs at launch, before anyone asks to record. Without Screen
+        // Recording permission, the shareable-content lookup can make macOS
+        // show its permission prompt, so skip it until permission is granted.
+        // Recording looks up content itself when nothing was prefetched.
+        if !has_screen_capture_permission() {
+            eprintln!(
+                "[clips-tray] shareable-content prefetch skipped: Screen Recording not granted"
+            );
+            return Ok(());
+        }
         let recently_fetched = PREFETCHED_SHAREABLE_CONTENT
             .lock()
             .ok()

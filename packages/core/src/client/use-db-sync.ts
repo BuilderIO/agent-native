@@ -74,6 +74,16 @@ const SSE_LEADER_LOCK_PREFIX = "agent-native-sync:";
 const COLLAB_POLL_INTERVAL_MS = 2_500;
 const COLLAB_BOOST_IDLE_CEILING_MS = 3 * 60_000;
 const COLLAB_ACTIVITY_WINDOW_MS = 60_000;
+/**
+ * A poll reads at most 1,000 change rows, other accounts' included, and says
+ * `cursorLimited` when it stopped short of the newest. A visible tab reads the
+ * next page at once instead of waiting its interval, so a burst can't leave
+ * it minutes behind. After this many pages read straight on, past the one
+ * that found the backlog, it waits one interval, so a feed that never empties
+ * doesn't keep it polling back to back.
+ * @internal
+ */
+export const MAX_BACKLOG_PAGES = 20;
 
 // Collab poll boost: a page that knows another person is on the same resource
 // holds a lease, and every transport with no live stream (serverless refuses
@@ -261,6 +271,8 @@ type PollResponse = {
   version: number;
   events: SyncEvent[];
   cursor?: string;
+  // The server stopped at its row limit: more changes wait past `cursor`.
+  cursorLimited?: boolean;
 };
 
 type SyncCursor = {
@@ -334,8 +346,15 @@ type LoggedSyncInvalidation = {
   filters: SyncInvalidationFilters;
 };
 
-/** What a logged sync invalidation asked: a key prefix, or every query. */
-export type SyncInvalidationFilters = { queryKey?: readonly unknown[] };
+/**
+ * What a logged sync invalidation asked: a key prefix, a predicate the query
+ * itself must pass, both, or neither for every query. A reader with no query
+ * to ask the predicate of takes it as reaching every query.
+ */
+export type SyncInvalidationFilters = {
+  queryKey?: readonly unknown[];
+  predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+};
 
 const SYNC_INVALIDATION_LOG_LIMIT = 200;
 type SyncInvalidationLog = {
@@ -388,14 +407,14 @@ function logSyncInvalidations(
   const after = local ? "local" : (cursorForEvents(events) ?? "local");
   const log = syncInvalidationLog(queryClient);
   for (const requested of filters) {
-    // A predicate decides by the query itself, so it is kept as reaching
-    // every query.
+    // A predicate decides by the query itself, so it is kept for the reader
+    // to ask of the query it holds.
     log.entries.push({
       after,
-      filters:
-        requested.queryKey && !requested.predicate
-          ? { queryKey: requested.queryKey }
-          : {},
+      filters: {
+        ...(requested.queryKey ? { queryKey: requested.queryKey } : {}),
+        ...(requested.predicate ? { predicate: requested.predicate } : {}),
+      },
     });
   }
   while (log.entries.length > SYNC_INVALIDATION_LOG_LIMIT) {
@@ -666,6 +685,7 @@ class SyncTransport {
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
   private idlePollBackoffIndex = 0;
+  private backlogPages = 0;
   private activeChatIds = new Map<string, number>();
   private idleActivityGeneration = 0;
   // Hosted-gateway state. `mode` starts "hosted" when a binding is present and
@@ -1272,6 +1292,7 @@ class SyncTransport {
     if (!force && this.shouldStayIdle()) return;
     const idleActivityGenerationAtStart = this.idleActivityGeneration;
     this.inFlight = true;
+    let readNextPage = false;
     try {
       if (this.mode === "hosted" && this.gateway && !this.token) {
         const ok = await this.mintToken();
@@ -1291,7 +1312,17 @@ class SyncTransport {
         this.connectEvents();
       }
       const events = data.events ?? [];
-      if (events.length) {
+      const responseCursor = decodeSyncCursor(data.cursor);
+      this.applyVersion(events, responseCursor ? undefined : data.version);
+      this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
+      // Only a page that moved the cursor: one stopped at an unresolved
+      // access check would come back the same, so it waits the interval.
+      readNextPage =
+        data.cursorLimited === true &&
+        compareSyncCursors(this.cursorRef, polledFrom) > 0;
+      // A page of other accounts' changes comes back empty, but the tab is
+      // behind, not idle.
+      if (events.length || readNextPage) {
         this.idlePollBackoffIndex = 0;
       } else if (
         scheduled &&
@@ -1304,11 +1335,11 @@ class SyncTransport {
           IDLE_POLL_BACKOFF.length - 1,
         );
       }
-      const responseCursor = decodeSyncCursor(data.cursor);
-      this.applyVersion(events, responseCursor ? undefined : data.version);
-      this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
       this.fan(events, data.version, this.cursorRef, polledFrom);
     } catch (err) {
+      // A failed page, or a subscriber that threw on it, ends the run: the
+      // retry waits the backed-off interval.
+      readNextPage = false;
       if (this.stopped) return;
       this.consecutiveFailures++;
       if (this.mode === "hosted" && this.gateway) {
@@ -1329,7 +1360,19 @@ class SyncTransport {
       if (this.refreshRequested && !this.stopped) {
         this.refreshRequested = false;
         void this.poll(true);
+      } else if (
+        readNextPage &&
+        !isDocumentHidden() &&
+        this.backlogPages < MAX_BACKLOG_PAGES
+      ) {
+        this.backlogPages++;
+        if (this.timer) {
+          clearTimeout(this.timer);
+          this.timer = null;
+        }
+        void this.poll();
       } else {
+        this.backlogPages = 0;
         this.schedulePoll();
       }
     }

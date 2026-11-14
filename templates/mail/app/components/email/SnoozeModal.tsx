@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { IconClock } from "@tabler/icons-react";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { toast } from "sonner";
@@ -214,7 +215,9 @@ export function SnoozeModal({
           .catch((err: any) => {
             const msg = err?.message ?? "";
             if (msg.includes("scheduled_jobs")) {
-              toast.error(t("mail.toasts.snoozeDbNotReady"));
+              reportWriteFailure(err, {
+                label: t("mail.toasts.snoozeDbNotReady"),
+              });
             } else {
               toast.error(msg || t("mail.toasts.couldNotSnooze"));
             }

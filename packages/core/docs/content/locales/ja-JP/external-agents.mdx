@@ -138,6 +138,8 @@ Claude、ChatGPT、Cursor、VS Code、Claude Code、Codex、Grok、その他の�
 
 コネクタを再インストールしたり公開共有リンクを変更したりしても、確認済みの接続アカウントの権限拒否は解決しません。
 
+非公開文書にアップロードした画像は、本文に `/api/private-media/<id>` リンクとして保存され、Content にサインインしている場合にのみ読み込まれます。エージェントが MCP で文書を読むと、`get-document` と Markdown 形式の `pull-document` は `privateMediaLinks` も返します。これは保存済みの各リンクと、その画像 1 枚をサインインなしで 1 時間開ける URL の組です。1 回の読み取りでリンクが付く画像は最大 200 枚で、残りの枚数は `omitted` に入ります。新しいリンクが必要な場合は文書を読み直してください。本文を編集するときは保存済みのリンクをそのまま残してください。
+
 <a id="access-tab"></a>
 
 ### アプリ内の MCP 設定 {#mcp-settings}
@@ -677,7 +679,7 @@ Actions は、MCP アプリ拡張機能をサポートするホストに対し�
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -709,7 +711,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. `getSession` 経由で **ブラウザ** セッションを解決します (認証ガードは正確なパス `/_agent-native/open` をバイパスします)。
 2. 認証されていない場合は、構成されたログイン HTML を **同じ URL** で提供します。フォームの成功ハンドラーは `window.location` をリロードし、認証されたルートに再度入ります (`?next=` 配管はありません)。
 3. ブラウザ セッションの電子メールをスコープとする既存のワンショット `navigate` アプリケーション状態コマンド (ペイロード = すべての予約されていないクエリ パラメーター + `view`) を `requestSource: "deep-link"` で書き込み、`compose` の Base64url ドラフトを `compose-<id>` キーにデコードします。
-4. 302 は、安全な同一オリジンの相対パス (`to=`、そうでない場合は `/<view>`、それ以外の場合はテンプレートごとの `resolveOpenPath`) にリダイレクトし、`f_*` フィルター パラメーターを転送するため、`navigate` コマンドが実行される前に事前にフィルターされた状態でリスト/ダッシュボードが開きます。
+4. 302 は、安全な同一オリジンの相対パス (`to=`、そうでない場合はテンプレートごとの `resolveOpenPath`、それ以外の場合は `/<view>`) にリダイレクトし、`f_*` フィルター パラメーターを転送するため、`navigate` コマンドが実行される前に事前にフィルターされた状態でリスト/ダッシュボードが開きます。
 
 クロスオリジン、スキーム相対 `//host`、および control-char リダイレクトは拒否されます (オープンリダイレクト ガード)。ルートは、`disableOpenRoute` 経由でアプリごとに無効にできます。
 

@@ -100,6 +100,77 @@ describe("direct automation actions", () => {
     ]);
   });
 
+  it("projects run capability for the owning app, a foreign app, and recovered Factory jobs", async () => {
+    const organizationResource = {
+      ...resource,
+      owner: "__organization__:org-1",
+    };
+    mocks.listAccessibleAutomationDefinitions.mockResolvedValue([
+      {
+        ...definition,
+        resource: {
+          ...organizationResource,
+          id: "owned",
+          path: "jobs/owned.md",
+        },
+        meta: { ...definition.meta, orgId: "org-1", appId: "factory" },
+      },
+      {
+        ...definition,
+        resource: {
+          ...organizationResource,
+          id: "foreign",
+          path: "jobs/foreign.md",
+        },
+        meta: { ...definition.meta, orgId: "org-1", appId: "mail" },
+      },
+      {
+        ...definition,
+        resource: {
+          ...organizationResource,
+          id: "recovered",
+          path: "jobs/factory-digest.md",
+        },
+        meta: { ...definition.meta, orgId: "org-1" },
+      },
+      {
+        ...definition,
+        resource: {
+          ...organizationResource,
+          id: "missing",
+          path: "jobs/missing.md",
+        },
+        meta: { ...definition.meta, orgId: "org-1" },
+      },
+    ]);
+
+    const result = await listAutomations.run({}, { ...ctx, appId: "factory" });
+    expect(
+      result.map(({ id, canUpdate, capabilities }) => ({
+        id,
+        canUpdate,
+        capabilities,
+      })),
+    ).toEqual([
+      { id: "owned", canUpdate: true, capabilities: definition.capabilities },
+      {
+        id: "foreign",
+        canUpdate: true,
+        capabilities: { ...definition.capabilities, canOperate: false },
+      },
+      {
+        id: "recovered",
+        canUpdate: true,
+        capabilities: definition.capabilities,
+      },
+      {
+        id: "missing",
+        canUpdate: true,
+        capabilities: { ...definition.capabilities, canOperate: false },
+      },
+    ]);
+  });
+
   it("preserves the optional scope compatibility filter", async () => {
     await expect(
       listAutomations.run({ scope: "organization" }, ctx),

@@ -4,7 +4,10 @@ import {
 } from "@agent-native/core/client/feature-flags/helpers";
 import type {
   FeatureFlagMetadata,
+  FeatureFlagRuleScope,
+  FeatureFlagRuleSummary,
   FeatureFlagRules,
+  FeatureFlagStoredRule,
   SetFeatureFlagInput,
 } from "@agent-native/core/client/feature-flags/types";
 import { useT } from "@agent-native/core/client/i18n";
@@ -47,8 +50,14 @@ import {
 } from "@agent-native/toolkit/ui/select";
 import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui/tooltip";
+import {
   IconCheck,
   IconDots,
+  IconInfoCircle,
   IconSettings,
   IconLoader2,
   IconUserCheck,
@@ -71,39 +80,159 @@ function formatWhen(value: number | null | undefined): string | null {
   }).format(date);
 }
 
+function summarize(rules: FeatureFlagRules): FeatureFlagRuleSummary {
+  return {
+    mode: rules.mode,
+    emailCount: rules.emails.length,
+    orgIdCount: rules.orgIds.length,
+    percentage: rules.percentage,
+    updatedAt: rules.updatedAt ?? null,
+  };
+}
+
 function rolloutLabel(
-  rules: FeatureFlagRules,
+  audience: FeatureFlagRuleSummary,
   t: ReturnType<typeof useT>,
 ): string {
-  if (rules.mode === "off") return t("featureFlags.off");
-  if (rules.mode === "on") return t("featureFlags.everyone");
+  if (audience.mode === "off") return t("featureFlags.off");
+  if (audience.mode === "on") return t("featureFlags.everyone");
   const parts = [
-    rules.emails.length
-      ? t("featureFlags.emailCount", { count: rules.emails.length })
+    audience.emailCount
+      ? t("featureFlags.emailCount", { count: audience.emailCount })
       : null,
-    rules.orgIds.length
-      ? t("featureFlags.organizationCount", { count: rules.orgIds.length })
+    audience.orgIdCount
+      ? t("featureFlags.organizationCount", { count: audience.orgIdCount })
       : null,
-    rules.percentage
-      ? t("featureFlags.percentageRollout", { count: rules.percentage })
+    audience.percentage
+      ? t("featureFlags.percentageRollout", { count: audience.percentage })
       : null,
   ].filter(Boolean);
   return parts.join(" · ") || t("featureFlags.inherited");
 }
 
 function audienceLabel(
-  rules: FeatureFlagRules,
+  audience: FeatureFlagRuleSummary,
   t: ReturnType<typeof useT>,
 ): string {
-  if (rules.mode === "off") return t("featureFlags.off");
-  if (rules.mode === "on") return t("featureFlags.everyoneAudience");
-  return rolloutLabel(rules, t);
+  if (audience.mode === "off") return t("featureFlags.off");
+  if (audience.mode === "on") return t("featureFlags.everyoneAudience");
+  return rolloutLabel(audience, t);
 }
 
-function modeLabel(rules: FeatureFlagRules, t: ReturnType<typeof useT>) {
-  if (rules.mode === "off") return t("featureFlags.off");
-  if (rules.mode === "on") return t("featureFlags.everyone");
+function modeLabel(
+  audience: FeatureFlagRuleSummary,
+  t: ReturnType<typeof useT>,
+) {
+  if (audience.mode === "off") return t("featureFlags.off");
+  if (audience.mode === "on") return t("featureFlags.everyone");
   return t("featureFlags.targeted");
+}
+
+/** Who a stored rule reaches; null when it couldn't be read. */
+function storedAudience(
+  stored: FeatureFlagStoredRule,
+): FeatureFlagRuleSummary | null {
+  if (stored.state === "set")
+    return summarize(normalizeFeatureFlagRules(stored.rules));
+  if (stored.state === "withheld") return stored.summary;
+  if (stored.state === "unreadable") return null;
+  return summarize(normalizeFeatureFlagRules({ mode: "off" }));
+}
+
+function storedAudienceLabel(
+  stored: FeatureFlagStoredRule,
+  t: ReturnType<typeof useT>,
+): string {
+  const audience = storedAudience(stored);
+  return audience
+    ? audienceLabel(audience, t)
+    : t("agentChat.featureFlags.scope.unreadable");
+}
+
+function storedRule(
+  flag: FeatureFlagMetadata,
+  scope: FeatureFlagRuleScope,
+): FeatureFlagStoredRule | null {
+  if (!flag.scopes) return null;
+  return scope === "org" ? flag.scopes.org : flag.scopes.global;
+}
+
+/** Who the rule in effect reaches; null when it couldn't be read. */
+function inEffectAudience(
+  flag: FeatureFlagMetadata,
+): FeatureFlagRuleSummary | null {
+  if (flag.rules) return summarize(flag.rules);
+  const inEffect = flag.scopes?.inEffect;
+  const stored =
+    inEffect === "org" || inEffect === "global"
+      ? storedRule(flag, inEffect)
+      : null;
+  return stored ? storedAudience(stored) : null;
+}
+
+/** A target without `scopes` predates explicit scope and writes the caller's org. */
+function manageableScopes(flag: FeatureFlagMetadata): FeatureFlagRuleScope[] {
+  if (!flag.scopes) return ["org"];
+  return (["org", "global"] as const).filter(
+    (scope) => storedRule(flag, scope)?.canManage === true,
+  );
+}
+
+const OFF_RULES = normalizeFeatureFlagRules({ mode: "off" });
+
+/**
+ * An org with no rule of its own starts from the rule it gets now. Null when
+ * that rule, or the row being replaced, can't be shown: starting from Off
+ * would let an unedited save silently turn the flag off.
+ */
+function startingRules(
+  flag: FeatureFlagMetadata,
+  scope: FeatureFlagRuleScope,
+): FeatureFlagRules | null {
+  const stored = storedRule(flag, scope);
+  if (stored?.state === "set") return normalizeFeatureFlagRules(stored.rules);
+  if (stored?.state === "unreadable") return null;
+  if (scope === "org" && flag.scopes?.inEffect === "global")
+    return flag.rules ?? null;
+  return flag.rules && scope === "org" ? flag.rules : OFF_RULES;
+}
+
+/** What a scope gets now: its own rule, or for an org without one, the global rule. */
+function ruleNow(
+  flag: FeatureFlagMetadata,
+  scope: FeatureFlagRuleScope,
+): FeatureFlagStoredRule | null {
+  const stored = storedRule(flag, scope);
+  return stored?.state === "unset" && flag.scopes ? flag.scopes.global : stored;
+}
+
+/**
+ * Adds the caller to the rule that decides their access, or to none. Writing
+ * the org rule while the global rule decides would create an org rule, and
+ * the org would then stop following later changes to the global rule; a rule
+ * that couldn't be read has nothing to add to.
+ */
+function enableForMeScope(
+  flag: FeatureFlagMetadata,
+): FeatureFlagRuleScope | null {
+  const scopes = manageableScopes(flag);
+  const inEffect = flag.scopes?.inEffect;
+  const target: FeatureFlagRuleScope =
+    inEffect === "org" || inEffect === "global"
+      ? inEffect
+      : scopes.includes("global")
+        ? "global"
+        : "org";
+  if (!scopes.includes(target)) return null;
+  return storedRule(flag, target)?.state === "unreadable" ? null : target;
+}
+
+function isOff(stored: FeatureFlagStoredRule | null): boolean {
+  return (
+    !stored ||
+    stored.state === "unset" ||
+    (stored.state === "set" && stored.rules.mode === "off")
+  );
 }
 
 function listText(values: string[]): string {
@@ -135,20 +264,67 @@ function TargetingDialog({
   isPending?: boolean;
 }) {
   const t = useT();
+  const scopeId = `feature-flag-${flag.key}-scope`;
   const modeId = `feature-flag-${flag.key}-mode`;
   const emailsId = `feature-flag-${flag.key}-emails`;
   const orgIdsId = `feature-flag-${flag.key}-org-ids`;
   const percentageId = `feature-flag-${flag.key}-percentage`;
-  const [mode, setMode] = useState(flag.rules.mode);
-  const [emails, setEmails] = useState(() => listText(flag.rules.emails));
-  const [orgIds, setOrgIds] = useState(() => listText(flag.rules.orgIds));
-  const [percentage, setPercentage] = useState(String(flag.rules.percentage));
+  const scopes = manageableScopes(flag);
+  const [scope, setScope] = useState<FeatureFlagRuleScope>(() => {
+    const inEffect = flag.scopes?.inEffect;
+    return (inEffect === "org" || inEffect === "global") &&
+      scopes.includes(inEffect)
+      ? inEffect
+      : (scopes[0] ?? "org");
+  });
+  const [initial] = useState(() => startingRules(flag, scope));
+  const start = initial ?? OFF_RULES;
+  // Null until chosen when the starting rule can't be shown.
+  const [mode, setMode] = useState<FeatureFlagRules["mode"] | null>(
+    initial?.mode ?? null,
+  );
+  const [emails, setEmails] = useState(() => listText(start.emails));
+  const [orgIds, setOrgIds] = useState(() => listText(start.orgIds));
+  const [percentage, setPercentage] = useState(String(start.percentage));
+  const orgKeepsOwnRule =
+    scope === "global" &&
+    !!flag.scopes?.org &&
+    flag.scopes.org.state !== "unset";
+  const now = ruleNow(flag, scope);
+  const audience =
+    mode === null
+      ? now
+        ? storedAudienceLabel(now, t)
+        : t("agentChat.featureFlags.scope.unreadable")
+      : audienceLabel(
+          summarize(
+            normalizeFeatureFlagRules({
+              mode,
+              emails: parseList(emails),
+              orgIds: parseList(orgIds),
+              percentage: normalizeFeatureFlagPercentage(percentage),
+            }),
+          ),
+          t,
+        );
+
+  const changeScope = (next: FeatureFlagRuleScope) => {
+    const rules = startingRules(flag, next);
+    const nextStart = rules ?? OFF_RULES;
+    setScope(next);
+    setMode(rules?.mode ?? null);
+    setEmails(listText(nextStart.emails));
+    setOrgIds(listText(nextStart.orgIds));
+    setPercentage(String(nextStart.percentage));
+  };
 
   const save = () => {
+    if (mode === null) return;
     const nextPercentage = normalizeFeatureFlagPercentage(percentage);
     onMutate({
       key: flag.key,
       operation: "replace-rules",
+      scope,
       rules: {
         version: 1,
         mode,
@@ -173,15 +349,42 @@ function TargetingDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2">
+          <Label htmlFor={scopeId}>
+            {t("agentChat.featureFlags.scope.appliesTo")}
+          </Label>
+          <Select
+            value={scope}
+            disabled={scopes.length < 2}
+            onValueChange={(value) =>
+              changeScope(value as FeatureFlagRuleScope)
+            }
+          >
+            <SelectTrigger id={scopeId}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {scopes.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option === "org"
+                      ? t("agentChat.featureFlags.scope.org")
+                      : t("agentChat.featureFlags.scope.global")}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid gap-2">
           <Label htmlFor={modeId}>{t("featureFlags.modeLabel")}</Label>
           <Select
-            value={mode}
+            value={mode ?? ""}
             onValueChange={(value) =>
               setMode(value as FeatureFlagRules["mode"])
             }
           >
             <SelectTrigger id={modeId}>
-              <SelectValue />
+              <SelectValue placeholder={audience} />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
@@ -236,17 +439,15 @@ function TargetingDialog({
           </div>
         ) : null}
         <div className="rounded-md bg-muted/50 px-3 py-2 text-sm">
-          {t("featureFlags.targetingSummary", {
-            audience: audienceLabel(
-              normalizeFeatureFlagRules({
-                mode,
-                emails: parseList(emails),
-                orgIds: parseList(orgIds),
-                percentage: normalizeFeatureFlagPercentage(percentage),
-              }),
-              t,
-            ),
-          })}
+          {t(
+            scope === "org"
+              ? "agentChat.featureFlags.scope.summaryOrg"
+              : "agentChat.featureFlags.scope.summaryGlobal",
+            { audience },
+          )}
+          {orgKeepsOwnRule ? (
+            <> {t("agentChat.featureFlags.scope.orgKeepsOwnRule")}</>
+          ) : null}
           <span className="ms-2 text-xs text-muted-foreground">
             ·{" "}
             {flag.defaultValue
@@ -262,13 +463,45 @@ function TargetingDialog({
           >
             {t("featureFlags.cancel")}
           </Button>
-          <Button type="button" disabled={isPending} onClick={save}>
+          <Button
+            type="button"
+            disabled={isPending || mode === null}
+            onClick={save}
+          >
             {isPending ? <IconLoader2 className="animate-spin" /> : null}
             {t("featureFlags.saveRules")}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function RuleSource({ flag }: { flag: FeatureFlagMetadata }) {
+  const t = useT();
+  const scopes = flag.scopes;
+  if (!scopes || scopes.inEffect === "none") return null;
+  if (scopes.inEffect === "global")
+    return <span>{t("agentChat.featureFlags.scope.setForGlobal")}</span>;
+  if (scopes.global.state === "unset")
+    return <span>{t("agentChat.featureFlags.scope.setForOrg")}</span>;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          className="inline-flex items-center gap-1 font-medium text-foreground"
+        >
+          {t("agentChat.featureFlags.scope.overridesGlobal")}
+          <IconInfoCircle className="size-3.5 text-muted-foreground" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-72">
+        {t("agentChat.featureFlags.scope.overridesGlobalTooltip", {
+          audience: storedAudienceLabel(scopes.global, t),
+        })}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -285,10 +518,16 @@ function FeatureFlagRow({
 }) {
   const t = useT();
   const [targetingOpen, setTargetingOpen] = useState(false);
-  const [disableOpen, setDisableOpen] = useState(false);
-  const actor = formatActor(flag.rules.updatedBy);
-  const when = formatWhen(flag.rules.updatedAt);
+  const [turnOffScope, setTurnOffScope] = useState<FeatureFlagRuleScope | null>(
+    null,
+  );
+  const rules = flag.rules;
+  const audience = inEffectAudience(flag);
+  const actor = rules ? formatActor(rules.updatedBy) : null;
+  const when = formatWhen(audience?.updatedAt);
   const metadata = [actor, when].filter(Boolean).join(" · ");
+  const scopes = manageableScopes(flag);
+  const enableScope = enableForMeScope(flag);
   const isBuilderCreditReferrals =
     flag.key === "billing.builder-credit-usage-reporting";
   const displayName = isBuilderCreditReferrals
@@ -302,6 +541,7 @@ function FeatureFlagRow({
           "Show connected Builder workspace referral details in Usage.",
       })
     : flag.description;
+  const name = flag.displayName ?? flag.key;
 
   return (
     <article
@@ -319,10 +559,18 @@ function FeatureFlagRow({
             </code>
           ) : null}
           <Badge
-            variant={flag.rules.mode === "on" ? "secondary" : "outline"}
+            variant={
+              !audience
+                ? "destructive"
+                : audience.mode === "on"
+                  ? "secondary"
+                  : "outline"
+            }
             className="ms-auto shrink-0"
           >
-            {modeLabel(flag.rules, t)}
+            {audience
+              ? modeLabel(audience, t)
+              : t("agentChat.featureFlags.scope.unreadable")}
           </Badge>
         </div>
         {description ? (
@@ -330,8 +578,12 @@ function FeatureFlagRow({
         ) : null}
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>
-            {t("featureFlags.enabledFor")}: {audienceLabel(flag.rules, t)}
+            {t("featureFlags.enabledFor")}:{" "}
+            {audience
+              ? audienceLabel(audience, t)
+              : t("agentChat.featureFlags.scope.unreadable")}
           </span>
+          <RuleSource flag={flag} />
           {metadata ? (
             <span>{t("featureFlags.lastChanged", { metadata })}</span>
           ) : null}
@@ -350,41 +602,54 @@ function FeatureFlagRow({
         </div>
         {error ? (
           <p className="mt-3 text-sm text-destructive">
-            {t("featureFlags.mutationUnverified", {
-              name: flag.displayName ?? flag.key,
-            })}
+            {t("featureFlags.mutationUnverified", { name })}
           </p>
         ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-xs"
+              disabled={
+                isPending || !enableScope || flag.enabledForCurrentUser === true
+              }
+              onClick={() =>
+                enableScope &&
+                onMutate({
+                  key: flag.key,
+                  operation: "enable-for-current-user",
+                  scope: enableScope,
+                })
+              }
+            >
+              {flag.enabledForCurrentUser === true ? (
+                <IconCheck />
+              ) : (
+                <IconUserCheck />
+              )}
+              {flag.enabledForCurrentUser === true
+                ? t("featureFlags.enabledForMe")
+                : t("featureFlags.enableForMe")}
+            </Button>
+          </TooltipTrigger>
+          {enableScope ? (
+            <TooltipContent>
+              {enableScope === "org"
+                ? t("agentChat.featureFlags.scope.enableForMeOrg")
+                : t("agentChat.featureFlags.scope.enableForMeGlobal")}
+            </TooltipContent>
+          ) : null}
+        </Tooltip>
         <Button
           type="button"
           variant="outline"
           size="sm"
           className="text-xs"
-          disabled={isPending || flag.enabledForCurrentUser === true}
-          onClick={() =>
-            onMutate({
-              key: flag.key,
-              operation: "enable-for-current-user",
-            })
-          }
-        >
-          {flag.enabledForCurrentUser === true ? (
-            <IconCheck />
-          ) : (
-            <IconUserCheck />
-          )}
-          {flag.enabledForCurrentUser === true
-            ? t("featureFlags.enabledForMe")
-            : t("featureFlags.enableForMe")}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="text-xs"
-          disabled={isPending}
+          disabled={isPending || scopes.length === 0}
           onClick={() => setTargetingOpen(true)}
         >
           <IconSettings />
@@ -397,23 +662,32 @@ function FeatureFlagRow({
               variant="ghost"
               size="icon"
               className="size-8 text-muted-foreground"
-              disabled={isPending}
-              aria-label={t("featureFlags.moreActions", {
-                name: flag.displayName ?? flag.key,
-              })}
+              disabled={isPending || scopes.length === 0}
+              aria-label={t("featureFlags.moreActions", { name })}
             >
               <IconDots />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuGroup>
-              <DropdownMenuItem
-                className="text-destructive focus:text-destructive"
-                disabled={flag.rules.mode === "off"}
-                onSelect={() => setDisableOpen(true)}
-              >
-                {t("featureFlags.disableForEveryone")}
-              </DropdownMenuItem>
+              {scopes.includes("org") ? (
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  disabled={audience?.mode === "off"}
+                  onSelect={() => setTurnOffScope("org")}
+                >
+                  {t("agentChat.featureFlags.scope.turnOffOrg")}
+                </DropdownMenuItem>
+              ) : null}
+              {scopes.includes("global") ? (
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  disabled={isOff(storedRule(flag, "global"))}
+                  onSelect={() => setTurnOffScope("global")}
+                >
+                  {t("agentChat.featureFlags.scope.turnOffGlobal")}
+                </DropdownMenuItem>
+              ) : null}
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -427,25 +701,43 @@ function FeatureFlagRow({
           isPending={isPending}
         />
       ) : null}
-      <AlertDialog open={disableOpen} onOpenChange={setDisableOpen}>
+      <AlertDialog
+        open={turnOffScope !== null}
+        onOpenChange={(open) => {
+          if (!open) setTurnOffScope(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t("featureFlags.disableForEveryoneTitle", {
-                name: flag.displayName ?? flag.key,
-              })}
+              {turnOffScope === "global"
+                ? t("agentChat.featureFlags.scope.turnOffGlobalTitle", {
+                    name,
+                  })
+                : t("agentChat.featureFlags.scope.turnOffOrgTitle", { name })}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t("featureFlags.disableForEveryoneDescription")}
+              {turnOffScope === "global"
+                ? t("agentChat.featureFlags.scope.turnOffGlobalDescription")
+                : t("agentChat.featureFlags.scope.turnOffOrgDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("featureFlags.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => onMutate({ key: flag.key, operation: "off" })}
+              onClick={() =>
+                turnOffScope &&
+                onMutate({
+                  key: flag.key,
+                  operation: "off",
+                  scope: turnOffScope,
+                })
+              }
             >
-              {t("featureFlags.disableForEveryone")}
+              {turnOffScope === "global"
+                ? t("agentChat.featureFlags.scope.turnOffGlobal")
+                : t("agentChat.featureFlags.scope.turnOffOrg")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -476,7 +768,7 @@ export function FeatureFlagsEditor({
         .filter((flag) => flag.canManage !== false)
         .map((flag) => ({
           ...flag,
-          rules: normalizeFeatureFlagRules(flag.rules),
+          rules: flag.rules ? normalizeFeatureFlagRules(flag.rules) : undefined,
         }))
         .sort((left, right) => left.key.localeCompare(right.key)),
     [flags],

@@ -107,6 +107,8 @@ export interface ShareButtonControllerOptions {
   resourceType: string;
   resourceId: string;
   defaultOpen?: boolean;
+  /** Skip loading share permissions for a link-only surface. */
+  linkOnly?: boolean;
   onOpenChange?: (open: boolean) => void;
   onShareSuccess?: () => void;
   shareTabs?: {
@@ -248,7 +250,7 @@ export function useShareButtonController(
   } = useShareQuery<ShareButtonSharesResponse>(
     options.resourceType,
     options.resourceId,
-    open,
+    open && !options.linkOnly,
     0,
   );
   const { setVisibility, share, unshare } = useShareMutations();

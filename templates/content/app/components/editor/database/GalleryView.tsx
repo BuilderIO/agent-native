@@ -1,3 +1,4 @@
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import type { ContentDatabaseItem, DocumentProperty } from "@shared/api";
 import { IconLayoutGrid, IconPlus } from "@tabler/icons-react";
 import { useRef, useState } from "react";
@@ -22,6 +23,8 @@ import {
   type DatabaseBoardGroup,
   type DatabaseFilter,
 } from "./DatabaseView";
+import { databaseItemHasRowMenu } from "./row-access";
+import { databaseRowOpenTarget } from "./row-open-target";
 
 export function DatabaseGalleryView({
   properties,
@@ -251,15 +254,18 @@ function DatabaseGalleryCard({
   onOpenPage: () => void;
 }) {
   const visibleProperties = properties.slice(0, 4);
+  const inWidget = useIsMcpAppWidgetEmbed();
 
   return (
     <div
       className="group cursor-pointer overflow-hidden rounded-md border border-border bg-background shadow-sm transition-colors hover:bg-accent/40"
+      {...databaseRowOpenTarget(item.document.id)}
       onClick={openDatabaseItemOnClick(onPreview)}
     >
       <button
         type="button"
         className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        {...databaseRowOpenTarget(item.document.id)}
         onClick={onPreview}
       >
         <span className="flex aspect-[5/3] items-center justify-center border-b border-border bg-muted/45">
@@ -301,11 +307,12 @@ function DatabaseGalleryCard({
           </span>
         ) : null}
       </div>
-      {canEdit ? (
+      {databaseItemHasRowMenu(item, canEdit, inWidget) ? (
         <div className="flex justify-end border-t border-border/70 px-2 py-1">
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={canReorder}
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}

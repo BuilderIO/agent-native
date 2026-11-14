@@ -137,6 +137,8 @@ https://<your-app>.agent-native.com/mcp
 
 重新安装连接器或更改公开共享链接无法解决已确认的已连接账户权限拒绝问题。
 
+上传到非公开文档的图片以 `/api/private-media/<id>` 链接的形式保存在正文中，只有登录 Content 后才能加载。智能体通过 MCP 读取文档时，`get-document` 和 Markdown 格式的 `pull-document` 还会返回 `privateMediaLinks`：每个已保存的链接，以及一个无需登录即可在一小时内打开该图片的 URL。一次读取最多为 200 张图片提供链接，其余数量记在 `omitted` 中。需要新链接时请重新读取文档。编辑正文时请保留已保存的链接。
+
 <a id="access-tab"></a>
 
 ### 应用内的 MCP 设置 {#mcp-settings}
@@ -664,7 +666,7 @@ Actions 可以为支持 MCP 应用扩展的主机通告带有 `mcpApp` 的内联
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -696,7 +698,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. 通过 `getSession` 解析 **浏览器** 会话（身份验证防护绕过确切路径 `/_agent-native/open`）。
 2. 如果未经身份验证，则在相同的 URL 处提供配置的登录 HTML \*\*；表单的成功处理程序重新加载 `window.location`，重新输入经过身份验证的路由 - 没有 `?next=` 管道。
 3. 使用 `requestSource: "deep-link"` 写入现有的一次性 `navigate` 应用程序状态命令（有效负载 = 每个非保留查询参数 + `view`），其范围仅限于浏览器会话的电子邮件，并将 `compose` base64url 草稿解码为 `compose-<id>` 密钥。
-4. 302-重定向到安全的同源相对路径（`to=`，或者`/<view>`，或者每个模板的`resolveOpenPath`），转发`f_*`过滤器参数，以便在`navigate`命令耗尽之前打开预先过滤的列表/仪表板。
+4. 302-重定向到安全的同源相对路径（`to=`，或者每个模板的`resolveOpenPath`，或者`/<view>`），转发`f_*`过滤器参数，以便在`navigate`命令耗尽之前打开预先过滤的列表/仪表板。
 
 跨源、方案相关 `//host` 和控制字符重定向被拒绝（开放重定向防护）。可以通过 `disableOpenRoute` 禁用每个应用程序的路线。
 

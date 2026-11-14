@@ -101,6 +101,7 @@ import {
   readAgentNativeBuildConfigMarker,
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
+  resolveRequiredEnvBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
 import { boundedTaskSourcePlugin } from "../vite/bounded-task-plugin.js";
 import { createSentryServerSourceMapUploadPlugins } from "../vite/sentry-source-maps.js";
@@ -2963,6 +2964,7 @@ function patchReactRouterServerManifestSource(
   source: string,
   serverBuildFile: string,
   clientManifest: ReactRouterAssetManifest,
+  unreadable: string[],
 ): string | undefined {
   const regionStart = source.indexOf(
     "//#region \\0virtual:react-router/server-manifest",
@@ -3003,13 +3005,23 @@ function patchReactRouterServerManifestSource(
     /(?:\b[A-Za-z_][\w$]*|\$[\w$]*)\s*=\s*(\{\s*(?:entry|["']entry["'])\s*:)/g;
   for (const match of source.matchAll(assignments)) {
     const valueStart = match.index! + match[0].lastIndexOf("{");
-    const valueEnd = findJavaScriptObjectEnd(source, valueStart);
-    const serverManifest = evaluateReactRouterServerManifest(
-      source,
-      serverBuildFile,
-      valueStart,
-      valueEnd,
-    );
+    let valueEnd: number;
+    let serverManifest: unknown;
+    // Any bundled library can assign an object with an `entry` key, and one
+    // that reads a variable can't be evaluated here. The real manifest is plain
+    // data; if nothing matches, the caller reports what it couldn't read.
+    try {
+      valueEnd = findJavaScriptObjectEnd(source, valueStart);
+      serverManifest = evaluateReactRouterServerManifest(
+        source,
+        serverBuildFile,
+        valueStart,
+        valueEnd,
+      );
+    } catch (error) {
+      unreadable.push(error instanceof Error ? error.message : String(error));
+      continue;
+    }
     if (
       !serverManifest ||
       typeof serverManifest !== "object" ||
@@ -3040,6 +3052,7 @@ function patchReactRouterServerManifestInOutput(
     pairedClientDirectory,
   );
   let patchedFile: string | undefined;
+  const unreadable: string[] = [];
   walkServerJavaScriptFiles(serverDirectory, (serverBuildFile) => {
     const source = fs.readFileSync(serverBuildFile, "utf8");
     let rewritten = replacePairedClientAssetReferences(
@@ -3051,6 +3064,7 @@ function patchReactRouterServerManifestInOutput(
         rewritten,
         serverBuildFile,
         clientManifest,
+        unreadable,
       );
       if (patched !== undefined) {
         rewritten = patched;
@@ -3061,7 +3075,10 @@ function patchReactRouterServerManifestInOutput(
   });
   if (!patchedFile) {
     throw new Error(
-      `React Router server manifest not found in Nitro output ${serverDirectory}`,
+      [
+        `React Router server manifest not found in Nitro output ${serverDirectory}`,
+        ...unreadable,
+      ].join("\n"),
     );
   }
   console.log(
@@ -4763,6 +4780,36 @@ export function bundleYjsRuntimeForServerlessOutput(
   return bareImports;
 }
 
+export function prepareVercelFunctionOutputs(
+  outputDir: string,
+  projectCwd: string,
+): void {
+  const functionsDir = path.join(outputDir, "functions");
+  if (!fs.existsSync(functionsDir)) return;
+  const visit = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.name.endsWith(".func")) {
+        if (entry.isSymbolicLink()) {
+          const target = fs.realpathSync(entryPath);
+          const relative = path.relative(fs.realpathSync(functionsDir), target);
+          if (relative.startsWith("..") || path.isAbsolute(relative)) {
+            throw new Error(
+              `[deploy] Vercel function link leaves output: ${entryPath}`,
+            );
+          }
+          fs.unlinkSync(entryPath);
+          fs.cpSync(target, entryPath, { recursive: true });
+        }
+        bundleYjsRuntimeForServerlessOutput(entryPath, projectCwd);
+      } else if (entry.isDirectory()) {
+        visit(entryPath);
+      }
+    }
+  };
+  visit(functionsDir);
+}
+
 export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
   return (
     targetPreset === "netlify" ||
@@ -6099,6 +6146,7 @@ export function resolveNitroBuildReplacements(
   projectCwd: string = cwd,
   firstRunOnboardingMode: AgentNativeFirstRunOnboardingMode | "" = "",
   harnessMode: string = "",
+  requiredEnv: string = "",
 ): Record<string, string> {
   const isEnabled = (value: string | undefined) =>
     ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
@@ -6158,6 +6206,7 @@ export function resolveNitroBuildReplacements(
       firstRunOnboardingMode,
     ),
     "process.env.AGENT_NATIVE_BUILD_HARNESS": JSON.stringify(harnessMode),
+    "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": JSON.stringify(requiredEnv),
     // Bare Node/Docker has no platform marker for "this is the deployed
     // server", so the production bundle carries its own. Keep it here only:
     // the Vite config's replacements also apply to `pnpm dev`, which must
@@ -6306,6 +6355,8 @@ export default bundle;
         ),
       buildConfigMarker?.harness ??
         resolveHarnessBuildReplacement(nitroAgentConfig),
+      buildConfigMarker?.requiredEnv ??
+        resolveRequiredEnvBuildReplacement(nitroAgentConfig),
     ),
     rolldownConfig: nitroServerCodeSplittingConfig,
     rollupConfig: {
@@ -6387,7 +6438,9 @@ export default bundle;
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
   }
 
-  if (shouldBundleYjsRuntimeForPreset(preset)) {
+  if (preset === "vercel") {
+    prepareVercelFunctionOutputs(nitro.options.output.dir, cwd);
+  } else if (shouldBundleYjsRuntimeForPreset(preset)) {
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 

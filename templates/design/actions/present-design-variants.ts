@@ -5,6 +5,7 @@ import {
   writeAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { seedFromText } from "@agent-native/core/collab";
+import { nextFreeName } from "@agent-native/core/free-name";
 import { buildDeepLink } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
@@ -468,15 +469,10 @@ function optionName(index: number) {
 }
 
 function uniqueFilename(preferred: string, used: Set<string>) {
-  const dot = preferred.lastIndexOf(".");
-  const stem = dot > 0 ? preferred.slice(0, dot) : preferred;
-  const ext = dot > 0 ? preferred.slice(dot) : ".html";
-  let candidate = `${stem}${ext}`;
-  let suffix = 2;
-  while (used.has(candidate)) {
-    candidate = `${stem}-${suffix}${ext}`;
-    suffix += 1;
-  }
+  const candidate = nextFreeName(
+    preferred.lastIndexOf(".") > 0 ? preferred : `${preferred}.html`,
+    used,
+  );
   used.add(candidate);
   return candidate;
 }
@@ -864,11 +860,11 @@ export default defineAction({
       .describe(
         "2-5 concise, visually distinct generated design options to place as overview screens (3 is the sweet spot). Prefer short label/description/features for each direction; include inline HTML content only when it is compact enough to finish.",
       ),
-    responsive: z
+    fixedCanvas: z
       .boolean()
       .optional()
       .describe(
-        "Whether generated app direction screens should include responsive breakpoint frames. Defaults to true for app surfaces; exact dimensions and static artwork such as ads suppress extra device frames.",
+        "Set true to make every direction one fixed canvas with no responsive breakpoint frames. App surfaces get breakpoint frames otherwise; exact dimensions and static artwork such as ads have none either way. False or left out changes nothing.",
       ),
     deleteSupersededSetIds: z
       .array(z.string())
@@ -900,6 +896,10 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  // No list here replaces a saved one: `deleteSupersededSetIds: []` deletes
+  // nothing and `features: []` gets the same default chips as leaving it out,
+  // so GPT-6 Luna's padded `[]` beside padded nulls can run as sent.
+  emptyListsEraseNothing: true,
   run: withGenerationAttempt(async (input, context, attempt) => {
     const {
       designId,
@@ -907,7 +907,7 @@ export default defineAction({
       brief,
       variants,
       deleteSupersededSetIds,
-      responsive,
+      fixedCanvas,
     } = input;
     await assertAccess("design", designId, "editor");
     attempt.start({
@@ -927,8 +927,10 @@ export default defineAction({
     const promptDimensions =
       canvasIntent.kind === "fixed" ? canvasIntent.dimensions : undefined;
     await snapshotDesignBeforeAgentEdit(designId, context);
+    // A switch that only `true` turns on: GPT-6 Luna pads unused booleans with
+    // `false`, so `responsive: false` used to make every padded call fixed.
     const useResponsiveFrames =
-      canvasIntent.kind !== "fixed" && responsive !== false;
+      canvasIntent.kind !== "fixed" && fixedCanvas !== true;
 
     const omittedContent = variants.filter(
       (variant) => !variant.content?.trim(),

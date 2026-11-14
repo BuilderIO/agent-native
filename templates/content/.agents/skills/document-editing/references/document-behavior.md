@@ -39,7 +39,9 @@ In the prepare phase each editor saves its document through
 `update-document` and answers under its own request-matched key with
 `prepared` and a claim of what it saved, or `changed` or `error`. Once
 SQL holds every claim, a verify phase with a fresh token confirms each editor
-answers `verified`, unchanged across that read. `pull-document` waits up
+answers `verified`, unchanged across that read. After each answer the editor
+reads its mailbox every half second until the next phase arrives, rather
+than waiting for a sync poll that can be seconds away. `pull-document` waits up
 to 20 seconds and fails closed if an open editor cannot save; when no active
 human editor is present, the SQL column is authoritative and the handshake
 is skipped. On a page that takes body writes through its live copy, the tabs

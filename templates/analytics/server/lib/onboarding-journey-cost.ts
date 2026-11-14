@@ -19,11 +19,13 @@ import {
   buildOnboardingJourneyEventPageRequest,
   getOnboardingJourneyEventReadPageBudget,
   getOnboardingJourneyEventReadPageCount,
-  ONBOARDING_EVENT_READ_DEADLINE_MS,
   ONBOARDING_EVENT_PAGE_ROWS,
   ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_BYTES_BILLED,
+  ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
 } from "./onboarding-journey.js";
+
+export const ONBOARDING_COST_ESTIMATE_DEADLINE_MS = 45_000;
 
 export type OnboardingJourneyCostFailureCode =
   | "unsupported_backend"
@@ -87,7 +89,7 @@ export async function estimateOnboardingJourneyEventQueryCost(
           "AbortError",
         ),
       ),
-    ONBOARDING_EVENT_READ_DEADLINE_MS,
+    ONBOARDING_COST_ESTIMATE_DEADLINE_MS,
   );
   const estimateSignal = signal
     ? AbortSignal.any([signal, deadline.signal])
@@ -137,26 +139,19 @@ export async function estimateOnboardingJourneyEventQueryCost(
             observation,
             freezeReceivedAt,
           );
-          const scoped = scopedAnalyticsSql(request.sql, scope, undefined, {
-            scopedEventsSingleScan: true,
-            scopedEventsProjection: "onboarding_journey",
-            scopedEventsSourceProjections: {
-              e: "onboarding_journey",
-              r: "onboarding_journey_response_identity",
-            },
-          });
+          const scoped = scopedAnalyticsSql(
+            request.sql,
+            scope,
+            undefined,
+            ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
+          );
           renderedSql = renderFirstPartyAnalyticsBigQueryRequestSql(
             scoped.sql,
             scoped.args,
             table,
             {
               eventDateRange: request.eventDateRange,
-              scopedEventsSingleScan: true,
-              scopedEventsProjection: "onboarding_journey",
-              scopedEventsSourceProjections: {
-                e: "onboarding_journey",
-                r: "onboarding_journey_response_identity",
-              },
+              ...ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
             },
           );
         } catch (error) {

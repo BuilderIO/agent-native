@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => {
     rollbackOptimisticCreatedDocument: vi.fn(),
     seedCreatedDocumentNavigation: vi.fn(),
     setQueryData,
+    showCreatedDocumentInFiles: vi.fn(),
     toastDismiss,
     toastError,
   };
@@ -78,6 +79,7 @@ vi.mock("@/hooks/use-documents", () => ({
   removeCreatedDocumentNavigation: mocks.removeCreatedDocumentNavigation,
   rollbackOptimisticCreatedDocument: mocks.rollbackOptimisticCreatedDocument,
   seedCreatedDocumentNavigation: mocks.seedCreatedDocumentNavigation,
+  showCreatedDocumentInFiles: mocks.showCreatedDocumentInFiles,
   useCreateDocument: () => ({ mutateAsync: mocks.createDocument }),
 }));
 
@@ -629,6 +631,13 @@ describe("useCreatePage", () => {
       expect.anything(),
       expect.any(String),
       false,
+    );
+    // The sub-page showed in the Files tree without opening, and leaves it.
+    expect(mocks.showCreatedDocumentInFiles).toHaveBeenCalledTimes(1);
+    expect(mocks.seedCreatedDocumentNavigation).not.toHaveBeenCalled();
+    expect(mocks.removeCreatedDocumentNavigation).toHaveBeenCalledWith(
+      expect.anything(),
+      mocks.showCreatedDocumentInFiles.mock.calls[0]?.[1],
     );
     expect(mocks.navigate).not.toHaveBeenCalled();
   });

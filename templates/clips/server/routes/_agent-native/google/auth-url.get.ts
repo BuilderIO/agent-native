@@ -147,6 +147,10 @@ export default defineEventHandler(async (event: H3Event) => {
       returnUrl: desktopWebview ? "/?desktop_auth=complete" : returnUrl,
       flowId,
       oauthTargetId,
+      builderSignupAttemptId:
+        !calendarConnect && typeof q.builder_signup_attempt === "string"
+          ? q.builder_signup_attempt.slice(0, 128)
+          : undefined,
       desktopVerifierHash,
       desktopBrowserBindingHash,
     });

@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({ formatDate: (date: Date) => date.toISOString() }),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -69,6 +70,23 @@ describe("CoreAgentKitRoot", () => {
       regenerateResponse: "agentChat.common.retry",
       runCreditsUsed: "agentChat.message.creditsUsed",
       suggestedActions: "agentChat.composer.suggestedActions",
+    });
+  });
+
+  it("localizes the same AgentKit copy as the sidebar chat", () => {
+    renderToStaticMarkup(
+      <CoreAgentKitRoot transport={transport} threadId="thread-1" />,
+    );
+
+    expect(mocks.rootProps?.labels).toMatchObject({
+      agentDelegated: "agentChat.agent.delegated",
+      agentWorking: "agentChat.agent.working",
+      tasksProgress: "agentChat.activity.tasksProgress",
+      negativeFeedback: expect.stringMatching(/^agentChat\./),
+      queueSendNow: expect.stringMatching(/^agentChat\./),
+      question: "agentChat.guided.question",
+      threadLoadFailed: "agentChat.message.threadLoadFailed",
+      composerPlaceholder: "agentChat.composer.newChatPlaceholder",
     });
   });
 

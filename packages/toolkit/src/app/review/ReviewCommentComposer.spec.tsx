@@ -158,6 +158,21 @@ describe("ReviewCommentComposer", () => {
     ).toBe("Write something");
   });
 
+  it("shows the placeholder again once a sent comment clears the box", async () => {
+    const props = {
+      onChange: () => {},
+      onSubmit: () => {},
+      placeholder: "Reply",
+    };
+    await render(<ReviewCommentComposer {...props} value={"- one\n- two"} />);
+    await render(<ReviewCommentComposer {...props} value="" />);
+    expect(
+      editorDom()
+        .querySelector(":scope > p.is-empty:only-child")
+        ?.getAttribute("data-placeholder"),
+    ).toBe("Reply");
+  });
+
   it("keeps the reply variant collapsed until it is focused", async () => {
     await render(
       <ReviewCommentComposer
@@ -494,6 +509,315 @@ describe("ReviewCommentComposer", () => {
 
     keydown("Enter", { ctrlKey: true });
     expect(onSubmit).toHaveBeenCalledWith("human");
+  });
+
+  describe("formatting", () => {
+    function formatToolbar() {
+      return document.querySelector<HTMLElement>(
+        "[data-review-format-toolbar]",
+      );
+    }
+
+    function toolbarButton(label: string) {
+      const button = formatToolbar()?.querySelector<HTMLButtonElement>(
+        `button[aria-label="${label}"]`,
+      );
+      if (!button) throw new Error(`no toolbar button ${label}`);
+      return button;
+    }
+
+    function linkField() {
+      return document.querySelector<HTMLInputElement>(
+        'input[aria-label="Link address"]',
+      );
+    }
+
+    function typeInto(input: HTMLInputElement, text: string) {
+      act(() => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set?.call(input, text);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    }
+
+    function paste(text: string) {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData("text/plain", text);
+      act(() => {
+        editorDom().dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+    }
+
+    it("formats the selection with the keyboard and saves Markdown", async () => {
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(<Harness onState={(next) => (state = next)} />);
+      typeText("Hello world");
+      placeCaret(7, 12);
+      keydown("b", { ctrlKey: true });
+      expect(state.value).toBe("Hello **world**");
+      keydown("i", { ctrlKey: true });
+      expect(state.value).toBe("Hello ***world***");
+    });
+
+    it("shows a bar over selected text that formats it", async () => {
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(<Harness onState={(next) => (state = next)} />);
+      focusEditor();
+      typeText("Hello world");
+      expect(formatToolbar()).toBeNull();
+
+      placeCaret(7, 12);
+      const toolbar = formatToolbar();
+      expect(toolbar?.getAttribute("role")).toBe("toolbar");
+      expect(toolbar?.hasAttribute("data-review-popover")).toBe(true);
+      act(() => toolbarButton("Strikethrough").click());
+      expect(state.value).toBe("Hello ~~world~~");
+      expect(toolbarButton("Strikethrough").getAttribute("aria-pressed")).toBe(
+        "true",
+      );
+      expect(document.activeElement).toBe(editorDom());
+
+      placeCaret(3);
+      expect(formatToolbar()).toBeNull();
+    });
+
+    it("links the selection from Cmd/Ctrl+K without sending", async () => {
+      const onSubmit = vi.fn();
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness onSubmit={onSubmit} onState={(next) => (state = next)} />,
+      );
+      focusEditor();
+      typeText("see docs");
+      placeCaret(5, 9);
+      const shortcut = keydown("k", { ctrlKey: true });
+      expect(shortcut.defaultPrevented).toBe(true);
+      const field = linkField();
+      if (!field) throw new Error("link field not open");
+      typeInto(field, "example.com/docs");
+      act(() => {
+        field.form?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(state.value).toBe("see [docs](https://example.com/docs)");
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(linkField()).toBeNull();
+    });
+
+    // Selected text, and just the caret, where the link is typed in.
+    for (const [where, from, to, linked] of [
+      ["over selected text", 5, 9, "see [docs](https://example.com)"],
+      ["at the caret", 9, 9, "see docs[example.com](https://example.com)"],
+    ] as const) {
+      it(`keeps the link field open on an address a comment wouldn't link, ${where}`, async () => {
+        let state = { value: "", mentions: [] as ReviewMention[] };
+        await render(<Harness onState={(next) => (state = next)} />);
+        focusEditor();
+        typeText("see docs");
+        const submitLink = (field: HTMLInputElement) =>
+          act(() => {
+            field.form?.dispatchEvent(
+              new Event("submit", { bubbles: true, cancelable: true }),
+            );
+          });
+        placeCaret(from, to);
+        keydown("k", { ctrlKey: true });
+        const field = linkField();
+        if (!field) throw new Error("link field not open");
+        typeInto(field, "javascript:alert(1)");
+        submitLink(field);
+        expect(state.value).toBe("see docs");
+        expect(linkField()?.getAttribute("aria-invalid")).toBe("true");
+        typeInto(field, "example.com");
+        expect(linkField()?.hasAttribute("aria-invalid")).toBe(false);
+        submitLink(field);
+        expect(state.value).toBe(linked);
+        expect(linkField()).toBeNull();
+      });
+    }
+
+    it("links the text the page shows selected, before the editor hears of it", async () => {
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness
+          initialValue="Make the button blue"
+          onState={(next) => (state = next)}
+        />,
+      );
+      focusEditor();
+      placeCaret(10);
+      // Shift+Arrow, then Cmd/Ctrl+K at once: the browser hasn't yet told the
+      // editor the selection moved.
+      const late = (event: Event) => event.stopImmediatePropagation();
+      document.addEventListener("selectionchange", late, true);
+      try {
+        const text = editorDom().querySelector("p")?.firstChild;
+        if (!text) throw new Error("no text in the box");
+        document.getSelection()?.setBaseAndExtent(text, 9, text, 15);
+        keydown("k", { ctrlKey: true });
+      } finally {
+        document.removeEventListener("selectionchange", late, true);
+      }
+      const field = linkField();
+      if (!field) throw new Error("link field not open");
+      typeInto(field, "example.com/docs");
+      act(() => {
+        field.form?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(state.value).toBe(
+        "Make the [button](https://example.com/docs) blue",
+      );
+    });
+
+    it("goes on with a list on Enter, and sends once the list has ended", async () => {
+      const onSubmit = vi.fn();
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness onSubmit={onSubmit} onState={(next) => (state = next)} />,
+      );
+      act(() => {
+        editorDom().editor.commands.toggleBulletList();
+      });
+      typeText("one");
+      keydown("Enter");
+      typeText("two");
+      keydown("Enter", { shiftKey: true });
+      typeText("three");
+      expect(state.value).toBe("- one\n- two\n- three");
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      keydown("Enter");
+      keydown("Enter");
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(editorDom().editor.isActive("bulletList")).toBe(false);
+      keydown("Enter");
+      expect(onSubmit).toHaveBeenCalledWith("human");
+      expect(state.value).toBe("- one\n- two\n- three");
+    });
+
+    it("keeps Enter inside a code block, where @ is only a character", async () => {
+      const onSubmit = vi.fn();
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness onSubmit={onSubmit} onState={(next) => (state = next)} />,
+      );
+      act(() => {
+        editorDom().editor.commands.toggleCodeBlock();
+      });
+      typeText("a");
+      keydown("Enter");
+      const at = keydown("@");
+      expect(at.defaultPrevented).toBe(false);
+      expect(mentionListbox()).toBeNull();
+      typeText("b");
+      expect(state.value).toBe("```\na\nb\n```");
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      keydown("Enter", { ctrlKey: true });
+      expect(onSubmit).toHaveBeenCalledWith("human");
+    });
+
+    it("leaves a code block on a third Shift+Enter, as on a third Enter", async () => {
+      await render(<Harness initialValue={"```\na\n```"} />);
+      focusEditor();
+      placeCaret(editorDom().editor.state.doc.content.size - 1);
+      keydown("Enter", { shiftKey: true });
+      keydown("Enter", { shiftKey: true });
+      expect(editorDom().editor.isActive("codeBlock")).toBe(true);
+      keydown("Enter", { shiftKey: true });
+      expect(editorDom().editor.isActive("codeBlock")).toBe(false);
+    });
+
+    it("links code and keeps it code, as a comment can", async () => {
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness initialValue={"`hello`"} onState={(next) => (state = next)} />,
+      );
+      focusEditor();
+      placeCaret(1, 6);
+      keydown("k", { ctrlKey: true });
+      const field = linkField();
+      if (!field) throw new Error("link field not open");
+      typeInto(field, "example.com");
+      act(() => {
+        field.form?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(state.value).toBe("[`hello`](https://example.com)");
+    });
+
+    it("closes the link field once the box is disabled", async () => {
+      const onChange = vi.fn();
+      const props = { value: "hello", onChange, onSubmit: () => {} };
+      await render(<ReviewCommentComposer {...props} />);
+      focusEditor();
+      placeCaret(1, 6);
+      keydown("k", { ctrlKey: true });
+      expect(linkField()).not.toBeNull();
+      await render(<ReviewCommentComposer {...props} disabled />);
+      expect(linkField()).toBeNull();
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("sends on Cmd/Ctrl+Enter with the mention picker open, and Shift+Enter picks no one", async () => {
+      const onSubmit = vi.fn();
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(
+        <Harness onSubmit={onSubmit} onState={(next) => (state = next)} />,
+      );
+      focusEditor();
+      keydown("@");
+      await act(async () => {});
+      expect(mentionListbox()).not.toBeNull();
+      keydown("Enter", { shiftKey: true });
+      expect(state.mentions).toEqual([]);
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      keydown("@");
+      await act(async () => {});
+      expect(mentionListbox()).not.toBeNull();
+      keydown("Enter", { ctrlKey: true });
+      expect(onSubmit).toHaveBeenCalledWith("human");
+      expect(state.mentions).toEqual([]);
+    });
+
+    it("reads pasted text as Markdown, and Shift-pasted text as typed", async () => {
+      let state = { value: "", mentions: [] as ReviewMention[] };
+      await render(<Harness onState={(next) => (state = next)} />);
+      paste("**bold** and [a link](https://example.com)\n- item");
+      expect(state.value).toBe(
+        "**bold** and [a link](https://example.com)\n\n- item",
+      );
+
+      act(() => {
+        editorDom().editor.commands.clearContent(true);
+      });
+      act(() => {
+        editorDom().editor.view.pasteText("**not bold**");
+      });
+      expect(state.value).toBe("\\*\\*not bold\\*\\*");
+    });
+
+    it("keeps the caret where it is when the host renders its own value again", async () => {
+      const body = "  spaced  out  ";
+      const props = { value: body, onChange: () => {}, onSubmit: () => {} };
+      await render(<ReviewCommentComposer {...props} mentions={[]} />);
+      placeCaret(3);
+      await render(<ReviewCommentComposer {...props} mentions={[]} />);
+      expect(editorDom().editor.state.selection.from).toBe(3);
+    });
   });
 
   it("opens the picker above the field on @ and picks with the keyboard", async () => {
@@ -907,6 +1231,55 @@ describe("ReviewCommentComposer", () => {
       container.querySelectorAll("[data-review-mention-chip]"),
     ).toHaveLength(0);
     expect(editorDom().textContent).toBe("");
+  });
+
+  it("chips the people a comment mentions when they load after its text", async () => {
+    const onChange = vi.fn();
+    const box = (mentions: ReviewMention[]) => (
+      <ReviewCommentComposer
+        value="Hi @Alice, and more"
+        mentions={mentions}
+        onChange={onChange}
+        onSubmit={() => {}}
+      />
+    );
+    await render(box([]));
+    expect(
+      container.querySelectorAll("[data-review-mention-chip]"),
+    ).toHaveLength(0);
+    // After "and".
+    placeCaret(15);
+
+    await render(box([alice]));
+
+    expect(
+      container.querySelector("[data-review-mention-chip]")?.textContent,
+    ).toBe("@Alice");
+    // "Hi ", the chip and ", and": the caret holds its place in the text.
+    expect(editorDom().editor.state.selection.from).toBe(10);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("opens a mail-link mention as a chip, and saves it as written", async () => {
+    const onChange = vi.fn();
+    await render(
+      <ReviewCommentComposer
+        value="Ask @[Alex Kim](mailto:alex%40example.com) first"
+        mentions={[]}
+        onChange={onChange}
+        onSubmit={() => {}}
+      />,
+    );
+    expect(
+      container.querySelector("[data-review-mention-chip]")?.textContent,
+    ).toBe("@Alex Kim");
+
+    placeCaret(editorDom().editor.state.doc.content.size - 1);
+    typeText("!");
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      "Ask @[Alex Kim](mailto:alex%40example.com) first!",
+    );
   });
 
   describe("mention combobox", () => {

@@ -3,12 +3,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useOrgRole } from "@agent-native/core/client/org";
-import {
-  IconCheck,
-  IconLoader2,
-  IconRefresh,
-  IconSettings,
-} from "@tabler/icons-react";
+import { IconCheck, IconSettings } from "@tabler/icons-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
@@ -147,18 +142,6 @@ export function AppKeysPanel({
     onError: (err) => toast.error(`Could not revoke: ${String(err)}`),
   });
 
-  const syncMutation = useActionMutation("sync-vault-to-app", {
-    onSuccess: (result: any) => {
-      const synced = result?.synced ?? 0;
-      toast.success(
-        synced > 0
-          ? `Synced ${synced} key${synced === 1 ? "" : "s"} to ${appName}`
-          : `${appName} is up to date`,
-      );
-    },
-    onError: (err) => toast.error(`Sync failed: ${String(err)}`),
-  });
-
   const isLoading =
     orgLoading || secretsLoading || grantsLoading || accessLoading;
   const error =
@@ -197,27 +180,6 @@ export function AppKeysPanel({
                   : `${grantedCount} of ${typedSecrets.length} granted`}
           </p>
         </div>
-        {!error && canManageVault ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={
-              syncMutation.isPending ||
-              typedSecrets.length === 0 ||
-              (!allApps && grantedCount === 0)
-            }
-            onClick={() => syncMutation.mutate({ appId })}
-            className="h-7 px-2"
-          >
-            {syncMutation.isPending ? (
-              <IconLoader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <IconRefresh className="h-3 w-3" />
-            )}
-            <span className="ml-1 text-xs">Sync</span>
-          </Button>
-        ) : null}
       </div>
 
       <div className="max-h-[320px] space-y-1.5 overflow-y-auto rounded-md border border-border bg-card p-1.5">

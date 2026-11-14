@@ -36,6 +36,26 @@ async function status(
 const COOKIE = "an_session=abc";
 
 describe("CSRF middleware", () => {
+  it("protects logout-all but keeps OAuth callbacks exempt", async () => {
+    const crossOrigin = {
+      cookie: COOKIE,
+      "content-type": "text/plain",
+      "sec-fetch-site": "same-site",
+    };
+    expect(
+      await status(crossOrigin, "POST", "/_agent-native/auth/logout-all"),
+    ).toBe(403);
+    expect(
+      await status(
+        { cookie: COOKIE, "sec-fetch-site": "same-origin" },
+        "POST",
+        "/_agent-native/auth/logout-all",
+      ),
+    ).not.toBe(403);
+    expect(
+      await status(crossOrigin, "POST", "/_agent-native/oauth/google/callback"),
+    ).not.toBe(403);
+  });
   it("protects cookie-authenticated public MCP management routes", async () => {
     expect(
       await status(

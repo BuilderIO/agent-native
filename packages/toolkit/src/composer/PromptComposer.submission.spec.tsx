@@ -468,6 +468,33 @@ describe("composer submission ownership", () => {
     ]);
   });
 
+  it("submits a custom agent mention as a custom-agent reference without null fields", async () => {
+    const onSubmit = vi.fn();
+    await render({ onSubmit });
+    await act(async () =>
+      composerRef.current!.insertReference({
+        refType: "custom-agent",
+        refId: "researcher",
+        label: "Researcher",
+        refPath: "agents/researcher.md",
+        source: "agent:custom",
+        icon: "agent",
+      }),
+    );
+    await act(async () => send());
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]?.[2]).toStrictEqual([
+      {
+        type: "custom-agent",
+        path: "agents/researcher.md",
+        name: "Researcher",
+        source: "agent:custom",
+        refType: "custom-agent",
+        refId: "researcher",
+      },
+    ]);
+  });
+
   it("keeps a standalone popup's recovery draft intact through preprocessing, unmount, and rejection", async () => {
     const transport = deferred();
     let observedDraft = "Original draft";

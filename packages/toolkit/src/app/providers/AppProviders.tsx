@@ -9,6 +9,7 @@ import {
   AgentNativeI18nProvider,
   type AgentNativeI18nProviderProps,
 } from "@agent-native/core/client/i18n";
+import { isFirstRunOnboardingEnabled } from "@agent-native/core/client/onboarding/first-run-enabled";
 import { AgentNativeRouteWarmup } from "@agent-native/core/client/route-warmup";
 import {
   EMBEDDED_THEME_CHANGE_EVENT,
@@ -39,6 +40,7 @@ import {
   McpApprovalReviewGate,
   McpApprovalReviewSkeleton,
 } from "../mcp-approval/McpApprovalReview.js";
+import { getFirstRunFirstPaintScriptBody } from "../onboarding/first-run-first-paint.js";
 import { FirstRunOnboardingStartupGate } from "../onboarding/first-run-startup-gate.js";
 import {
   AppShellSkeleton,
@@ -53,6 +55,12 @@ import {
   UnsupportedDeviceGate,
   type UnsupportedDeviceGateProps,
 } from "../shared/UnsupportedDeviceGate.js";
+import { WriteFailureToaster } from "../shared/WriteFailureToaster.js";
+import { BuilderSignupStartupGate } from "./BuilderSignupActivation.js";
+
+declare const __AGENT_NATIVE_APP_CONFIG__: Parameters<
+  typeof isFirstRunOnboardingEnabled
+>[1];
 
 export interface AppProvidersProps {
   queryClient: QueryClient;
@@ -87,6 +95,9 @@ export interface AppProvidersProps {
   signedOutHref?: () => string | null;
 
   skipFirstRunOnboarding?: boolean;
+
+  /** Opt in to the app-specific, consented Builder signup experiment. */
+  builderSignupExperiment?: string;
 
   /**
    * Replaces the app with a hand-off notice on touch screens smaller than an
@@ -149,6 +160,17 @@ function McpAppWidgetBootScript() {
           workspaceRuntime,
         ),
       }}
+    />
+  );
+}
+
+// Before the server-rendered skeleton paints, so a first-paint home never
+// shows to someone about to see the role question.
+function FirstRunFirstPaintScript() {
+  return (
+    <script
+      data-agent-native-first-run-first-paint="1"
+      dangerouslySetInnerHTML={{ __html: getFirstRunFirstPaintScriptBody() }}
     />
   );
 }
@@ -507,17 +529,21 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
-  // The banner reads the app's locale, so it sits inside the same provider.
+  // The toaster shares the app's locale but must remain outside session gates.
   const localizedChildren =
     i18n === false ? (
       <>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
+        <WriteFailureToaster />
+        {toaster}
       </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
+        <WriteFailureToaster />
+        {toaster}
       </AgentNativeI18nProvider>
     );
 
@@ -538,7 +564,6 @@ function ProvidersInner({
       {showEnvironmentBadge ? (
         <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
       ) : null}
-      {toaster}
     </TooltipProvider>
   );
 
@@ -577,6 +602,7 @@ export function AppProviders({
   sessionBypass = false,
   signedOutHref,
   skipFirstRunOnboarding = false,
+  builderSignupExperiment,
   unsupportedDevice,
   disableWebMcp = false,
   webMcpExcludeActionNames,
@@ -640,11 +666,22 @@ export function AppProviders({
             </React.Suspense>
           ) : null}
           <AgentEngineReadinessBootstrap />
-          <FirstRunOnboardingStartupGate
-            suppressSurface={skipFirstRunOnboarding}
-          >
-            {children}
-          </FirstRunOnboardingStartupGate>
+          {builderSignupExperiment ? (
+            <BuilderSignupStartupGate
+              experimentId={builderSignupExperiment}
+              suppressSurface={skipFirstRunOnboarding}
+              cover={fallback}
+            >
+              {children}
+            </BuilderSignupStartupGate>
+          ) : (
+            <FirstRunOnboardingStartupGate
+              suppressSurface={skipFirstRunOnboarding}
+              cover={fallback}
+            >
+              {children}
+            </FirstRunOnboardingStartupGate>
+          )}
         </>
       )}
     </RequireSession>
@@ -679,6 +716,14 @@ export function AppProviders({
         <>
           <EarlySessionBootstrapScript />
           <EarlyBetaRedirectScript />
+          {isFirstRunOnboardingEnabled(
+            import.meta.env,
+            typeof __AGENT_NATIVE_APP_CONFIG__ === "undefined"
+              ? {}
+              : __AGENT_NATIVE_APP_CONFIG__,
+          ) && !skipFirstRunOnboarding ? (
+            <FirstRunFirstPaintScript />
+          ) : null}
         </>
       )}
       <ClientOnly fallback={fallback}>

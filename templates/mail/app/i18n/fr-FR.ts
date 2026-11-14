@@ -481,6 +481,22 @@ const messages = {
       scheduledCancelFailed: "Échec de l’annulation de l’email programmé",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "Échec du téléversement de l’image",
+      storageBuilderRefused:
+        "Builder.io a refusé la connexion de stockage de fichiers de Mail, le fichier n’a donc pas été joint. Reconnectez Builder.io ou utilisez votre propre stockage, puis réessayez.",
+      storageRefused:
+        "Votre bucket de stockage a refusé ce téléversement, le fichier n’a donc pas été joint. Vérifiez le bucket et ses clés, puis réessayez.",
+      storageNotConfigured:
+        "Le stockage de fichiers n’est pas configuré, le fichier n’a donc pas été joint. Connectez Builder.io ou votre propre bucket de stockage, puis réessayez.",
+      openStorageSettings: "Ouvrir les paramètres de stockage",
+      reconnectBuilderStorage: "Reconnecter Builder.io",
+      useOwnStorage: "Utiliser votre propre stockage",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io a refusé la connexion de stockage de fichiers de Mail, le fichier n’a donc pas été joint. Reconnectez Builder.io ou demandez à un propriétaire ou un administrateur de configurer le stockage, puis réessayez.",
+      storageRefusedAskAdmin:
+        "Le bucket de stockage de votre organisation a refusé ce téléversement, le fichier n’a donc pas été joint. Demandez à un propriétaire ou un administrateur de vérifier le bucket et ses clés.",
+      storageNotConfiguredAskAdmin:
+        "Le stockage de fichiers n’est pas configuré, le fichier n’a donc pas été joint. Connectez votre propre compte Builder.io ou demandez à un propriétaire ou un administrateur de configurer le stockage.",
+      connectBuilderStorage: "Connecter Builder.io",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Message envoyé.",
       failedToSaveDraft: "Échec de l'enregistrement du brouillon.",
@@ -972,15 +988,19 @@ const messages = {
     shortcutsList: "Liste des messages",
     shortcutsThread: "Conversation",
     shortcutsCompose: "Rédaction",
+    askAi: "Demander à l’IA",
     backToCommands: "Retour aux commandes",
     backToMessageList: "Retourner à la liste des messages",
     cycleTabs: "Parcourir les onglets",
     extendSelection: "Étendre la sélection",
+    goToUnread: "Aller à Non lu",
     moveSelection: "Déplacer la sélection",
     nextPreviousConversation: "Conversation suivante / précédente",
     nextPreviousMessage: "Message suivant / précédent",
     openMessage: "Ouvrir le message",
+    pageDownUp: "Page suivante / précédente",
     selectAllConversations: "Sélectionner toutes les conversations",
+    selectConversation: "Sélectionner la conversation",
     sendAndMarkDone: "Envoyer et marquer comme terminé",
     toggleMessageExpansion: "Développer / réduire le message",
     toggleReadState: "Basculer l’état de lecture",

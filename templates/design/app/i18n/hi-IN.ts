@@ -1036,7 +1036,6 @@ export default {
   },
   designEditor: {
     sourceLoadFailed: "यह स्क्रीन लोड नहीं हो सकी।",
-    writeFailed: "वह बदलाव सहेजा नहीं जा सका।",
     selectionPublishFailed:
       "एजेंट शायद आपका नवीनतम चयन नहीं देख पाएगा। उसे फिर से चुनें।",
     liveCollaboration: {
@@ -1625,31 +1624,18 @@ export default {
       editColor: "{{name}} का रंग संपादित करें",
     },
     import: {
-      title: "आयात",
       description:
         "Figma clipboard HTML या standalone HTML को Design screens के रूप में लाएँ।",
-      figmaUrlTitle: "Figma फ़्रेम URL",
-      figmaUrlDescription: "Figma link से frame या file import करें।",
       figmaUrlLabel: "Figma frame या file URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "Figma कनेक्शन जाँचा जा रहा है…",
-      figmaConnected: "Figma कनेक्टेड",
-      figmaConnectedWithSuffix: "Figma कनेक्टेड · ••••{{suffix}}",
       figmaTokenLabel: "Figma एक्सेस टोकन",
       figmaTokenDocs: "Token पाएँ",
       figmaTokenPlaceholder: "अपना Figma personal access token paste करें",
-      figmaTokenDescription:
-        "Figma imports और agent chat के लिए सुरक्षित रूप से सहेजा जाता है। Token chat में कभी नहीं जोड़ा जाता।",
-      importFigmaUrl: "Figma से import करें",
-      saveKeyAndImport: "Key save करके import करें",
       figmaUrlSuccess: "Figma से import हो गया।",
       figmaImageFallbackWarning:
         "इमेज फ़ॉलबैक: {{count}}। दिखावट सुरक्षित रहती है, लेकिन इन लेयर को पूरी तरह संपादित नहीं किया जा सकता।",
       figmaApproximationWarning:
         "अनुमानित लेयर: {{count}}। HTML/CSS हर Figma प्रॉपर्टी को ठीक-ठीक प्रस्तुत नहीं कर सकता।",
-      figmaPasteTitle: "Figma से पेस्ट करें",
-      figmaPasteDescription:
-        "Figma में frame या layer कॉपी करें, फिर Design canvas में paste करें। Design visible clipboard HTML import करता है।",
       figmaPasteTarget: "canvas में paste करें",
       figmaPasteApiKeyHint:
         "सटीक नोड आयात के लिए अपना Figma access token कनेक्ट करें।",
@@ -1658,11 +1644,10 @@ export default {
       figmaPasteMatchGuidance:
         "विशिष्ट Figma नोड्स से मेल नहीं खाया। सटीक आयात के लिए इसके बजाय एक frame लिंक paste करें।",
       figmaPasteUnreadable:
-        "इस क्लिपबोर्ड में कोई कॉपी की गई Figma लेयर नहीं है। Figma में एक frame चुनें, उसे Cmd+C से कॉपी करें और दोबारा paste करें, या Import पैनल से Figma लिंक आयात करें।",
+        "इस क्लिपबोर्ड में कोई कॉपी की गई Figma लेयर नहीं है। Figma में एक frame चुनें, उसे Cmd+C से कॉपी करें और दोबारा paste करें, या chat में frame का लिंक paste करें।",
       figmaPasteRestLabel: "Figma API के ज़रिए आयात किया गया",
       figmaPasteHtmlLabel: "क्लिपबोर्ड पूर्वावलोकन से आयात किया गया",
-      figmaPasteLocalKiwiLabel:
-        "बिना token के आयात किया गया — केवल geometry और text",
+      figmaPasteLocalKiwiLabel: "Figma क्लिपबोर्ड से इंपोर्ट किया गया",
       figmaPasteImagesNeedToken:
         "{{count}} छवि{{plural}} को लोड करने के लिए Figma की पहुँच चाहिए।",
       figmaPasteImagesDontShowAgain: "फिर से न दिखाएँ",
@@ -1693,73 +1678,29 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: ".fig अपलोड करें",
       figUploadDescription:
         "प्रायोगिक: Figma का .fig format proprietary है और बदल सकता है। समर्थित layers editable screens बनती हैं; कुछ features अलग हो सकते हैं। अधिकतम {{max}} MB।",
-      chooseFigFile: ".fig file चुनें",
       figUploadUploading: "अपलोड हो रहा है {{progress}}%",
       figUploadProcessing: "बदला जा रहा है…",
-      figImportWarningTitle: "बड़ा .fig आयात",
-      figImportWarningDescription:
-        "इस फ़ाइल में {{frames}} फ़्रेम और {{nodes}} लेयर हैं। सब कुछ आयात करने से एडिटर धीमा हो सकता है। ज़रूरी पेज चुनें।",
-      figImportFrameCount: "{{total}} में से {{selected}} फ़्रेम चुने गए",
-      figImportSelectAll: "सभी चुनें",
-      figImportClearAll: "सभी हटाएँ",
-      figImportCancel: "रद्द करें",
-      figImportSelected: "{{count}} चुने हुए आयात करें",
-      figImportAll: "सभी आयात करें",
       figImportAnalyzing: "विश्लेषण हो रहा है…",
       figImportSaving: "{{total}} में से {{saved}} फ़्रेम सहेजे जा रहे हैं",
-      figImportFrameLimit: "ऐसे पेज चुनें जिनमें कुल {{max}} या उससे कम फ़्रेम हों।",
       figImportFramesSkippedWarning:
         "आयात के लिए बहुत जटिल {{count}} फ़्रेम छोड़ दिए गए: {{names}}",
-      figUploadLimits: "अधिकतम {{size}} GB · प्रति आयात {{frames}} फ़्रेम",
-      figUploadDescriptionShort:
-        "स्थानीय आयात — Figma API कोटा नहीं। समर्थित एम्बेडेड छवियाँ शामिल की जाती हैं।",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "Design ने यह आयात रोक दिया",
-      quotaCooldownBody:
-        "कोटा सीमा तक पहुँचने के बाद Design अपने Figma अनुरोधों को नियंत्रित कर रहा है। यह स्वतः रीसेट हो जाता है।",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "HTML आयात करें",
       htmlDescription:
         "Standalone HTML paste या upload करें। Design इसे नए screen के रूप में save करता है, editor UI में inject नहीं करता।",
-      htmlPlaceholder: "<main>Standalone HTML यहाँ paste करें...</main>",
-      importHtml: "HTML आयात करें",
-      chooseHtmlFile: "HTML file चुनें",
       allSupportedFiles: "सभी समर्थित फ़ाइलें",
-      githubTitle: "GitHub",
       githubDescription:
         "जल्द आ रहा है: repository से screens और components सीधे import करें।",
-      localTitle: "स्थानीय app",
       localDescription: "/visual-edit से किसी भी चल रहे local app को connect करें।",
-      visualEditGuidance:
-        "/visual-edit skill install करें, कोई भी local app शुरू करें, फिर उस app repo से bridge command चलाएँ ताकि आपका agent URL-backed screens जोड़ सके।",
-      comingSoon: "जल्द आ रहा है",
       warningsToast: "Import warnings के साथ पूरा हुआ",
       figmaSuccess: "Figma paste import हो गया",
       htmlSuccess: "HTML import हो गया",
       uploadSuccess: "File import हो गई",
-      lastImport: "पिछला import",
       errors: {
         figmaTokenMustBeToken:
           "Figma फ़ाइल लिंक नहीं, Figma access token paste करें।",
-        figmaUrlRequired: "Figma frame या file URL paste करें।",
-        invalidFigmaUrl: "Valid figma.com URL दर्ज करें।",
         figmaImportFailed: "Figma से import नहीं हो सका",
         notHtml: "Import करने के लिए valid HTML paste करें या चुनें।",
         importFailed: "आयात विफल रहा",
@@ -1767,9 +1708,11 @@ export default {
         uploadFailed: "File upload विफल रहा",
         invalidFigFile: ".fig पर समाप्त होने वाली file चुनें।",
         unsupportedFileType: "कोई .fig, .html या .htm फ़ाइल चुनें।",
-        importBusy: "एक और आयात जारी है। पहले उसे पूरा करें या रद्द करें।",
+        importBusy: "एक और आयात जारी है। उसके पूरा होने पर फिर से कोशिश करें।",
         figFileTooLarge:
-          "यह .fig बहुत बड़ी है — uploads की सीमा {{max}} MB है। Figma में जिस frame को import करना है उसे एक नई file में copy करें और उस file को .fig के रूप में export करें, या Paste from Figma का उपयोग करें।",
+          "यह फ़ाइल यहाँ आयात करने के लिए बहुत बड़ी है। इसके बजाय Figma पेज या frame का लिंक paste करें।",
+        figFileUnreadable:
+          "यह फ़ाइल .fig फ़ाइल के रूप में पढ़ी नहीं जा सकती। Figma से नई लोकल कॉपी सेव करें और उसे आयात करें।",
       },
     },
     generationMayHaveStopped:
@@ -1793,7 +1736,6 @@ export default {
     signInToRequestAccessTitle: "ऐक्सेस माँगने के लिए साइन इन करें",
     signInToRequestAccessDescription:
       "मालिक से ऐक्सेस माँगने के लिए साइन इन करें या खाता बनाएँ।",
-    signInOrSignUp: "साइन इन या साइन अप करें",
     accessCheckFailed: "इस डिज़ाइन का ऐक्सेस जाँचा नहीं जा सका।",
     retryAccessCheck: "फिर कोशिश करें",
     saveAsTemplate: "टेम्पलेट के रूप में सहेजें…",
@@ -1826,9 +1768,12 @@ export default {
       pendingEditsBlocked: "डुप्लिकेट करने से पहले लंबित विज़ुअल संपादन लागू करें या छोड़ दें।",
       allDesigns: "सभी डिज़ाइन",
       rename: "नाम बदलें",
+      builtFrom: "{{title}} से बनाया गया",
+      builtFromPage: "एक Content पेज से बनाया गया",
       duplicate: "डुप्लिकेट करें",
       versionHistory: "संस्करण इतिहास",
       import: "आयात करें…",
+      connectLocalApp: "लोकल ऐप कनेक्ट करें",
       delete: "हटाएँ",
       deleteError: "इस डिज़ाइन को हटाया नहीं जा सका",
     },
@@ -2255,6 +2200,14 @@ export default {
         "किसी अन्य सहयोगी के बदलाव लागू होने की प्रतीक्षा में हैं। नए बदलाव भेजने से पहले उन्हें लागू करें या हटाएँ।",
       codingHandoffCopied: "कोडिंग हैंडऑफ़ कॉपी हुआ",
       clipboardBlocked: "क्लिपबोर्ड अवरुद्ध है",
+      pasteMediaTooMany_one:
+        "{{count}} फ़ाइल पेस्ट नहीं हुई। आप एक बार में अधिकतम {{limit}} फ़ाइलें पेस्ट कर सकते हैं।",
+      pasteMediaTooMany_other:
+        "{{count}} फ़ाइलें पेस्ट नहीं हुईं। आप एक बार में अधिकतम {{limit}} फ़ाइलें पेस्ट कर सकते हैं।",
+      pasteMediaTooLarge_one:
+        "{{count}} फ़ाइल पेस्ट नहीं हुई क्योंकि वह {{limitMb}} MB से बड़ी है।",
+      pasteMediaTooLarge_other:
+        "{{count}} फ़ाइलें पेस्ट नहीं हुईं क्योंकि वे {{limitMb}} MB से बड़ी हैं।",
       htmlCreateError: "HTML डाउनलोड नहीं बनाया जा सका",
       htmlDownloaded: "HTML डाउनलोड हुआ",
       htmlExportError: "HTML निर्यात नहीं किया जा सका",
@@ -2607,6 +2560,9 @@ export default {
     changesDiscarded:
       "कुछ परिवर्तन सहेजे नहीं जा सके क्योंकि फ़ाइल अब मौजूद नहीं है, और उन्हें छोड़ दिया गया।",
     offline: "ऑफ़लाइन",
+    unsaved: "सहेजा नहीं गया",
+    saveRetrying:
+      "आपके परिवर्तन सहेजे नहीं जा सके। अपने-आप फिर से प्रयास किया जा रहा है।",
     saving: "सहेजा जा रहा है...",
     clearedAllAnnotations: "सभी एनोटेशन साफ़ किए गए",
     annotationsDiscardedOnViewChange:
@@ -2664,7 +2620,6 @@ export default {
     websiteReferenceMenu: "वेबसाइट जोड़ें…",
     websiteUrlLabel: "वेबसाइट URL",
     websiteUrl: "वेबसाइट का URL पेस्ट करें",
-    figmaUrlLabel: "Figma लिंक",
     invalidFigmaUrl: "figma.com फ़्रेम या फ़ाइल का मान्य URL दर्ज करें।",
     tooMany: "अधिकतम 20 संदर्भ चुनें।",
     invalidWebsiteUrl: "मान्य HTTP या HTTPS URL दर्ज करें।",
@@ -2672,16 +2627,14 @@ export default {
     noSystems:
       "आपके पास अभी कोई डिज़ाइन सिस्टम नहीं है। वेबसाइट, फ़ाइलों या Figma से एक बनाएँ।",
     searchSystems: "डिज़ाइन सिस्टम खोजें…",
-    searchFrames: "Figma फ़्रेम खोजें…",
     searchDesigns: "डिज़ाइन खोजें…",
     searchPresentations: "प्रस्तुतियाँ खोजें…",
+    searchPages: "पेज खोजें…",
     searchDesign: "डिज़ाइन खोजें…",
     useDesignSystem: "डिज़ाइन सिस्टम का उपयोग करें",
     notReady:
       "प्रॉम्प्ट अभी भेजने के लिए तैयार नहीं है। चुना गया संदर्भ और कनेक्शन जाँचें, फिर प्रयास करें।",
     search: "संदर्भ खोजें…",
-    figmaUrl: "Figma लिंक पेस्ट करें",
-    browse: "फ़्रेम देखें",
     loadFailed: "यह संदर्भ लोड नहीं हो सका।",
     retry: "फिर प्रयास करें",
     empty: "कोई मिलते-जुलते संदर्भ नहीं हैं।",
@@ -2689,9 +2642,28 @@ export default {
     design: "डिज़ाइन संदर्भ",
     slides: "स्लाइड",
     referenceDesign: "डिज़ाइन को संदर्भ बनाएँ",
+    contentPage: "Content पेज",
     connectFigma: "Figma कनेक्ट करें",
-    figmaDisconnected: "डिज़ाइन ब्राउज़ करने के लिए Figma कनेक्ट करें।",
-    figmaReference: "Figma डिज़ाइन",
+    figmaReference: "Figma डिज़ाइन…",
+    figmaDialogTitle: "Figma डिज़ाइन जोड़ें",
+    figmaDropTitle: ".fig फ़ाइल यहाँ छोड़ें",
+    figmaChooseFile: "फ़ाइल चुनें",
+    figmaPasteHint: "आप कॉपी किया गया फ़्रेम सीधे प्रॉम्प्ट में भी पेस्ट कर सकते हैं।",
+    figmaAddToPrompt: "प्रॉम्प्ट में जोड़ें",
+    figmaLinkNeedsConnection:
+      "लिंक के लिए कनेक्टेड Figma खाता चाहिए। इसके बजाय .fig फ़ाइल छोड़ें या कॉपी किया गया फ़्रेम पेस्ट करें।",
+    figmaReferenceMore: "{{name}} और {{count}} अन्य",
+    figmaReferenceEmpty:
+      "कोई फ़्रेम नहीं आया। Figma में एक फ़्रेम कॉपी करें और फिर से कोशिश करें।",
+    figmaSelection: "Figma चयन",
+    figmaFileTooLarge:
+      "यह फ़ाइल यहाँ पढ़ने के लिए बहुत बड़ी है। इसके बजाय इसके पेज या फ़्रेम का लिंक पेस्ट करें।",
+    figmaSearch: "पेज और फ़्रेम खोजें",
+    figmaSelectedCount: "{{count}} चुने गए",
+    figmaShowFrames: "{{name}} के फ़्रेम दिखाएँ",
+    figmaLinkNotFrame: "किसी Figma पेज या फ़्रेम का लिंक दें।",
+    figmaPageFrameCap:
+      "पहले {{limit}} फ़्रेम जोड़े जाते हैं। कौन से जोड़ने हैं, यह चुनने के लिए फ़्रेम चुनें।",
     referenceDeck: "प्रस्तुति को संदर्भ बनाएँ",
     quickSaas: "SaaS लैंडिंग पेज बनाएँ",
     quickDashboard: "डैशबोर्ड बनाएँ",
@@ -2857,7 +2829,6 @@ export default {
     import: "आयात करें",
     importFromFigma: "Figma से आयात करें",
     figmaFile: "Figma फ़ाइल (.fig)",
-    figmaFileMaxSize: "अधिकतम {{max}} GB",
     openImport: "आयात खोलें",
     importSelectedFile: "चुनी गई फ़ाइल आयात करें",
     starterSaasPrompt:
@@ -3396,6 +3367,18 @@ export default {
     addEmoji: "इमोजी जोड़ें",
     mention: "किसी को मेंशन करें",
     noMentions: "कोई व्यक्ति नहीं मिला",
+    format: {
+      toolbar: "फ़ॉर्मैटिंग",
+      bold: "बोल्ड",
+      italic: "इटैलिक",
+      strike: "स्ट्राइकथ्रू",
+      code: "कोड",
+      link: "लिंक",
+      linkField: "लिंक का पता",
+      linkPlaceholder: "लिंक पेस्ट करें",
+      applyLink: "लिंक लागू करें",
+      removeLink: "लिंक हटाएँ",
+    },
     mentionsFailed: "लोगों को लोड नहीं किया जा सका",
     reopen: "फिर से खोलें",
     reopening: "फिर से खोला जा रहा है…",

@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 
 import { agentNativePath } from "./api-path.js";
+import { reportWriteFailure } from "./write-failure-event.js";
+import { writeFailureFromResponse } from "./write-failure.js";
 
 interface CodeModeState {
   devMode: boolean;
@@ -90,10 +92,12 @@ function useCodeModeInternal(apiBase: string): {
         if (res.ok) {
           const data: CodeModeState = await res.json();
           notifyListeners(data);
-        } else if (prev) {
-          notifyListeners(prev);
+        } else {
+          reportWriteFailure(writeFailureFromResponse(res));
+          if (prev) notifyListeners(prev);
         }
-      } catch {
+      } catch (error) {
+        reportWriteFailure(error);
         if (prev) notifyListeners(prev);
       }
     },
