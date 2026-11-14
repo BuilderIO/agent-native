@@ -1373,6 +1373,12 @@ export function RecordingPill() {
       : micWarning === "silent"
         ? "No microphone audio detected"
         : null;
+  const micWarningShort =
+    micWarning === "muted"
+      ? "Mic off"
+      : micWarning === "silent"
+        ? "No mic sound"
+        : null;
   useEffect(() => {
     if (micWarningLabel) setAnnouncement(micWarningLabel);
   }, [micWarningLabel]);
@@ -1583,7 +1589,12 @@ export function RecordingPill() {
                 aria-label={micWarningLabel}
                 title={micWarningLabel}
               >
-                <IconExclamationMark size={15} stroke={3} aria-hidden />
+                <span className="record-pill-audio-warning__icon">
+                  <IconExclamationMark size={13} stroke={3} aria-hidden />
+                </span>
+                <span className="record-pill-audio-warning__text">
+                  {micWarningShort}
+                </span>
               </span>
             ) : (
               <LiveWaveform
