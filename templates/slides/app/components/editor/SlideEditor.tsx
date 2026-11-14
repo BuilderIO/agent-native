@@ -182,6 +182,7 @@ import {
   type FloatingToolbarMoveTool,
   type FloatingToolbarTransition,
 } from "./FloatingToolbar";
+import { SLIDE_FONT_SIZE_MIN, SLIDE_FONT_SIZE_MAX } from "./font-size-scale";
 import { HandPanLayer } from "./HandPanLayer";
 import ImageCropOverlay, {
   writeImageCropPercentGeometry,
@@ -205,6 +206,8 @@ import {
 } from "./list-editing";
 import {
   applyInlineTextStyle,
+  applyInlineFontSizeDelta,
+  applyObjectFontSizeDelta,
   getInlineTextStyleSnapshot,
   getInlineTextStyleSnapshotForRange,
   normalizeSlideClipboardHtml,
@@ -10658,7 +10661,8 @@ export default function SlideEditor({
   }, [getRichTextEditorSurface]);
 
   const applySelectedStylePatch = useCallback(
-    (patch: SlideStylePatch) => {
+    (patch: SlideStylePatch, fontSizeStep?: number) => {
+      const sizeBounds = { min: SLIDE_FONT_SIZE_MIN, max: SLIDE_FONT_SIZE_MAX };
       if (multiSelection.size > 0) {
         const targets = getStyleTargets();
         const currentSnapshot = mergeSlideStyleSnapshots(
@@ -10680,8 +10684,12 @@ export default function SlideEditor({
               );
         let rotationApplied = true;
         for (const target of targets) {
-          const result = applyStylePatchToElement(target, patch);
-          rotationApplied &&= result.rotationApplied;
+          if (fontSizeStep !== undefined) {
+            applyObjectFontSizeDelta(target, fontSizeStep, sizeBounds);
+          } else {
+            const result = applyStylePatchToElement(target, patch);
+            rotationApplied &&= result.rotationApplied;
+          }
         }
         if (patch.rotation !== undefined) {
           rotationApplied &&= targets.every((target) =>
@@ -10724,7 +10732,36 @@ export default function SlideEditor({
         (editing
           ? snapshotEditableTextRange(getRichTextEditorSurface() ?? editing)
           : null);
-      const result = applyStylePatchToElement(element, patch, savedRange);
+      let result: { styledRange: Range | null; rotationApplied: boolean };
+      if (fontSizeStep !== undefined) {
+        let styledRange: Range | null = null;
+        const applyDelta = () => {
+          if (savedRange) {
+            const applied = applyInlineFontSizeDelta(
+              element,
+              fontSizeStep,
+              sizeBounds,
+              null,
+              savedRange,
+            );
+            if (applied.scope === "selection") {
+              styledRange = applied.range ?? null;
+              return applied.changed;
+            }
+          }
+          return applyObjectFontSizeDelta(element, fontSizeStep, sizeBounds)
+            .changed;
+        };
+        const session =
+          textSessionRef.current?.text.element === element
+            ? textSessionRef.current.text
+            : null;
+        const changed = session ? session.apply(applyDelta) : applyDelta();
+        if (!changed) return;
+        result = { styledRange, rotationApplied: true };
+      } else {
+        result = applyStylePatchToElement(element, patch, savedRange);
+      }
       const nextRange = result.styledRange;
       if (editing && nextRange) {
         richTextSelectionRef.current = nextRange.cloneRange();

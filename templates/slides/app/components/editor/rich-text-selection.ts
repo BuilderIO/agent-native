@@ -304,21 +304,26 @@ function isStylableText(text: Text) {
   return !text.parentElement?.closest("style, script, template, svg");
 }
 
-function splitSelectedText(editable: HTMLElement, range: Range): Text[] {
+function selectedTextParts(editable: HTMLElement, range: Range) {
   const { startContainer, startOffset, endContainer, endOffset } = range;
   const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
-  const intersecting: Text[] = [];
+  const parts: { text: Text; from: number; to: number }[] = [];
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    if (range.intersectsNode(node)) intersecting.push(node as Text);
-  }
-  return intersecting.flatMap((text) => {
+    const text = node as Text;
+    if (!range.intersectsNode(text) || !isStylableText(text)) continue;
     const from = text === startContainer ? startOffset : 0;
     const to = text === endContainer ? endOffset : text.length;
-    if (from >= to || !isStylableText(text)) return [];
+    if (from < to) parts.push({ text, from, to });
+  }
+  return parts;
+}
+
+function splitSelectedText(editable: HTMLElement, range: Range): Text[] {
+  return selectedTextParts(editable, range).map(({ text, from, to }) => {
     let selected = text;
     if (to < selected.length) selected.splitText(to);
     if (from > 0) selected = selected.splitText(from);
-    return [selected];
+    return selected;
   });
 }
 
@@ -342,8 +347,8 @@ function styleSelectedText(
   editable: HTMLElement,
   selection: Selection | null,
   style: (texts: Text[]) => void,
+  range = getEditableTextRange(editable, selection),
 ): InlineTextStyleApplication {
-  const range = getEditableTextRange(editable, selection);
   if (!range) return { scope: "block" };
   const backward =
     selection?.anchorNode === range.endContainer &&
@@ -382,6 +387,157 @@ export function applyInlineTextStyle(
   return styleSelectedText(editable, selection, (texts) => {
     for (const text of texts) applyPatch(innermostStyleSpan(text), patch);
   });
+}
+
+export interface FontSizeBounds {
+  min: number;
+  max: number;
+}
+
+export interface FontSizeDeltaResult {
+  changed: boolean;
+  /** Text runs or object roots skipped because their computed size could not be resolved to pixels. */
+  unresolved: number;
+}
+
+export type InlineFontSizeDeltaApplication = InlineTextStyleApplication &
+  FontSizeDeltaResult;
+
+const ABSOLUTE_FONT_SIZE_UNITS: Record<string, number | undefined> = {
+  px: 1,
+  pt: 96 / 72,
+  pc: 16,
+  in: 96,
+  cm: 96 / 2.54,
+  mm: 96 / 25.4,
+  q: 96 / 101.6,
+};
+
+function computedFontSize(element: Element | null): number | null {
+  if (!element) return null;
+  const value = window.getComputedStyle(element).fontSize.trim().toLowerCase();
+  if (value === "0") return 0;
+  const match = /^(\d*\.?\d+)(px|pt|pc|in|cm|mm|q)$/.exec(value);
+  if (!match) return null;
+  const unitName = match.at(2);
+  if (unitName === undefined) return null;
+  const unit = ABSOLUTE_FONT_SIZE_UNITS[unitName];
+  if (unit === undefined) return null;
+  return Number(match[1]) * unit;
+}
+
+function nextFontSize(size: number, delta: number, bounds: FontSizeBounds) {
+  const bounded = Math.min(bounds.max, Math.max(bounds.min, size + delta));
+  return delta > 0 ? Math.max(size, bounded) : Math.min(size, bounded);
+}
+
+function fontSizeChanges(texts: Text[], delta: number, bounds: FontSizeBounds) {
+  let unresolved = 0;
+  const sizes = texts.map((text) => {
+    const size = computedFontSize(text.parentElement);
+    if (size === null) {
+      unresolved++;
+      return null;
+    }
+    const next = nextFontSize(size, delta, bounds);
+    return next === size ? null : next;
+  });
+  return { sizes, unresolved, changed: sizes.some((size) => size !== null) };
+}
+
+function resizeTextRuns(texts: Text[], sizes: (number | null)[]) {
+  texts.forEach((text, index) => {
+    const size = sizes[index];
+    if (size !== null) innermostStyleSpan(text).style.fontSize = `${size}px`;
+  });
+}
+
+export function applyInlineFontSizeDelta(
+  editable: HTMLElement,
+  delta: number,
+  bounds: FontSizeBounds,
+  selection: Selection | null = window.getSelection(),
+  savedRange?: Range | null,
+): InlineFontSizeDeltaApplication {
+  const range = savedRange ?? getEditableTextRange(editable, selection);
+  if (!range || range.collapsed || !hasRangeInside(editable, range)) {
+    return { scope: "block", changed: false, unresolved: 0 };
+  }
+  if (delta === 0)
+    return { scope: "selection", range, changed: false, unresolved: 0 };
+  const texts = selectedTextParts(editable, range).map((part) => part.text);
+  const { sizes, changed, unresolved } = fontSizeChanges(texts, delta, bounds);
+  if (!changed) return { scope: "selection", range, changed, unresolved };
+  const applied = styleSelectedText(
+    editable,
+    selection,
+    (selected) => resizeTextRuns(selected, sizes),
+    range,
+  );
+  return { ...applied, changed, unresolved };
+}
+
+export function applyObjectFontSizeDelta(
+  editable: HTMLElement,
+  delta: number,
+  bounds: FontSizeBounds,
+): FontSizeDeltaResult {
+  if (delta === 0) return { changed: false, unresolved: 0 };
+  const texts: Text[] = [];
+  const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node as Text;
+    if (text.length && isStylableText(text)) texts.push(text);
+  }
+  const rootSize = computedFontSize(editable);
+  const rootNext =
+    rootSize === null ? null : nextFontSize(rootSize, delta, bounds);
+  const originalSizes = texts.map((text) =>
+    computedFontSize(text.parentElement),
+  );
+  const sizes = originalSizes.map((size) =>
+    size === null ? null : nextFontSize(size, delta, bounds),
+  );
+  const unresolved =
+    originalSizes.filter((size) => size === null).length +
+    (rootSize === null ? 1 : 0);
+  // An unresolved run might inherit from the root, so moving the root could
+  // resize it without knowing its starting size or respecting its bounds.
+  const rootChanged =
+    rootNext !== null &&
+    rootNext !== rootSize &&
+    originalSizes.every((size) => size !== null);
+  const changed =
+    rootChanged ||
+    sizes.some((size, index) => size !== null && size !== originalSizes[index]);
+  if (!changed) return { changed, unresolved };
+
+  const selection = window.getSelection();
+  const anchor = selection?.anchorNode;
+  const focus = selection?.focusNode;
+  const preserve =
+    selection &&
+    anchor &&
+    (editable.contains(anchor) || (focus && editable.contains(focus)));
+  const anchorOffset = selection?.anchorOffset ?? 0;
+  const focusOffset = selection?.focusOffset ?? 0;
+  if (rootChanged) editable.style.fontSize = `${rootNext}px`;
+  const overrides = texts.map((text, index) => {
+    const size = sizes[index];
+    return size != null && size !== computedFontSize(text.parentElement)
+      ? size
+      : null;
+  });
+  resizeTextRuns(texts, overrides);
+  if (preserve && focus && overrides.some((size) => size !== null)) {
+    if (typeof selection.setBaseAndExtent === "function") {
+      selection.setBaseAndExtent(anchor, anchorOffset, focus, focusOffset);
+    } else {
+      selection.collapse(anchor, anchorOffset);
+      selection.extend(focus, focusOffset);
+    }
+  }
+  return { changed, unresolved };
 }
 
 function decorationLines(value: string) {

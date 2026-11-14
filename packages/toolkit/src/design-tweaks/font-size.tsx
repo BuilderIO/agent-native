@@ -116,8 +116,10 @@ export function stepFontSize(
 export interface FontSizeChangeMeta {
   /** A scrub sends previews, then one commit, or a cancel that restores. */
   phase: "preview" | "commit" | "cancel";
-  /** Set when a mixed selection takes a typed expression such as `Mixed+2`. */
+  /** Set when a mixed selection takes a relative expression such as `Mixed+2`. */
   relativeExpression?: ScrubRelativeExpression;
+  /** Set when a mixed selection takes an opt-in relative arrow step. */
+  relativeStep?: number;
 }
 
 type FontSizeScrubIcon = (props: {
@@ -130,7 +132,7 @@ export interface FontSizeFieldProps {
   value: number;
   onChange: (value: number, meta: FontSizeChangeMeta) => void;
   /**
-   * Preset sizes listed in the menu and stepped through with the arrow keys.
+   * Preset sizes listed in the menu. The arrow keys step 1, or 10 with Shift.
    * Defaults to `FONT_SIZE_SCALE`.
    */
   scale?: readonly number[];
@@ -153,10 +155,12 @@ export interface FontSizeFieldProps {
   scrubIcon?: FontSizeScrubIcon;
   scrubStep?: number;
   /**
-   * Lets a mixed selection take an expression on its label (`Mixed+2`),
-   * reported as `meta.relativeExpression` so each object changes by it.
+   * Lets a mixed selection take an expression on its label (`Mixed+2`) or
+   * step with the arrow keys, reported as `meta.relativeExpression`.
    */
   allowRelativeExpressions?: boolean;
+  /** Reports mixed-label arrow steps as `meta.relativeStep`, without enabling typed expressions. */
+  allowRelativeArrowSteps?: boolean;
   disabled?: boolean;
   className?: string;
   inputClassName?: string;
@@ -194,6 +198,7 @@ export function FontSizeField({
   scrubIcon: ScrubIcon,
   scrubStep = 1,
   allowRelativeExpressions = false,
+  allowRelativeArrowSteps = false,
   disabled = false,
   className,
   inputClassName,
@@ -280,13 +285,13 @@ export function FontSizeField({
     return () => cancelAnimationFrame(frame);
   }, [open, anchorSize]);
 
-  const commit = (next: number) => {
+  const commit = (next: number, previous = value) => {
     setDraft(formatFontSize(next));
-    if (mixed || next !== value) onChange(next, { phase: "commit" });
+    if (mixed || next !== previous) onChange(next, { phase: "commit" });
   };
 
-  const commitRelativeDraft = () => {
-    const expression = normalizeScrubMixedExpression(draft, mixedLabel);
+  const commitRelativeDraft = (input = draft) => {
+    const expression = normalizeScrubMixedExpression(input, mixedLabel);
     if (!expression) return false;
     const relative = parseScrubRelativeExpression(
       expression,
@@ -322,16 +327,33 @@ export function FontSizeField({
     commit(next);
   };
 
-  const step = (direction: 1 | -1) => {
+  const step = (delta: number) => {
+    if (mixed && draft === mixedLabel) {
+      if (allowRelativeArrowSteps) {
+        const next = normalizeScrubNumber(value + delta, {
+          ...bounds,
+          precision: FONT_SIZE_PRECISION,
+        });
+        onChange(next, { phase: "commit", relativeStep: delta });
+        return;
+      }
+      if (allowRelativeExpressions) {
+        commitRelativeDraft(`Mixed${delta > 0 ? "+" : ""}${delta}`);
+        return;
+      }
+    }
     const typed =
       mixed && draft === mixedLabel
         ? null
         : parseFontSizeInput(draft, value, {
-            ...bounds,
             ...(unit ? { unit } : {}),
           });
-    const next = stepFontSize(typed ?? value, scaleSizes, direction, bounds);
-    if (next !== null) commit(next);
+    const current = typed ?? value;
+    const next = clampFontSize(
+      Number((current + delta).toFixed(FONT_SIZE_PRECISION)),
+      bounds,
+    );
+    if (next > 0 && (next - current) * delta > 0) commit(next, current);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -342,7 +364,10 @@ export function FontSizeField({
     }
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       event.preventDefault();
-      step(event.key === "ArrowUp" ? 1 : -1);
+      step(
+        (event.key === "ArrowUp" ? 1 : -1) *
+          getScrubStepFromEvent({ altKey: false, shiftKey: event.shiftKey }, 1),
+      );
       event.currentTarget.select();
       return;
     }
