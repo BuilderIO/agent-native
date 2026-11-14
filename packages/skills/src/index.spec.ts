@@ -210,6 +210,398 @@ describe("@agent-native/skills", () => {
     ).toBe(false);
   });
 
+  it("copies linked folders inside a local skill as files", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    const sharedReferences = path.join(repo, "shared", "references");
+    writeSkill(repo, "quick-recap");
+    fs.mkdirSync(sharedReferences, { recursive: true });
+    fs.writeFileSync(path.join(sharedReferences, "notes.md"), "Notes\n");
+    fs.symlinkSync(
+      sharedReferences,
+      path.join(repo, "skills", "quick-recap", "references"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    const references = path.join(
+      project,
+      ".agents",
+      "skills",
+      "quick-recap",
+      "references",
+    );
+    expect(fs.lstatSync(references).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(references, "notes.md"), "utf8")).toBe(
+      "Notes\n",
+    );
+  });
+
+  it("leaves out links that point outside the source or nowhere", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    const outside = tmpDir();
+    const gone = path.join(tmpDir(), "gone");
+    const skill = path.join(repo, "skills", "quick-recap");
+    writeSkill(repo, "quick-recap");
+    fs.writeFileSync(path.join(outside, "private.txt"), "private\n");
+    fs.mkdirSync(gone);
+    const linkType = process.platform === "win32" ? "junction" : "dir";
+    fs.symlinkSync(outside, path.join(skill, "outside"), linkType);
+    fs.symlinkSync(gone, path.join(skill, "gone"), linkType);
+    fs.rmSync(gone, { recursive: true });
+
+    await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    const installed = path.join(project, ".agents", "skills", "quick-recap");
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(installed, "outside"))).toBe(false);
+    expect(
+      fs.lstatSync(path.join(installed, "gone"), { throwIfNoEntry: false }),
+    ).toBeUndefined();
+  });
+
+  // oracle-change: a new test, skipped on Windows and as root, where folder permissions can't lock the test out.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "fails when a link's target can't be read, keeping the earlier install",
+    async () => {
+      const repo = tmpDir();
+      const project = tmpDir();
+      const skill = path.join(repo, "skills", "quick-recap");
+      writeSkill(repo, "quick-recap");
+      const locked = path.join(repo, "locked");
+      fs.mkdirSync(path.join(locked, "notes"), { recursive: true });
+      fs.symlinkSync(path.join(locked, "notes"), path.join(skill, "notes"));
+      const installRoot = path.join(project, ".agents", "skills");
+      fs.mkdirSync(path.join(installRoot, "quick-recap"), { recursive: true });
+      fs.writeFileSync(
+        path.join(installRoot, "quick-recap", "SKILL.md"),
+        "Earlier install\n",
+      );
+      fs.chmodSync(locked, 0o000);
+      try {
+        await expect(
+          installSkills({
+            source: repo,
+            skillNames: ["quick-recap"],
+            clients: ["codex"],
+            scope: "project",
+            baseDir: project,
+            updateInstructions: false,
+            yes: true,
+          }),
+        ).rejects.toThrow(/EACCES/);
+      } finally {
+        fs.chmodSync(locked, 0o755);
+      }
+
+      expect(
+        fs.readFileSync(
+          path.join(installRoot, "quick-recap", "SKILL.md"),
+          "utf8",
+        ),
+      ).toBe("Earlier install\n");
+      expect(fs.readdirSync(installRoot)).toEqual(["quick-recap"]);
+    },
+  );
+
+  it("puts the earlier install back when moving the new copy in fails", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "quick-recap");
+    const installRoot = path.join(project, ".agents", "skills");
+    fs.mkdirSync(path.join(installRoot, "quick-recap"), { recursive: true });
+    fs.writeFileSync(
+      path.join(installRoot, "quick-recap", "SKILL.md"),
+      "Earlier install\n",
+    );
+    const rename = fs.renameSync;
+    vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      // Windows refuses the move like this while a file in the folder is open.
+      if (path.basename(String(from)) === "skill") {
+        throw Object.assign(new Error("EBUSY: resource busy or locked"), {
+          code: "EBUSY",
+        });
+      }
+      rename(from, to);
+    });
+
+    await expect(
+      installSkills({
+        source: repo,
+        skillNames: ["quick-recap"],
+        clients: ["codex"],
+        scope: "project",
+        baseDir: project,
+        updateInstructions: false,
+        yes: true,
+      }),
+    ).rejects.toThrow(/EBUSY/);
+
+    expect(
+      fs.readFileSync(
+        path.join(installRoot, "quick-recap", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("Earlier install\n");
+    expect(fs.readdirSync(installRoot)).toEqual(["quick-recap"]);
+  });
+
+  it("keeps the earlier install, and says where, when it can't be put back", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "quick-recap");
+    const installRoot = path.join(project, ".agents", "skills");
+    fs.mkdirSync(path.join(installRoot, "quick-recap"), { recursive: true });
+    fs.writeFileSync(
+      path.join(installRoot, "quick-recap", "SKILL.md"),
+      "Earlier install\n",
+    );
+    const rename = fs.renameSync;
+    vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      const name = path.basename(String(from));
+      if (name === "skill" || name === "earlier") {
+        throw Object.assign(new Error("EBUSY: resource busy or locked"), {
+          code: "EBUSY",
+        });
+      }
+      rename(from, to);
+    });
+
+    const failure = await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    }).then(
+      () => undefined,
+      (error: Error) => error,
+    );
+
+    const kept = /it is now at (.+) \(/.exec(failure?.message ?? "")?.[1];
+    expect(kept).toBeDefined();
+    expect(fs.readFileSync(path.join(kept!, "SKILL.md"), "utf8")).toBe(
+      "Earlier install\n",
+    );
+  });
+
+  it("leaves out a link to a folder the install is written into", async () => {
+    const repo = tmpDir();
+    const project = path.join(repo, "project");
+    fs.mkdirSync(project);
+    writeSkill(repo, "quick-recap");
+    fs.symlinkSync(
+      project,
+      path.join(repo, "skills", "quick-recap", "project"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    const installed = path.join(project, ".agents", "skills", "quick-recap");
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(installed, "project"))).toBe(false);
+  });
+
+  it("leaves out a link into the earlier install", async () => {
+    const repo = tmpDir();
+    const project = path.join(repo, "project");
+    const installed = path.join(project, ".agents", "skills", "quick-recap");
+    fs.mkdirSync(path.join(installed, "notes"), { recursive: true });
+    fs.writeFileSync(path.join(installed, "notes", "old.md"), "Old\n");
+    writeSkill(repo, "quick-recap");
+    fs.symlinkSync(
+      path.join(installed, "notes"),
+      path.join(repo, "skills", "quick-recap", "notes"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(installed, "notes"))).toBe(false);
+  });
+
+  it("refuses to install a skill over the folder it comes from", async () => {
+    const project = tmpDir();
+    writeSkill(path.join(project, ".agents"), "quick-recap");
+    const skillFile = path.join(
+      project,
+      ".agents",
+      "skills",
+      "quick-recap",
+      "SKILL.md",
+    );
+
+    await expect(
+      installSkills({
+        source: path.join(project, ".agents"),
+        skillNames: ["quick-recap"],
+        clients: ["codex"],
+        scope: "project",
+        baseDir: project,
+        updateInstructions: false,
+        yes: true,
+      }),
+    ).rejects.toThrow(/overlap/);
+
+    expect(fs.existsSync(skillFile)).toBe(true);
+  });
+
+  it("replaces a link at the install folder that points at the skill", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    writeSkill(repo, "quick-recap");
+    const installed = path.join(project, ".agents", "skills", "quick-recap");
+    fs.mkdirSync(path.dirname(installed), { recursive: true });
+    fs.symlinkSync(
+      path.join(repo, "skills", "quick-recap"),
+      installed,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    expect(fs.lstatSync(installed).isSymbolicLink()).toBe(false);
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(
+      fs.existsSync(path.join(repo, "skills", "quick-recap", "SKILL.md")),
+    ).toBe(true);
+  });
+
+  it("refuses a skill folder linked outside the source", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    const outside = tmpDir();
+    writeSkill(outside, "quick-recap");
+    fs.symlinkSync(
+      path.join(outside, "skills", "quick-recap"),
+      path.join(repo, "skills"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const installed = path.join(project, ".agents", "skills", "quick-recap");
+    fs.mkdirSync(installed, { recursive: true });
+    fs.writeFileSync(path.join(installed, "SKILL.md"), "Earlier install\n");
+
+    await expect(
+      installSkills({
+        source: repo,
+        skillNames: ["quick-recap"],
+        clients: ["codex"],
+        scope: "project",
+        baseDir: project,
+        updateInstructions: false,
+        yes: true,
+      }),
+    ).rejects.toThrow(/links outside its source/);
+
+    expect(fs.readFileSync(path.join(installed, "SKILL.md"), "utf8")).toBe(
+      "Earlier install\n",
+    );
+  });
+
+  it("leaves out .git and node_modules, and links into them", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    const skill = path.join(repo, "skills", "quick-recap");
+    writeSkill(repo, "quick-recap");
+    const gitDir = path.join(repo, ".git", "objects");
+    const packageDocs = path.join(repo, "node_modules", "pkg", "docs");
+    fs.mkdirSync(gitDir, { recursive: true });
+    fs.mkdirSync(packageDocs, { recursive: true });
+    fs.writeFileSync(path.join(packageDocs, "readme.md"), "Docs\n");
+    fs.mkdirSync(path.join(skill, "node_modules", "pkg"), { recursive: true });
+    const linkType = process.platform === "win32" ? "junction" : "dir";
+    fs.symlinkSync(gitDir, path.join(skill, "objects"), linkType);
+    fs.symlinkSync(packageDocs, path.join(skill, "docs"), linkType);
+
+    await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    const installed = path.join(project, ".agents", "skills", "quick-recap");
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(installed, "node_modules"))).toBe(false);
+    expect(fs.existsSync(path.join(installed, "objects"))).toBe(false);
+    expect(fs.existsSync(path.join(installed, "docs"))).toBe(false);
+  });
+
+  it("leaves out a link back to a folder the copy is inside", async () => {
+    const repo = tmpDir();
+    const project = tmpDir();
+    const skill = path.join(repo, "skills", "quick-recap");
+    writeSkill(repo, "quick-recap");
+    fs.symlinkSync(
+      path.join(repo, "skills"),
+      path.join(skill, "parent"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await installSkills({
+      source: repo,
+      skillNames: ["quick-recap"],
+      clients: ["codex"],
+      scope: "project",
+      baseDir: project,
+      updateInstructions: false,
+      yes: true,
+    });
+
+    const installed = path.join(project, ".agents", "skills", "quick-recap");
+    expect(fs.existsSync(path.join(installed, "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(path.join(installed, "parent"))).toBe(false);
+  });
+
   it("forwards scaffold update commands through the shared core flow", async () => {
     await runSkillsCli(["update", "scaffold", "--project"], {
       isInteractive: () => false,

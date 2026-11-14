@@ -32,6 +32,11 @@ import {
   installLocalContextXray,
 } from "./context-xray-local.js";
 import {
+  copyFollowingLinks,
+  linkKind,
+  replaceFollowingLinks,
+} from "./copy-following-links.js";
+import {
   detectInstalledClients,
   isHomeDirectory,
 } from "./installed-clients.js";
@@ -1608,6 +1613,8 @@ interface InstallPathSnapshot {
   target: string;
   backup: string;
   existed: boolean;
+  /** Set when the target is itself a link, which is put back as written. */
+  link?: { target: string; type: "file" | "dir" };
 }
 
 function snapshotInstallPaths(
@@ -1616,9 +1623,24 @@ function snapshotInstallPaths(
 ): InstallPathSnapshot[] {
   return [...new Set(targets)].map((target, index) => {
     const backup = path.join(backupRoot, `snapshot-${index}`);
-    const existed = fs.existsSync(target);
-    if (existed) fs.cpSync(target, backup, { recursive: true });
-    return { target, backup, existed };
+    const stat = fs.lstatSync(target, { throwIfNoEntry: false });
+    if (!stat) return { target, backup, existed: false };
+    if (!stat.isSymbolicLink()) {
+      fs.cpSync(target, backup, { recursive: true, verbatimSymlinks: true });
+      return { target, backup, existed: true };
+    }
+    // A link is recreated, not copied: a copy would make a relative target
+    // absolute, and cpSync can't copy back a relative link that dangles in
+    // the backup. A linked file's contents are kept as well, since the
+    // install writes through the link.
+    const resolved = fs.statSync(target, { throwIfNoEntry: false });
+    if (resolved?.isFile()) fs.copyFileSync(target, backup);
+    return {
+      target,
+      backup,
+      existed: true,
+      link: { target: fs.readlinkSync(target), type: linkKind(target) },
+    };
   });
 }
 
@@ -1640,7 +1662,21 @@ function restoreInstallPaths(
     fs.rmSync(snapshot.target, { recursive: true, force: true });
     if (snapshot.existed) {
       fs.mkdirSync(path.dirname(snapshot.target), { recursive: true });
-      fs.cpSync(snapshot.backup, snapshot.target, { recursive: true });
+      if (snapshot.link) {
+        createAgentSymlink(
+          snapshot.link.target,
+          snapshot.target,
+          snapshot.link.type,
+        );
+        if (fs.existsSync(snapshot.backup)) {
+          fs.copyFileSync(snapshot.backup, snapshot.target);
+        }
+      } else {
+        fs.cpSync(snapshot.backup, snapshot.target, {
+          recursive: true,
+          verbatimSymlinks: true,
+        });
+      }
     }
   }
   for (const snapshot of snapshots) {
@@ -1817,9 +1853,7 @@ function bundledScaffoldSkillsDir(templateName: string): string {
   if (cached) return cached;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-layer-skills-"));
   const skillsDir = path.join(root, ".agents", "skills");
-  fs.cpSync(bundledScaffoldSkillsDir(layer.base), skillsDir, {
-    recursive: true,
-  });
+  copyFollowingLinks(bundledScaffoldSkillsDir(layer.base), skillsDir);
   applyTemplateLayer(templateDir, layer, root, { only: ".agents/skills" });
   layeredScaffoldSkillsDirs.set(templateName, skillsDir);
   return skillsDir;
@@ -2197,22 +2231,35 @@ function copyScaffoldGuidanceSkills(
     allowedSkills,
   )) {
     if (existing && !existing.has(skill)) continue;
+    const sourceSkillDir = path.join(sourceRoot, skill);
     const targetSkillDir = path.join(targetRoot, skill);
     if (
       fs.existsSync(targetSkillDir) &&
-      fs.lstatSync(targetSkillDir).isSymbolicLink()
+      fs.lstatSync(targetSkillDir).isSymbolicLink() &&
+      !isMachineOnlyLinkTo(targetSkillDir, sourceSkillDir)
     ) {
       continue;
     }
-    fs.rmSync(targetSkillDir, { recursive: true, force: true });
-    fs.cpSync(path.join(sourceRoot, skill), targetSkillDir, {
-      recursive: true,
-      dereference: true,
-    });
+    replaceFollowingLinks(sourceSkillDir, targetSkillDir);
   }
 }
 
-export { copyScaffoldGuidanceSkills as _copyScaffoldGuidanceSkills };
+// Before 0.221, refreshing a copied skill could write an absolute link to its
+// source instead of a copy (#8231). That link only resolves on the machine
+// that wrote it, so it is copied again; links that point anywhere else stay.
+// The caller has already checked that the link resolves.
+function isMachineOnlyLinkTo(linkPath: string, sourceDir: string): boolean {
+  return (
+    path.isAbsolute(fs.readlinkSync(linkPath)) &&
+    fs.realpathSync(linkPath) === fs.realpathSync(sourceDir)
+  );
+}
+
+export {
+  copyScaffoldGuidanceSkills as _copyScaffoldGuidanceSkills,
+  restoreInstallPaths as _restoreInstallPaths,
+  snapshotInstallPaths as _snapshotInstallPaths,
+};
 
 function updateScaffoldGuidanceStates(
   states: ScaffoldGuidanceState[],
@@ -2263,9 +2310,15 @@ function ensureWorkspaceRootSkillsLink(
   try {
     createAgentSymlink(target, linkPath, "dir");
   } catch {
+    // Staged, so a copy that fails leaves no partial folder, and the next
+    // update tries again.
     try {
-      fs.cpSync(sharedSkillsDir, linkPath, { recursive: true });
-    } catch {}
+      replaceFollowingLinks(sharedSkillsDir, linkPath);
+    } catch (error) {
+      console.warn(
+        `[skills] Couldn't link or copy the shared skills to ${linkPath}: ${(error as Error).message}`,
+      );
+    }
   }
 }
 
@@ -2283,7 +2336,13 @@ function refreshCopiedClaudeSkills(projectRoot: string): void {
       listImmediateSkillDirs(agentsSkillsDir),
       false,
     );
-  } catch {}
+  } catch (error) {
+    // The update goes on without this refresh, but says so: what was there
+    // stays, which may be a link that only works on the machine that made it.
+    console.warn(
+      `[skills] Couldn't refresh the copied skills in ${claudeSkillsDir}: ${(error as Error).message}`,
+    );
+  }
 }
 
 function repairScaffoldAgentLinks(states: ScaffoldGuidanceState[]): void {
