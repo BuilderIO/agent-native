@@ -166,7 +166,12 @@ export default defineAction({
       },
       { resourceType: args.resourceType, resourceId: args.resourceId },
       {
-        expectedRevision: args.expectedRevision,
+        // An image edit is worked out from the comment as read above, so
+        // with no revision given it saves only over that one: an image
+        // change made since is refused as a conflict rather than undone.
+        expectedRevision:
+          args.expectedRevision ??
+          (attachments !== undefined ? comment.revision : undefined),
         requireContent: changesContent,
         actorEmail: actionCtx?.userEmail ?? null,
       },

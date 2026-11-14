@@ -45,6 +45,27 @@ vi.mock("../../file-upload/registry.js", async (importOriginal) => ({
   getActiveFileUploadProviderForRequest: vi.fn(async () => null),
 }));
 
+// Runs once after an action reads a comment, as a write landing between that
+// read and the action's save would.
+const afterCommentRead = vi.hoisted(() => ({
+  run: null as null | (() => Promise<void>),
+}));
+vi.mock("../store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../store.js")>();
+  return {
+    ...actual,
+    getReviewCommentById: async (
+      ...args: Parameters<typeof actual.getReviewCommentById>
+    ) => {
+      const comment = await actual.getReviewCommentById(...args);
+      const run = afterCommentRead.run;
+      afterCommentRead.run = null;
+      await run?.();
+      return comment;
+    },
+  };
+});
+
 const createReviewCommentAction = (await import("./create-review-comment.js"))
   .default;
 const getReviewFeedbackAction = (await import("./get-review-feedback.js"))
@@ -85,6 +106,7 @@ const {
   consumeReviewFeedback,
   deleteReviewComment,
   ensureReviewTables,
+  getReviewCommentById,
   insertReviewComment,
   insertReviewReply,
   finishReviewNotificationDelivery,
@@ -101,6 +123,7 @@ const { __resetStoreLedgerSnapshotForTests } =
   await import("../../db/store-registry.js");
 
 beforeEach(async () => {
+  afterCommentRead.run = null;
   pglite = await createTestPglite();
   __resetStoreLedgerSnapshotForTests();
   rawClient.execute.mockClear();
@@ -793,6 +816,48 @@ describe("review actions", () => {
         })),
       ),
     ).rejects.toMatchObject({ statusCode: 400, errorCode: "too_many_images" });
+  });
+
+  it("refuses an image edit sent with no revision when another edit lands before it saves", async () => {
+    const image = (name: string) => ({
+      url: `https://cdn.builder.io/api/v1/image/${name}`,
+      name: `${name}.png`,
+    });
+    const root = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "public",
+      body: "Look",
+      authorEmail: COMMENTER_EMAIL,
+      visibility: "public",
+      metadata: { attachments: [image("first")] },
+    });
+    const edit = (attachments: { url: string; name: string }[]) =>
+      updateReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          commentId: root.id,
+          attachments,
+        },
+        { userEmail: COMMENTER_EMAIL },
+      );
+    // Another tab adds an image after this edit has read the comment.
+    afterCommentRead.run = async () => {
+      await edit([image("first"), image("meanwhile")]);
+    };
+
+    await expect(edit([image("first"), image("mine")])).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "revision_conflict",
+    });
+    const saved = await getReviewCommentById(
+      root.id,
+      { userEmail: COMMENTER_EMAIL },
+      { bypassScope: true },
+    );
+    expect(saved?.metadata).toEqual({
+      attachments: [image("first"), image("meanwhile")],
+    });
   });
 
   it("refuses an edit with more images than a comment keeps, before checking any", () => {
