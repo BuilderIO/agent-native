@@ -10,6 +10,7 @@ import { normalizeZip } from "./deterministic-zip.js";
 import {
   NetlifyManifestExpiredError,
   assertManifestFresh,
+  assertNoFunctionsConfig,
   assertSupportedZipItVersion,
   findNetlifyCli,
   prepareNetlifyFunctionZips,
@@ -254,6 +255,32 @@ describe("findNetlifyCli project-local", () => {
     fs.writeFileSync(path.join(nm, ".bin", "netlify.cmd"), "@echo off");
     expect(findNetlifyCli(path.join(nm, ".bin")).packageDir).toBe(
       path.join(nm, "netlify-cli"),
+    );
+  });
+});
+
+describe("assertNoFunctionsConfig", () => {
+  it("rejects a netlify.toml with [functions] settings", () => {
+    const root = tmp();
+    expect(() => assertNoFunctionsConfig(root)).not.toThrow();
+    fs.writeFileSync(
+      path.join(root, "netlify.toml"),
+      "[build]\npublish='dist'\n",
+    );
+    expect(() => assertNoFunctionsConfig(root)).not.toThrow();
+    fs.writeFileSync(
+      path.join(root, "netlify.toml"),
+      "[functions]\nnode_bundler='esbuild'\n",
+    );
+    expect(() => assertNoFunctionsConfig(root)).toThrow(
+      /\[functions\] options/,
+    );
+    fs.writeFileSync(
+      path.join(root, "netlify.toml"),
+      "[functions.\"x\"]\nincluded_files=['a']\n",
+    );
+    expect(() => assertNoFunctionsConfig(root)).toThrow(
+      /\[functions\] options/,
     );
   });
 });

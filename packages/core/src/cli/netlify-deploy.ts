@@ -4,10 +4,6 @@ import path from "path";
 import {
   NETLIFY_MANIFEST_REJECTED_MESSAGES,
   NETLIFY_MANIFEST_USED_MESSAGE,
-  NETLIFY_MANIFEST_LAUNCH_MARGIN_MS,
-  NETLIFY_MANIFEST_TTL_MS,
-  NetlifyManifestExpiredError,
-  assertManifestFresh,
   findNetlifyCli,
   loadCliZipIt,
   prepareNetlifyFunctionZips,
@@ -96,19 +92,6 @@ export async function runNetlifyDeploy(rawArgs: string[]): Promise<void> {
     `[netlify-deploy] ${functions.length} functions zipped with netlify-cli ${cli.version} (zip-it ${version})`,
   );
 
-  try {
-    assertManifestFresh(
-      manifestPath,
-      Date.now(),
-      NETLIFY_MANIFEST_TTL_MS - NETLIFY_MANIFEST_LAUNCH_MARGIN_MS,
-    );
-  } catch (error) {
-    if (error instanceof NetlifyManifestExpiredError) {
-      console.error(`[netlify-deploy] manifest-expired ${error.message}`);
-    }
-    throw error;
-  }
-
   const exitCode = await new Promise<number>((resolve, reject) => {
     // The CLI prints the marker while choosing its functions, before anything
     // is uploaded or published, so stopping it here prevents the unstable deploy.
@@ -117,7 +100,7 @@ export async function runNetlifyDeploy(rawArgs: string[]): Promise<void> {
       [cli.entryPoint, "deploy", ...deployArgs],
       { cwd: siteRoot, stdio: ["inherit", "pipe", "pipe"] },
     );
-    let ignored = false;
+    let rejected: string | undefined;
     let consumed = false;
     const watch = (stream: NodeJS.ReadableStream, sink: NodeJS.WriteStream) => {
       let tail = "";
@@ -127,12 +110,11 @@ export async function runNetlifyDeploy(rawArgs: string[]): Promise<void> {
           -(NETLIFY_MANIFEST_USED_MESSAGE.length * 2),
         );
         if (tail.includes(NETLIFY_MANIFEST_USED_MESSAGE)) consumed = true;
-        if (
-          !ignored &&
-          NETLIFY_MANIFEST_REJECTED_MESSAGES.some((m) => tail.includes(m))
-        ) {
-          ignored = true;
-          child.kill("SIGTERM");
+        if (!rejected) {
+          rejected = NETLIFY_MANIFEST_REJECTED_MESSAGES.find((m) =>
+            tail.includes(m),
+          );
+          if (rejected) child.kill("SIGTERM");
         }
       });
     };
@@ -140,9 +122,12 @@ export async function runNetlifyDeploy(rawArgs: string[]): Promise<void> {
     watch(child.stderr, process.stderr);
     child.on("error", reject);
     child.on("close", (code) => {
-      if (ignored) {
+      if (rejected) {
+        const reason = rejected.startsWith("Ignored")
+          ? "manifest-expired netlify-cli discarded the manifest as invalid or older than its 2 minute TTL"
+          : "manifest-missing netlify-cli found no functions manifest at its resolved site path";
         console.error(
-          "[netlify-deploy] manifest-expired netlify-cli discarded the functions manifest; the deploy was stopped before upload so unstable ZIPs are not published",
+          `[netlify-deploy] ${reason}; the deploy was stopped before upload so unstable ZIPs are not published`,
         );
         resolve(1);
       } else if (code === 0 && !consumed) {

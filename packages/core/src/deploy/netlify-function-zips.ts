@@ -165,12 +165,28 @@ export interface PreparedFunctionZip {
   sha256: string;
 }
 
+/**
+ * zip-it receives no netlify.toml `[functions]` settings here (included_files,
+ * node_bundler, ...), and the CLI trusts the prebuilt manifest instead of
+ * applying them, so a project that sets any must not use this path.
+ */
+export function assertNoFunctionsConfig(siteRoot: string): void {
+  const tomlPath = path.join(siteRoot, "netlify.toml");
+  if (!fs.existsSync(tomlPath)) return;
+  if (/^\s*\[(\[)?functions[\].]/m.test(fs.readFileSync(tomlPath, "utf-8"))) {
+    throw new Error(
+      `${tomlPath} sets [functions] options that the deterministic zip step does not apply; remove them or deploy with plain \`netlify deploy\``,
+    );
+  }
+}
+
 export async function prepareNetlifyFunctionZips(opts: {
   siteRoot: string;
   functionsDir: string;
   zipIt: ZipItModule;
   now?: () => number;
 }): Promise<{ manifestPath: string; functions: PreparedFunctionZip[] }> {
+  assertNoFunctionsConfig(opts.siteRoot);
   const now = opts.now ?? Date.now;
   const dest = path.join(opts.siteRoot, ".netlify", "functions");
   const manifestPath = path.join(dest, "manifest.json");
