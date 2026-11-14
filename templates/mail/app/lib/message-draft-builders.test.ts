@@ -124,7 +124,6 @@ describe("EmailThread draft builders", () => {
           originalName: "brief.pdf",
           mimeType: "application/pdf",
           size: 1234,
-          url: "/api/attachments?messageId=message-42&id=attachment-9&mimeType=application%2Fpdf",
           source: "gmail",
           gmailMessageId: "message-42",
           gmailAttachmentId: "attachment-9",

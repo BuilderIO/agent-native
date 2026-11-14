@@ -405,6 +405,7 @@ describe("generate-design action tool schema", () => {
       reuseLabels: [],
       primaryViewport: null,
       devices: [],
+      fixedCanvas: false,
     };
 
     const result = await executeAgentToolCall({
@@ -418,7 +419,11 @@ describe("generate-design action tool schema", () => {
 
     expect(result.status).toBe("completed");
     const received = run.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(received).toMatchObject({ devices: [], reuseLabels: [] });
+    expect(received).toMatchObject({
+      devices: [],
+      fixedCanvas: false,
+      reuseLabels: [],
+    });
     for (const dropped of [
       "designSystemId",
       "tweaks",
@@ -1736,7 +1741,7 @@ describe("generate-design: new-file creation path", () => {
     await action.run({
       designId: "design-1",
       prompt: "Update the Instagram post background color",
-      devices: [],
+      fixedCanvas: true,
       files: [
         {
           filename: "post.html",
@@ -3771,5 +3776,130 @@ describe("generate-design: rejected input in the agent loop", () => {
 
     expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
     expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+  });
+});
+
+// GPT-6 Luna sends every field it isn't using: `null`, `[]` for lists and
+// `false` for booleans. None of those may turn an app screen into a fixed canvas.
+describe("generate-design: a padded call keeps app screens responsive", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockImplementation(mocks.designAccess);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  const padded = (overrides: Record<string, unknown> = {}) => ({
+    designId: "design-1",
+    prompt: "Create a task manager",
+    files: [
+      {
+        filename: "index.html",
+        fileType: "html",
+        content: "<!doctype html><html><body>Tasks</body></html>",
+      },
+    ],
+    designSystemId: null,
+    projectType: "prototype",
+    tweaks: [],
+    canvasFrames: [],
+    contextPackId: null,
+    reuseLabels: [],
+    primaryViewport: null,
+    devices: [],
+    fixedCanvas: false,
+    ...overrides,
+  });
+  const runAsAgent = (input: Record<string, unknown>) =>
+    executeAgentToolCall({
+      actions: { "generate-design": action as unknown as ActionEntry },
+      name: "generate-design",
+      callId: "padded-by-model",
+      input,
+    });
+  const appScreenWithMobileBreakpoint = () => {
+    setExistingFile("<html><body>Old tasks</body></html>");
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "generated-responsive",
+        breakpoints: [{ id: "generated-390", label: "Mobile", widthPx: 390 }],
+      },
+      canvasFrames: { "file-1": { x: 0, y: 0, width: 1440, height: 900 } },
+      screenMetadata: {
+        "file-1": { width: 1440, height: 900, breakpointWidths: [390] },
+      },
+    });
+  };
+  const breakpointWidthsOf = (fileId: string) =>
+    (
+      mocks.getDesignData().screenMetadata as Record<
+        string,
+        { breakpointWidths?: number[] }
+      >
+    )[fileId]?.breakpointWidths;
+
+  it("gives a new app screen its Mobile breakpoint", async () => {
+    const result = await runAsAgent(padded());
+
+    expect(result.status).toBe("completed");
+    expect(mocks.getDesignData().breakpointSet).toMatchObject({
+      breakpoints: [expect.objectContaining({ label: "Mobile", widthPx: 390 })],
+    });
+  });
+
+  it("keeps an app screen's breakpoints on a content edit", async () => {
+    appScreenWithMobileBreakpoint();
+
+    const result = await runAsAgent(
+      padded({ prompt: "Make the header bolder" }),
+    );
+
+    expect(result.status).toBe("completed");
+    expect(breakpointWidthsOf("file-1")).toEqual([390]);
+  });
+
+  it("makes a new screen one fixed canvas when fixedCanvas is true", async () => {
+    const result = await runAsAgent(padded({ fixedCanvas: true }));
+
+    expect(result.status).toBe("completed");
+    const data = mocks.getDesignData();
+    expect(data.breakpointSet).toBeUndefined();
+    expect(Object.values(data.screenMetadata as object)).toEqual([
+      expect.objectContaining({ breakpointWidths: [] }),
+    ]);
+  });
+
+  it("drops an app screen's breakpoints when fixedCanvas is true", async () => {
+    appScreenWithMobileBreakpoint();
+
+    const result = await runAsAgent(
+      padded({ prompt: "Make the header bolder", fixedCanvas: true }),
+    );
+
+    expect(result.status).toBe("completed");
+    expect(breakpointWidthsOf("file-1")).toEqual([]);
+  });
+
+  it("lists the devices fixedCanvas overrides as ignored", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a task manager",
+      devices: ["desktop", "mobile"],
+      fixedCanvas: true,
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Tasks</body></html>",
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({ ignoredDevices: ["desktop", "mobile"] });
+    expect(mocks.getDesignData().breakpointSet).toBeUndefined();
   });
 });

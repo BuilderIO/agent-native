@@ -21,6 +21,7 @@ import {
   useBufferedAgentText,
   useStreamingRevealOrigin,
 } from "../../agentkit/react/streaming-text.js";
+import { loadCodeHighlighter } from "../../code-highlighter.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
 import { IframeEmbed, parseEmbedBody } from "./IframeEmbed.js";
 import {
@@ -79,65 +80,7 @@ export function onMarkdownReady(fn: () => void): () => void {
 
 loadMarkdown();
 
-// ─── Lazy shiki highlighter ──────────────────────────────────────────────────
-// Using the fine-grained API so we only ship the languages and themes we
-// actually use (instead of shiki's full ~30 MB bundle of every grammar).
-// Required to keep the Cloudflare Pages Functions bundle under 25 MiB.
-
-type ShikiHighlighter = {
-  codeToHtml: (
-    code: string,
-    options: {
-      lang: string;
-      themes: { light: string; dark: string };
-      defaultColor?: false | "light" | "dark";
-    },
-  ) => string | Promise<string>;
-  getLoadedLanguages: () => string[];
-};
-
-let highlighterLoader: Promise<ShikiHighlighter> | null = null;
-export function loadHighlighter(): Promise<ShikiHighlighter> {
-  if (!highlighterLoader) {
-    highlighterLoader = (async () => {
-      // Use the JavaScript regex engine instead of Oniguruma WASM (~608 KB saved).
-      // forgiving:true degrades unsupported patterns gracefully instead of throwing.
-      const [{ createHighlighterCore }, { createJavaScriptRegexEngine }] =
-        await Promise.all([
-          import("shiki/core"),
-          import("shiki/engine/javascript"),
-        ]);
-      return createHighlighterCore({
-        themes: [
-          import("shiki/themes/github-light-default.mjs"),
-          import("shiki/themes/github-dark-default.mjs"),
-        ],
-        langs: [
-          import("shiki/langs/javascript.mjs"),
-          import("shiki/langs/typescript.mjs"),
-          import("shiki/langs/jsx.mjs"),
-          import("shiki/langs/tsx.mjs"),
-          import("shiki/langs/json.mjs"),
-          import("shiki/langs/css.mjs"),
-          import("shiki/langs/html.mjs"),
-          import("shiki/langs/markdown.mjs"),
-          import("shiki/langs/bash.mjs"),
-          import("shiki/langs/shellscript.mjs"),
-          import("shiki/langs/python.mjs"),
-          import("shiki/langs/yaml.mjs"),
-          import("shiki/langs/sql.mjs"),
-        ],
-        engine: createJavaScriptRegexEngine({ forgiving: true }),
-      }) as unknown as Promise<ShikiHighlighter>;
-    })().catch((error) => {
-      // Reset on failure so a future code block can retry instead of
-      // silently failing forever on a stale chunk / network blip.
-      highlighterLoader = null;
-      throw error;
-    });
-  }
-  return highlighterLoader;
-}
+export const loadHighlighter = loadCodeHighlighter;
 
 // ─── Streaming context ───────────────────────────────────────────────────────
 // Declared at module level so HighlightedCodeBlock (used in markdownComponents

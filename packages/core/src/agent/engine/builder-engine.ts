@@ -166,14 +166,13 @@ async function clearBuilderCreditLimitAfterSuccess(): Promise<void> {
   }
 }
 
-interface GatewayErrorBody {
-  code?: string;
-  message?: string;
-  usageInfo?: {
-    plan?: string;
-    limitExceeded?: string;
-    isEnterprise?: boolean;
-  };
+interface GatewayErrorDetail {
+  code?: unknown;
+  message?: unknown;
+}
+
+interface GatewayErrorBody extends GatewayErrorDetail {
+  error?: GatewayErrorDetail;
 }
 
 export interface BuilderEngineCredentials {
@@ -753,18 +752,24 @@ async function* emitHttpError(
   },
 ): AsyncIterable<EngineEvent> {
   const status = response.status;
-  let errBody: GatewayErrorBody = {};
+  let errBody: GatewayErrorBody | null = null;
   const rawText = await response.text().catch(() => "");
   if (rawText) {
     try {
-      errBody = JSON.parse(rawText) as GatewayErrorBody;
+      errBody = JSON.parse(rawText) as GatewayErrorBody | null;
     } catch {
-      errBody.message = normalizeGatewayErrorText(rawText, status);
+      errBody = { message: normalizeGatewayErrorText(rawText, status) };
     }
   }
-  const message = errBody.message ?? `Builder gateway returned ${status}`;
+  const message =
+    [errBody?.message, errBody?.error?.message].find(
+      (value): value is string => typeof value === "string",
+    ) ?? `Builder gateway returned ${status}`;
+  const providerCode = [errBody?.code, errBody?.error?.code].find(
+    (value): value is string => typeof value === "string",
+  );
   const code =
-    canonicalizeBuilderGatewayErrorCode(errBody.code, message) ??
+    canonicalizeBuilderGatewayErrorCode(providerCode, message) ??
     `http_${status}`;
   const retryAfterMs = extractRetryAfterMs({
     responseHeaders: Object.fromEntries(response.headers.entries()),

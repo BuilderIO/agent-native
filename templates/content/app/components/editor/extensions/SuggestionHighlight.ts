@@ -411,18 +411,21 @@ function lineShape(text: string): LineShape {
 function lineBoundary(
   doc: ProseMirrorNode,
   point: number,
-  side: "before" | "after",
+  written: "before" | "after",
   shape: LineShape,
-): { position: number; inList: boolean } | null {
+): { position: number; inList: boolean; side: "before" | "after" } | null {
   if (point < 0 || point > doc.content.size) return null;
   const $point = doc.resolve(point);
   // Lines added to code are code text, not blocks of their own.
-  if (
-    !$point.parent.isTextblock ||
-    $point.parent.type.spec.code ||
-    $point.parentOffset !== (side === "before" ? 0 : $point.parent.content.size)
-  )
-    return null;
+  if (!$point.parent.isTextblock || $point.parent.type.spec.code) return null;
+  // The line goes before the block the point starts or after the one it
+  // ends. A line written before the next one can still have its point at the
+  // end of the block above it, as when it is the last line of a callout or
+  // toggle and the next line closes that block.
+  const atStart = $point.parentOffset === 0;
+  const atEnd = $point.parentOffset === $point.parent.content.size;
+  if (!atStart && !atEnd) return null;
+  const side = atStart && atEnd ? written : atStart ? "before" : "after";
   // A Page indents a block one tab per block it sits in; a list's items
   // indent their children, so the list itself adds none.
   const indentInside = (depth: number) => {
@@ -458,6 +461,7 @@ function lineBoundary(
   return {
     position: side === "before" ? $point.before(depth) : $point.after(depth),
     inList,
+    side,
   };
 }
 
@@ -544,6 +548,11 @@ function lineDecorations(
     };
   });
   if (placed.some(({ boundary, nodes }) => !boundary || !nodes)) return null;
+  // The lines share one point, so they all go on one side of its block.
+  const side = placed[0]?.boundary?.side ?? lines.side;
+  // Text that continues a line is drawn at the point, so it keeps its order
+  // only beside lines on the side they were written.
+  if ((lines.head || lines.tail) && side !== lines.side) return null;
   const decorations: Decoration[] = [];
   const inline = (span: SourceSpan | null, part: "head" | "tail") => {
     if (!span) return;
@@ -596,7 +605,7 @@ function lineDecorations(
             !!spec.editableBoundary,
           ]),
           marks: [],
-          side: lines.side === "before" ? index - placed.length : index + 1,
+          side: side === "before" ? index - placed.length : index + 1,
           ...attrs,
         },
       ),

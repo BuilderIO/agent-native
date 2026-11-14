@@ -13,6 +13,7 @@ import {
   devicesForPrimaryViewport,
   GENERATION_VIEWPORT_SIZES,
   type GenerationViewport,
+  requestedCanvasDeviceVariants,
   resolveCanvasIntent,
   widestGenerationDevice,
 } from "../../shared/canvas-dimensions";
@@ -80,11 +81,19 @@ export function previewFrameSize(
   input: PartialJson,
   screenFilename: string | undefined,
 ): { width: number; height: number } {
+  // Device versions a fixed-artwork prompt names ("a poster with a mobile
+  // version") win over `devices` and `fixedCanvas`, as they do in the action.
+  let promptDevices: GenerationViewport[] = [];
+  let fixedArtwork = false;
   if (isJsonStringComplete(input, ["prompt"])) {
     const prompt = readJsonPath(input.value, ["prompt"]);
     const intent =
       typeof prompt === "string" ? resolveCanvasIntent(prompt) : undefined;
     if (intent?.kind === "fixed" && intent.dimensions) return intent.dimensions;
+    if (intent?.kind === "fixed" && typeof prompt === "string") {
+      fixedArtwork = true;
+      promptDevices = requestedCanvasDeviceVariants(prompt);
+    }
   }
   const frames = readJsonPath(input.value, ["canvasFrames"]);
   const placed = Array.isArray(frames)
@@ -104,15 +113,28 @@ export function previewFrameSize(
   ) {
     return { width, height };
   }
-  const devices = readJsonPath(input.value, ["devices"]);
+  const rawDevices = readJsonPath(input.value, ["devices"]);
+  const devices = Array.isArray(rawDevices)
+    ? rawDevices.filter(isGenerationViewport)
+    : [];
   const primaryViewport = readJsonPath(input.value, ["primaryViewport"]);
-  const resolvedDevices = Array.isArray(devices)
-    ? devices.filter(isGenerationViewport)
-    : devicesForPrimaryViewport(
-        isGenerationViewport(primaryViewport)
-          ? primaryViewport
-          : DEFAULT_GENERATION_VIEWPORT,
-      );
+  // Like the action, an empty device list means the same as leaving it out,
+  // and `fixedCanvas: true` replaces the devices with none. Fixed artwork
+  // without devices is one canvas too, whatever `primaryViewport` says.
+  const resolvedDevices =
+    promptDevices.length > 0
+      ? promptDevices
+      : readJsonPath(input.value, ["fixedCanvas"]) === true
+        ? []
+        : devices.length > 0
+          ? devices
+          : fixedArtwork
+            ? []
+            : devicesForPrimaryViewport(
+                isGenerationViewport(primaryViewport)
+                  ? primaryViewport
+                  : DEFAULT_GENERATION_VIEWPORT,
+              );
   return GENERATION_VIEWPORT_SIZES[widestGenerationDevice(resolvedDevices)];
 }
 

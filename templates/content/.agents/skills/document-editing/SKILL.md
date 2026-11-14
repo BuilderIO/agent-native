@@ -443,6 +443,21 @@ $$
 - Markdown exports preserve these delimiters. HTML and PDF-ready exports render
   the equation.
 
+### Diagrams
+
+A Mermaid diagram is a fenced code block whose language is `mermaid`. Its
+source is the diagram, so it stays the editable copy.
+
+- Write a new diagram as a `mermaid` code block, and change a diagram by
+  editing its source.
+- Never replace a diagram's source with a picture: no image you render,
+  generate or upload (SVG, PNG, screenshot), and no other block type. Don't add
+  a title or caption the source doesn't have. Swap the source out only when the
+  user asks for an image instead of the diagram.
+- Content shows Mermaid code blocks as code; it doesn't draw them yet. When
+  asked to draw or show one as a diagram, say so and leave the source in place.
+  If the source has a syntax error, fix it there.
+
 ## Parent-Child Hierarchy
 
 Documents form a tree via `parent_id`:

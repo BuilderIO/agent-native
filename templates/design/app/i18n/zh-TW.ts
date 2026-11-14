@@ -1254,7 +1254,6 @@ export default {
       "已記錄你的請求。存取權限核准後即可開啟此設計。",
     signInToRequestAccessTitle: "登入以請求存取權限",
     signInToRequestAccessDescription: "登入或建立帳戶，向擁有者請求存取權限。",
-    signInOrSignUp: "登入或註冊",
     accessCheckFailed: "無法檢查此設計的存取權限。",
     retryAccessCheck: "重試",
     commenterRoleLabel: "評論者",
@@ -2187,6 +2186,10 @@ export default {
         "另一位協作者有待套用的變更。請先套用或清除這些變更，再傳送新變更。",
       codingHandoffCopied: "編碼交接已複製",
       clipboardBlocked: "剪貼簿被阻止",
+      pasteMediaTooMany_other:
+        "{{count}} 個檔案未貼上。一次最多可貼上 {{limit}} 個檔案。",
+      pasteMediaTooLarge_other:
+        "{{count}} 個檔案因超過 {{limitMb}} MB 而未貼上。",
       htmlCreateError: "無法建立 HTML 下載",
       htmlDownloaded: "HTML 已下載",
       htmlExportError: "無法匯出 HTML",

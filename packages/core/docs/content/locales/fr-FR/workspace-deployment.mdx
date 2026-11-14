@@ -360,6 +360,12 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=1
 
 Remplacez l’adresse d’exemple par l’adresse vérifiée du premier administrateur de chaque workspace. Sur une base de données vide, cet administrateur se connecte d’abord, devient propriétaire de l’organisation initiale et peut inviter son équipe dans Settings → Organization → Members. Consultez [Déploiements administrés](/docs/administered-deployments) pour le processus complet d’amorçage.
 
+## ZIP de fonctions déterministes {#workspace-netlify-function-zips}
+
+Netlify calcule l'empreinte du ZIP entier de chaque fonction, et son empaqueteur écrit les entrées dans un ordre différent à chaque exécution : les fonctions inchangées sont donc renvoyées à chaque déploiement. Publiez avec `npx @agent-native/core@latest netlify-deploy` au lieu d'appeler `netlify deploy` vous-même. La commande empaquette les fonctions avec l'empaqueteur de la CLI Netlify installée, réécrit chaque ZIP avec des entrées triées et un horodatage fixe, écrit le manifeste des fonctions, puis lance `netlify deploy` dans la même commande. Les routes, planifications et paramètres d'arrière-plan sont conservés. Ajoutez vos propres arguments `netlify deploy` après la commande ; par défaut : `--prod --dir=dist --functions=.netlify/functions-internal`.
+
+La CLI ne lit ce manifeste que pendant deux minutes. S'il est plus ancien au démarrage de la CLI, ou si elle l'écarte, la commande affiche une ligne `manifest-expired` et se termine avec un code non nul au lieu de déployer silencieusement des ZIP instables.
+
 ## Et ensuite
 
 - [**Déploiement**](/docs/deployment) — choisissez une base de données persistante, un préréglage Nitro, et une plateforme avant de déployer un workspace

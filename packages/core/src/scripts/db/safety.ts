@@ -57,6 +57,7 @@ function isPunctuation(token: AgentSqlToken | undefined, text: string) {
 
 const SENSITIVE_FRAMEWORK_TABLES = new Set([
   "app_secrets",
+  "vault_secrets",
   "oauth_tokens",
   "mcp_oauth_clients",
   "mcp_oauth_codes",

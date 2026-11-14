@@ -4071,6 +4071,7 @@ export default function RecordRoute() {
     onDialogOpenChange,
     onCloseAutoFocus,
     confirmLeave,
+    leavePromptKey,
   } = useRecordingLeaveGuard(
     // An in-app link away from a stopped recording is safe once its local
     // copy is written; only a live recording or a memory-only copy is lost.
@@ -4558,6 +4559,7 @@ export default function RecordRoute() {
 
       <AlertDialog open={leavePromptOpen} onOpenChange={onDialogOpenChange}>
         <AlertDialogContent
+          key={leavePromptKey}
           onCloseAutoFocus={onCloseAutoFocus}
           className="max-w-md"
         >

@@ -77,6 +77,7 @@ const KNOWN_CLI_COMMANDS: ReadonlySet<string> = new Set([
   "invoke",
   "mcp",
   "migrate",
+  "netlify-deploy",
   "package",
   "plan",
   "plugin",
