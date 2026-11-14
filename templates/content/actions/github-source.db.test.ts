@@ -2597,6 +2597,60 @@ describe("GitHub folder source", () => {
     );
   });
 
+  it("rebuilds a page when an image it left out is fixed or added, though its file is the same", async () => {
+    github.state.invalidFilenames.add("poster.png");
+    const pagesFiles = {
+      "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
+      "docs/b-later.md": "# Later\n\n![Later](images/later.png)\n",
+    };
+    github.commit({ ...pagesFiles, "docs/images/poster.png": "NOTAPNG" });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    expect(github.state.uploadAttempts).toEqual(["poster.png"]);
+
+    // A commit that changes neither image rebuilds neither page.
+    github.commit({
+      ...pagesFiles,
+      "docs/images/poster.png": "NOTAPNG",
+      "docs/images/unused.png": "PNGUNUSED",
+    });
+    const quiet = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(quiet.sync).toMatchObject({ updated: 0, unchanged: 2 });
+    expect(github.state.uploadAttempts).toEqual(["poster.png"]);
+
+    github.state.invalidFilenames.clear();
+    github.commit({
+      ...pagesFiles,
+      "docs/images/poster.png": "PNGPOSTER",
+      "docs/images/later.png": "PNGLATER",
+    });
+    const fixed = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(fixed.sync).toMatchObject({ updated: 2, unchanged: 0 });
+    const pages = await liveRows(database.id);
+    const page = (path: string) => {
+      const found = pages.find((row) => row.sourcePath === path);
+      assert(found);
+      return found;
+    };
+    expect(page("docs/a-poster.md").content).toContain(github.uploadedPath(1));
+    expect(page("docs/b-later.md").content).toContain(github.uploadedPath(2));
+    expect(await boundImages(page("docs/a-poster.md").documentId)).toEqual([
+      github.mediaId(1),
+    ]);
+
+    // Once shown, the images don't rebuild their pages again.
+    github.commit({
+      ...pagesFiles,
+      "docs/images/poster.png": "PNGPOSTER",
+      "docs/images/later.png": "PNGLATER",
+      "docs/images/unused.png": "PNGUNUSED",
+    });
+    const after = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(after.sync).toMatchObject({ updated: 0, unchanged: 2 });
+  });
+
   it("binds only the images it stored, not a private image a file links itself", async () => {
     const stranger = "11111111-1111-4111-8111-111111111111";
     github.commit({

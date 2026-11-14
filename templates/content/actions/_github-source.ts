@@ -776,6 +776,13 @@ interface RowState {
    * rejects can't hold back the others.
    */
   imagesFailedAt?: string;
+  /**
+   * Images the page links but left out for a reason a new version of the
+   * image file can fix: missing, too large, or not the image its name says.
+   * By folder-relative path, with the blob SHA seen (empty when the file
+   * wasn't there). The page is rebuilt when one of them changes.
+   */
+  imagesLeftOut?: Record<string, string>;
 }
 
 function rowState(row: Pick<SourceRow, "sourceValuesJson">): RowState | null {
@@ -796,6 +803,14 @@ function rowState(row: Pick<SourceRow, "sourceValuesJson">): RowState | null {
       }
     }
   }
+  const imagesLeftOut: Record<string, string> = {};
+  if (value.imagesLeftOut && typeof value.imagesLeftOut === "object") {
+    for (const [path, sha] of Object.entries(
+      value.imagesLeftOut as Record<string, unknown>,
+    )) {
+      if (typeof sha === "string") imagesLeftOut[path] = sha;
+    }
+  }
   return {
     path: value.path,
     blobSha: value.blobSha,
@@ -810,7 +825,15 @@ function rowState(row: Pick<SourceRow, "sourceValuesJson">): RowState | null {
     ...(typeof value.imagesFailedAt === "string"
       ? { imagesFailedAt: value.imagesFailedAt }
       : {}),
+    ...(Object.keys(imagesLeftOut).length > 0 ? { imagesLeftOut } : {}),
   };
+}
+
+/** Whether an image a page left out has a new version, or showed up. */
+function leftOutImageChanged(run: SyncRun, previous: RowState) {
+  return Object.entries(previous.imagesLeftOut ?? {}).some(
+    ([path, sha]) => (run.files.blobs.get(path)?.sha ?? "") !== sha,
+  );
 }
 
 function metaHash(page: {
@@ -1309,6 +1332,7 @@ async function buildPage(
     "preview",
   );
   const assets: RowState["assets"] = {};
+  const imagesLeftOut: Record<string, string> = {};
   const urls = new Map<string, string>();
   let imagesWaiting = 0;
   let imagesFailed = false;
@@ -1316,6 +1340,14 @@ async function buildPage(
     const uploaded = await uploadAsset(run, request, beforeUpload);
     if (uploaded === "no-storage" || uploaded === "failed") imagesWaiting += 1;
     if (uploaded === "failed") imagesFailed = true;
+    if (
+      uploaded === null &&
+      request.kind === "file" &&
+      importImageMediaType(request.path)
+    ) {
+      imagesLeftOut[request.path] =
+        run.files.blobs.get(request.path)?.sha ?? "";
+    }
     if (!uploaded || uploaded === "no-storage" || uploaded === "failed") {
       continue;
     }
@@ -1350,7 +1382,15 @@ async function buildPage(
       }),
     ),
   ];
-  return { draft, page, assets, mediaIds, imagesWaiting, imagesFailed };
+  return {
+    draft,
+    page,
+    assets,
+    imagesLeftOut,
+    mediaIds,
+    imagesWaiting,
+    imagesFailed,
+  };
 }
 
 /**
@@ -1622,8 +1662,15 @@ async function buildFile(
         await assertLegacyBodyWriter(linkedRow.documentId, GITHUB_BODY_WRITER);
       }
     })());
-  const { draft, page, assets, mediaIds, imagesWaiting, imagesFailed } =
-    await buildPage(run, file.entry.path, text, beforeUpload);
+  const {
+    draft,
+    page,
+    assets,
+    imagesLeftOut,
+    mediaIds,
+    imagesWaiting,
+    imagesFailed,
+  } = await buildPage(run, file.entry.path, text, beforeUpload);
   if (page.content.length > MAX_IMPORT_PAGE_CHARACTERS) {
     return { skipped: "too-large" };
   }
@@ -1648,6 +1695,7 @@ async function buildFile(
         : imagesWaiting && previous?.imagesFailedAt
           ? { imagesFailedAt: previous.imagesFailedAt }
           : {}),
+      ...(Object.keys(imagesLeftOut).length > 0 ? { imagesLeftOut } : {}),
     },
   };
 }
@@ -2553,7 +2601,8 @@ export async function syncGitHubSource(
       return (
         !previous ||
         previous.blobSha !== file.entry.sha ||
-        (retryImages && (previous.imagesWaiting ?? 0) > 0)
+        (retryImages && (previous.imagesWaiting ?? 0) > 0) ||
+        leftOutImageChanged(run, previous)
       );
     });
     // Files a run's time ran out on go after the rest, least recently cut
