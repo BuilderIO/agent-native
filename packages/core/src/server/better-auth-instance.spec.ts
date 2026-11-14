@@ -28,6 +28,7 @@ import {
   getAuthSecret,
   normalizeBetterAuthInternalAdapter,
   resetBetterAuth,
+  trackAuthEmailDeliveries,
   withBetterAuthActionSession,
   type BetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
@@ -954,5 +955,126 @@ describe("buildDatabaseConfig hosted-runtime local database guard", () => {
     await expect(buildDatabaseConfig()).rejects.toThrow(
       HostedRuntimeLocalDatabaseError,
     );
+  });
+});
+
+describe("trackAuthEmailDeliveries", () => {
+  type Options = Record<string, any>;
+  const setup = (options: Options) => {
+    const runner = vi.fn((task: unknown) => task);
+    const ctx = { options, runInBackgroundOrAwait: runner };
+    const result = trackAuthEmailDeliveries(ctx as any) as any;
+    return { runner, result };
+  };
+
+  it("hands back tracked verification, change-email and existing-user deliveries instead of the swallowing runner", async () => {
+    const sendVerificationEmail = vi.fn(async () => undefined);
+    const sendChangeEmailConfirmation = vi.fn(async () => undefined);
+    const onExistingUserSignUp = vi.fn(async () => undefined);
+    const options: Options = {
+      emailVerification: { sendVerificationEmail },
+      user: { changeEmail: { sendChangeEmailConfirmation } },
+      emailAndPassword: { onExistingUserSignUp },
+    };
+    const { runner, result } = setup(options);
+    const run = result.context.runInBackgroundOrAwait;
+
+    const verification = options.emailVerification.sendVerificationEmail(
+      { id: "u" },
+      "a",
+    );
+    const change = options.user.changeEmail.sendChangeEmailConfirmation({
+      newEmail: "n",
+    });
+    const existing = options.emailAndPassword.onExistingUserSignUp({ id: "x" });
+    expect(sendVerificationEmail).toHaveBeenCalledWith({ id: "u" }, "a");
+    expect(sendChangeEmailConfirmation).toHaveBeenCalledWith({ newEmail: "n" });
+    expect(onExistingUserSignUp).toHaveBeenCalledWith({ id: "x" });
+    expect(verification).toBeInstanceOf(Promise);
+    expect(change).toBeInstanceOf(Promise);
+    expect(existing).toBeInstanceOf(Promise);
+
+    expect(run(verification)).toBe(verification);
+    expect(run(change)).toBe(change);
+    expect(run(existing)).toBe(existing);
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  it("passes a failed delivery's rejection through to the caller", async () => {
+    const options: Options = {
+      user: {
+        changeEmail: {
+          sendChangeEmailConfirmation: async () => {
+            throw new Error("provider down");
+          },
+        },
+      },
+    };
+    const { result } = setup(options);
+    const delivery = options.user.changeEmail.sendChangeEmailConfirmation({});
+    await expect(
+      result.context.runInBackgroundOrAwait(delivery),
+    ).rejects.toThrow("provider down");
+  });
+
+  it("delegates untracked tasks to Better Auth's runner", () => {
+    const { runner, result } = setup({
+      user: { changeEmail: { sendChangeEmailConfirmation: async () => {} } },
+    });
+    const other = Promise.resolve();
+    expect(result.context.runInBackgroundOrAwait(other)).toBe(other);
+    expect(runner).toHaveBeenCalledWith(other);
+    result.context.runInBackgroundOrAwait("not a promise");
+    expect(runner).toHaveBeenLastCalledWith("not a promise");
+  });
+
+  it("returns a synchronous delivery result unchanged and does not track it", () => {
+    const options: Options = {
+      emailVerification: { sendVerificationEmail: () => "sync" },
+      user: { changeEmail: { sendChangeEmailConfirmation: () => "sync" } },
+    };
+    const { result } = setup(options);
+    expect(options.emailVerification.sendVerificationEmail()).toBe("sync");
+    expect(options.user.changeEmail.sendChangeEmailConfirmation({})).toBe(
+      "sync",
+    );
+    expect(result.context.runInBackgroundOrAwait("sync")).toBe("sync");
+  });
+
+  it("wraps only the sender that is configured", () => {
+    const verificationOnly: Options = {
+      emailVerification: { sendVerificationEmail: async () => {} },
+      user: { changeEmail: {} },
+      emailAndPassword: {},
+    };
+    expect(setup(verificationOnly).result).toBeDefined();
+    expect(
+      verificationOnly.emailAndPassword.onExistingUserSignUp,
+    ).toBeUndefined();
+    expect(
+      verificationOnly.user.changeEmail.sendChangeEmailConfirmation,
+    ).toBeUndefined();
+
+    const changeOnly: Options = {
+      emailVerification: {},
+      user: { changeEmail: { sendChangeEmailConfirmation: async () => {} } },
+    };
+    expect(setup(changeOnly).result).toBeDefined();
+    expect(changeOnly.emailVerification.sendVerificationEmail).toBeUndefined();
+  });
+
+  it("installs nothing when neither sender is configured", () => {
+    const onExistingUserSignUp = async () => {};
+    const options: Options = {
+      emailVerification: {},
+      user: { changeEmail: {} },
+      emailAndPassword: { onExistingUserSignUp },
+    };
+    const { result } = setup(options);
+    expect(result).toBeUndefined();
+    expect(options.emailAndPassword.onExistingUserSignUp).toBe(
+      onExistingUserSignUp,
+    );
+    expect(setup({}).result).toBeUndefined();
   });
 });

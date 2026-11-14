@@ -1,4 +1,5 @@
 import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
+import { composeAttachmentLink } from "@shared/compose-attachments.js";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import type { ComposeAttachment, EmailMessage } from "@shared/types.js";
 import { and, asc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
@@ -656,7 +657,7 @@ export async function getSyntheticEmailsForView(
                 filename: att.originalName,
                 mimeType: att.mimeType,
                 size: att.size,
-                url: att.url,
+                url: composeAttachmentLink(att),
               })),
             }
           : {}),

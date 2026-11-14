@@ -1531,6 +1531,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",
     discardSuggestionDraft: "Ignorer le brouillon",
+    mermaid: {
+      source: "Mermaid",
+      done: "Terminé",
+      doneShortcut: "Fermer le code source (Échap)",
+      editDiagram: "Modifier le diagramme",
+      cantDraw: "Impossible de dessiner ce diagramme",
+    },
     failedToCreatePage: "Impossible de créer la page",
     slash: {
       blockEquation: "Équation en bloc",

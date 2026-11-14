@@ -177,6 +177,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "此建議已在其他地方變更。你未儲存的草稿仍保留在這裡。",
     discardSuggestionDraft: "捨棄草稿",
+    mermaid: {
+      source: "Mermaid",
+      done: "完成",
+      doneShortcut: "關閉原始碼 (Esc)",
+      editDiagram: "編輯圖表",
+      cantDraw: "無法繪製此圖表",
+    },
     toolbar: {
       info: "資訊",
       closeUtilityPanel: "關閉面板",

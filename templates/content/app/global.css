@@ -815,6 +815,59 @@
   color: inherit;
 }
 
+/* A Mermaid code block drawn as its diagram; the source opens above it. */
+.content-editor .content-mermaid {
+  margin: 0.6em 0;
+  border-radius: 6px;
+}
+.content-editor .content-mermaid--open {
+  background: hsl(var(--muted));
+}
+.content-editor .content-mermaid .content-code-block-header {
+  justify-content: space-between;
+}
+.content-editor .content-mermaid__error {
+  margin: 0;
+  padding: 0 1.1em 0.9em;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  color: hsl(var(--destructive));
+}
+.content-editor .content-mermaid__drawing {
+  display: block;
+  width: 100%;
+  padding: 0.5em 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: initial;
+}
+.content-editor
+  .content-mermaid:not([data-editing])
+  button.content-mermaid__drawing {
+  cursor: pointer;
+}
+.content-editor
+  .content-mermaid:not([data-editing])
+  button.content-mermaid__drawing:hover {
+  background: hsl(var(--muted) / 0.5);
+}
+.content-editor .content-mermaid--open .content-mermaid__drawing {
+  border-top: 1px solid hsl(var(--border) / 0.5);
+  border-radius: 0 0 6px 6px;
+  background: hsl(var(--background));
+}
+.content-editor .content-mermaid__svg {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+.content-editor .content-mermaid__svg svg {
+  max-width: 100%;
+  height: auto;
+}
+
 .content-editor .hljs-comment,
 .content-editor .hljs-quote {
   color: hsl(var(--muted-foreground));

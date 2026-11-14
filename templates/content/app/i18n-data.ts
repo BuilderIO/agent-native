@@ -1303,6 +1303,14 @@ const editorSlashMessages = {
   videoDescription: "Upload or embed video",
 };
 
+const mermaidMessages = {
+  source: "Mermaid",
+  done: "Done",
+  doneShortcut: "Close the source (Esc)",
+  editDiagram: "Edit diagram",
+  cantDraw: "Can't draw this diagram",
+};
+
 const localFilesMessages = {
   interruptedPicker:
     "The folder picker did not finish last time, so it has been disabled in this browser profile. Use Agent-Native Desktop, Chrome, Edge, or another Chromium browser.",
@@ -1554,6 +1562,7 @@ const enUS = {
     suggestionAmendmentResolved:
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
     discardSuggestionDraft: "Discard draft",
+    mermaid: mermaidMessages,
     bold: "Bold",
     underline: "Underline",
     italic: "Italic",
@@ -2802,6 +2811,7 @@ function mergeMessagesForLocale(
       suggestionFormattingBaselineUnsupported:
         suggestionFormattingMessagesByLocale[locale][1]!,
       removeLink: removeLinkMessagesByLocale[locale],
+      mermaid: { ...base.editor.mermaid },
       media: { ...base.editor.media, ...rawLiteralOverrides.editor?.media },
       properties: base.editor.properties,
       reference: {

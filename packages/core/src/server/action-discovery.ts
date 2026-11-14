@@ -797,6 +797,19 @@ export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
       () => import("../resources/actions/export-resource-pack.js"),
     ],
     [
+      "get-skill-choices",
+      () => import("../resources/actions/get-skill-choices.js"),
+    ],
+    [
+      "get-skill-choice-counts",
+      () => import("../resources/actions/get-skill-choice-counts.js"),
+    ],
+    [
+      "set-skill-switch",
+      () => import("../resources/actions/set-skill-switch.js"),
+    ],
+    ["set-skill-mark", () => import("../resources/actions/set-skill-mark.js")],
+    [
       "import-resource-pack",
       () => import("../resources/actions/import-resource-pack.js"),
     ],

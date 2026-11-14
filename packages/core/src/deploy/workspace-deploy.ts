@@ -604,7 +604,9 @@ async function runWithConcurrency<T>(
 
 /**
  * On Windows pnpm is a pnpm.cmd shim, which only starts through a shell. Each
- * argument is quoted there so it stays one argument.
+ * argument is quoted there so it stays one argument. A bare command name stays
+ * unquoted: cmd.exe gives a batch file it finds on PATH under a quoted name
+ * the current folder as `%~dp0`, which breaks launchers like pnpm 11's.
  */
 export function buildStart(
   cmd: string,
@@ -613,7 +615,10 @@ export function buildStart(
 ): { command: string; args: string[]; shell: boolean } {
   return platform === "win32"
     ? {
-        command: [cmd, ...args].map((arg) => `"${arg}"`).join(" "),
+        command: [
+          /^[\w.-]+$/.test(cmd) ? cmd : `"${cmd}"`,
+          ...args.map((arg) => `"${arg}"`),
+        ].join(" "),
         args: [],
         shell: true,
       }

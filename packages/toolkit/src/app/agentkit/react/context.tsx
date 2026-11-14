@@ -47,6 +47,7 @@ import {
 } from "react";
 
 import type { AgentChatDataChartLayout } from "./data-chart-layout.js";
+import { formatAgentKitDuration } from "./duration.js";
 import type { AgentMessageContentOrderResolver } from "./message-content-order.js";
 import {
   AGENTKIT_CLIENT_REQUEST_ID_METADATA_KEY,
@@ -263,6 +264,23 @@ export interface AgentKitLabels {
   workStepReadPagesOther: string;
   workStepFetchedOne: string;
   workStepFetchedOther: string;
+  /** A message's citations: "Used 1 source", "Used {{count}} sources". */
+  workStepSourcesOne: string;
+  workStepSourcesOther: string;
+  /** A folded run of two or more framework frames in a stack trace. */
+  workStepFrameworkFrames: string;
+  workStepCopyStackTrace: string;
+  /** Takes {{code}}; shown only for a nonzero exit. */
+  workStepTerminalExitCode: string;
+  workStepTerminalTimedOut: string;
+  workStepTerminalEarlierLines: string;
+  workStepCopyOutput: string;
+  /** A file change cut short in what was kept. */
+  workStepFilePartial: string;
+  workStepFileMoreLines: string;
+  /** Screen-reader prefix for an added or removed diff line. */
+  workStepLineAdded: string;
+  workStepLineRemoved: string;
   workStepReadFilesOne: string;
   workStepReadFilesOther: string;
   workStepEditedOne: string;
@@ -286,6 +304,19 @@ export interface AgentKitLabels {
   durationSecondShort: string;
   agents: string;
   tasks: string;
+  tasksProgress: string;
+  question: string;
+  questionProgress: string;
+  questionProgressLabel: string;
+  questionOwnResponse: string;
+  questionAnswer: string;
+  questionSkip: string;
+  questionNext: string;
+  questionSend: string;
+  questionRecommended: string;
+  questionDismiss: string;
+  questionChooseFiles: string;
+  questionRemoveFile: string;
   toolInput?: string;
   toolResult?: string;
   activityValueIdentifierHidden?: string;
@@ -383,6 +414,8 @@ export interface AgentKitLabels {
   dropFilesToAttach: string;
   dropFileFailed: string;
   scrollToBottom: string;
+  /** Skip link past the transcript; visible only when focused. */
+  skipToComposer: string;
   formatTimestamp?: (createdAt: string) => string;
   error: string;
   renderError: string;
@@ -399,6 +432,8 @@ export interface AgentKitLabels {
   agentResumed: string;
   agentMessaged: string;
   agentDelegated: string;
+  agentWorking: string;
+  agentWorkedFor: string;
   agentPaused: string;
   agentCompleted: string;
   agentFailed: string;
@@ -474,6 +509,18 @@ export const defaultAgentKitLabels: ResolvedAgentKitLabels = {
   workStepReadPagesOther: "Read {{count}} pages",
   workStepFetchedOne: "Fetched 1 URL",
   workStepFetchedOther: "Fetched {{count}} URLs",
+  workStepSourcesOne: "Used 1 source",
+  workStepSourcesOther: "Used {{count}} sources",
+  workStepFrameworkFrames: "{{count}} framework frames",
+  workStepCopyStackTrace: "Copy stack trace",
+  workStepTerminalExitCode: "Exit code {{code}}",
+  workStepTerminalTimedOut: "Timed out",
+  workStepTerminalEarlierLines: "Show {{count}} earlier lines",
+  workStepCopyOutput: "Copy output",
+  workStepFilePartial: "Partial",
+  workStepFileMoreLines: "Show {{count}} more lines",
+  workStepLineAdded: "Added",
+  workStepLineRemoved: "Removed",
   workStepReadFilesOne: "Read 1 file",
   workStepReadFilesOther: "Read {{count}} files",
   workStepEditedOne: "Edited 1 file",
@@ -496,6 +543,19 @@ export const defaultAgentKitLabels: ResolvedAgentKitLabels = {
   durationSecondShort: "s",
   agents: "Agent collaboration",
   tasks: "Agent tasks",
+  tasksProgress: "{{completed}} of {{total}} done",
+  question: "Question",
+  questionProgress: "{{current}}/{{total}}",
+  questionProgressLabel: "{{current}} of {{total}}",
+  questionOwnResponse: "Or write your own response",
+  questionAnswer: "Write your answer",
+  questionSkip: "Skip",
+  questionNext: "Next",
+  questionSend: "Send",
+  questionRecommended: "Recommended",
+  questionDismiss: "Dismiss questions",
+  questionChooseFiles: "Choose files…",
+  questionRemoveFile: "Remove {{name}}",
   toolInput: "Input",
   toolResult: "Result",
   activityValueIdentifierHidden: "[Identifier hidden]",
@@ -590,6 +650,7 @@ export const defaultAgentKitLabels: ResolvedAgentKitLabels = {
   dropFilesToAttach: "Drop files to attach",
   dropFileFailed: "Could not add the dropped file. Try a different format.",
   scrollToBottom: "Scroll to bottom",
+  skipToComposer: "Skip to message box",
   error: "Something went wrong",
   renderError: "This content couldn’t be displayed.",
   runFailed: "Run failed",
@@ -605,6 +666,8 @@ export const defaultAgentKitLabels: ResolvedAgentKitLabels = {
   agentResumed: "resumed working",
   agentMessaged: "sent a message",
   agentDelegated: "delegated work",
+  agentWorking: "working",
+  agentWorkedFor: "worked for {{duration}}",
   agentPaused: "paused",
   agentCompleted: "finished",
   agentFailed: "needs attention",
@@ -710,6 +773,10 @@ export interface AgentKitProviderProps {
   workedForRowLayout?: AgentChatWorkedForRowLayout;
   dataChartLayout?: AgentChatDataChartLayout;
   formatWorkedForDuration?: (durationMs: number) => string;
+  /** Detail beside an interaction row's label; undefined keeps its own. */
+  formatAgentInteractionDetail?: (
+    interaction: AgentInteraction,
+  ) => string | undefined;
   /** Display name for a model id in run details; the id shows without it. */
   formatModelName?: (model: string) => string;
   onClientEffect?: (effect: {
@@ -738,7 +805,7 @@ export interface AgentKitThreadLoadState {
   retry?: () => void;
 }
 
-interface ResolvedAgentKitLabels extends AgentKitLabels {
+export interface ResolvedAgentKitLabels extends AgentKitLabels {
   toolInput: string;
   toolResult: string;
   queueSendNow: string;
@@ -768,6 +835,9 @@ export interface AgentKitContextValue {
   workedForRowLayout?: AgentChatWorkedForRowLayout;
   dataChartLayout?: AgentChatDataChartLayout;
   formatWorkedForDuration?: (durationMs: number) => string;
+  formatAgentInteractionDetail?: (
+    interaction: AgentInteraction,
+  ) => string | undefined;
   formatModelName?: (model: string) => string;
   registerComposerFocus: (threadId: ThreadId, focus: () => void) => () => void;
   requestComposerFocus: (threadId: ThreadId) => void;
@@ -856,6 +926,7 @@ export function AgentKitProvider({
   workedForRowLayout: workedForRowLayoutInput,
   dataChartLayout: dataChartLayoutInput,
   formatWorkedForDuration,
+  formatAgentInteractionDetail,
   formatModelName: formatModelNameInput,
   onClientEffect: onClientEffectInput,
   threadLoad,
@@ -971,6 +1042,7 @@ export function AgentKitProvider({
       workedForRowLayout,
       dataChartLayout,
       formatWorkedForDuration,
+      formatAgentInteractionDetail,
       formatModelName,
       registerComposerFocus,
       requestComposerFocus,
@@ -994,6 +1066,7 @@ export function AgentKitProvider({
       workedForRowLayout,
       dataChartLayout,
       formatWorkedForDuration,
+      formatAgentInteractionDetail,
       formatModelName,
       registerComposerFocus,
       requestComposerFocus,
@@ -1132,6 +1205,25 @@ function useAgentKitControllerSnapshot(
     subscribe,
     controller.getSnapshot,
     controller.getSnapshot,
+  );
+}
+
+/** Falls back to English defaults so parts also work outside a provider. */
+export function useAgentKitLabels(): ResolvedAgentKitLabels {
+  return useContext(AgentKitContext)?.labels ?? defaultAgentKitLabels;
+}
+
+export function useAgentKitDurationFormat(): (durationMs: number) => string {
+  const value = useContext(AgentKitContext);
+  const labels = value?.labels ?? defaultAgentKitLabels;
+  return (
+    value?.formatWorkedForDuration ??
+    ((durationMs) =>
+      formatAgentKitDuration(durationMs, {
+        hour: labels.durationHourShort,
+        minute: labels.durationMinuteShort,
+        second: labels.durationSecondShort,
+      }))
   );
 }
 

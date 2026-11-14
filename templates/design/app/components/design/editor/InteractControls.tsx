@@ -227,7 +227,7 @@ export function InteractThemePicker({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className={cn("min-w-32 rounded-lg", MENU_CONTENT_Z)}
+        className={cn("min-w-32", MENU_CONTENT_Z)}
       >
         <DropdownMenuRadioGroup
           value={mode}
@@ -247,7 +247,7 @@ export function InteractThemePicker({
                 value={optionMode}
                 indicator="check"
                 data-design-theme-unavailable={unavailable || undefined}
-                className={cn("gap-2 text-xs", unavailable && "opacity-60")}
+                className={cn(unavailable && "opacity-60")}
               >
                 <Glyph className="size-4 shrink-0 text-muted-foreground" />
                 {t(labelKey)}

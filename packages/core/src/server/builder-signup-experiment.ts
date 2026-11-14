@@ -33,6 +33,16 @@ import { readBodyWithSizeLimit } from "./h3-helpers.js";
 export const BUILDER_SIGNUP_EXPERIMENT = "design_builder_signup_v1";
 export const BUILDER_SIGNUP_POLICY = "builder-signup-2026-11-06";
 export const BUILDER_SIGNUP_COOKIE = "an_builder_signup";
+// The first page can probe readiness while the auth callback is provisioning.
+const SIGNUP_READINESS_REFRESH_WINDOW_MS = 60_000;
+
+function justConnected(record: Record<string, unknown>): boolean {
+  if (record.status !== "connected" || typeof record.completedAt !== "number")
+    return false;
+  const elapsed = Date.now() - record.completedAt;
+  return elapsed >= 0 && elapsed < SIGNUP_READINESS_REFRESH_WINDOW_MS;
+}
+
 const TTL = 7 * 24 * 60 * 60;
 const existingSignupStatusSchema = z.enum([
   "control",
@@ -469,9 +479,13 @@ export function createBuilderSignupExperiment(dependencies: {
     if (method === "GET") {
       if (session) return { status: "disabled" as const };
       if (!assignment) {
+        const { builderSignupAutomaticPercent } = getAppConfig().onboarding;
         assignment = {
           id: randomBytes(16).toString("hex"),
-          variant: randomInt(2) === 0 ? "control" : "automatic",
+          variant:
+            randomInt(100) < builderSignupAutomaticPercent
+              ? "automatic"
+              : "control",
           issuedAt: Date.now(),
           policy: BUILDER_SIGNUP_POLICY,
         };
@@ -581,6 +595,8 @@ export function createBuilderSignupExperiment(dependencies: {
           );
         }
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
+        if (body.data.operation === "start" && justConnected(existing))
+          return { status: "connected" as const };
         return { status: "disabled" as const, code: "already_completed" };
       }
       return { status: "eligible" as const };
@@ -712,7 +728,11 @@ export function createBuilderSignupExperiment(dependencies: {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "control" };
       }
-      if (status !== "started" && body.data.operation === "start") {
+      if (
+        status !== "started" &&
+        body.data.operation === "start" &&
+        !justConnected(existing)
+      ) {
         deleteCookie(event, "an_builder_signup_pending", { path: "/" });
         return { status: "disabled" as const, code: "already_completed" };
       }

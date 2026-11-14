@@ -6,6 +6,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   BuilderConnectPopover,
@@ -392,6 +393,7 @@ import {
 import {
   databaseItemCanDuplicate,
   databaseItemCanRemoveFromDatabase,
+  databaseItemHasRowMenu,
   databaseItemHasViewerAccess,
   databaseItemIsSourceBacked,
 } from "./row-access";
@@ -7779,7 +7781,7 @@ function DatabaseAdvancedFilterGroupControl({
             />
           ))}
 
-          <DropdownMenuSeparator className="my-1" />
+          <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="text-muted-foreground [&>svg:last-child]:hidden">
               <span className="flex-1">{dbText("addFilterRule")}</span>
@@ -12145,12 +12147,12 @@ function DatabaseOpenPagesInSetting({
           </span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72 p-1">
+      <DropdownMenuContent align="end" className="w-72">
         {DATABASE_OPEN_PAGES_IN.map((option) => {
           return (
             <DropdownMenuItem
               key={option}
-              className="items-start gap-2 py-2"
+              className="items-start"
               onSelect={(event) => {
                 event.preventDefault();
                 onChange(option);
@@ -13170,7 +13172,7 @@ function DatabaseCalendarView({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                <DropdownMenuLabel className="text-muted-foreground">
                   {dbText("calendarBy")}
                 </DropdownMenuLabel>
                 {dateProperties.map((property) => {
@@ -13420,6 +13422,7 @@ function DatabaseCalendarCard({
   onOpenPage: () => void;
 }) {
   const visibleProperties = properties.slice(0, 2);
+  const inWidget = useIsMcpAppWidgetEmbed();
 
   return (
     <div
@@ -13470,10 +13473,11 @@ function DatabaseCalendarCard({
             </span>
           ) : null}
         </div>
-        {canEdit ? (
+        {databaseItemHasRowMenu(item, canEdit, inWidget) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}
@@ -13719,7 +13723,7 @@ function DatabaseBoardView({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel className="text-xs text-muted-foreground">
+              <DropdownMenuLabel className="text-muted-foreground">
                 {dbText("groupBy")}
               </DropdownMenuLabel>
               {groupableProperties.map((property) => {
@@ -14127,6 +14131,7 @@ function DatabaseBoardCard({
   onOpenPage: () => void;
 }) {
   const visibleProperties = properties.slice(0, 3);
+  const inWidget = useIsMcpAppWidgetEmbed();
 
   return (
     // The whole card drags and opens, but only the title is the button, so
@@ -14189,10 +14194,11 @@ function DatabaseBoardCard({
             </span>
           ) : null}
         </div>
-        {canEdit ? (
+        {databaseItemHasRowMenu(item, canEdit, inWidget) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}
@@ -16511,7 +16517,7 @@ function DatabaseViewTabs({
           >
             <DropdownMenuTrigger asChild>{tabButton}</DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
+              <DropdownMenuLabel className="flex items-center gap-2 text-muted-foreground">
                 <button
                   type="button"
                   aria-label={t("editor.emojiChangeIcon")}
@@ -16651,7 +16657,7 @@ function DatabaseViewTabs({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64">
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
+            <DropdownMenuLabel className="text-muted-foreground">
               {dbText("newView")}
             </DropdownMenuLabel>
             <form
@@ -17775,7 +17781,7 @@ export function ColumnHeaderMenuContent({
 
   return (
     <DropdownMenuContent align="start" className="w-56">
-      <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
+      <DropdownMenuLabel className="truncate text-muted-foreground">
         {label}
       </DropdownMenuLabel>
       <DropdownMenuSub>
@@ -19948,6 +19954,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
   const longPress = useContentTableLongPress(() => onToggleSelected(item.id));
+  const inWidget = useIsMcpAppWidgetEmbed();
   const columnWrap = (id: string) => columnWrapOverrides[id] ?? wrapCells;
   return (
     <DatabaseTableGrid
@@ -20077,10 +20084,11 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
         );
       })}
       actions={
-        canEdit ? (
+        databaseItemHasRowMenu(item, canEdit, inWidget) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={canReorder}
             canMoveUp={canMoveUp}
             canMoveDown={canMoveDown}
@@ -20097,12 +20105,14 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
 export function RowActionsCell({
   item,
   databaseDocumentId,
+  canEdit,
   onPreviewItem,
   onDeletedPreviewItem,
   onOpenPage,
 }: {
   item: ContentDatabaseItem;
   databaseDocumentId: string;
+  canEdit: boolean;
   canReorder: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -20132,7 +20142,7 @@ export function RowActionsCell({
   const isWorkspaceCatalog =
     contentSpaces.data?.catalogDocumentId === databaseDocumentId;
   const canDeleteWorkspace =
-    isWorkspaceCatalog && workspaceSpace?.kind === "user";
+    canEdit && isWorkspaceCatalog && workspaceSpace?.kind === "user";
   const databaseData = isContentDatabaseUnavailable(databaseQuery.data)
     ? undefined
     : databaseQuery.data;
@@ -20140,17 +20150,20 @@ export function RowActionsCell({
     databaseData?.sources,
     databaseData?.source ?? null,
   );
-  const canRemoveFromDatabase = removesFavoriteMembership
-    ? databaseDocument?.canEdit === true
-    : databaseData !== undefined &&
-      databaseItemCanRemoveFromDatabase({
-        item,
-        databaseCanManage: databaseDocument?.canManage === true,
-        databaseSystemRole: databaseData.database.systemRole,
-        isWorkspaceCatalog,
-        sources: databaseSources,
-      });
-  const canDuplicateRow = databaseItemCanDuplicate(item, isWorkspaceCatalog);
+  const canRemoveFromDatabase =
+    canEdit &&
+    (removesFavoriteMembership
+      ? databaseDocument?.canEdit === true
+      : databaseData !== undefined &&
+        databaseItemCanRemoveFromDatabase({
+          item,
+          databaseCanManage: databaseDocument?.canManage === true,
+          databaseSystemRole: databaseData.database.systemRole,
+          isWorkspaceCatalog,
+          sources: databaseSources,
+        }));
+  const canDuplicateRow =
+    canEdit && databaseItemCanDuplicate(item, isWorkspaceCatalog);
   // A workspace's row opens the workspace, so a link or comment to its Page
   // would land somewhere Open page doesn't.
   const opensAsPage = !isWorkspaceCatalog;

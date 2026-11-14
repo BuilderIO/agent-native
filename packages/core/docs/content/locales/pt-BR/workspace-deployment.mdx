@@ -359,6 +359,12 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=1
 
 Substitua o endereço de exemplo pelo e-mail verificado da primeira pessoa administradora de cada espaço de trabalho. Em um banco vazio, ela entra primeiro, torna-se proprietária da organização inicial e pode convidar a equipe em Settings → Organization → Members. Consulte [Implantações administradas](/docs/administered-deployments) para ver o processo completo de inicialização.
 
+## ZIPs de funções determinísticos {#workspace-netlify-function-zips}
+
+O Netlify calcula o hash do ZIP inteiro de cada função, e seu empacotador grava as entradas em uma ordem diferente a cada execução, então funções sem alterações são reenviadas a cada deploy. Publique com `npx @agent-native/core@latest netlify-deploy` em vez de chamar `netlify deploy` por conta própria. O comando compacta as funções com o próprio empacotador da CLI do Netlify instalada, reescreve cada ZIP com entradas ordenadas e um carimbo de data fixo, grava o manifesto de funções e executa `netlify deploy` no mesmo comando. Rotas, agendamentos e configurações de segundo plano são mantidos. Passe seus próprios argumentos de `netlify deploy` depois do comando; o padrão é `--prod --dir=dist --functions=.netlify/functions-internal`.
+
+A CLI só lê esse manifesto por dois minutos. Se ele for mais antigo quando a CLI iniciar, ou se ela o descartar, o comando imprime uma linha `manifest-expired` e sai com código diferente de zero, em vez de fazer deploy silenciosamente com ZIPs instáveis.
+
 ## O que vem a seguir
 
 - [**Implantação**](/docs/deployment) — escolha um banco de dados persistente, um preset do Nitro e uma plataforma antes de implantar um espaço de trabalho

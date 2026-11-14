@@ -694,7 +694,7 @@ Lorsque l'utilisateur clique sur le lien dans n'importe quel navigateur ou vue W
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -726,7 +726,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. Résout la session **navigateur** via `getSession` (le garde d'authentification contourne le chemin exact `/_agent-native/open`).
 2. Si non authentifié, sert la connexion configurée HTML **au même URL** ; le gestionnaire de réussite du formulaire recharge `window.location`, en entrant à nouveau l'itinéraire authentifié — pas de plomberie `?next=`.
 3. Écrit la commande d'état d'application unique `navigate` existante (charge utile = chaque paramètre de requête non réservé + `view`) limitée à l'e-mail de la session de navigateur avec `requestSource: "deep-link"`, et décode un brouillon d'url base64 `compose` en une clé `compose-<id>`.
-4. 302-redirections vers un chemin relatif sûr de même origine (`to=`, sinon `/<view>`, sinon un `resolveOpenPath` par modèle), transmettant les paramètres de filtre `f_*` afin que les listes/tableaux de bord s'ouvrent pré-filtrés avant même que la commande `navigate` ne soit drainée.
+4. 302-redirections vers un chemin relatif sûr de même origine (`to=`, sinon un `resolveOpenPath` par modèle, sinon `/<view>`), transmettant les paramètres de filtre `f_*` afin que les listes/tableaux de bord s'ouvrent pré-filtrés avant même que la commande `navigate` ne soit drainée.
 
 Les redirections d'origine croisée, `//host` relatives au schéma et les redirections de caractères de contrôle sont rejetées (garde de redirection ouverte). L'itinéraire peut être désactivé par application via `disableOpenRoute`.
 

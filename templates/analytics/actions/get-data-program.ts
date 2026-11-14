@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
 import {
   getDataProgram,
-  getLatestRun,
+  getLatestFinishedRun,
+  getLatestSuccessfulRun,
   hashDataProgramParams,
 } from "@agent-native/core/data-programs";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
@@ -12,7 +13,7 @@ import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials";
 
 export default defineAction({
   description:
-    "Get one Analytics data program's metadata and last-run summary. Pass includeRows to return cached rows.",
+    "Get one Analytics data program's metadata, code, and last finished run. When that run failed, lastGoodRun is the newest successful one. Pass includeRows to return their cached rows.",
   schema: z.object({
     programId: z.string().min(1),
     includeRows: z.boolean().optional(),
@@ -41,7 +42,14 @@ export default defineAction({
       ctx.userEmail,
       ctx.orgId ?? null,
     );
-    const lastRun = await getLatestRun(program.id, hash);
+    // A background program records its next run as soon as it queues it, so
+    // read the newest finished run, plus the newest success when that run
+    // failed, rather than an empty queued row.
+    const lastRun = await getLatestFinishedRun(program.id, hash);
+    const lastGoodRun =
+      lastRun && lastRun.status !== "succeeded"
+        ? await getLatestSuccessfulRun(program.id, hash)
+        : null;
 
     return {
       id: program.id,
@@ -71,6 +79,18 @@ export default defineAction({
               : {}),
           }
         : null,
+      ...(lastGoodRun
+        ? {
+            lastGoodRun: {
+              rowCount: lastGoodRun.rowCount,
+              truncated: lastGoodRun.truncated,
+              finishedAt: lastGoodRun.finishedAt,
+              ...(args.includeRows && lastGoodRun.rowsJson
+                ? { rows: JSON.parse(lastGoodRun.rowsJson) }
+                : {}),
+            },
+          }
+        : {}),
     };
   },
 });

@@ -28,6 +28,7 @@ import type {
   DocumentProperty,
   DocumentPropertyRelationTarget,
 } from "@shared/api";
+import { privateMediaIdFromSrc } from "@shared/private-media";
 import {
   CREATABLE_DOCUMENT_PROPERTY_TYPES,
   DOCUMENT_PROPERTY_TYPE_LABELS,
@@ -710,6 +711,8 @@ export function mergeFilesMediaItems(items: string[], pendingLink: string) {
 export function filesMediaLabel(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "File";
+  // A private upload's link ends in its ID, which says nothing to a reader.
+  if (privateMediaIdFromSrc(trimmed)) return "Image";
   try {
     const url = new URL(trimmed);
     const pathParts = url.pathname.split("/").filter(Boolean);
@@ -721,6 +724,7 @@ export function filesMediaLabel(value: string) {
 }
 
 export function filesMediaKind(value: string) {
+  if (privateMediaIdFromSrc(value.trim())) return "Image";
   const label = filesMediaLabel(value).toLowerCase();
   if (/\.(png|jpe?g|gif|webp|svg|avif)$/.test(label)) return "Image";
   if (/\.(mp4|mov|webm|m4v)$/.test(label)) return "Video";
@@ -1960,7 +1964,7 @@ export function PropertyManagementPopover({
         >
           {view === "quick" && hasColumnMenu ? (
             <>
-              <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
+              <DropdownMenuLabel className="truncate text-muted-foreground">
                 {property.definition.name}
               </DropdownMenuLabel>
               <DropdownMenuItem
@@ -2238,7 +2242,7 @@ export function PropertyManagementPopover({
                 >
                   <DropdownMenuLabel
                     id={visibilityScopeId}
-                    className="py-1.5 font-normal"
+                    className="font-normal"
                   >
                     {t("editor.properties.visibilityScope")}
                   </DropdownMenuLabel>
@@ -2371,7 +2375,7 @@ export function PropertyManagementPopover({
                     )}
                     {bindableSourceFields.length > 0 ? (
                       <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="mt-0.5">
+                        <DropdownMenuSubTrigger>
                           {t("database.bindAFieldFromASource")}
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent
@@ -3542,10 +3546,11 @@ function FilesMediaValueEditor({
         return;
       }
       setUploading(true);
+      const uploadedUrls: string[] = [];
       try {
-        const uploadedUrls: string[] = [];
+        // Uploads are private to this page: only its readers can load them.
         for (const file of selectedFiles) {
-          uploadedUrls.push(await uploadImageFile(file));
+          uploadedUrls.push(await uploadImageFile(file, { documentId }));
         }
         setItems((current) => [...current, ...uploadedUrls]);
         toast.success(
@@ -3557,13 +3562,17 @@ function FilesMediaValueEditor({
           ),
         );
       } catch (error) {
+        // Images uploaded before the failure stay in the list.
+        if (uploadedUrls.length > 0) {
+          setItems((current) => [...current, ...uploadedUrls]);
+        }
         toast.error(imageUploadErrorMessage(error));
       } finally {
         setUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [fileStorageConfigured, t],
+    [documentId, fileStorageConfigured, t],
   );
 
   useEffect(() => {

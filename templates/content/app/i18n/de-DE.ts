@@ -1528,6 +1528,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "Dieser Vorschlag wurde an anderer Stelle geändert. Ihr nicht gespeicherter Entwurf ist noch vorhanden.",
     discardSuggestionDraft: "Entwurf verwerfen",
+    mermaid: {
+      source: "Mermaid",
+      done: "Fertig",
+      doneShortcut: "Quelltext schließen (Esc)",
+      editDiagram: "Diagramm bearbeiten",
+      cantDraw: "Dieses Diagramm kann nicht gezeichnet werden",
+    },
     failedToCreatePage: "Seite konnte nicht erstellt werden",
     slash: {
       blockEquation: "Blockgleichung",

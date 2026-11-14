@@ -589,6 +589,7 @@ describe("home prompt context", () => {
     expect(result.current.menuItems.map((item) => item.id)).toEqual([
       "figma-reference",
       "design-reference",
+      "content-reference",
       "website-reference",
     ]);
     expect(result.current.contextItems).toEqual([]);
@@ -684,6 +685,128 @@ describe("home prompt context", () => {
     act(() => result.current.remove(result.current.contextItems[0].key));
     expect(result.current.contextItems).toEqual([]);
     expect(picker(result.current, id).selectedIds).toEqual([]);
+  });
+  it("attaches a Content page and keeps its link as the design's brief", async () => {
+    const { result } = renderHook(() => useHomePromptContext(defaults));
+    const contentMenu = result.current.menuItems.find(
+      (entry) => entry.id === "content-reference",
+    );
+    expect(contentMenu).toMatchObject({
+      label: "homeContext.contentPage",
+      referenceType: "content",
+      intent: "add-context",
+    });
+    const sourcePicker = picker(result.current, "content-reference");
+    expect(sourcePicker.searchPlaceholder).toBe("homeContext.searchPages");
+    const input = request({ search: "launch" });
+    mocks.call.mockResolvedValueOnce({
+      items: [{ id: "page-one", title: "Launch brief" }],
+      hasMore: false,
+    });
+    const load = sourcePicker.load;
+    if (!load) throw new Error("Missing page search");
+    const listed = await load(input);
+    expect(mocks.call).toHaveBeenLastCalledWith(
+      "read-composer-source",
+      { source: "content", operation: "list", search: "launch", page: 1 },
+      { method: "GET", signal: input.signal },
+    );
+    const presentation = sourcePicker.presentation;
+    if (
+      !presentation ||
+      presentation === "submenu" ||
+      presentation.mode !== "multiple"
+    )
+      throw new Error("Missing reference dialog");
+    const pageUrl =
+      "https://content.example.com/_agent-native/open?view=editor&documentId=page-one";
+    mocks.call.mockResolvedValueOnce({
+      id: "page-one",
+      title: "Launch brief",
+      url: pageUrl,
+      context: "Content page: the brief",
+    });
+    await act(async () => presentation.onAttach(listed.items, input));
+    expect(mocks.call).toHaveBeenLastCalledWith(
+      "read-composer-source",
+      { source: "content", operation: "read", id: "page-one", page: 1 },
+      { method: "GET" },
+    );
+    expect(result.current.contextItems[0]).toMatchObject({
+      status: "ready",
+      title: "Launch brief",
+    });
+    const brief = { source: "content", id: "page-one", url: pageUrl };
+    expect(result.current.briefsFor(result.current.contextItems)).toEqual([
+      brief,
+    ]);
+    expect(result.current.briefsFor([])).toEqual([]);
+    const attached = result.current.contextItems.find(
+      (item) => item.title === "Launch brief",
+    );
+    if (!attached) throw new Error("Missing attached page");
+    act(() => result.current.remove(attached.key));
+    expect(
+      result.current.briefsFor([
+        { key: "design-home-reference:content::page-one" },
+      ]),
+    ).toEqual([]);
+  });
+  it("keeps at most five attached pages as the design's briefs", async () => {
+    const { result } = renderHook(() => useHomePromptContext(defaults));
+    const presentation = picker(
+      result.current,
+      "content-reference",
+    ).presentation;
+    if (
+      !presentation ||
+      presentation === "submenu" ||
+      presentation.mode !== "multiple"
+    )
+      throw new Error("Missing reference dialog");
+    const pageUrl = (id: string) =>
+      `https://content.example.com/_agent-native/open?documentId=${id}`;
+    mocks.call.mockImplementation(async (_action, args) => ({
+      id: args.id,
+      title: `Page ${args.id}`,
+      url: pageUrl(args.id),
+      context: "Content page",
+    }));
+    const pages = ["a", "b", "c", "d", "e", "f"].map((id) => ({
+      id,
+      title: `Page ${id}`,
+    }));
+    await act(async () => presentation.onAttach(pages, request()));
+
+    expect(result.current.contextItems).toHaveLength(6);
+    expect(
+      result.current.briefsFor(result.current.contextItems).map(({ id }) => id),
+    ).toEqual(["a", "b", "c", "d", "e"]);
+  });
+  it("records no brief for a page whose link is not http(s)", async () => {
+    const { result } = renderHook(() => useHomePromptContext(defaults));
+    const sourcePicker = picker(result.current, "content-reference");
+    const presentation = sourcePicker.presentation;
+    if (
+      !presentation ||
+      presentation === "submenu" ||
+      presentation.mode !== "multiple"
+    )
+      throw new Error("Missing reference dialog");
+    mocks.call.mockResolvedValueOnce({
+      id: "page-one",
+      title: "Launch brief",
+      url: "/_agent-native/open?documentId=page-one",
+      context: "Content page: the brief",
+    });
+    await act(async () =>
+      presentation.onAttach(
+        [{ id: "page-one", title: "Launch brief" }],
+        request(),
+      ),
+    );
+    expect(result.current.contextItems[0]).toMatchObject({ status: "ready" });
+    expect(result.current.briefsFor(result.current.contextItems)).toEqual([]);
   });
   it("restores the real system creator only when enabled; empty has no None", () => {
     const { result } = renderHook(() => useHomePromptContext(defaults));

@@ -37,6 +37,22 @@ describe("navigateForSession", () => {
     expect(navigateForSession("/sign-in")).toBe(true);
     expect(replace).toHaveBeenCalledTimes(2);
   });
+
+  it("lets the stall timer fire after the page's window is gone", () => {
+    // What CI hit: a test environment removed window before the timer fired.
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "window",
+      Object.assign(new EventTarget(), { location: { replace: vi.fn() } }),
+    );
+    expect(navigateForSession("/sign-in")).toBe(true);
+    vi.unstubAllGlobals();
+
+    expect(typeof window).toBe("undefined");
+    expect(() =>
+      vi.advanceTimersByTime(SESSION_NAVIGATION_STALL_MS),
+    ).not.toThrow();
+  });
 });
 
 describe("getSsrSessionBootstrapScriptBody", () => {
