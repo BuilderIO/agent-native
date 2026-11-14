@@ -39,8 +39,8 @@ const github = vi.hoisted(() => {
     storageDown: false,
     /** Uploads of a file with this name throw, as storage rejecting one file does. */
     rejectFilename: null as string | null,
-    /** Uploads of a file with this name aren't the image their type says. */
-    invalidFilename: null as string | null,
+    /** Uploads of files with these names aren't the image their type says. */
+    invalidFilenames: new Set<string>(),
     uploadFailures: 0,
     /** The file name of every upload tried, in order. */
     uploadAttempts: [] as string[],
@@ -102,7 +102,7 @@ const github = vi.hoisted(() => {
       state.noStorage = false;
       state.storageDown = false;
       state.rejectFilename = null;
-      state.invalidFilename = null;
+      state.invalidFilenames.clear();
       state.uploadFailures = 0;
       state.uploadAttempts = [];
       state.deletedMedia = [];
@@ -367,7 +367,7 @@ vi.mock("@agent-native/core/private-media", async (importOriginal) => {
         github.state.uploadFailures += 1;
         throw new Error("S3 PutObject failed (400): EntityTooLarge");
       }
-      if (filename === github.state.invalidFilename) {
+      if (github.state.invalidFilenames.has(filename)) {
         throw new actual.PrivateMediaValidationError(
           "The file's contents don't match its image type.",
           415,
@@ -2548,7 +2548,8 @@ describe("GitHub folder source", () => {
   });
 
   it("leaves out an image that isn't what its type says, without waiting on storage", async () => {
-    github.state.invalidFilename = "poster.png";
+    github.state.invalidFilenames.add("poster.png");
+    github.state.invalidFilenames.add("chart.jpg");
     github.commit({
       "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
       "docs/b-poster-again.md": "# Again\n\n![Poster](images/poster.png)\n",
@@ -2557,6 +2558,8 @@ describe("GitHub folder source", () => {
       "docs/images/chart.png": "PNGCHART",
       "docs/d-poster-jpeg.md": "# JPEG\n\n![Poster](images/poster.jpg)\n",
       "docs/images/poster.jpg": "PNGPOSTER",
+      "docs/e-chart-jpeg.md": "# JPEG\n\n![Chart](images/chart.jpg)\n",
+      "docs/images/chart.jpg": "PNGCHART",
     });
     const database = await newCollection();
     const linked = await as(() =>
@@ -2564,11 +2567,13 @@ describe("GitHub folder source", () => {
     );
     // The poster is tried once for both pages, and the chart still uploads.
     // No later sync could store the poster, so nothing waits on storage. The
-    // same bytes named as another type are tried again, and that copy stores.
+    // same bytes named as another type are checked again, whichever came
+    // first: the poster's copy stores, and the chart's doesn't reuse its PNG.
     expect(github.state.uploadAttempts).toEqual([
       "poster.png",
       "chart.png",
       "poster.jpg",
+      "chart.jpg",
     ]);
     expect(linked.sync).toMatchObject({
       state: "synced",
@@ -2587,6 +2592,9 @@ describe("GitHub folder source", () => {
     );
     expect(content("docs/c-chart.md")).toContain(github.uploadedPath(1));
     expect(content("docs/d-poster-jpeg.md")).toContain(github.uploadedPath(2));
+    expect(content("docs/e-chart-jpeg.md")).not.toContain(
+      "/api/private-media/",
+    );
   });
 
   it("binds only the images it stored, not a private image a file links itself", async () => {

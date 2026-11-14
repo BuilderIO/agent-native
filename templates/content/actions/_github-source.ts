@@ -1071,18 +1071,18 @@ interface SyncRun {
   removedKeys: Set<string>;
   /** Document id for each folder-relative path, for links between files. */
   documentIdByPath: Map<string, string>;
-  /** Uploaded private image link by blob SHA, shared across pages. */
-  assetUrlBySha: Map<string, string>;
+  /**
+   * Stored private image links, shared across pages: a file's by its blob
+   * SHA and the type its name claims, a data URL's by its hash, which covers
+   * its type. The same bytes named as another type are checked again.
+   */
+  assetUrls: Map<string, string>;
   /**
    * Blob SHAs of images whose upload failed this run. Other pages that use
    * one leave it out without trying again, so one image counts once.
    */
   failedAssetShas: Set<string>;
-  /**
-   * Images storage refused as not the image they claim to be: a file by its
-   * blob SHA and the type its name claims, a data URL by its hash, which
-   * covers its type. The same bytes named as another type are tried again.
-   */
+  /** Images storage refused as not the image they claim to be, keyed as `assetUrls` is. */
   rejectedAssets: Set<string>;
   /** Private images this run stored; see `deleteUnboundImages`. */
   storedMediaIds: Set<string>;
@@ -1106,6 +1106,14 @@ function documentIdForNewFile(run: SyncRun, repoPath: string) {
 
 function itemIdForDocument(run: SyncRun, documentId: string) {
   return opaqueId("content_github_item", `${run.sourceId}:${documentId}`);
+}
+
+/**
+ * A file image's key in a run's caches. Storage checks bytes against the type
+ * a file's name claims, so the same bytes under another type are another image.
+ */
+function fileImageKey(sha: string, mimeType: string) {
+  return `${sha} ${mimeType}`;
 }
 
 function folderRelative(run: SyncRun, repoPath: string) {
@@ -1203,7 +1211,7 @@ async function uploadAsset(
     const data = dataUrlBytes(request.dataUrl);
     if (!data || data.byteLength > GITHUB_SOURCE_MAX_IMAGE_BYTES) return null;
     const sha = hash(request.dataUrl);
-    const cached = run.assetUrlBySha.get(sha);
+    const cached = run.assetUrls.get(sha);
     if (cached) return { sha, url: cached };
     if (run.rejectedAssets.has(sha)) return null;
     if (run.failedAssetShas.has(sha)) return "failed";
@@ -1224,7 +1232,7 @@ async function uploadAsset(
       return stored;
     }
     if (!stored) return "no-storage";
-    run.assetUrlBySha.set(sha, stored.url);
+    run.assetUrls.set(sha, stored.url);
     return { sha, url: stored.url };
   }
   const entry = run.files.blobs.get(request.path);
@@ -1233,10 +1241,10 @@ async function uploadAsset(
   if (entry.size !== null && entry.size > GITHUB_SOURCE_MAX_IMAGE_BYTES) {
     return null;
   }
-  const cached = run.assetUrlBySha.get(entry.sha);
+  const key = fileImageKey(entry.sha, mimeType);
+  const cached = run.assetUrls.get(key);
   if (cached) return { sha: entry.sha, url: cached };
-  const rejectedKey = `${entry.sha} ${mimeType}`;
-  if (run.rejectedAssets.has(rejectedKey)) return null;
+  if (run.rejectedAssets.has(key)) return null;
   if (run.failedAssetShas.has(entry.sha)) return "failed";
   if (storageDown(run)) return "no-storage";
   await beforeUpload();
@@ -1255,7 +1263,7 @@ async function uploadAsset(
     mimeType,
   });
   if (stored === "rejected") {
-    run.rejectedAssets.add(rejectedKey);
+    run.rejectedAssets.add(key);
     return null;
   }
   if (stored === "failed") {
@@ -1263,7 +1271,7 @@ async function uploadAsset(
     return stored;
   }
   if (!stored) return "no-storage";
-  run.assetUrlBySha.set(entry.sha, stored.url);
+  run.assetUrls.set(key, stored.url);
   return { sha: entry.sha, url: stored.url };
 }
 
@@ -2451,16 +2459,17 @@ export async function syncGitHubSource(
         eq(schema.contentDatabaseSourceRows.sourceId, options.sourceId),
       )) as SourceRow[];
     const rowByPath = new Map<string, SourceRow>();
-    const assetUrlBySha = new Map<string, string>();
+    const assetUrls = new Map<string, string>();
     for (const row of storedRows) {
       const rowValues = rowState(row);
       if (!rowValues) continue;
       rowByPath.set(rowValues.path, row);
-      for (const asset of Object.values(rowValues.assets)) {
+      for (const [path, asset] of Object.entries(rowValues.assets)) {
         // Syncs before images went private stored them at public URLs; a
         // page rebuilt now gets a private copy instead of reusing one.
-        if (privateMediaIdFromSrc(asset.url)) {
-          assetUrlBySha.set(asset.sha, asset.url);
+        const mimeType = importImageMediaType(path);
+        if (mimeType && privateMediaIdFromSrc(asset.url)) {
+          assetUrls.set(fileImageKey(asset.sha, mimeType), asset.url);
         }
       }
     }
@@ -2477,7 +2486,7 @@ export async function syncGitHubSource(
       columns,
       removedKeys: removed,
       documentIdByPath: new Map(),
-      assetUrlBySha,
+      assetUrls,
       failedAssetShas: new Set(),
       rejectedAssets: new Set(),
       storedMediaIds,
