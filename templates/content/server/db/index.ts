@@ -51,8 +51,10 @@ registerShareableResource({
 });
 
 /**
- * Documents in the core search index. Every row is indexed, including trashed
- * and hidden ones; `search-documents` applies access and filters live.
+ * Documents in the core search index. Every row is indexed by words,
+ * including trashed and hidden ones; `search-documents` applies access and
+ * filters live. Trashed and hidden pages aren't embedded, since a search never
+ * returns them.
  */
 export const documentSearchIndex = registerSearchableResource({
   app: "content",
@@ -72,6 +74,8 @@ export const documentSearchIndex = registerSearchableResource({
         updatedAt: schema.documents.updatedAt,
         ownerEmail: schema.documents.ownerEmail,
         orgId: schema.documents.orgId,
+        hideFromSearch: schema.documents.hideFromSearch,
+        trashedAt: schema.documents.trashedAt,
       })
       .from(schema.documents)
       .where(inArray(schema.documents.id, ids));
@@ -82,6 +86,7 @@ export const documentSearchIndex = registerSearchableResource({
       body: row.content,
       modifiedAt: row.updatedAt,
       audience: { orgId: row.orgId, ownerEmail: row.ownerEmail },
+      semantic: !row.trashedAt && !row.hideFromSearch,
     }));
   },
 });

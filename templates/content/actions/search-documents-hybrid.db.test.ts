@@ -179,6 +179,14 @@ beforeAll(async () => {
           ...shared,
         },
         {
+          id: "trashed-refunds",
+          title: "Old refunds",
+          content: "Reimbursed last year.",
+          ownerEmail: OWNER,
+          trashedAt: new Date(start).toISOString(),
+          ...shared,
+        },
+        {
           id: "vacation",
           title: "Vacation",
           content: "Holiday requests go to your manager.",
@@ -218,6 +226,11 @@ describe("hybrid search", () => {
     );
     expect(ids).not.toContain("private-refunds");
     expect(ids).not.toContain("hidden-refunds");
+    expect(ids).not.toContain("trashed-refunds");
+    // Hidden and trashed pages are never sent to the provider.
+    expect(store.keys()).toContain("content/document/refund-policy/0");
+    expect(store.keys()).not.toContain("content/document/hidden-refunds/0");
+    expect(store.keys()).not.toContain("content/document/trashed-refunds/0");
   });
 
   it("reaches every match exactly once through Show more", async () => {

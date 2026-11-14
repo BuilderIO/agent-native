@@ -502,7 +502,10 @@ OpenAI's `text-embedding-3-small`.
   an outage can't hold claims past their lease. An app adds the consumer with
   `semanticSearchMigration()`, which queues a backfill.
 - **Chunks.** About 1,200 characters each, cut at sentence ends and led by the
-  title and summary, with at most 12 per page. A page scores as its best chunk.
+  title and summary (cut to 400 characters), with at most 12 per page. A page
+  scores as its best chunk. A resource whose `load` returns `semantic: false`,
+  such as a trashed or hidden Content page, stays in the word index but isn't
+  embedded, and its vectors are deleted; restoring it embeds it again.
 - **Tables.** `search_embeddings` keeps one row per resource: its audience,
   embedding set, chunk count, a hash of its chunks, and the change it embedded.
   An unchanged hash skips the embedding call. Before storing vectors, the row

@@ -144,7 +144,7 @@ beforeAll(async () => {
   vi.stubEnv("DATABASE_URL", "pglite:memory");
   client = await import("../db/client.js");
   context = await import("../server/request-context.js");
-  const { pgTable, text } = await import("drizzle-orm/pg-core");
+  const { integer, pgTable, text } = await import("drizzle-orm/pg-core");
   const drizzle = await import("drizzle-orm");
   const { createGetDb } = await import("../db/create-get-db.js");
   const pages = pgTable("pages", {
@@ -153,6 +153,7 @@ beforeAll(async () => {
     body: text("body").notNull(),
     orgId: text("org_id"),
     ownerEmail: text("owner_email").notNull(),
+    hidden: integer("hidden").notNull(),
   });
   const db = createGetDb({ pages })();
   search = await import("./index.js");
@@ -161,7 +162,7 @@ beforeAll(async () => {
   await import("../org/context.js");
 
   await run(
-    `CREATE TABLE pages (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', org_id TEXT, owner_email TEXT NOT NULL)`,
+    `CREATE TABLE pages (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', org_id TEXT, owner_email TEXT NOT NULL, hidden INTEGER NOT NULL DEFAULT 0)`,
   );
   // The organization store's table, which every app has.
   await run(
@@ -184,6 +185,7 @@ beforeAll(async () => {
         title: row.title,
         body: row.body,
         audience: { orgId: row.orgId, ownerEmail: row.ownerEmail },
+        semantic: row.hidden === 0,
       }));
     },
   });
@@ -392,6 +394,40 @@ describe("the meaning lane", () => {
       `SELECT 1 FROM search_embeddings WHERE resource_id = 'temp'`,
     );
     expect(rows).toEqual([]);
+  });
+
+  it("sends nothing for a page search never returns, and deletes its vectors", async () => {
+    try {
+      await insertPage("shown", "Shown laptop", "Hardware shown.");
+      await run(
+        `INSERT INTO pages (id, title, body, owner_email, hidden) VALUES ('kept-out', 'Kept out', 'Hardware kept out.', 'owner@a.com', 1)`,
+      );
+      await settle();
+      await drain();
+      expect(store.keys()).toContain("wiki/page/shown/0");
+      expect(store.keys()).not.toContain("wiki/page/kept-out/0");
+      expect(embedCalls.flatMap((call) => call.texts).join(" ")).not.toContain(
+        "kept out",
+      );
+
+      await run(`UPDATE pages SET hidden = 1 WHERE id = 'shown'`);
+      await settle();
+      await drain();
+      expect(store.keys()).not.toContain("wiki/page/shown/0");
+      const { rows } = await run(
+        `SELECT 1 FROM search_embeddings WHERE resource_id IN ('shown', 'kept-out')`,
+      );
+      expect(rows).toEqual([]);
+
+      await run(`UPDATE pages SET hidden = 0 WHERE id = 'kept-out'`);
+      await settle();
+      await drain();
+      expect(store.keys()).toContain("wiki/page/kept-out/0");
+    } finally {
+      await run(`DELETE FROM pages WHERE id IN ('shown', 'kept-out')`);
+      await settle();
+      await drain();
+    }
   });
 
   it("holds back only the page the provider refuses, and retries it", async () => {

@@ -35,6 +35,12 @@ export interface SearchableResourceDocument {
    * to likely readers. Access is still checked live on every result.
    */
   audience?: { orgId?: string | null; ownerEmail?: string | null };
+  /**
+   * False when search never returns the resource, such as a trashed or
+   * hidden page. It stays in the word index, but isn't sent to the embedding
+   * provider, and its vectors are deleted.
+   */
+  semantic?: boolean;
 }
 
 export interface SearchableResourceRegistration {

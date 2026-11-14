@@ -73,6 +73,8 @@ const VECTOR_NAMESPACE = "search";
  */
 const CHUNK_CHARACTERS = 1_200;
 const MAX_CHUNKS = 12;
+/** The title and summary leading each chunk are cut to this length. */
+const HEAD_CHARACTERS = 400;
 const CHUNKING_VERSION = 1;
 
 /** A resource edited more recently than this waits for the next drain. */
@@ -428,14 +430,16 @@ export function semanticSearcherAudienceIds(input: {
 
 /**
  * A resource's text in chunks of about 1,200 characters, cut at sentence
- * ends, each led by its title and summary. Only the first `MAX_CHUNKS` are
- * embedded. A resource with no text has no chunks.
+ * ends, each led by its title and summary, cut to `HEAD_CHARACTERS`. Only the
+ * first `MAX_CHUNKS` are embedded. A resource with no text has no chunks.
  */
 export function semanticChunks(document: SearchableResourceDocument): string[] {
   const head = [document.title, document.summary]
     .map((part) => (part ?? "").trim())
     .filter(Boolean)
-    .join("\n");
+    .join("\n")
+    .slice(0, HEAD_CHARACTERS)
+    .trim();
   const body = (document.body ?? "").replace(/\s+/gu, " ").trim();
   if (!body) return head ? [head] : [];
   const chunks: string[] = [];
@@ -758,7 +762,10 @@ async function embedChanges(
   const groups = new Map<string, AudienceGroup>();
   for (const change of changes) {
     const document = byId.get(change.resourceId);
-    const audienceId = document ? semanticAudienceId(document.audience) : null;
+    const audienceId =
+      document && document.semantic !== false
+        ? semanticAudienceId(document.audience)
+        : null;
     if (!document || !audienceId) {
       await forgetResource(
         exec,

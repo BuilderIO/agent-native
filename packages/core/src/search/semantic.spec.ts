@@ -50,6 +50,22 @@ describe("semanticChunks", () => {
     );
   });
 
+  it("cuts a long title and summary to 400 characters in every chunk", () => {
+    const chunks = semanticChunks({
+      id: "a",
+      title: "Notes",
+      summary: "s".repeat(50_000),
+      body: "x".repeat(2_400),
+    });
+    expect(chunks).toEqual([
+      `Notes\n${"s".repeat(394)}\n${"x".repeat(1_200)}`,
+      `Notes\n${"s".repeat(394)}\n${"x".repeat(1_200)}`,
+    ]);
+    expect(
+      semanticChunks({ id: "a", title: "t".repeat(5_000), body: "" }),
+    ).toEqual(["t".repeat(400)]);
+  });
+
   it("embeds a page with only a title, and nothing for an empty page", () => {
     expect(semanticChunks({ id: "a", title: "Roadmap", body: "  " })).toEqual([
       "Roadmap",
