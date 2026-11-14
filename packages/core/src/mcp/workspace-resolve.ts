@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { resolveWorkspaceAppPaths } from "../deploy/workspace-app-paths.js";
+
 export interface ResolvedApp {
   id: string;
   url: string;
@@ -26,11 +28,7 @@ export function findWorkspaceRoot(startDir: string): string | null {
       try {
         const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
         const wsCore = pkg?.["agent-native"]?.workspaceCore;
-        if (
-          typeof wsCore === "string" &&
-          wsCore.length > 0 &&
-          fs.existsSync(path.join(dir, "apps"))
-        ) {
+        if (typeof wsCore === "string" && wsCore.length > 0) {
           return dir;
         }
       } catch {
@@ -61,6 +59,7 @@ function compareApps(a: { id: string }, b: { id: string }): number {
 function discoverAppDirs(
   appsDir: string,
   appPortStart: number,
+  includes: (name: string) => boolean,
 ): Array<{ id: string; port: number }> {
   if (!fs.existsSync(appsDir)) return [];
   let entries: fs.Dirent[];
@@ -70,7 +69,7 @@ function discoverAppDirs(
     return [];
   }
   return entries
-    .filter((e) => e.isDirectory())
+    .filter((e) => e.isDirectory() && includes(e.name))
     .map((e) => ({ id: e.name }))
     .filter((a) => fs.existsSync(path.join(appsDir, a.id, "package.json")))
     .sort(compareApps)
@@ -134,8 +133,9 @@ export async function resolveWorkspace(
     );
 
     const fromGateway = await fetchGatewayApps(gatewayUrl);
+    const { appsDir, includes } = await resolveWorkspaceAppPaths(root);
     const discovered =
-      fromGateway ?? discoverAppDirs(path.join(root, "apps"), appPortStart);
+      fromGateway ?? discoverAppDirs(appsDir, appPortStart, includes);
 
     const apps: ResolvedApp[] = await Promise.all(
       discovered.map(async (a) => ({

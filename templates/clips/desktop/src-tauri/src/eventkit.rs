@@ -1,5 +1,5 @@
-
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "tauri-host")]
 use tauri::AppHandle;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,11 +14,13 @@ pub struct EventKitEvent {
     pub attendees: Vec<String>,
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn eventkit_request_access(app: AppHandle) -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
-        macos::request_access_impl(app).await
+        let _ = app;
+        macos::request_access_impl()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -27,6 +29,7 @@ pub async fn eventkit_request_access(app: AppHandle) -> Result<bool, String> {
     }
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn eventkit_list_events(
     app: AppHandle,
@@ -34,7 +37,8 @@ pub async fn eventkit_list_events(
 ) -> Result<Vec<EventKitEvent>, String> {
     #[cfg(target_os = "macos")]
     {
-        macos::list_events_impl(app, within_hours).await
+        let _ = app;
+        macos::list_events_impl(within_hours)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -44,19 +48,20 @@ pub async fn eventkit_list_events(
 }
 
 #[cfg(target_os = "macos")]
-mod macos {
+pub(crate) mod macos {
     use std::ffi::c_void;
     use std::sync::mpsc;
     use std::time::Duration;
 
+    use super::EventKitEvent;
     use block2::RcBlock;
     use objc2::rc::Retained;
     use objc2::runtime::{AnyClass, AnyObject, Bool};
     use objc2::{class, msg_send};
     use objc2_foundation::{NSArray, NSBundle, NSString};
-    use tauri::AppHandle;
 
-    use super::EventKitEvent;
+    #[link(name = "EventKit", kind = "framework")]
+    extern "C" {}
 
     const EK_ENTITY_TYPE_EVENT: usize = 0;
     const CALENDAR_USAGE_DESCRIPTION_KEYS: [&str; 2] = [
@@ -81,7 +86,7 @@ mod macos {
         if has_calendar_usage_descriptions() {
             Ok(())
         } else {
-            Err("Clips cannot access macOS calendars because the app bundle is missing calendar usage descriptions.".into())
+            Err("Calendar access is unavailable because the app bundle is missing calendar usage descriptions.".into())
         }
     }
 
@@ -103,7 +108,7 @@ mod macos {
         Retained::from_raw(inited)
     }
 
-    pub async fn request_access_impl(_app: AppHandle) -> Result<bool, String> {
+    pub fn request_access_impl() -> Result<bool, String> {
         ensure_calendar_usage_descriptions()?;
         let store =
             unsafe { new_event_store() }.ok_or_else(|| "EventKit not available".to_string())?;
@@ -133,11 +138,19 @@ mod macos {
         }
     }
 
-    pub async fn list_events_impl(
-        _app: AppHandle,
-        within_hours: u32,
-    ) -> Result<Vec<EventKitEvent>, String> {
+    pub fn has_full_access() -> Result<bool, String> {
         ensure_calendar_usage_descriptions()?;
+        let cls =
+            class_named("EKEventStore").ok_or_else(|| "EventKit not available".to_string())?;
+        let status: isize =
+            unsafe { msg_send![cls, authorizationStatusForEntityType: EK_ENTITY_TYPE_EVENT] };
+        Ok(status == 3)
+    }
+
+    pub fn list_events_impl(within_hours: u32) -> Result<Vec<EventKitEvent>, String> {
+        if !has_full_access()? {
+            return Err("Calendar full access is not granted".into());
+        }
         unsafe {
             let store = new_event_store().ok_or_else(|| "EventKit not available".to_string())?;
 
@@ -173,7 +186,7 @@ mod macos {
                 eventsMatchingPredicate: predicate
             ];
             if events.is_null() {
-                return Ok(Vec::new());
+                return Err("EventKit returned no events result".into());
             }
             let count: usize = msg_send![events, count];
             let mut out: Vec<EventKitEvent> = Vec::with_capacity(count);

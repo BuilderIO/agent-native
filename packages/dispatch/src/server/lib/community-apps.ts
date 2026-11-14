@@ -182,7 +182,7 @@ async function requireCommunityAppsLab(): Promise<void> {
 async function hasAssociatedWorkspace(
   localRuntime = isLocalAppCreationRuntime(),
 ): Promise<boolean> {
-  if (localRuntime) return Boolean(getWorkspaceInfo().rootPath);
+  if (localRuntime) return Boolean((await getWorkspaceInfo()).rootPath);
   return Boolean((await getAppCreationSettings()).builderProjectId);
 }
 
@@ -284,7 +284,7 @@ export async function installCuratedCommunityApp(input: {
 
   // A Builder-linked workspace builds apps in Builder; link there before the
   // workspace checks below, which would otherwise fail first.
-  const { builderWorkspaceUrl } = getWorkspaceInfo();
+  const { builderWorkspaceUrl } = await getWorkspaceInfo();
   if (builderWorkspaceUrl) {
     return { ...builderManagedCreationResult(builderWorkspaceUrl), source };
   }

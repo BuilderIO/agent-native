@@ -7644,8 +7644,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       const { client } = await clientWithToneNote();
       try {
         expect(client.getInstructions()).toContain(
-          "Key tools for this app: list-notes. Call tool-search",
+          "Key tools for this app: list-notes.",
         );
+        // No tool-search action is served here, so none may be pointed at.
+        expect(client.getInstructions()).not.toContain("Call tool-search");
         expect(client.getInstructions()).not.toContain("tone-note");
       } finally {
         await client.close();

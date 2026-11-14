@@ -137,6 +137,7 @@ import {
 } from "./capture-error.js";
 
 const OWNER = "owner@example.com";
+const BACKGROUND_APP_ID = "background-app";
 const ORIGIN = "http://localhost:3000";
 const ENGINE_NAME = "background-session-test";
 const BROWSER_USER_AGENT =
@@ -253,6 +254,7 @@ beforeAll(async () => {
     }
   });
   createAgentChatPlugin({
+    appId: BACKGROUND_APP_ID,
     actions: () => ({}),
     a2aAgentDelegation: false,
     durableBackgroundRuns: true,
@@ -631,7 +633,10 @@ describe("background agent sessions through the agent-chat plugin", () => {
     const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "0";
     const threadId = "ownerless-saved-thread";
-    await createThread(OWNER, { id: threadId });
+    await createThread(OWNER, {
+      id: threadId,
+      source: { appId: BACKGROUND_APP_ID },
+    });
     const engineMessageCount = engineMessages.length;
 
     try {
@@ -753,7 +758,10 @@ describe("background agent sessions through the agent-chat plugin", () => {
   it("still refuses a queued-message promotion that carries no live claim", async () => {
     const threadId = "queued-promotion-thread";
     const queuedId = "queued-message-1";
-    await createThread(OWNER, { id: threadId });
+    await createThread(OWNER, {
+      id: threadId,
+      source: { appId: BACKGROUND_APP_ID },
+    });
     await mutateThreadQueuedMessages(threadId, {
       type: "append",
       message: { id: queuedId, text: "Queued follow-up", threadId },
@@ -785,7 +793,10 @@ describe("background agent sessions through the agent-chat plugin", () => {
 
   it("allows an anonymous read-only visitor to queue a prompt without a user AI identity", async () => {
     const threadId = "anonymous-queued-thread";
-    await createThread("anonymous-owner@example.com", { id: threadId });
+    await createThread("anonymous-owner@example.com", {
+      id: threadId,
+      source: { appId: BACKGROUND_APP_ID },
+    });
 
     const response = await fetch(
       `/_agent-native/agent-chat/threads/${threadId}/queued`,

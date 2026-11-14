@@ -21,6 +21,10 @@ import {
   ORG_SELECTION_COOKIE,
 } from "../org/request-org-cache.js";
 import {
+  isDeploymentEmailAllowed,
+  isDeploymentEmailDomainAllowed,
+} from "../org/signup-admission.js";
+import {
   isWorkspaceAppAccessUnavailable,
   workspaceAppAccessUnavailableBody,
 } from "../org/workspace-app-access-outcome.js";
@@ -47,6 +51,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { isWorkspaceAppChatScope } from "../shared/workspace-app-chat-capability.js";
 import {
   bindBuilderSignupAttempt,
   startBuilderSignupForVerifiedSession,
@@ -68,6 +73,7 @@ import {
 } from "./email-auth-links.js";
 import {
   isEmbedCapabilityScope,
+  declaresWorkspaceAppChatCredential,
   revokeEmbedSessionsForOwners,
   requestHasEmbedAuthMarker,
   resolveEmbedSessionCookieOwners,
@@ -140,8 +146,10 @@ import type { ResolvedRequiredAuthProvider } from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
 import {
+  AUTH_SIGNUP_DOMAIN_NOT_ALLOWED_CODE,
   AUTH_SIGNUP_INVITE_ONLY_CODE,
   resolveNativeAuthCopy,
+  signupDomainNotAllowedMessage,
 } from "../shared/auth-copy.js";
 import type {
   AuthPageProps,
@@ -453,6 +461,8 @@ export interface AuthSession {
   emailVerified?: boolean;
   orgId?: string;
   orgRole?: string;
+  /** Explicit personal scope on a server-issued chat capability. */
+  orgScope?: "personal";
 }
 
 /**
@@ -1264,6 +1274,31 @@ async function signInWithEmailPassword(
   return body;
 }
 
+async function completePasswordSignIn(
+  event: H3Event,
+  token: string,
+  email: string,
+): Promise<void> {
+  await addSession(token, email);
+  if (isElectronRequest(event)) {
+    await writeDesktopSso({
+      email,
+      token,
+      expiresAt: Date.now() + sessionMaxAge * 1000,
+    });
+  }
+  if (
+    betterAuthSessionCookieNames().some(
+      (name) => getCookieValues(event, name).length > 0,
+    )
+  ) {
+    clearBetterAuthSessionCookies(event);
+  }
+  setFrameworkSessionCookie(event, token);
+  clearIdentityGoogleAuthCookie(event);
+  setFirstRunOnboardingCookie(event);
+}
+
 function getAccessTokens(): string[] {
   const single = process.env.ACCESS_TOKEN;
   const multi = process.env.ACCESS_TOKENS;
@@ -1367,7 +1402,11 @@ export async function getMcpOAuthBearerSession(
       return null;
     }
     const identity = result.identity;
-    if (!identity?.userEmail) return null;
+    if (
+      !identity?.userEmail ||
+      !isDeploymentEmailDomainAllowed(identity.userEmail)
+    )
+      return null;
     if (identity.orgId === null) markExplicitPersonalOrgScope(event);
     const orgId = await resolveMcpIdentityOrgId(identity);
     markVerifiedMcpCredentialForEvent(event, {
@@ -1528,6 +1567,31 @@ function sanitizeVerificationErrorRedirect(
   const recovery = new URL(signInHref, request);
   recovery.searchParams.set("error", "verification_link_invalid");
   return `${recovery.pathname}${recovery.search}`;
+}
+
+/**
+ * The sign-in page for the app the request came from, carrying the path the
+ * user was trying to reach as the continuation. A cancelled provider login used
+ * to offer "Back to login" pointing at "/", which on the workspace deploy
+ * landed on /dispatch/chat and dropped the app and its `?c=` continuation
+ * (QA AUTH-04).
+ */
+function signInReturnHref(returnUrl: string | null | undefined): string {
+  const basePath = getAppBasePath();
+  const at = safeReturnPath(returnUrl);
+  const { homePath, workspaceId } = getAppConfig().app;
+  const journey = signInJourney({
+    at: at === "/" ? "" : at,
+    basePath,
+    homePath: resolveAppHomePath(
+      {
+        ...(homePath === undefined ? {} : { homePath }),
+        ...(workspaceId === undefined ? {} : { workspaceId }),
+      },
+      getAppConfig().workspace,
+    ),
+  });
+  return journey.signInHref ?? `${basePath}${SIGN_IN_ENTRY_PATH}`;
 }
 
 function appendVerifiedParamToLocation(location: string): string {
@@ -1811,6 +1875,8 @@ const EXPECTED_AUTH_FAILURE_PATTERNS: RegExp[] = [
   /already\s+(exists|registered|in\s+use)/i,
   /not\s+verified/i,
   /INVITE_ONLY|invite-only/i,
+  /SIGNUP_DOMAIN_NOT_ALLOWED/i,
+  /sign[_ -]?up.*disabled|SIGNUP_DISABLED/i,
 ];
 
 const VALID_AUTH_EMAIL_MESSAGE =
@@ -1830,6 +1896,14 @@ const AUTH_MAGIC_LINK_UNAVAILABLE =
   "Magic-link sign-in requires a configured email provider.";
 const AUTH_EMAIL_VERIFICATION_UNAVAILABLE =
   "Email verification requires a configured email provider.";
+const AUTH_EMAIL_CHANGE_UNAVAILABLE =
+  "Changing your email requires a configured email provider.";
+// A reset email cannot be delivered without a provider. Say so instead of the
+// success message, which told the user to check an inbox that will never get a
+// link (QA AUTH-03). The fact is deployment-wide, so it reveals nothing about
+// whether a given address has an account.
+const AUTH_PASSWORD_RECOVERY_UNAVAILABLE =
+  "Password recovery isn't available on this deployment because no email provider is configured. Ask an administrator to reset your password.";
 const AUTH_SIGNUP_FALLBACK =
   "We couldn't create your account right now. Please try again.";
 const AUTH_VERIFICATION_LINK_FALLBACK =
@@ -1846,6 +1920,8 @@ const AUTH_GOOGLE_CANCELLED =
   "Google sign-in was cancelled. Try again when you're ready.";
 const AUTH_GOOGLE_START_FALLBACK =
   "We couldn't start Google sign-in. Please try again.";
+const AUTH_GOOGLE_LINK_EXPIRED =
+  "This sign-in link is invalid or has expired. Start the sign-in process again.";
 
 function isTechnicalAuthErrorMessage(message: string): boolean {
   return /failed query|\bselect\b.*\bfrom\b|\binsert\b.*\binto\b|\bupdate\b.*\bset\b|\bdelete\b.*\bfrom\b|\bsql\b|database|relation .* does not exist|column .* does not exist|syntax error|constraint|connection refused|econn|timeout/i.test(
@@ -1912,7 +1988,7 @@ async function resumeIdentityRekeyForSession(email: string): Promise<void> {
   }
 }
 
-function publicAuthError(
+export function publicAuthError(
   error: unknown,
   fallback: string,
 ): { message: string; statusCode?: number; code?: string } {
@@ -1934,12 +2010,32 @@ function publicAuthError(
       code: DEPLOY_SETTINGS_REQUIRED_CODE,
     };
   }
+  if (details.includes(AUTH_SIGNUP_DOMAIN_NOT_ALLOWED_CODE)) {
+    return {
+      message: signupDomainNotAllowedMessage(
+        getAppConfig().access.allowedEmailDomains,
+      ),
+      statusCode: 403,
+      code: AUTH_SIGNUP_DOMAIN_NOT_ALLOWED_CODE,
+    };
+  }
   if (details.includes(AUTH_SIGNUP_INVITE_ONLY_CODE)) {
     return {
       message:
         "This workspace is invite-only. Ask an administrator for an invitation.",
       statusCode: 403,
       code: AUTH_SIGNUP_INVITE_ONLY_CODE,
+    };
+  }
+  // Better Auth refuses the sign-up when the deployment disables it (for
+  // example a hosted deployment that requires verified email without an email
+  // provider configured). Name that instead of the generic fallback.
+  if (/sign[_ -]?up.*disabled|SIGNUP_DISABLED/i.test(details)) {
+    return {
+      message:
+        "This workspace isn't accepting new accounts right now. Ask an administrator for an invitation.",
+      statusCode: 403,
+      code: "SIGNUP_DISABLED",
     };
   }
   if (
@@ -2035,7 +2131,10 @@ async function sanitizeBetterAuthErrorResponse(
   const rawPayload = payload as Record<string, unknown>;
 
   const authError = publicAuthErrorFromPayload(rawPayload, fallback);
-  if (authError.code !== AUTH_SIGNUP_INVITE_ONLY_CODE) {
+  if (
+    authError.code !== AUTH_SIGNUP_INVITE_ONLY_CODE &&
+    authError.code !== AUTH_SIGNUP_DOMAIN_NOT_ALLOWED_CODE
+  ) {
     const code =
       typeof rawPayload.code === "string"
         ? rawPayload.code
@@ -2505,6 +2604,58 @@ const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
 );
 export { isSessionResolutionUnavailable };
 
+/**
+ * How long to wait before re-reading a session after a database connect failure,
+ * or null when the failure is not one that a brief wait can fix.
+ *
+ * A shared database can refuse logins for a few seconds at a time under the
+ * load of the deployment's own background functions ("partial pkt in login phase", WebSocket
+ * connect failures). The db layer already gates reconnects (DbConnectCooldownError
+ * says how much of its cooldown is left) and times a connect out after 8s, but the
+ * session path gave up on the first error and answered 503 "Session unavailable",
+ * which is a broken page for someone who is signed in. Waiting out a cooldown that
+ * short is cheaper than that page, so the wait is bounded by the cooldown the error
+ * reports, and never longer than the budget below.
+ */
+const SESSION_READ_RETRY_BUDGET_MS = 1_200;
+
+export function sessionReadRetryDelayMs(error: unknown): number | null {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const cooldown = /not attempting again for (\d+)ms/.exec(message);
+  if (cooldown) {
+    const remaining = Number(cooldown[1]);
+    return remaining > 0 && remaining <= SESSION_READ_RETRY_BUDGET_MS
+      ? remaining
+      : null;
+  }
+  if (
+    /DB \w+ timed out after \d+ms|WebSocket ErrorEvent|server login has been failing|"neon:retryable":true/i.test(
+      message,
+    )
+  )
+    return 250;
+  return null;
+}
+
+/** Read the Better Auth session, retrying once when the database was briefly unreachable. */
+async function readBetterAuthSession(
+  ba: Pick<BetterAuthInstance, "api">,
+  headers: Headers,
+): ReturnType<BetterAuthInstance["api"]["getSession"]> {
+  try {
+    return await ba.api.getSession({ headers });
+  } catch (error) {
+    const delay = sessionReadRetryDelayMs(error);
+    if (delay === null) throw error;
+    console.warn(
+      `[auth] session read hit a database connect failure, retrying in ${delay}ms:`,
+      error instanceof Error ? error.name : "unknown",
+    );
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    return await ba.api.getSession({ headers });
+  }
+}
+
 async function getLegacyCookieSessionSafely(
   event: H3Event,
 ): Promise<AuthSession | null> {
@@ -2742,10 +2893,10 @@ function areGenericGoogleOAuthRoutesEnabled(app: H3App): boolean {
 // ID so native apps (Tauri, Electron) that open OAuth in the system browser
 // can retrieve the token after the callback completes on the server.
 //
-// Primary: in-memory Map (fast, works for single-instance dev/preview builds).
-// Fallback: sessions table with a "dex:" prefixed key for cross-instance
-// durability (Cloudflare Workers, multi-region deployments). Exchange entries
-// carry a verifier hash so a flow id alone can never retrieve a session token.
+// The sessions table with a "dex:" prefixed key is authoritative across
+// instances. The in-memory Map tracks local challenges and error fallback.
+// Exchange entries carry a verifier hash so a flow id alone can never retrieve
+// a session token.
 export interface DesktopExchangeErrorPayload {
   message: string;
   code?: string;
@@ -3134,7 +3285,7 @@ async function persistDesktopExchangeErrorToDB(
       `${DESKTOP_EXCHANGE_ERROR_PREFIX}${payload}`,
     );
   } catch {
-    // non-fatal — in-memory Map is the primary path
+    // coercion-ok: local polling can still deliver the error when durable storage is unavailable.
   }
 }
 
@@ -4418,6 +4569,12 @@ function createAuthGuardFn(
     if (
       config.rootAuth &&
       p === "/" &&
+      // Shared workspace roots must reach their app loader. Rendering the
+      // separate sign-in bundle first makes one login boot two interfaces.
+      !(
+        getAppConfig().workspace.isWorkspace === true &&
+        getAppConfig().workspace.authMode === "shared"
+      ) &&
       resolveAppHomePath(getAppConfig().app, getAppConfig().workspace) !==
         "/" &&
       isHtmlDocumentRequest(event, p)
@@ -5076,6 +5233,7 @@ async function backfillSessionOrg(
 ): Promise<AuthSession> {
   if (
     session.orgId ||
+    session.orgScope === "personal" ||
     hasExplicitPersonalOrgScope(event) ||
     getEmbeddedHostOrgScope(event, session)
   )
@@ -5090,6 +5248,20 @@ async function backfillSessionOrg(
 }
 
 export { SessionResolutionUnavailableError } from "./session-resolution-errors.js";
+async function applyDeploymentSessionPolicy(
+  session: AuthSession | null,
+): Promise<AuthSession | null> {
+  if (!session || getAppConfig().access.allowedEmailDomains.length === 0)
+    return session;
+  if (!isDeploymentEmailDomainAllowed(session.email)) return null;
+  if (
+    session.emailVerified === undefined &&
+    (await resolveLegacySessionEmailVerification(session.email)) === "verified"
+  ) {
+    return { ...session, emailVerified: true };
+  }
+  return isDeploymentEmailAllowed(session) ? session : null;
+}
 
 export async function getSession(event: H3Event): Promise<AuthSession | null> {
   const ctx = event.context as {
@@ -5098,7 +5270,9 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   if (!ctx.__anSessionCache) {
     ctx.__anSessionCache = (async () => {
       const identityResolutionStartedAtMs = Date.now();
-      const session = await resolveSessionUncached(event);
+      const rawSession = await resolveSessionUncached(event);
+      const session = await applyDeploymentSessionPolicy(rawSession);
+      if (rawSession && !session) return null;
       if (!session?.email) reportSessionResolutionUnavailable(event);
       if (session?.email) {
         // A logout racing any credential lookup must win over work using its result.
@@ -5144,7 +5318,9 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
 export async function getBrowserCookieSession(
   event: H3Event,
 ): Promise<AuthSession | null> {
-  const session = await resolveBrowserCookieSession(event);
+  const rawSession = await resolveBrowserCookieSession(event);
+  const session = await applyDeploymentSessionPolicy(rawSession);
+  if (rawSession && !session) return null;
   if (!session?.email) {
     reportSessionResolutionUnavailable(event);
     return null;
@@ -5216,9 +5392,10 @@ async function resolveBrowserCookieSession(
   if (cookie) {
     try {
       const ba = getBetterAuthSync() ?? (await getBetterAuth());
-      const baSession = await ba.api.getSession({
-        headers: new Headers({ cookie: decodeCookieHeader(cookie) }),
-      });
+      const baSession = await readBetterAuthSession(
+        ba,
+        new Headers({ cookie: decodeCookieHeader(cookie) }),
+      );
       if (baSession?.user.email) return mapBetterAuthSession(baSession);
     } catch (e) {
       console.error("[auth] ba.api.getSession error:", e);
@@ -5259,14 +5436,29 @@ async function resolveSessionUncached(
     ) {
       return null;
     }
-    if (embedSession && !isEmbedCapabilityScope(embedSession.scope)) {
+    if (
+      embedSession &&
+      (!isEmbedCapabilityScope(embedSession.scope) ||
+        isWorkspaceAppChatScope(embedSession.scope))
+    ) {
       return {
         email: embedSession.email,
         token: embedSession.token,
-        ...(embedSession.orgId ? { orgId: embedSession.orgId } : {}),
+        ...(embedSession.orgId
+          ? { orgId: embedSession.orgId }
+          : isWorkspaceAppChatScope(embedSession.scope)
+            ? { orgScope: "personal" as const }
+            : {}),
       };
     }
   }
+
+  // A host chat credential explicitly selects its identity and narrow authority.
+  // A rejected grant must never turn into a cookie/custom-provider session.
+  const chatBearer = /^Bearer\s+(\S+)$/i.exec(
+    getHeader(event, "authorization") ?? "",
+  )?.[1];
+  if (chatBearer && declaresWorkspaceAppChatCredential(chatBearer)) return null;
 
   // First, like the browser-cookie resolver, so a request carrying both an
   // additional-provider session and a legacy cookie resolves to the same owner
@@ -5305,9 +5497,10 @@ async function resolveSessionUncached(
     try {
       const ba = getBetterAuthSync() ?? (await getBetterAuth());
       if (ba) {
-        const baSession = await ba.api.getSession({
-          headers: betterAuthRequestHeaders(event),
-        });
+        const baSession = await readBetterAuthSession(
+          ba,
+          betterAuthRequestHeaders(event),
+        );
         if (baSession?.user?.email) {
           return mapBetterAuthSession(baSession);
         }
@@ -5470,6 +5663,43 @@ export const authSessionHandler = defineEventHandler(async (event: H3Event) => {
   };
   return response;
 });
+
+export const mobileSessionHandler = defineEventHandler(
+  async (event: H3Event) => {
+    setResponseHeader(event, "Cache-Control", "no-store");
+    setResponseHeader(event, "Referrer-Policy", "no-referrer");
+    if (getMethod(event) !== "POST") {
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    const origin = getHeader(event, "origin");
+    if (
+      (origin
+        ? origin !== getForwardedRequestOrigin(event)
+        : getHeader(event, "x-request-source") !== "mobile") ||
+      getHeader(event, "sec-fetch-site") === "cross-site"
+    ) {
+      setResponseStatus(event, 403);
+      return { error: "Invalid session handoff origin." };
+    }
+    const token = getBearerSessionToken(event);
+    if (!token) {
+      setResponseStatus(event, 401);
+      return { error: "Not authenticated" };
+    }
+    try {
+      if (!(await getSessionEmail(token))) {
+        setResponseStatus(event, 401);
+        return { error: "Not authenticated" };
+      }
+      setFrameworkSessionCookie(event, token);
+      return { ok: true };
+    } catch {
+      setResponseStatus(event, 503);
+      return { error: "Session unavailable" };
+    }
+  },
+);
 
 export function setFrameworkSessionCookie(event: H3Event, token: string): void {
   clearFrameworkSessionCookies(event);
@@ -5882,12 +6112,17 @@ async function mountBetterAuthRoutes(
             getAppUrl(event, "/_agent-native/google/callback"),
           );
           if (!state.ok) {
+            const msg =
+              state.reason === "bad-signature" ||
+              state.reason === "malformed-payload"
+                ? AUTH_GOOGLE_LINK_EXPIRED
+                : AUTH_GOOGLE_START_FALLBACK;
             logOAuthStateDecodeFailure(event, state.reason, "google");
             logGoogleOAuthDebug(event, "callback-error", {
-              message: AUTH_GOOGLE_START_FALLBACK,
+              message: msg,
               code: state.reason,
             });
-            return oauthErrorPage(AUTH_GOOGLE_START_FALLBACK);
+            return oauthErrorPage(msg);
           }
           const {
             redirectUri,
@@ -5940,7 +6175,14 @@ async function mountBetterAuthRoutes(
               message: providerDescription || providerError || msg,
               code: providerError,
             });
-            return oauthErrorPage(msg);
+            // Desktop and mobile keep the status page: they read the exchange
+            // error and close the window themselves. A browser sign-in goes
+            // back to the app's own sign-in page with the continuation intact.
+            if (flowId || desktop || mobile) return oauthErrorPage(msg);
+            return oauthErrorPage(msg, 400, {
+              backHref: signInReturnHref(returnUrl),
+              backLabel: "Back to sign in",
+            });
           }
           // Defence in depth: the state is HMAC-signed, but if the signing
           // key ever leaked an attacker could mint state with their own
@@ -6162,17 +6404,20 @@ async function mountBetterAuthRoutes(
           setResponseStatus(event, 403);
           return { error: "Invalid desktop exchange verifier." };
         }
-        return { pending: true, flow: oauthDebugFlowId(flowId) };
       }
 
-      if (current && "error" in current) {
+      // The DB is authoritative for token exchanges. Read and validate before
+      // the conditional delete so malformed rows remain available for
+      // diagnosis and two instances cannot both redeem the same payload.
+      const fromDb = await readDesktopExchangeFromDB(flowId);
+      if (
+        current &&
+        "error" in current &&
+        (fromDb.status === "missing" ||
+          fromDb.status === "unavailable" ||
+          (fromDb.status === "entry" && "challenge" in fromDb.entry))
+      ) {
         _desktopExchanges.delete(flowId);
-        removeSession(`dex:${flowId}`).catch((err) => {
-          console.warn(
-            "[auth] desktop-exchange DB cleanup failed:",
-            describeDbError(err),
-          );
-        });
         logGoogleOAuthDebug(event, "exchange-error", {
           flowId,
           message: current.error.message,
@@ -6181,11 +6426,6 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: current.error.message, ...current.error };
       }
-
-      // The DB is authoritative for token exchanges. Read and validate before
-      // the conditional delete so malformed rows remain available for
-      // diagnosis and two instances cannot both redeem the same payload.
-      const fromDb = await readDesktopExchangeFromDB(flowId);
       if (fromDb.status === "missing" || fromDb.status === "unavailable") {
         return { pending: true, flow: oauthDebugFlowId(flowId) };
       }
@@ -6217,6 +6457,7 @@ async function mountBetterAuthRoutes(
         return { error: "Invalid desktop exchange verifier." };
       }
 
+      _desktopExchanges.delete(flowId);
       const consumed = await consumeDesktopExchangeFromDB(flowId);
       if (consumed.status === "missing" || consumed.status === "unavailable") {
         return { pending: true, flow: oauthDebugFlowId(flowId) };
@@ -6826,6 +7067,37 @@ async function mountBetterAuthRoutes(
           },
         );
       }
+      const isPasswordResetRequest =
+        reqPath.includes("request-password-reset") &&
+        getMethod(event) === "POST";
+      if (
+        isPasswordResetRequest &&
+        getDeploymentEmailReadiness().status !== "ready"
+      ) {
+        return new Response(
+          JSON.stringify({ error: AUTH_PASSWORD_RECOVERY_UNAVAILABLE }),
+          {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      // Changing an address is a mailed confirmation, so a deployment with no
+      // email provider cannot start one. Without this gate the auth server
+      // rejects the request as unauthorized and the user reads a generic
+      // "couldn't complete that request", which names neither the cause nor a
+      // next step.
+      const isChangeEmail =
+        reqPath.includes("/change-email") && getMethod(event) === "POST";
+      if (isChangeEmail && getDeploymentEmailReadiness().status !== "ready") {
+        return new Response(
+          JSON.stringify({ error: AUTH_EMAIL_CHANGE_UNAVAILABLE }),
+          {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
       if (
         isSendVerificationEmail &&
         getDeploymentEmailReadiness().status !== "ready"
@@ -7268,18 +7540,8 @@ async function mountBetterAuthRoutes(
           password,
         );
         if (result.twoFactorRedirect === true) return result;
-        if (result.token) {
-          setFrameworkSessionCookie(event, result.token);
-          clearIdentityGoogleAuthCookie(event);
-          setFirstRunOnboardingCookie(event);
-          await addSession(result.token, email);
-          if (isElectronRequest(event)) {
-            await writeDesktopSso({
-              email,
-              token: result.token,
-              expiresAt: Date.now() + sessionMaxAge * 1000,
-            });
-          }
+        if (typeof result.token === "string" && result.token) {
+          await completePasswordSignIn(event, result.token, email);
           return authLoginResponse(event, result.token, email);
         }
         setResponseStatus(event, 403);
@@ -7651,6 +7913,7 @@ async function mountBetterAuthRoutes(
   );
 
   app.use("/_agent-native/auth/session", authSessionHandler);
+  app.use("/_agent-native/auth/mobile-session", mobileSessionHandler);
   app.use(UI_RETURN_PATH, uiReturnHandler);
 
   app.use(
@@ -7732,18 +7995,8 @@ function mountAuthFallbackRoutes(app: H3App): void {
           password,
         );
         if (result.twoFactorRedirect === true) return result;
-        if (result.token) {
-          setFrameworkSessionCookie(event, result.token);
-          clearIdentityGoogleAuthCookie(event);
-          setFirstRunOnboardingCookie(event);
-          await addSession(result.token, email);
-          if (isElectronRequest(event)) {
-            await writeDesktopSso({
-              email,
-              token: result.token,
-              expiresAt: Date.now() + sessionMaxAge * 1000,
-            });
-          }
+        if (typeof result.token === "string" && result.token) {
+          await completePasswordSignIn(event, result.token, email);
           return authLoginResponse(event, result.token, email);
         }
         setResponseStatus(event, 403);
@@ -7842,6 +8095,7 @@ function mountAuthFallbackRoutes(app: H3App): void {
   );
 
   app.use("/_agent-native/auth/session", authSessionHandler);
+  app.use("/_agent-native/auth/mobile-session", mobileSessionHandler);
   app.use(UI_RETURN_PATH, uiReturnHandler);
 }
 
@@ -7978,6 +8232,7 @@ export async function autoMountAuth(
 
   if (customGetSession) {
     app.use("/_agent-native/auth/session", authSessionHandler);
+    app.use("/_agent-native/auth/mobile-session", mobileSessionHandler);
     app.use(UI_RETURN_PATH, uiReturnHandler);
     app.use(
       "/_agent-native/auth/login",

@@ -59,6 +59,178 @@ describe("workspace dev startup", () => {
     expect(workspaceGatewayUrl(host, 8080)).toBe(expected);
   });
 
+  it("discovers only configured template apps in output and the gateway", async () => {
+    tmpDir = makeWorkspace(["alpha-app", "beta-app", "excluded"]);
+    fs.renameSync(path.join(tmpDir, "apps"), path.join(tmpDir, "templates"));
+    fs.writeFileSync(
+      path.join(tmpDir, "agent-native.json"),
+      JSON.stringify({
+        deployment: {
+          workspace: { appsDirectory: "templates", appInclude: ["*-app"] },
+        },
+      }),
+    );
+    let output = "";
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fakeSpawn().spawnProcess,
+      openBrowser: false,
+      stdout: { write: (chunk) => void (output += String(chunk)) },
+    });
+    const { url } = await handle.ready;
+    const apps = (await (
+      await fetch(`${url}/_workspace/apps`)
+    ).json()) as Array<{ id: string }>;
+    expect(apps.map((app) => app.id)).toEqual(["alpha-app", "beta-app"]);
+    expect(output).toContain("[workspace] alpha-app:");
+    expect(output).toContain("[workspace] beta-app:");
+    expect(output).not.toContain("[workspace] excluded:");
+  });
+
+  it("protects the local manifest and rotates its private credential on restart", async () => {
+    tmpDir = makeWorkspace(["dispatch", "starter"]);
+    const fake = fakeSpawn();
+    let output = "";
+    const start = () =>
+      runWorkspaceDev({
+        root: tmpDir,
+        env: testEnv(),
+        spawnProcess: fake.spawnProcess,
+        openBrowser: false,
+        stdout: { write: (chunk) => void (output += String(chunk)) },
+      });
+    handle = await start();
+    const first = await handle.ready;
+    const file = path.join(tmpDir, ".agent-native", "dev-gateway.json");
+    const firstInfo = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(firstInfo.port).toBe(first.port);
+    expect(firstInfo.pid).toBe(process.pid);
+    expect(typeof firstInfo.startedAt).toBe("string");
+    expect(handle.server.address()).toMatchObject({ address: "127.0.0.1" });
+    expect((await fetch(`${first.url}/_workspace/manifest`)).status).toBe(401);
+    expect(
+      (
+        await fetch(`${first.url}/_workspace/manifest`, {
+          headers: { authorization: "Bearer wrong" },
+        })
+      ).status,
+    ).toBe(401);
+    const response = await fetch(`${first.url}/_workspace/manifest`, {
+      headers: { authorization: `Bearer ${firstInfo.token}` },
+    });
+    expect(response.status).toBe(200);
+    const manifest = (await response.json()) as {
+      apps: Array<{ id: string; path: string; url: string }>;
+    };
+    expect(manifest.apps).toEqual([
+      {
+        id: "dispatch",
+        name: "Dispatch",
+        path: "/dispatch",
+        url: `${first.url}/dispatch`,
+      },
+      {
+        id: "starter",
+        name: "Starter",
+        path: "/starter",
+        url: `${first.url}/starter`,
+      },
+    ]);
+    expect(output.includes(firstInfo.token)).toBe(false);
+    expect(
+      fake
+        .calls()
+        .some((call) =>
+          Object.values(call.options?.env ?? {}).includes(firstInfo.token),
+        ),
+    ).toBe(false);
+    handle.shutdown();
+    expect(fs.existsSync(file)).toBe(false);
+    handle = await start();
+    const second = await handle.ready;
+    const secondInfo = JSON.parse(fs.readFileSync(file, "utf8"));
+    expect(firstInfo.token === secondInfo.token).toBe(false);
+    expect(
+      (
+        await fetch(`${second.url}/_workspace/manifest`, {
+          headers: { authorization: `Bearer ${firstInfo.token}` },
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await fetch(`${second.url}/_workspace/manifest`, {
+          headers: { authorization: `Bearer ${secondInfo.token}` },
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  it("does not remove a newer gateway credential when an older gateway stops", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const start = () =>
+      runWorkspaceDev({
+        root: tmpDir,
+        env: testEnv(),
+        spawnProcess: fakeSpawn().spawnProcess,
+        openBrowser: false,
+      });
+    const older = await start();
+    await older.ready;
+    handle = await start();
+    await handle.ready;
+    const file = path.join(tmpDir, ".agent-native", "dev-gateway.json");
+    const newerToken = JSON.parse(fs.readFileSync(file, "utf8")).token;
+    older.shutdown();
+    expect(fs.existsSync(file)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).token === newerToken).toBe(
+      true,
+    );
+  });
+
+  it("rejects a non-loopback gateway bind", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    await expect(
+      runWorkspaceDev({
+        root: tmpDir,
+        env: { ...testEnv(), WORKSPACE_HOST: "0.0.0.0" },
+        spawnProcess: fakeSpawn().spawnProcess,
+        openBrowser: false,
+      }),
+    ).rejects.toThrow(/loopback/i);
+  });
+
+  it("uses manifest display names in workspace app responses", async () => {
+    tmpDir = makeWorkspace(["notes-app"]);
+    fs.mkdirSync(path.join(tmpDir, ".agent-native"));
+    fs.writeFileSync(
+      path.join(tmpDir, ".agent-native/workspace-apps.json"),
+      JSON.stringify({
+        apps: [
+          {
+            id: "notes-app",
+            name: "Meetings",
+            path: "/notes-app",
+            url: "https://beta.example.test",
+          },
+        ],
+      }),
+    );
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fakeSpawn().spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    const apps = await (await fetch(`${url}/_workspace/apps`)).json();
+    expect(apps).toEqual([
+      expect.objectContaining({ id: "notes-app", name: "Meetings" }),
+    ]);
+  });
+
   it("prints the workspace root and usable app URLs", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();

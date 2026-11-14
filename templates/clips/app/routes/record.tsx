@@ -2032,8 +2032,8 @@ export default function RecordRoute() {
         pendingRef.current = null;
         engineRef.current = null;
         if (pickerDismissed) {
-          setError(null);
-          setUiState("idle");
+          setError(t("recordRoute.couldNotStartRecording"));
+          setUiState("error");
           return;
         }
         setError(message);

@@ -720,7 +720,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "मॉडल प्रदाता ने इस अटैचमेंट के फ़ॉर्मैट या आकार के कारण इसे अस्वीकार कर दिया। छवियों के लिए छोटी PNG, JPEG, GIF या WebP फ़ाइल निर्यात करें; दस्तावेज़ों के लिए समर्थित फ़ाइल फ़ॉर्मैट इस्तेमाल करें या संबंधित टेक्स्ट चिपकाएँ, फिर उसे दोबारा अटैच करें।",
   "errorMessages.noProviderConnected":
-    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग > एजेंट > AI प्रदाता खोलें, फिर Builder.io (मुफ़्त टियर उपलब्ध) का उपयोग करें या प्रदाता कुंजी जोड़ें।",
+    "कोई LLM प्रदाता कनेक्ट नहीं है। सेटिंग > एजेंट > AI प्रदाता खोलें, फिर Builder.io कनेक्ट करें या प्रदाता कुंजी जोड़ें।",
   "errorMessages.openBuilderSpaceSettings": "Builder स्पेस सेटिंग्स खोलें",
   "errorMessages.providerAuthentication":
     "मॉडल प्रदाता ने सहेजी गई API कुंजी अस्वीकार कर दी। सेटिंग्स → इंटीग्रेशन → API कुंजियाँ में कुंजी अपडेट करें, फिर से प्रयास करें।",
@@ -761,6 +761,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "खोजा जा रहा है...",
   "history.untitledChat": "चैट",
   "history.yesterday": "कल",
+  "history.today": "आज",
+  "commandMenu.systemGroup": "एप्लिकेशन",
+  "share.alreadyInvited": "पहले से आमंत्रित",
+  "share.notInvitedToPage": "पेज पर आमंत्रित नहीं",
   "history.mine": "मेरी चैट",
   "history.sharedWithYou": "आपके साथ साझा",
   "history.showAll": "सभी दिखाएं",
@@ -2181,6 +2185,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "पासवर्ड अपडेट किया गया",
   "settingsShell.account.photoError": "फ़ोटो अपडेट नहीं की जा सकी।",
   "settingsShell.account.photoUpdated": "फ़ोटो अपडेट की गई",
+  "settingsShell.account.photoRemoved": "फ़ोटो हटा दी गई",
+  "settingsShell.account.removePhoto": "फ़ोटो हटाएँ",
+  "settingsShell.account.emailDeliveryUnavailable": "यहाँ ईमेल भेजना सेट अप नहीं है",
   "settingsShell.account.profilePhoto": "प्रोफ़ाइल फ़ोटो",
   "settingsShell.account.requestCopyDescription":
     "कोई व्यवस्थापक आपकी पहचान सत्यापित करके आगे की कार्रवाई करता है।",
@@ -3357,7 +3364,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "जवाब विफल रहा",
   "message.waitingForApproval": "मंज़ूरी का इंतज़ार",
   "message.waitingForInput": "इनपुट का इंतज़ार",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}} विफल",
+  "message.workSummaryFailedCount": "{{summary}}, विफल प्रयास: {{count}}",
   "message.taskStatusPending": "बाकी",
   "message.taskStatusRunning": "चल रहा है",
   "message.taskStatusCompleted": "हो गया",

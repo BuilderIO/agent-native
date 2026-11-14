@@ -175,6 +175,7 @@ export type EngineEvent =
         | "error";
       error?: string;
       errorCode?: string;
+      provider?: string;
       upgradeUrl?: string;
       statusCode?: number;
       providerRetryable?: boolean;
@@ -214,6 +215,7 @@ export interface EngineStreamOptions {
   messages: EngineMessage[];
   tools: EngineTool[];
   abortSignal: AbortSignal;
+  privateContent?: boolean;
   maxOutputTokens?: number;
   temperature?: number;
   reasoningEffort?: ReasoningEffort;
@@ -253,6 +255,7 @@ export interface AgentEngine {
   readonly acceptsCustomModels?: boolean;
   readonly preserveCustomModels?: boolean;
   readonly capabilities: EngineCapabilities;
+  readonly supportsPrivateContent?: boolean;
 
   stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent>;
 }

@@ -320,7 +320,7 @@ describe("agent-native app config", () => {
       normalizeAgentNativeConfig({
         onboarding: { firstRun: "show-me-the-app" },
       }),
-    ).toThrow('must be "off", "connect", or "connect-and-integrations"');
+    ).toThrow('must be "off", "app", "connect", or "connect-and-integrations"');
   });
 
   it("deep merges runtime and diagnostics config from JSON and typed overrides", () => {

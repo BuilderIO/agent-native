@@ -32,6 +32,10 @@ import {
 } from "../shared/embed-auth.js";
 import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import {
+  isWorkspaceAppChatScope,
+  workspaceAppChatAllowsRequest,
+} from "../shared/workspace-app-chat-capability.js";
+import {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
 } from "./app-base-path.js";
@@ -875,6 +879,10 @@ function embedSessionAllowsRequest(
   event: H3Event,
   claims: EmbedSessionTokenClaims,
 ): boolean {
+  if (isWorkspaceAppChatScope(claims.scope)) {
+    const path = requestPathname(event);
+    return !!path && workspaceAppChatAllowsRequest(path, requestMethod(event));
+  }
   if (
     isEmbedCapabilityScope(claims.scope) &&
     isEmbedCapabilityRuntimeRequest(event, claims.scope)
@@ -987,6 +995,7 @@ export async function createEmbedSessionTicket(
   }
   const checksOwnerRevocation =
     !capabilityScope ||
+    isWorkspaceAppChatScope(input.scope) ||
     widgetCapability ||
     input.revocationAnchorCreatedAtMs !== undefined;
   if (
@@ -1349,6 +1358,11 @@ export async function resolveEmbedSessionTokenForOrigin(
   let scope = claims.scope;
   const widgetCapability = isMcpDirectoryWidgetCapabilityScope(scope);
   if (
+    isWorkspaceAppChatScope(scope) &&
+    !Number.isSafeInteger(claims.ticketCreatedAtMs)
+  )
+    return null;
+  if (
     widgetCapability &&
     (typeof claims.ticketCreatedAtMs !== "number" ||
       !Number.isSafeInteger(claims.ticketCreatedAtMs))
@@ -1381,7 +1395,10 @@ export async function resolveEmbedSessionTokenForOrigin(
   if (widgetCapability && !isMcpDirectoryWidgetCapabilityScope(scope)) {
     return null;
   }
-  const revokesWithOwner = !isEmbedCapabilityScope(scope) || widgetCapability;
+  const revokesWithOwner =
+    !isEmbedCapabilityScope(scope) ||
+    widgetCapability ||
+    isWorkspaceAppChatScope(scope);
   if (
     revokesWithOwner &&
     (await embedSessionIsRevoked(
@@ -1528,7 +1545,8 @@ export async function consumeEmbedSessionTicket(
   const ticketOrgKey = redactedIdentifier(orgId);
   const capabilityScope = isEmbedCapabilityScope(scope);
   const widgetCapability = isMcpDirectoryWidgetCapabilityScope(scope);
-  const revokesWithOwner = !capabilityScope || widgetCapability;
+  const revokesWithOwner =
+    !capabilityScope || widgetCapability || isWorkspaceAppChatScope(scope);
   if (!ticketMatchesAudience(row, ticketAudience(options.audienceHost))) {
     options.onResult?.({
       outcome: "audience-mismatch",
@@ -1570,6 +1588,7 @@ export async function consumeEmbedSessionTicket(
   const identityMismatchAllowed =
     options.allowCapabilityIdentityMismatch &&
     capabilityScope &&
+    !isWorkspaceAppChatScope(scope) &&
     !isMcpDirectoryWidgetWriteCapabilityScope(scope);
   if (consumedAt != null) {
     options.onResult?.({
@@ -1586,10 +1605,11 @@ export async function consumeEmbedSessionTicket(
     return null;
   }
   if (
-    !identityMismatchAllowed &&
-    expectedOwnerEmail &&
-    ownerEmail &&
-    normalizedEmail(ownerEmail) !== expectedOwnerEmail
+    (isWorkspaceAppChatScope(scope) && !expectedOwnerEmail) ||
+    (!identityMismatchAllowed &&
+      expectedOwnerEmail &&
+      ownerEmail &&
+      normalizedEmail(ownerEmail) !== expectedOwnerEmail)
   ) {
     options.onResult?.({
       outcome: "identity-mismatch",
@@ -1606,9 +1626,10 @@ export async function consumeEmbedSessionTicket(
   }
   if (
     !identityMismatchAllowed &&
-    options.expectedOrgId &&
-    orgId &&
-    orgId !== options.expectedOrgId
+    (isWorkspaceAppChatScope(scope)
+      ? options.expectedOrgId !== undefined &&
+        (orgId ?? null) !== options.expectedOrgId
+      : options.expectedOrgId && orgId && orgId !== options.expectedOrgId)
   ) {
     options.onResult?.({
       outcome: "org-mismatch",
@@ -1783,6 +1804,22 @@ export function signEmbedSessionToken(input: {
   return `${payload}.${signPayload(payload)}`;
 }
 
+/** Untrusted classification for denying ambient-session fallback only. Never authenticates. */
+export function declaresWorkspaceAppChatCredential(token: string): boolean {
+  if (token.length > 16_384) return false;
+  const dot = token.indexOf(".");
+  if (dot < 0 || token.includes(".", dot + 1)) return false;
+  try {
+    const value = JSON.parse(
+      base64UrlDecode(token.slice(0, dot)).toString("utf8"),
+    );
+    return value?.kind === TOKEN_KIND && isWorkspaceAppChatScope(value?.scope);
+  } catch {
+    // coercion-ok: a payload that does not decode declares no app-chat scope.
+    return false;
+  }
+}
+
 export function verifyEmbedSessionToken(
   token: string | undefined | null,
   options: { allowExpired?: boolean } = {},
@@ -1936,6 +1973,24 @@ export async function resolveEmbedSessionFromRequest(
     );
     if (!claims) continue;
     if (!embedSessionAllowsRequest(event, claims)) continue;
+    if (isWorkspaceAppChatScope(claims.scope)) {
+      if (candidate.source !== "bearer") continue;
+      if (claims.orgId) {
+        try {
+          const { isOrgMember } = await import("../org/membership.js");
+          if (
+            !(await isOrgMember(claims.orgId, claims.ownerEmail, {
+              requireOrganizationMetadata: true,
+              requestEvent: event,
+            }))
+          )
+            return null;
+        } catch {
+          // coercion-ok: fail closed when org membership cannot be verified.
+          return null;
+        }
+      }
+    }
     if (candidate.source === "query" && candidate.token) {
       try {
         setEmbedSessionCookie(event, candidate.token);

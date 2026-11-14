@@ -212,6 +212,14 @@ export interface AssistantChatProps {
   isolateHistoryByScope?: boolean;
   /** Namespace used to hide ambient composer context from other host surfaces. */
   contextNamespace?: string;
+  /**
+   * Composer context item keys this surface owns but does not render as chips.
+   * Hidden items stay in the submitted prompt with the same readiness, staging,
+   * namespace, and size validation as visible context. User context and
+   * attachments are never hidden unless the host names their key here.
+   * Default: undefined (render and submit every registered item).
+   */
+  hiddenComposerContextItemKeys?: readonly string[];
   /** Whether this chat owns the active visible composer context snapshot. */
   isActiveComposer?: boolean;
   /**
@@ -305,6 +313,13 @@ export interface AssistantChatProps {
   homeIntroSlot?: React.ReactNode;
   /** Optional content rendered below the composer on an empty chat. */
   afterComposerSlot?: React.ReactNode;
+  /**
+   * Chip skin for the built-in after-composer suggestions. The source renders
+   * those cards as 28px filled rows at ~6px radius, stacked one per row, so a
+   * host asking for "after-composer" placement passes "filled" to match it.
+   * Defaults to "pill" so every existing host keeps the same look.
+   */
+  afterComposerSuggestionsVariant?: "pill" | "filled";
   /**
    * Called with the active composer's current plain text when it initializes
    * and as it changes.

@@ -1749,6 +1749,139 @@ describe("route warmup config", () => {
     });
   });
 
+  it("applies workspace cache keys after router environment hooks in resolved config", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    try {
+      const plugin = flatPlugins(agentNative()).find(
+        (p) => p?.name === "agent-native-rolldown-input-fix",
+      )!;
+      const config = await resolveConfig(
+        {
+          configFile: false,
+          envFile: false,
+          plugins: [
+            plugin,
+            {
+              name: "router-environment-fixture",
+              configEnvironment(name, environment) {
+                if (name === "client") {
+                  return {
+                    build: {
+                      rollupOptions: {
+                        output: [
+                          {
+                            entryFileNames: () =>
+                              "assets/home-client-loader-[hash].js",
+                          },
+                        ],
+                      },
+                    },
+                  };
+                }
+              },
+            },
+          ],
+        },
+        "build",
+      );
+      const output = config.environments.client.build.rolldownOptions.output;
+      expect(Array.isArray(output)).toBe(true);
+      expect((output as any)[0].entryFileNames({})).toBe(
+        "assets/home-client-loader-[hash:16].js",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("preserves router entry suffixes while retiring its default cache keys", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    try {
+      const plugin = flatPlugins(agentNative()).find(
+        (p) => p?.name === "agent-native-rolldown-input-fix",
+      );
+      const config = {
+        build: {
+          rolldownOptions: {
+            output: {
+              entryFileNames: ({ name }: { name: string }) =>
+                `assets/${name}-client-loader-[hash].js`,
+            },
+          },
+        },
+      };
+      (plugin!.configEnvironment as Function)("client", config);
+      expect(
+        config.build.rolldownOptions.output.entryFileNames({ name: "home" }),
+      ).toBe("assets/home-client-loader-[hash:16].js");
+      const ssr = {
+        build: { rolldownOptions: { output: { entryFileNames: "server.js" } } },
+      };
+      (plugin!.configEnvironment as Function)("ssr", ssr);
+      expect(ssr.build.rolldownOptions.output.entryFileNames).toBe("server.js");
+      const legacy = {
+        build: {
+          rollupOptions: {
+            output: { entryFileNames: "assets/legacy-[hash:8].js" },
+          },
+        },
+      };
+      (plugin!.configEnvironment as Function)("client", legacy);
+      expect(
+        (
+          legacy.build.rollupOptions.output
+            .entryFileNames as unknown as Function
+        )({}),
+      ).toBe("assets/legacy-[hash:16].js");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("gives workspace modules fresh app-local cache keys after shared redirects", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    try {
+      const config = defineConfig();
+      expect(config.build?.rolldownOptions?.output).toMatchObject({
+        entryFileNames: "assets/[name]-[hash:16].js",
+        chunkFileNames: "assets/[name]-[hash:16].js",
+        assetFileNames: "assets/[name]-[hash:16][extname]",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(defineConfig().build?.rolldownOptions?.output).toBeUndefined();
+  });
+
+  it("warms workspace routes on intent without competing with initial app data", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    try {
+      const config = defineConfig();
+      const warmup = JSON.parse(
+        String(config.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+      );
+      expect(warmup).toMatchObject({
+        strategy: "intent",
+        data: true,
+        modules: true,
+      });
+      const explicit = defineConfig({ routeWarmup: "viewport" });
+      expect(
+        JSON.parse(
+          String(explicit.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+        ).strategy,
+      ).toBe("viewport");
+      const disabled = defineConfig({ routeWarmup: false });
+      expect(
+        JSON.parse(
+          String(disabled.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+        ).strategy,
+      ).toBe("off");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("allows apps to choose a route warmup strategy in one Vite config place", () => {
     const config = defineConfig({
       routeWarmup: { strategy: "render", maxConcurrent: 8 },
@@ -2989,7 +3122,9 @@ describe("app changelog raw imports", () => {
   });
 
   it("picks up a CHANGELOG.md created after the dev server first served it", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const root = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-")),
+    );
     const routesDir = path.join(root, "app", "routes");
     fs.mkdirSync(routesDir, { recursive: true });
     fs.writeFileSync(
@@ -3119,7 +3254,9 @@ describe("app changelog raw imports", () => {
 
 describe("Vite runtime data watcher", () => {
   it("ignores database writes while continuing to watch source edits", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-watch-"));
+    const root = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-watch-")),
+    );
     const database = path.join(root, ".data", "base", "5", "16453");
     const source = path.join(root, "app.ts");
     const bridgeDir = path.join(root, ".generated", "bridge");
@@ -4610,6 +4747,18 @@ describe("local-core dev aliases and router dedupe", () => {
     const dedupe = _getClientDedupe(tmpDir);
     expect(dedupe).toContain("react-router");
     expect(dedupe).toContain("react-router/dom");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("dedupes sonner when the app depends on it", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-dedupe-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({ dependencies: { sonner: "^2.0.7" } }),
+    );
+
+    expect(_getClientDedupe(tmpDir)).toContain("sonner");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

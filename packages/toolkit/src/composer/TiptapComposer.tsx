@@ -769,6 +769,45 @@ function readComposerDraft(value: string): {
   return { html: parsed.html, slotReferences: parsed.slotReferences };
 }
 
+/**
+ * Drafts are written to localStorage so a refresh keeps the prompt. They are
+ * only read back inside the browser-tab session that wrote them: sessionStorage
+ * survives a reload, so a refresh restores the prompt, while a new tab, a later
+ * session or another account sharing the profile starts empty. Without that
+ * boundary a draft typed once resurfaced as somebody else's text in a fresh
+ * panel.
+ */
+const COMPOSER_DRAFT_SESSION_PREFIX = "an-composer-draft-session:";
+
+function composerDraftSessionKey(draftKey: string): string {
+  return `${COMPOSER_DRAFT_SESSION_PREFIX}${draftKey}`;
+}
+
+function markComposerDraftSession(draftKey: string): void {
+  try {
+    sessionStorage.setItem(composerDraftSessionKey(draftKey), "1");
+  } catch {
+    // coercion-ok: without sessionStorage the draft still restores (see below).
+  }
+}
+
+function forgetComposerDraftSession(draftKey: string): void {
+  try {
+    sessionStorage.removeItem(composerDraftSessionKey(draftKey));
+  } catch {
+    // coercion-ok: nothing to forget when sessionStorage is unavailable.
+  }
+}
+
+function composerDraftBelongsToThisSession(draftKey: string): boolean {
+  try {
+    return sessionStorage.getItem(composerDraftSessionKey(draftKey)) === "1";
+  } catch {
+    // coercion-ok: a browser without sessionStorage keeps the old restore.
+    return true;
+  }
+}
+
 function writeComposerDraft(
   draftKey: string | null,
   html: string,
@@ -778,6 +817,7 @@ function writeComposerDraft(
   try {
     if (!html.trim() && slotReferences.length === 0) {
       localStorage.removeItem(draftKey);
+      forgetComposerDraftSession(draftKey);
     } else if (slotReferences.length > 0) {
       localStorage.setItem(
         draftKey,
@@ -790,6 +830,8 @@ function writeComposerDraft(
     } else {
       localStorage.setItem(draftKey, html);
     }
+    if (html.trim() || slotReferences.length > 0)
+      markComposerDraftSession(draftKey);
   } catch {
     // coercion-ok: Browser storage is optional and can be unavailable or full.
   }
@@ -861,6 +903,7 @@ function clearComposerDraft(
       return;
     }
     localStorage.removeItem(draftKey);
+    forgetComposerDraftSession(draftKey);
   } catch {
     // coercion-ok: browser storage is optional and can be unavailable or full.
   }
@@ -1315,6 +1358,11 @@ export interface TiptapComposerProps {
   planCommand?: boolean;
   /** Show the microphone button for voice dictation. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
+  /**
+   * Give dictation a global mod+d accelerator (default false). Hosts that bind Cmd+D to their own
+   * action leave it off, since an unconditional window listener would swallow that shortcut.
+   */
+  dictationShortcut?: boolean;
   /** Let an empty draft turn Send into the voice-chat button (default: true). Dictation is unaffected. */
   voiceChatEnabled?: boolean;
   /** Starts voice chat from the empty Send slot in place of the provider's default start. */
@@ -1341,6 +1389,17 @@ export interface TiptapComposerProps {
   }>;
   /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
+  /**
+   * Show the chevron after the model name (default true). A host with a compact trigger
+   * can turn it off without losing the menu.
+   */
+  modelSelectorChevron?: boolean;
+  /**
+   * Name the selection in the trigger even while the selected provider is unset (default false).
+   * The picker keeps the connect rows, so setup is still reachable, but the trigger keeps the
+   * model name instead of a setup label.
+   */
+  modelTriggerNamesSelectionOnly?: boolean;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks an effort */
@@ -1406,7 +1465,7 @@ export interface TiptapComposerProps {
    * host-context launcher without full-mode actions. `"hidden"` suppresses
    * the launcher unless the host explicitly provides `contextMenuItems`.
    */
-  plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  plusMenuMode?: "full" | "upload-only" | "attach-only" | "terminal" | "hidden";
   /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
   terminalModeControl?: ComposerTerminalModeControl;
   /**
@@ -1883,12 +1942,14 @@ function ModelSelector({
   hostedHarness = false,
   showAutoModelOption = true,
   modelListLoading = false,
+  modelSelectorChevron = true,
   open: controlledOpen,
   onChange,
   onEffortChange,
   onAgentChange,
   onModelSelectorOpenChange,
   providerConnectStatusEnabled = true,
+  modelTriggerNamesSelectionOnly = false,
   onConnectProvider,
   onConnectLocalRuntime,
   terminalModeControl,
@@ -1914,10 +1975,12 @@ function ModelSelector({
   agentOnly?: boolean;
   showAutoModelOption?: boolean;
   modelListLoading?: boolean;
+  modelSelectorChevron?: boolean;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
   onAgentChange?: (agent: string) => void;
   providerConnectStatusEnabled?: boolean;
+  modelTriggerNamesSelectionOnly?: boolean;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
   terminalModeControl?: ComposerTerminalModeControl;
@@ -2044,6 +2107,32 @@ function ModelSelector({
   );
   const selectedAgentLabel = selectedAgentOption?.label ?? "Default";
 
+  // The model menu sits above its trigger, but the reply box extends further up than the trigger
+  // does, so a 6px offset let the menu cover the box. On open, clear the whole
+  // composer root instead of only the button.
+  const [modelMenuOffset, setModelMenuOffset] = useState(6);
+  // The space above the trigger is what the menu may occupy. A menu taller than that overflows back
+  // over the reply box (re-measured at 102px of overlap with a hit test landing
+  // inside the menu), so the room is measured on open and the menu is capped to it: it scrolls inside
+  // the cap instead of covering the box or flipping underneath it.
+  const [modelMenuMaxHeight, setModelMenuMaxHeight] = useState<number | null>(
+    null,
+  );
+  const modelTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const handleModelMenuOpenChange = (next: boolean) => {
+    setPickerOpen(next);
+    if (!next) return;
+    const trigger = modelTriggerRef.current;
+    const root = trigger?.closest(".agent-composer-root");
+    if (!trigger) return;
+    const triggerTop = trigger.getBoundingClientRect().top;
+    if (root) {
+      const clearance = triggerTop - root.getBoundingClientRect().top;
+      setModelMenuOffset(Math.max(6, Math.round(clearance) + 8));
+    }
+    // 16px keeps the menu off the window's own top edge and off the composer's border.
+    setModelMenuMaxHeight(Math.max(160, Math.round(triggerTop - 16)));
+  };
   const [openSection, setOpenSection] = useState<ModelPickerSection | null>(
     null,
   );
@@ -2217,13 +2306,21 @@ function ModelSelector({
   );
   // One connect label on every surface: hosts differ in which connect paths
   // they offer, and the picker lists those paths.
-  const selectedModelButtonLabel = selectedModelNeedsConnection
-    ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
-    : model === "auto" && autoRow
-      ? autoRow.label
-      : (selectedModelDisplayName ??
-        selectedModelDescription?.shortName ??
-        selectedModelFriendlyName);
+  // An empty selection is "no override", which is the engine default the picker
+  // lists as Auto; reading it through the model description instead printed the
+  // catalogue's generic "Default model" entry while a host resolved its
+  // selection. Both spellings of "nothing chosen" read Auto here, and the Auto
+  // row's own label wins when it has one.
+  // `modelTriggerNamesSelectionOnly` opts out of the setup label; the picker keeps its setup rows.
+  const selectedModelButtonLabel =
+    selectedModelNeedsConnection && !modelTriggerNamesSelectionOnly
+      ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
+      : model === "auto" || model === ""
+        ? (autoRow?.label ??
+          t("agentChat.composer.auto", { defaultValue: "Auto" }))
+        : (selectedModelDisplayName ??
+          selectedModelDescription?.shortName ??
+          selectedModelFriendlyName);
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2699,10 +2796,11 @@ function ModelSelector({
     effectiveEffort !== "auto";
 
   return (
-    <DropdownMenu open={open} onOpenChange={setPickerOpen}>
+    <DropdownMenu open={open} onOpenChange={handleModelMenuOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
+          ref={modelTriggerRef}
           data-agent-composer-slot="model-button"
           // Screen readers in browse mode activate with a bare click,
           // which the menu trigger ignores because it opens on pointer
@@ -2754,20 +2852,29 @@ function ModelSelector({
               {effortLabel(effectiveEffort)}
             </span>
           )}
-          <IconChevronDown
-            aria-hidden="true"
-            className="h-4 w-4 shrink-0 opacity-60"
-          />
+          {modelSelectorChevron && (
+            <IconChevronDown
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0 opacity-60"
+            />
+          )}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side="top"
         align="end"
-        sideOffset={6}
+        sideOffset={modelMenuOffset}
         collisionPadding={8}
         data-agent-native-composer-popover="true"
         className={MODEL_SELECTOR_MENU_CLASS}
-        style={MODEL_SELECTOR_POPOVER_STYLE}
+        style={
+          modelMenuMaxHeight === null
+            ? MODEL_SELECTOR_POPOVER_STYLE
+            : {
+                ...MODEL_SELECTOR_POPOVER_STYLE,
+                maxHeight: `${modelMenuMaxHeight}px`,
+              }
+        }
         onKeyDown={(event) => {
           if (
             event.altKey ||
@@ -2924,6 +3031,7 @@ function TiptapComposerSurface({
   onSlashCommand,
   planCommand = false,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
+  dictationShortcut = false,
   voiceChatEnabled = true,
   onVoiceChatStart,
   selectedModel,
@@ -2933,6 +3041,7 @@ function TiptapComposerSurface({
   modelSelectorOpen,
   availableModels,
   modelListLoading,
+  modelSelectorChevron = true,
   onModelChange,
   onEffortChange,
   availableAgents,
@@ -2942,6 +3051,7 @@ function TiptapComposerSurface({
   onAgentChange,
   onModelSelectorOpenChange,
   providerConnectStatusEnabled,
+  modelTriggerNamesSelectionOnly,
   onConnectProvider,
   onConnectLocalRuntime,
   setupCardVisible = false,
@@ -4103,6 +4213,14 @@ function TiptapComposerSurface({
     },
   });
 
+  // Tiptap builds its decorations once, so a placeholder that changes while the composer is mounted
+  // (an instructional hint that cycles, or a mode/thread switch) keeps painting the old string.
+  // An empty transaction re-runs the decorations without touching the document.
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor)) return;
+    editor.view.dispatch(editor.state.tr);
+  }, [editor, resolvedPlaceholder]);
+
   useEffect(() => {
     if (!isComposerEditorUsable(editor)) return;
     draftEditorRef.current = editor;
@@ -4728,18 +4846,21 @@ function TiptapComposerSurface({
   const voiceChatActiveRef = useRef(false);
   voiceChatActiveRef.current = voiceChat !== null;
 
-  // Global shortcut: Cmd/Ctrl + Shift + M toggles dictation. Escape cancels
-  // while recording. Scoped to avoid firing when focus is outside the app.
+  // Global shortcut: Cmd/Ctrl + D toggles dictation (taking the browser's
+  // bookmark accelerator). Opt-in through `dictationShortcut`, because a host
+  // can bind Cmd+D to its own action (for example duplicating blocks) and this
+  // listener would take the key from it. Escape below is not part of that
+  // opt-in: it only ends a recording the person chose to start.
   useEffect(() => {
-    if (!voiceEnabled || !voice.supported) return;
+    if (!voiceEnabled || !voice.supported || !dictationShortcut) return;
     const handler = (e: KeyboardEvent) => {
       // e.key can be undefined on some trusted keydown events (autofill/IME
       // quirks) — seen crashing in production (AGENT-NATIVE-BROWSER-S).
       const isToggleCombo =
         typeof e.key === "string" &&
-        e.key.toLowerCase() === "m" &&
-        e.shiftKey &&
+        e.key.toLowerCase() === "d" &&
         (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
         !e.altKey;
       if (isToggleCombo) {
         // A page that has already used the key keeps it.
@@ -4753,6 +4874,15 @@ function TiptapComposerSurface({
         }
         return;
       }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [voiceEnabled, voice, dictationShortcut]);
+
+  // Escape cancels a dictation or its start, on every host that shows dictation.
+  useEffect(() => {
+    if (!voiceEnabled || !voice.supported) return;
+    const handler = (e: KeyboardEvent) => {
       if (
         e.key === "Escape" &&
         (voice.state === "recording" || voice.state === "starting")
@@ -6259,7 +6389,7 @@ function TiptapComposerSurface({
     }
     const key = initialTextKey ?? initialText;
     let saved: string | null = null;
-    if (draftKey) {
+    if (draftKey && composerDraftBelongsToThisSession(draftKey)) {
       try {
         saved = localStorage.getItem(draftKey);
       } catch {
@@ -6879,11 +7009,13 @@ function TiptapComposerSurface({
             hostedHarness={hostedHarness}
             showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
+            modelSelectorChevron={modelSelectorChevron}
             onChange={onModelChange!}
             onEffortChange={onEffortChange}
             onAgentChange={onAgentChange}
             onModelSelectorOpenChange={onModelSelectorOpenChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
+            modelTriggerNamesSelectionOnly={modelTriggerNamesSelectionOnly}
             onConnectProvider={onConnectProvider}
             onConnectLocalRuntime={onConnectLocalRuntime}
             terminalModeControl={terminalModeControl}
@@ -6903,6 +7035,7 @@ function TiptapComposerSurface({
                 isMac={isMac}
                 disabled={disabled}
                 voiceChat={voiceChatEnabled}
+                showShortcut={dictationShortcut}
               />
             )}
             {stopButton ? (

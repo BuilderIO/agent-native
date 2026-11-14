@@ -1,4 +1,4 @@
 export {
   findMcpConnectionSuggestionIntegration,
   McpConnectionSuggestion,
-} from "../../resources/index.js";
+} from "../../resources/McpConnectionSuggestion.js";

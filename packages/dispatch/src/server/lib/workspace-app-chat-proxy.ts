@@ -1,8 +1,11 @@
+import { createHash } from "node:crypto";
+
 import { getOrgContext } from "@agent-native/core/org";
 import {
   getAppProductionUrl,
   getForwardedRequestOrigin,
   getSession,
+  getRequestIdentityAuthenticatedAtMs,
   resolveAppRuntimeUrl,
   runWithRequestContext,
 } from "@agent-native/core/server";
@@ -19,11 +22,7 @@ import {
 
 const TARGET_CHAT_PATH = "/_agent-native/agent-chat";
 /**
- * `X-Agent-Native-Embed-Target` names the path a bearer embed token was minted
- * for. Without it the target only honours the token on requests whose own path
- * matches, which an agent-chat call never does. Duplicated from
- * `@agent-native/core/shared/embed-auth` because that constant is not part of
- * the package's public export surface.
+ * Browser-supplied document target selectors never cross the chat proxy.
  */
 const EMBED_TARGET_HEADER = "x-agent-native-embed-target";
 const CSRF_MARKER_HEADER = "x-agent-native-csrf";
@@ -62,11 +61,23 @@ const DROPPED_RESPONSE_HEADERS = new Set([
 export interface WorkspaceAppChatSession {
   appBaseUrl: string;
   token: string;
-  embedTarget: string;
   expiresAt: number;
 }
 
-const sessionCache = new Map<string, Promise<WorkspaceAppChatSession>>();
+const SESSION_CACHE_MAX_ENTRIES = 128;
+// Bound in-flight retention as well as completed grants; minting already has a 95s budget.
+const SESSION_CACHE_PENDING_TTL_MS = 100_000;
+interface CachedChatSession {
+  pending: Promise<WorkspaceAppChatSession>;
+  expiresAt: number;
+}
+const sessionCache = new Map<string, CachedChatSession>();
+
+function sweepChatSessionCache(now: number): void {
+  for (const [key, entry] of sessionCache) {
+    if (entry.expiresAt <= now) sessionCache.delete(key);
+  }
+}
 
 interface WorkspaceAppChatProxyEvent {
   url: URL;
@@ -79,12 +90,14 @@ function sessionCacheKey(input: {
   userEmail: string;
   orgId: string | undefined;
   requestOrigin: string;
+  identitySessionKey: string;
 }): string {
   return [
     input.userEmail,
     input.orgId ?? "",
     input.requestOrigin,
     input.appId,
+    input.identitySessionKey,
   ].join("\u0000");
 }
 
@@ -168,12 +181,23 @@ export function embedSessionTokenExpiry(token: string): number {
   return exp * 1000;
 }
 
-async function mintEmbedStartUrl(
+async function mintChatSession(
   appId: string,
-): Promise<{ startUrl: string; appBaseUrl: string }> {
+): Promise<WorkspaceAppChatSession> {
   try {
     return await createWorkspaceSsoEmbedSessionForWorkspaceAppChat(appId);
   } catch (ssoError) {
+    if (
+      ssoError &&
+      typeof ssoError === "object" &&
+      (("name" in ssoError &&
+        ssoError.name === "TargetMcpAuthenticationRejectedError") ||
+        ("status" in ssoError &&
+          (ssoError.status === 401 || ssoError.status === 403)) ||
+        ("statusCode" in ssoError &&
+          (ssoError.statusCode === 401 || ssoError.statusCode === 403)))
+    )
+      throw ssoError;
     try {
       return await createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
         appId,
@@ -225,7 +249,6 @@ export async function exchangeEmbedStartUrl(
   return {
     appBaseUrl: `${expectedApp.origin}${expectedApp.pathname.replace(/\/+$/, "")}`,
     token,
-    embedTarget: resolved.pathname,
     expiresAt: embedSessionTokenExpiry(token),
   };
 }
@@ -246,17 +269,27 @@ function isWithinAppMount(mountPath: string, targetPath: string): boolean {
 }
 
 async function resolveWorkspaceAppChatSession(input: {
+  identityAuthenticatedAtMs: number;
+  identitySessionKey: string | undefined;
   appId: string;
   userEmail: string;
   orgId: string | undefined;
   requestOrigin: string;
   fetchImpl: typeof fetch;
 }): Promise<WorkspaceAppChatSession> {
-  const key = sessionCacheKey(input);
-  const cached = sessionCache.get(key);
+  sweepChatSessionCache(Date.now());
+  // Authentication timestamps can be request-scoped, so only a verified stable
+  // session token may key a retained grant. Token-less identities mint per request.
+  const key = input.identitySessionKey
+    ? sessionCacheKey({
+        ...input,
+        identitySessionKey: input.identitySessionKey,
+      })
+    : undefined;
+  const cached = key ? sessionCache.get(key) : undefined;
   if (cached) {
     try {
-      const session = await cached;
+      const session = await cached.pending;
       if (session.expiresAt - Date.now() > SESSION_REFRESH_MARGIN_MS) {
         return session;
       }
@@ -265,31 +298,46 @@ async function resolveWorkspaceAppChatSession(input: {
     } catch {
       void 0;
     }
-    sessionCache.delete(key);
+    if (key && sessionCache.get(key) === cached) sessionCache.delete(key);
   }
 
   const pending = Promise.resolve(
     runWithRequestContext(
       {
         userEmail: input.userEmail,
+        identityAuthenticatedAtMs: input.identityAuthenticatedAtMs,
         ...(input.orgId ? { orgId: input.orgId } : {}),
         requestOrigin: input.requestOrigin,
       },
       async () => {
-        const embedSession = await mintEmbedStartUrl(input.appId);
-        return exchangeEmbedStartUrl(
-          embedSession.startUrl,
-          embedSession.appBaseUrl,
-          input.fetchImpl,
-        );
+        const session = await mintChatSession(input.appId);
+        const expiresAt = embedSessionTokenExpiry(session.token);
+        if (expiresAt <= Date.now())
+          throw new Error("App chat credential has expired.");
+        return {
+          ...session,
+          expiresAt: Math.min(expiresAt, session.expiresAt),
+        };
       },
     ),
   );
-  sessionCache.set(key, pending);
+  const entry = {
+    pending,
+    expiresAt: Date.now() + SESSION_CACHE_PENDING_TTL_MS,
+  };
+  if (key) {
+    for (const oldest of sessionCache.keys()) {
+      if (sessionCache.size < SESSION_CACHE_MAX_ENTRIES) break;
+      sessionCache.delete(oldest);
+    }
+    sessionCache.set(key, entry);
+  }
   try {
-    return await pending;
+    const session = await pending;
+    entry.expiresAt = session.expiresAt - SESSION_REFRESH_MARGIN_MS;
+    return session;
   } catch (error) {
-    sessionCache.delete(key);
+    if (key && sessionCache.get(key) === entry) sessionCache.delete(key);
     throw error;
   }
 }
@@ -311,7 +359,6 @@ function upstreamRequestHeaders(
     headers.set(name, value);
   }
   headers.set("authorization", `Bearer ${session.token}`);
-  headers.set(EMBED_TARGET_HEADER, session.embedTarget);
   headers.set(CSRF_MARKER_HEADER, "1");
   return headers;
 }
@@ -357,6 +404,27 @@ export function createWorkspaceAppChatProxyHandler(
       return proxyErrorResponse(401, "Sign in to Dispatch to use app chat.");
     }
 
+    const identityAuthenticatedAtMs = getRequestIdentityAuthenticatedAtMs(
+      event,
+      session.email,
+    );
+    if (
+      typeof identityAuthenticatedAtMs !== "number" ||
+      !Number.isSafeInteger(identityAuthenticatedAtMs) ||
+      identityAuthenticatedAtMs <= 0 ||
+      identityAuthenticatedAtMs > Date.now()
+    ) {
+      return proxyErrorResponse(
+        401,
+        "Sign in to Dispatch again to use app chat.",
+      );
+    }
+
+    const identitySessionKey =
+      typeof session.token === "string" && session.token
+        ? `session:${createHash("sha256").update(session.token).digest("hex")}`
+        : undefined;
+
     let requestOrigin: string;
     let appSession: WorkspaceAppChatSession;
     try {
@@ -364,6 +432,8 @@ export function createWorkspaceAppChatProxyHandler(
       appSession = await resolveWorkspaceAppChatSession({
         appId: parsed.appId,
         userEmail: session.email,
+        identityAuthenticatedAtMs,
+        identitySessionKey,
         orgId,
         requestOrigin,
         fetchImpl,
@@ -411,13 +481,17 @@ export function createWorkspaceAppChatProxyHandler(
       );
     }
 
-    if (upstream.status === 401 || upstream.status === 403) {
+    if (
+      identitySessionKey &&
+      (upstream.status === 401 || upstream.status === 403)
+    ) {
       sessionCache.delete(
         sessionCacheKey({
           appId: parsed.appId,
           userEmail: session.email,
           orgId,
           requestOrigin,
+          identitySessionKey,
         }),
       );
     }

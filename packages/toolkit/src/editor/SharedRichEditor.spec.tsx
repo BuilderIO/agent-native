@@ -28,6 +28,39 @@ describe("SharedRichEditor block controls", () => {
     vi.unstubAllGlobals();
   });
 
+  it("does not emit document changes when mounting or toggling editability", async () => {
+    const onChange = vi.fn();
+    let liveEditor: Editor | undefined;
+    const renderEditor = async (editable: boolean) => {
+      await act(async () => {
+        root.render(
+          <SharedRichEditor
+            value="Hello"
+            onChange={onChange}
+            editable={editable}
+            dragHandle={false}
+            onEditorReady={(editor) => {
+              liveEditor = editor;
+            }}
+          />,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+    };
+    await renderEditor(true);
+    await renderEditor(false);
+    await renderEditor(true);
+    expect(
+      container.querySelector('[contenteditable="true"]')?.textContent,
+    ).toBe("Hello");
+    expect(onChange).not.toHaveBeenCalled();
+    await act(async () => {
+      liveEditor?.commands.insertContentAt({ from: 1, to: 6 }, "Revised");
+    });
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("Revised");
+  });
+
   it("mounts the shared Notion-style block grip by default", async () => {
     await act(async () => {
       root.render(

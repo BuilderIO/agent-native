@@ -55,7 +55,18 @@ const RAW_AGENT_REPLAY_EVENTS_RE =
   /\/api\/session-replay\/agent-events\.json(?:[?#]|$)/;
 
 export function shouldSkipDemoResponseRedaction(url: string): boolean {
+  // This payload is also used to authorize writes. Presentation redaction
+  // must not replace the effective account that those writes assert.
+  let sessionControlPayload = false;
+  try {
+    sessionControlPayload = /\/_agent-native\/auth\/session\/?$/.test(
+      new URL(url, "http://localhost").pathname,
+    );
+  } catch {
+    // coercion-ok: an unparseable URL is not the session endpoint; it keeps the ordinary redaction policy.
+  }
   return (
+    sessionControlPayload ||
     SKIP_SUBSTRINGS.some((substring) => url.includes(substring)) ||
     RAW_REPLAY_PAYLOAD_RE.test(url) ||
     RAW_AGENT_REPLAY_EVENTS_RE.test(url)

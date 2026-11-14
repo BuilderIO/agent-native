@@ -1177,7 +1177,11 @@ function initialAuthView(
     }
     if (url.searchParams.get("c")) return "login";
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
-    if (pathname.endsWith("/login")) return "login";
+    // A sign-in request is a sign-in request: /sign-in used to fall through to
+    // the signup form, so an existing user who asked to sign in was shown
+    // "Create an account" (QA AUTH-08).
+    if (pathname.endsWith("/sign-in") || pathname.endsWith("/login"))
+      return "login";
     if (pathname.endsWith("/signup")) return "signup";
   } catch (error) {
     // coercion-ok: malformed paths use the public signup state; no session data is inferred.
@@ -1731,7 +1735,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     margin-bottom: 0.875rem;
   }
   input:focus { border-color: rgba(255,255,255,0.3); box-shadow: 0 0 0 1px rgba(255,255,255,0.1); }
-  input::placeholder { color: #555; }
+  /* guard:allow-raw-color - standalone auth page: #555 measured 2.47:1 on the #141414 card; this is 6.6:1 */
+  input::placeholder { color: #9a9997; }
   button[type="submit"], .btn-primary {
     width: 100%;
     margin-top: 0.25rem;
@@ -2026,7 +2031,8 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     gap: 0.75rem;
     margin: 1.25rem 0;
     font-size: 0.75rem;
-    color: #555;
+    /* guard:allow-raw-color - #555 measured 2.47:1 here; this is 6.6:1 on the card */
+    color: #9a9997;
   }
   .divider::before, .divider::after {
     content: '';
@@ -2554,7 +2560,8 @@ const RESET_PASSWORD_STYLES = `
   label { display: block; font-size: 0.8125rem; color: #888; margin-bottom: 0.375rem; }
   input { width: 100%; padding: 0.5rem 0.75rem; background: transparent; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; color: #e5e5e5; font-size: 0.875rem; outline: none; margin-bottom: 0.875rem; }
   input:focus { border-color: rgba(255,255,255,0.3); box-shadow: 0 0 0 1px rgba(255,255,255,0.1); }
-  input::placeholder { color: #555; }
+  /* guard:allow-raw-color - standalone auth page: #555 measured 2.47:1 on the #141414 card; this is 6.6:1 */
+  input::placeholder { color: #9a9997; }
   button[type="submit"] { width: 100%; margin-top: 0.25rem; padding: 0.5rem; background: #fff; color: #000; border: none; border-radius: 6px; font-size: 0.875rem; font-weight: 500; cursor: pointer; }
   button[type="submit"]:hover { background: #e5e5e5; }
   button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }

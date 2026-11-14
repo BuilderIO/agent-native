@@ -1,3 +1,5 @@
+import type { ClientOptions } from "@anthropic-ai/sdk";
+
 import {
   clearProviderCredentialAuthFailure,
   readDeployCredentialEnv,
@@ -28,10 +30,12 @@ import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
 } from "./output-tokens.js";
+import { toPrivateCompletionError } from "./private-completion-error.js";
 import {
   splitSystemPromptForCache,
   stablePrefixCacheControl,
 } from "./prompt-cache.js";
+import { ProviderAuthenticationError } from "./provider-auth-error.js";
 import { createProviderToolNameMap } from "./tool-name.js";
 import {
   engineToolsToAnthropic,
@@ -50,6 +54,39 @@ import type {
   EngineStreamOptions,
   EngineEvent,
 } from "./types.js";
+
+/**
+ * Per-invocation silent logger for the private path. The Anthropic SDK reads
+ * `ANTHROPIC_LOG` and defaults its logger to `globalThis.console`, either of
+ * which can echo provider-controlled request/response bodies. Passing an
+ * explicit no-op logger with `logLevel: "off"` keeps every SDK log call inert
+ * without mutating the environment or the global console.
+ */
+const PRIVATE_NOOP_LOGGER: NonNullable<ClientOptions["logger"]> = {
+  error() {},
+  warn() {},
+  info() {},
+  debug() {},
+};
+
+/**
+ * Reads `status`/`statusCode` without trusting a hostile accessor: a getter
+ * that throws is swallowed so the private boundary is never escaped by the
+ * error it is trying to classify.
+ */
+function readPrivateStatusCode(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  for (const key of ["status", "statusCode"] as const) {
+    let value: unknown;
+    try {
+      value = (error as Record<string, unknown>)[key];
+    } catch {
+      continue;
+    }
+    if (typeof value === "number") return value;
+  }
+  return undefined;
+}
 
 export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -70,6 +107,7 @@ class AnthropicEngine implements AgentEngine {
   readonly supportedModels = ANTHROPIC_SUPPORTED_MODELS;
   readonly acceptsCustomModels = true;
   readonly capabilities = ANTHROPIC_CAPABILITIES;
+  readonly supportsPrivateContent = true;
 
   private readonly apiKey: string;
   private readonly baseURL: string | undefined;
@@ -80,12 +118,61 @@ class AnthropicEngine implements AgentEngine {
   }
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+    if (opts.privateContent === true) {
+      yield* this.streamPrivate(opts);
+      return;
+    }
+    yield* this.streamInternal(opts);
+  }
+
+  /**
+   * Private boundary for direct `stream` callers. Everything after the opt-in
+   * (SDK import/construction, request translation, dispatch, and iteration)
+   * is retyped to a fixed-copy error; the canonical 401 helper is retained
+   * because it is already a sanitized boundary.
+   */
+  private async *streamPrivate(
+    opts: EngineStreamOptions,
+  ): AsyncIterable<EngineEvent> {
+    try {
+      for await (const event of this.streamInternal(opts)) {
+        if (event.type === "tool-call-error") {
+          const failure = toPrivateCompletionError(undefined, "anthropic");
+          yield failure.stopEvent();
+          throw failure;
+        }
+        yield event;
+      }
+    } catch (error) {
+      let authenticationError = false;
+      try {
+        authenticationError = error instanceof ProviderAuthenticationError;
+      } catch {
+        // A hostile prototype must not escape the private boundary.
+      }
+      if (authenticationError) {
+        throw new ProviderAuthenticationError(
+          "anthropic",
+          readPrivateStatusCode(error),
+        );
+      }
+      throw toPrivateCompletionError(error, "anthropic");
+    }
+  }
+
+  private async *streamInternal(
+    opts: EngineStreamOptions,
+  ): AsyncIterable<EngineEvent> {
+    const privateContent = opts.privateContent === true;
     const Anthropic = (await import("@anthropic-ai/sdk")).default;
     // An undefined baseURL lets the SDK read ANTHROPIC_BASE_URL itself.
     const client = new Anthropic({
       apiKey: this.apiKey,
       baseURL: this.baseURL,
       maxRetries: 1,
+      ...(privateContent
+        ? { logLevel: "off" as const, logger: PRIVATE_NOOP_LOGGER }
+        : {}),
     });
 
     const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
@@ -207,24 +294,21 @@ class AnthropicEngine implements AgentEngine {
     if (!requestParams.tools) delete requestParams.tools;
 
     const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
-    const dispatch = await startModelDispatch(opts, () =>
-      client.messages.stream(requestParams, {
-        signal: firstEventAbort.signal,
-      }),
-    ).catch((error) => {
-      firstEventAbort.cleanup();
-      throw error;
-    });
-    if (!dispatch.started) {
-      firstEventAbort.cleanup();
-      return;
-    }
-    const apiStream = dispatch.value;
+    // Set inside the dispatch callback, which control-flow narrowing cannot see.
+    let providerDispatched = false as boolean;
 
     const chunkState = createAnthropicChunkStreamState();
     const toolInputs = createStreamedToolInputState();
 
     try {
+      const dispatch = await startModelDispatch(opts, () => {
+        providerDispatched = true;
+        return client.messages.stream(requestParams, {
+          signal: firstEventAbort.signal,
+        });
+      });
+      if (!dispatch.started) return;
+      const apiStream = dispatch.value;
       for await (const chunk of apiStream) {
         firstEventAbort.markFirstEvent();
         const events = anthropicChunkToEngineEvents(
@@ -240,7 +324,15 @@ class AnthropicEngine implements AgentEngine {
 
       const finalMessage = await apiStream.finalMessage();
       const assistantContent = anthropicContentToEngine(
-        finalMessage.content,
+        // The translator already drops unknown blocks. Filter them before its
+        // ordinary diagnostic can interpolate a provider-controlled type.
+        privateContent
+          ? finalMessage.content.filter((block) =>
+              ["text", "tool_use", "thinking", "redacted_thinking"].includes(
+                block.type,
+              ),
+            )
+          : finalMessage.content,
         toolNameMap,
       );
 
@@ -300,6 +392,29 @@ class AnthropicEngine implements AgentEngine {
               : "end_turn",
       };
     } catch (err: any) {
+      if (privateContent) {
+        const privateStatus = readPrivateStatusCode(err);
+        if (privateStatus === 401) {
+          const failure = new ProviderAuthenticationError(
+            "anthropic",
+            privateStatus,
+          );
+          if (providerDispatched) {
+            await recordProviderCredentialAuthFailure({
+              key: "ANTHROPIC_API_KEY",
+              value: this.apiKey,
+              ...failure.details(),
+            });
+          }
+          yield failure.stopEvent();
+          throw failure;
+        }
+        // Never read the provider message or causes on the private path: the
+        // safe status read above is the only field consulted before retyping.
+        const privateError = toPrivateCompletionError(err, "anthropic");
+        yield privateError.stopEvent();
+        throw privateError;
+      }
       const timedOut = firstEventAbort.didTimeout();
       const statusCode: number | undefined =
         typeof err?.status === "number"
@@ -307,6 +422,22 @@ class AnthropicEngine implements AgentEngine {
           : typeof err?.statusCode === "number"
             ? err.statusCode
             : undefined;
+      if (statusCode === 401) {
+        const failure = new ProviderAuthenticationError(
+          "anthropic",
+          statusCode,
+        );
+        if (providerDispatched) {
+          await recordProviderCredentialAuthFailure({
+            key: "ANTHROPIC_API_KEY",
+            value: this.apiKey,
+            ...failure.details(),
+          });
+        }
+        yield failure.stopEvent();
+        throw failure;
+      }
+      if (!providerDispatched) throw err;
       const rawMessage: string = err?.message ?? String(err);
       const errorMessage = timedOut
         ? `${firstEventAbort.timeoutMessage()}; the connection appears wedged.`
@@ -319,15 +450,6 @@ class AnthropicEngine implements AgentEngine {
         statusCode === 403 &&
         (isBareProviderRejectionMessage(rawMessage) ||
           isBareProviderRejectionMessage(errorMessage));
-      if (statusCode === 401) {
-        await recordProviderCredentialAuthFailure({
-          key: "ANTHROPIC_API_KEY",
-          value: this.apiKey,
-          status: statusCode,
-          code: "http_401",
-          message: errorMessage,
-        });
-      }
       yield {
         type: "stop",
         reason: "error",

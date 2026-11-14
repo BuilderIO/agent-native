@@ -17,6 +17,7 @@ export {
   getSessionReplayUrl,
   isErrorCaptureInstalled,
   maybeStartSessionReplay,
+  scrubUrl,
   setAnalyticsSessionId,
   setSentryUser,
   setTrackingContentCaptureEnabled,

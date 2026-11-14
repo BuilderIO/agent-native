@@ -3533,11 +3533,13 @@ describe("AgentKitClient", () => {
       const onLocalSubmit = vi.fn(() => {
         expect(client.getThread("thread-1").queuedMessages).toEqual([message]);
       });
+      const onSubmissionAccepted = vi.fn();
       const submission = client
         .queueMessage({
           threadId: "thread-1",
           text: message.text,
           onLocalSubmit,
+          onSubmissionAccepted,
         })
         .then(
           (value) => ({ value }),
@@ -3545,11 +3547,13 @@ describe("AgentKitClient", () => {
         );
       await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
       expect(onLocalSubmit).toHaveBeenCalledOnce();
+      expect(onSubmissionAccepted).not.toHaveBeenCalled();
       const parked = client.getThread("thread-1").queuedMessages[0]!;
       expect(parked.text).toBe(message.text);
       const request = queueMessage.mock.calls[0]![0];
       expect(request.id).toBe(parked.id);
       expect(request).not.toHaveProperty("onLocalSubmit");
+      expect(request).not.toHaveProperty("onSubmissionAccepted");
       expect(structuredClone(request)).toEqual(request);
 
       const failure = new Error("Queue write failed");
@@ -3559,10 +3563,12 @@ describe("AgentKitClient", () => {
       if (outcome === "accepted") {
         expect(result).toEqual({ value: message });
         expect(onLocalSubmit).toHaveBeenCalledOnce();
+        expect(onSubmissionAccepted).toHaveBeenCalledOnce();
         expect(client.getThread("thread-1").queuedMessages).toEqual([message]);
       } else {
         expect(result).toEqual({ error: failure });
         expect(onLocalSubmit).toHaveBeenCalledOnce();
+        expect(onSubmissionAccepted).not.toHaveBeenCalled();
         expect(client.getThread("thread-1").queuedMessages).toEqual([]);
       }
       await client.shutdown();
@@ -4062,6 +4068,70 @@ describe("AgentKitClient", () => {
 
     snapshotWrite.resolve();
     await run.completed;
+  });
+
+  it("sends a message queued during a run once that run ends", async () => {
+    // Reproduced in the client: a message queued with Send now while a run is active must
+    // be promoted when the run ends. On the served app the queued row stayed pending forever and the message
+    // never reached the transcript, so this asserts the promotion call itself.
+    const { promise: terminal, resolve: resolveTerminal } =
+      Promise.withResolvers<void>();
+    // The run ends before the steer reaches the server, so the transport answers "after this reply".
+    const promoted = vi.fn(async () => ({
+      delivery: "after_reply" as const,
+    }));
+    const starts: string[] = [];
+    const queuedWrites: string[] = [];
+    const transport: AgentTransport = {
+      capabilities: { messageQueue: true },
+      async startRun(input: unknown) {
+        starts.push(JSON.stringify(input).slice(0, 80));
+        return { runId: `run-${starts.length}` };
+      },
+      async *subscribeToRun({ runId }) {
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        if (runId === "run-1") await terminal;
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async getThreadSnapshot() {
+        return {
+          id: "thread-1",
+          createdAt: "2026-08-29T00:00:00.000Z",
+          updatedAt: "2026-08-29T00:00:00.000Z",
+          messages: [],
+          queuedMessages: [],
+        };
+      },
+      async queueMessage(input) {
+        queuedWrites.push(input.text);
+        return {
+          message: {
+            id: "queued-run-1",
+            threadId: input.threadId,
+            text: input.text,
+            createdAt: "2026-08-29T00:00:01.000Z",
+          },
+        };
+      },
+      steerQueuedMessage: promoted,
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+    await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").activeRunIds).toContain("run-1"),
+    );
+    await client.queueMessage({ threadId: "thread-1", text: "Follow up" });
+    expect(queuedWrites).toEqual(["Follow up"]);
+    expect(client.getThread("thread-1").queuedMessages).toHaveLength(1);
+
+    resolveTerminal();
+    await vi.waitFor(() => expect(starts.length).toBeGreaterThan(1), {
+      timeout: 3000,
+    });
+    expect(promoted).toHaveBeenCalledOnce();
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
   });
 
   it("promotes preloaded queued work while the terminal snapshot read is stalled", async () => {
@@ -8185,6 +8255,60 @@ describe("AgentKitClient", () => {
       queued,
       laterQueued,
     ]);
+  });
+
+  it("drops a delivered Send now row instead of unioning it back on the next load", async () => {
+    // the server drops a delivered steering row, but the load merge unioned the local
+    // copy back in, so the row outlived its run and only a full page reload cleared it.
+    const queued: AgentQueuedMessage = {
+      id: "queued-steering",
+      threadId: "thread-1",
+      text: "Follow up",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    let runActive = true;
+    const transport = createTransport([]);
+    transport.getThreadSnapshot = async () => ({
+      id: "thread-1",
+      createdAt: queued.createdAt,
+      updatedAt: queued.createdAt,
+      messages: [],
+      activeRunIds: runActive ? ["run-1"] : [],
+      runs: runActive
+        ? [
+            {
+              id: "run-1",
+              threadId: "thread-1",
+              status: "running" as const,
+              lastSequence: 0,
+            },
+          ]
+        : [],
+      // The row is local (Send now from this client) and the server never lists it after delivery.
+      queuedMessages: [],
+    });
+    transport.queueMessage = async () => ({
+      message: { ...queued },
+    });
+    transport.steerQueuedMessage = async () => ({
+      delivery: "steering" as const,
+    });
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+    await client.queueMessage({ threadId: "thread-1", text: "Follow up" });
+    // Send now marks the row as steered into the running turn.
+    await client.steerQueuedMessage("thread-1", queued.id, undefined, {
+      deliverInActiveRun: true,
+    });
+    expect(
+      client
+        .getThread("thread-1")
+        .queuedMessages.map((message) => message.delivery),
+    ).toContain("steering");
+    // The run finishes; the next load must not union the delivered row back.
+    runActive = false;
+    await client.loadThread("thread-1");
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
   });
 
   it("does not resurrect a removal after a briefly current snapshot", async () => {

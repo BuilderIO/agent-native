@@ -15,7 +15,16 @@ const LLM_REJECTED_CREDENTIAL_ERROR_CODES = new Set([
 ]);
 
 export const LLM_MISSING_CREDENTIALS_MESSAGE =
-  "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.";
+  "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.";
+
+/**
+ * A background run (a schedule, a watcher) has no signed-in member, so the
+ * stored provider connections cannot be resolved for it. Saying "no provider is
+ * connected" sends the reader to a Connect button that changes nothing; this is
+ * the run's own reason.
+ */
+export const LLM_NO_OWNER_CONTEXT_MESSAGE =
+  "This run has no signed-in workspace member, so a connected AI provider cannot be used for it. Start it from the workspace, or configure a provider key for background runs.";
 
 export const GATEWAY_UNAVAILABLE_VISITOR_MESSAGE =
   "AI features aren't available on this site right now.";
@@ -75,7 +84,7 @@ export function formatLlmCredentialErrorMessage(options?: {
   if (options?.visitorFacing) return GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;
   const agentName = options?.agentName?.trim();
   if (agentName) {
-    return `The ${agentName} agent could not finish this request because that app needs an LLM connection. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.`;
+    return `The ${agentName} agent could not finish this request because that app needs an LLM connection. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.`;
   }
   return LLM_MISSING_CREDENTIALS_MESSAGE;
 }

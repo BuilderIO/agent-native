@@ -128,7 +128,7 @@ const openAppResource = embedApp({
 
 export default defineAction({
   description:
-    'Build a deep link or embeddable app route/component route for an app available through Dispatch MCP. Use app "dispatch" for Dispatch extension/tool pages. No side effects; surface the returned Open link to the user.',
+    "Show a found or created mail, event, document, or record when viewing it is the useful result. Returns a registered app route for the chat client to open beside the conversation.",
   schema: openAppSchema,
   http: { method: "GET" },
   readOnly: true,

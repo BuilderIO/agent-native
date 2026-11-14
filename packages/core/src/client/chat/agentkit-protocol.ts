@@ -42,6 +42,7 @@ import {
   inferAgentActivityKind,
   negotiateAgentKitProtocolVersion,
   resumeEntryFromApproval,
+  parseForkThreadInput,
   resumeOptionId,
 } from "@agent-native/agentkit/protocol";
 
@@ -4328,6 +4329,8 @@ export function createAgentKitProtocolAdapter(
     };
     if (runtime.capabilities.sessions?.fork) {
       transport.forkThread = async (input) => {
+        parseForkThreadInput(input);
+        const boundaryId = input.beforeMessageId ?? input.fromMessageId;
         const source = await getRuntimeSession({ sessionId: input.threadId });
         if (!source?.snapshot) {
           throw new Error(
@@ -4336,23 +4339,24 @@ export function createAgentKitProtocolAdapter(
         }
         const snapshot = await source.snapshot();
         const sourceMessages = snapshot.messages;
-        if (input.fromMessageId && !sourceMessages) {
+        if (boundaryId && !sourceMessages) {
           throw new Error(
             "The Core session snapshot does not include messages.",
           );
         }
-        const throughIndex = input.fromMessageId
-          ? sourceMessages?.findIndex(
-              (message) => message.id === input.fromMessageId,
-            )
+        const throughIndex = boundaryId
+          ? sourceMessages?.findIndex((message) => message.id === boundaryId)
           : undefined;
-        if (input.fromMessageId && throughIndex === -1) {
-          throw new Error(`Unknown message for fork: ${input.fromMessageId}`);
+        if (boundaryId && throughIndex === -1) {
+          throw new Error(`Unknown message for fork: ${boundaryId}`);
         }
         const messages =
           throughIndex === undefined
             ? sourceMessages
-            : sourceMessages?.slice(0, throughIndex + 1);
+            : sourceMessages?.slice(
+                0,
+                throughIndex + (input.beforeMessageId ? 0 : 1),
+              );
         const threadId = createId("thread");
         const metadata = mergeTrustedProtocolMetadata(
           options.metadata,
@@ -4364,7 +4368,9 @@ export function createAgentKitProtocolAdapter(
           threadId,
           title: input.title,
           messages,
-          resumeState: snapshot.resumeState,
+          ...(input.beforeMessageId
+            ? {}
+            : { resumeState: snapshot.resumeState }),
           metadata,
         });
         sessions.set(threadId, Promise.resolve(fork));

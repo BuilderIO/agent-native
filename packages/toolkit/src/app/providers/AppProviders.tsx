@@ -5,6 +5,7 @@ import {
   isWorkspaceRuntime,
   resolveAppBasePath,
 } from "@agent-native/core/client/api-path";
+import { injectedAgentNativeConfig } from "@agent-native/core/client/app-config";
 import {
   AgentNativeI18nProvider,
   type AgentNativeI18nProviderProps,
@@ -16,6 +17,7 @@ import {
   applyEmbeddedThemeUpdate,
   parseEmbeddedThemeUpdate,
 } from "@agent-native/core/client/theme";
+import { useThemeFamily } from "@agent-native/core/client/ui";
 import { scheduleAfterPaint } from "@agent-native/core/client/use-after-paint";
 import { useAgentEngineConfigured } from "@agent-native/core/client/use-agent-engine-configured";
 import { useSession } from "@agent-native/core/client/use-session";
@@ -32,7 +34,7 @@ import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { ThemeProvider, type Attribute, useTheme } from "next-themes";
-import React, { useContext, useEffect, useRef } from "react";
+import React, { useContext, useEffect, useLayoutEffect, useRef } from "react";
 import { useInRouterContext } from "react-router";
 
 import { RequireSession } from "../auth/RequireSession.js";
@@ -61,6 +63,11 @@ import { BuilderSignupStartupGate } from "./BuilderSignupActivation.js";
 declare const __AGENT_NATIVE_APP_CONFIG__: Parameters<
   typeof isFirstRunOnboardingEnabled
 >[1];
+import {
+  THEME_FAMILY_PENDING_ATTRIBUTE,
+  THEME_FAMILY_PREPAINT_STYLE,
+  themeFamilyPrepaintScript,
+} from "./theme-family-prepaint.js";
 
 export interface AppProvidersProps {
   queryClient: QueryClient;
@@ -98,6 +105,8 @@ export interface AppProvidersProps {
 
   /** Opt in to the app-specific, consented Builder signup experiment. */
   builderSignupExperiment?: string;
+  /** App-owned first-run surface, rendered only after positive eligibility. */
+  firstRunOnboarding?: React.ReactNode;
 
   /**
    * Replaces the app with a hand-off notice on touch screens smaller than an
@@ -117,6 +126,8 @@ export interface AppProvidersProps {
   ownsDocument?: boolean;
 
   enableThemeFamily?: boolean;
+
+  holdThemeFamilyUntilResolved?: boolean;
 
   documentTitleFallback?: string;
 
@@ -189,6 +200,36 @@ function EarlySessionBootstrapScript() {
       }}
     />
   );
+}
+
+function AccountThemeFamilyPrepaintHold() {
+  return (
+    <>
+      <script
+        data-agent-native-theme-family-hold="1"
+        dangerouslySetInnerHTML={{ __html: themeFamilyPrepaintScript() }}
+      />
+      <style>{THEME_FAMILY_PREPAINT_STYLE}</style>
+    </>
+  );
+}
+
+function ReleaseThemeFamilyHoldForSessionState() {
+  const { status: sessionStatus } = useSession();
+  const { status: themeFamilyStatus } = useThemeFamily();
+
+  useLayoutEffect(() => {
+    if (
+      themeFamilyStatus !== "loading" ||
+      sessionStatus === "unauthenticated" ||
+      sessionStatus === "unavailable" ||
+      sessionStatus === "signing-out"
+    ) {
+      document.documentElement.removeAttribute(THEME_FAMILY_PENDING_ATTRIBUTE);
+    }
+  }, [sessionStatus, themeFamilyStatus]);
+
+  return null;
 }
 
 function RoutedAppEnhancements({
@@ -502,6 +543,7 @@ function ProvidersInner({
   disableWebMcp,
   webMcpExcludeActionNames,
   sessionBypass,
+  holdThemeFamilyUntilResolved = false,
   i18n,
   documentTitleFallback,
   showProductionEnvironmentBadge,
@@ -522,6 +564,7 @@ function ProvidersInner({
   disableWebMcp: boolean;
   webMcpExcludeActionNames?: readonly string[];
   sessionBypass: boolean;
+  holdThemeFamilyUntilResolved?: boolean;
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   documentTitleFallback?: string;
   showProductionEnvironmentBadge: boolean;
@@ -549,6 +592,9 @@ function ProvidersInner({
 
   const content = (
     <TooltipProvider delayDuration={tooltipDelayDuration}>
+      {holdThemeFamilyUntilResolved ? (
+        <ReleaseThemeFamilyHoldForSessionState />
+      ) : null}
       {!disableWebMcp && (
         <AgentNativeWebMcpActionRegistration
           requireSession={!sessionBypass}
@@ -603,6 +649,7 @@ export function AppProviders({
   signedOutHref,
   skipFirstRunOnboarding = false,
   builderSignupExperiment,
+  firstRunOnboarding,
   unsupportedDevice,
   disableWebMcp = false,
   webMcpExcludeActionNames,
@@ -616,6 +663,7 @@ export function AppProviders({
   documentTitleFallback,
   ownsDocument = true,
   enableThemeFamily = true,
+  holdThemeFamilyUntilResolved: holdThemeFamilyUntilResolvedOverride,
   children,
 }: AppProvidersProps) {
   const fallback = clientOnlyFallback ?? (
@@ -640,11 +688,25 @@ export function AppProviders({
         showEnvironmentBadge={showEnvironmentBadge}
         settingsShortcut={false}
         ownsDocument={ownsDocument}
+        holdThemeFamilyUntilResolved={false}
       >
         {children}
       </ProvidersInner>
     );
   }
+
+  const accountThemeFamilyDefaults =
+    holdThemeFamilyUntilResolvedOverride ??
+    Object.keys(
+      injectedAgentNativeConfig().themeFamily?.accountDefaultsByEmailDomain ??
+        {},
+    ).length > 0;
+  const holdThemeFamilyUntilResolved =
+    accountThemeFamilyDefaults &&
+    ownsDocument &&
+    enableThemeFamily &&
+    !sessionBypass &&
+    !unsupportedDevice;
 
   const sessionGated = (
     <RequireSession
@@ -671,6 +733,7 @@ export function AppProviders({
               experimentId={builderSignupExperiment}
               suppressSurface={skipFirstRunOnboarding}
               cover={fallback}
+              appSurface={firstRunOnboarding}
             >
               {children}
             </BuilderSignupStartupGate>
@@ -678,6 +741,7 @@ export function AppProviders({
             <FirstRunOnboardingStartupGate
               suppressSurface={skipFirstRunOnboarding}
               cover={fallback}
+              appSurface={firstRunOnboarding}
             >
               {children}
             </FirstRunOnboardingStartupGate>
@@ -712,6 +776,7 @@ export function AppProviders({
   return (
     <>
       {ownsDocument ? <McpAppWidgetBootScript /> : null}
+      {holdThemeFamilyUntilResolved ? <AccountThemeFamilyPrepaintHold /> : null}
       {ownsDocument && !sessionBypass && (
         <>
           <EarlySessionBootstrapScript />
@@ -744,6 +809,7 @@ export function AppProviders({
           settingsShortcut={!sessionBypass}
           ownsDocument={ownsDocument}
           clientOnly
+          holdThemeFamilyUntilResolved={holdThemeFamilyUntilResolved}
         >
           {sessionBypass ? (
             gated

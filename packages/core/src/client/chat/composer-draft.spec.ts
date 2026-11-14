@@ -22,11 +22,32 @@ describe("assistant chat composer drafts", () => {
         removeItem: (key: string) => storage.delete(key),
         clear: () => storage.clear(),
         key: (index: number) => [...storage.keys()][index] ?? null,
+        _map: storage,
         get length() {
           return storage.size;
         },
       },
     });
+  });
+
+  it("does not hand a draft written by another browser session to a fresh panel", () => {
+    // a previous run's prompt appeared in a new tab of the same
+    // signed-in profile. A draft belongs to the tab session that wrote it.
+    window.localStorage.setItem(
+      assistantChatComposerDraftKey("stale-thread")!,
+      "Earlier session draft - not sent",
+    );
+    expect(readAssistantChatComposerDraft("stale-thread")).toBeNull();
+
+    // Typing here marks this session, so its own reload can recover the text.
+    writeAssistantChatComposerDraft("my-thread", "Typed in this tab");
+    expect(readAssistantChatComposerDraft("my-thread")).toBe(
+      "Typed in this tab",
+    );
+
+    // A new session (sessionStorage cleared) starts empty.
+    window.sessionStorage.clear();
+    expect(readAssistantChatComposerDraft("my-thread")).toBeNull();
   });
 
   it("names drafts by the chat scope without colliding on special characters", () => {
@@ -140,9 +161,15 @@ describe("assistant chat composer drafts", () => {
       writeAssistantChatComposerContextDraft("invalid-source", selection),
     ).toThrow();
     expect(readAssistantChatComposerContextDraft("invalid-source")).toBeNull();
+    const invalidKey = "agent-chat-composer-context:invalid-source";
     window.localStorage.setItem(
-      "agent-chat-composer-context:invalid-source",
+      invalidKey,
       JSON.stringify({ version: 1, selection }),
+    );
+    // Owned by this tab session, so the malformed draft is read and refused.
+    window.sessionStorage.setItem(
+      `agent-chat-composer-session:${invalidKey}`,
+      "1",
     );
     expect(() =>
       readAssistantChatComposerContextDraft("invalid-source"),
@@ -150,9 +177,14 @@ describe("assistant chat composer drafts", () => {
   });
   it("distinguishes unreadable drafts from absent drafts and rejects oversized selections", () => {
     expect(() => readAssistantChatComposerContextDraft(" ")).toThrow();
-    window.localStorage.setItem(
-      "agent-chat-composer-context:broken",
-      "{invalid",
+    // A draft this tab session owns: an unreadable one must still throw rather
+    // than read as absent (the session boundary was added for this; a draft from
+    // an earlier session is simply not read, which is the separate test above).
+    const brokenKey = "agent-chat-composer-context:broken";
+    window.localStorage.setItem(brokenKey, "{invalid");
+    window.sessionStorage.setItem(
+      `agent-chat-composer-session:${brokenKey}`,
+      "1",
     );
     expect(() => readAssistantChatComposerContextDraft("broken")).toThrow();
     expect(() =>

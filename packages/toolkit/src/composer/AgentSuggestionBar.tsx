@@ -46,7 +46,13 @@ export interface AgentSuggestionBarProps {
   className?: string;
   loading?: boolean;
   announceUpdates?: boolean;
-  layout?: "wrap" | "single-line";
+  /** "stacked" centres one chip per row with no horizontal scroll. */
+  layout?: "wrap" | "single-line" | "stacked";
+  /**
+   * "pill" is the outlined 24px chip; "filled" is a taller muted row. Defaults
+   * to "pill" so existing hosts keep their look.
+   */
+  variant?: "pill" | "filled";
   size?: "compact" | "comfortable";
 }
 
@@ -166,6 +172,7 @@ export function AgentSuggestionBar({
   loading = false,
   announceUpdates = false,
   layout = "wrap",
+  variant = "pill",
   size = "compact",
 }: AgentSuggestionBarProps) {
   const titleId = useId();
@@ -182,6 +189,7 @@ export function AgentSuggestionBar({
       aria-busy={loading || undefined}
       aria-live={announceUpdates ? "polite" : undefined}
       data-agent-suggestion-bar="true"
+      data-agent-suggestion-variant={variant}
       data-home-suggestion-app-id={homeTracking?.appId}
       data-home-suggestion-seed={homeTracking?.seed}
       data-home-suggestion-shell-role={
@@ -205,16 +213,21 @@ export function AgentSuggestionBar({
         data-agent-suggestion-scroller="true"
         data-overflow-start={overflow.start || undefined}
         data-overflow-end={overflow.end || undefined}
-        className="w-full min-w-0 snap-x snap-proximity scroll-px-6 overflow-x-auto overscroll-x-contain px-0.5 py-px [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className={cn(
+          "w-full min-w-0 snap-x snap-proximity scroll-px-6 overscroll-x-contain px-0.5 py-px [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          layout === "stacked" ? "overflow-visible" : "overflow-x-auto",
+        )}
       >
         <div
           ref={trackRef}
           data-agent-suggestion-track="true"
           className={cn(
             "flex min-w-full gap-[var(--agent-suggestion-gap,0.25rem)]",
-            layout === "single-line" || loading
-              ? "h-6 w-max flex-nowrap items-center"
-              : "w-(--agent-suggestion-track-width) flex-wrap",
+            layout === "stacked"
+              ? "w-full flex-col items-center gap-2"
+              : layout === "single-line" || loading
+                ? "h-6 w-max flex-nowrap items-center"
+                : "w-(--agent-suggestion-track-width) flex-wrap",
           )}
           onFocus={revealKeyboardFocusedChip}
         >
@@ -225,7 +238,10 @@ export function AgentSuggestionBar({
                   aria-hidden="true"
                   data-agent-suggestion-placeholder="true"
                   className={cn(
-                    "h-6 shrink-0 rounded-[var(--agent-kit-radius-xs,0.25rem)]",
+                    "shrink-0",
+                    variant === "filled"
+                      ? "h-7 rounded-md"
+                      : "h-6 rounded-[var(--agent-kit-radius-xs,0.25rem)]",
                     width,
                   )}
                 />
@@ -255,7 +271,10 @@ export function AgentSuggestionBar({
                   data-agent-suggestion-position={index + 1}
                   // The scroller clips overflow, so the focus ring sits inside.
                   className={cn(
-                    "agent-kit-caption-copy snap-start inline-flex h-6 shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] border border-border bg-transparent px-2.5 py-0 text-center font-normal text-foreground shadow-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-inset focus-visible:ring-offset-0 whitespace-nowrap",
+                    "agent-kit-caption-copy snap-start inline-flex shrink-0 items-center justify-center px-2.5 py-0 text-center font-normal text-foreground shadow-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-inset focus-visible:ring-offset-0 whitespace-nowrap",
+                    variant === "filled"
+                      ? "h-7 rounded-md border border-border bg-muted"
+                      : "h-6 rounded-[var(--agent-kit-radius-xs,0.25rem)] border border-border bg-transparent",
                     size === "comfortable" && "h-8 px-3 text-sm",
                   )}
                 >

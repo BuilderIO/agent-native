@@ -2,12 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+// Every parser an ingestion path loads through `loadOptionalPeer` belongs here. An app is
+// not expected to declare core's optional peers, so an unlisted parser resolves to nothing
+// on a deployed build and the user's attachment fails at runtime (a .xlsx came back as
+// "the XLSX parser isn't installed in this environment").
 export const CORE_BUNDLED_INGESTION_OPTIONAL_PEERS = [
   "fast-xml-parser",
   "jszip",
+  "mammoth",
   "officeparser",
   "pdf-parse",
   "pdfjs-dist",
+  "xlsx",
 ] as const;
 
 function isMissingFileError(error: unknown): boolean {

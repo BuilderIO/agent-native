@@ -19,6 +19,7 @@ import {
   getRequestRunContext,
   getRequestUserEmail,
 } from "../request-context.js";
+import { createResourceWriteEntry } from "./resource-write-tool.js";
 
 type CliMain = (args: string[]) => Promise<void>;
 
@@ -429,11 +430,11 @@ export async function createResourceScriptEntries(): Promise<
       del.default,
     );
 
-    return frameworkMcpTools({
+    const entries = frameworkMcpTools({
       resources: {
         tool: {
           description:
-            'Manage workspace resources: list/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval.',
+            'Manage workspace resources: list/read files; inspect workspace -> org/app -> personal inheritance; write personal/shared resources (workspace only for local file mode controls); promote scratch; delete personal/shared resources (workspace controls only). Agent scratch stays hidden in Workspace; use visibility="workspace" only for files the user wants to keep/manage. Shared writes, promotions, and deletions require per-action approval. For creating or replacing file content, prefer write-resource; load write-resource with tool-search if it is not available.',
           parameters: {
             type: "object",
             properties: {
@@ -679,6 +680,12 @@ export async function createResourceScriptEntries(): Promise<
         delMem.default,
       ),
     });
+    return {
+      ...entries,
+      ...frameworkMcpTools({
+        "write-resource": createResourceWriteEntry(entries.resources),
+      }),
+    };
   } catch {
     // Resources not available — skip silently
     return frameworkMcpTools({});

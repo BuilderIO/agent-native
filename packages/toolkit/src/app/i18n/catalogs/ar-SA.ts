@@ -730,7 +730,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "رفض مزوّد النموذج هذا المرفق بسبب نوعه أو حجمه. للصور، صدّر نسخة أصغر بصيغة PNG أو JPEG أو GIF أو WebP؛ وللمستندات، استخدم تنسيق ملف مدعومًا أو الصق النص ذي الصلة، ثم أرفقه مجددًا.",
   "errorMessages.noProviderConnected":
-    "لا يوجد موفّر LLM متصل. افتح الإعدادات > الوكيل > موفّرو الذكاء الاصطناعي، ثم استخدم Builder.io (الخطة المجانية متاحة) أو أضف مفتاح موفّر.",
+    "لا يوجد موفّر LLM متصل. افتح الإعدادات > الوكيل > موفّرو الذكاء الاصطناعي، ثم اربط Builder.io أو أضف مفتاح موفّر.",
   "errorMessages.openBuilderSpaceSettings": "فتح إعدادات مساحة Builder",
   "errorMessages.providerAuthentication":
     "رفض مزوّد النموذج مفتاح API المحفوظ. حدّث المفتاح من الإعدادات ← عمليات التكامل ← مفاتيح API، ثم أعد المحاولة.",
@@ -771,6 +771,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "جارٍ البحث...",
   "history.untitledChat": "محادثة",
   "history.yesterday": "أمس",
+  "history.today": "اليوم",
+  "commandMenu.systemGroup": "التطبيق",
+  "share.alreadyInvited": "تمت دعوته بالفعل",
+  "share.notInvitedToPage": "غير مدعو إلى الصفحة",
   "history.mine": "محادثاتي",
   "history.sharedWithYou": "تمت مشاركتها معك",
   "history.showAll": "عرض الكل",
@@ -2369,6 +2373,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "تم تحديث كلمة المرور",
   "settingsShell.account.photoError": "تعذّر تحديث الصورة.",
   "settingsShell.account.photoUpdated": "تم تحديث الصورة",
+  "settingsShell.account.photoRemoved": "تمت إزالة الصورة",
+  "settingsShell.account.removePhoto": "إزالة الصورة",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "لم يتم إعداد إرسال البريد الإلكتروني هنا",
   "settingsShell.account.profilePhoto": "صورة الملف الشخصي",
   "settingsShell.account.requestCopyDescription":
     "يتحقق أحد المسؤولين من هويتك ويتابع معك.",
@@ -3612,7 +3620,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "فشل الرد",
   "message.waitingForApproval": "في انتظار الموافقة",
   "message.waitingForInput": "في انتظار الإدخال",
-  "message.workSummaryFailedCount": "{{summary}}، فشل {{count}}",
+  "message.workSummaryFailedCount": "{{summary}}، المحاولات الفاشلة: {{count}}",
   "message.taskStatusPending": "قيد الانتظار",
   "message.taskStatusRunning": "قيد التشغيل",
   "message.taskStatusCompleted": "تم",

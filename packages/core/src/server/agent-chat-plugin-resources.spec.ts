@@ -150,8 +150,16 @@ vi.mock("./agents-bundle.js", () => ({
 
 vi.mock("./framework-request-handler.js", () => ({
   awaitBootstrap: () => Promise.resolve(),
-  getH3App: (nitroApp: { h3App: ReturnType<typeof createApp> }) =>
-    nitroApp.h3App,
+  getH3App: (nitroApp: { h3App: ReturnType<typeof createApp> }) => ({
+    use(
+      path: string,
+      handler: Parameters<ReturnType<typeof createApp>["use"]>[1],
+    ) {
+      if (path.endsWith("/runs"))
+        return nitroApp.h3App.all(`${path}/**`, handler);
+      return nitroApp.h3App.use(path, handler);
+    },
+  }),
   markDefaultPluginProvided: vi.fn(),
   trackPluginInit: (_nitroApp: unknown, initPromise: Promise<void>) => {
     routeHarness.initPromises.push(initPromise);
@@ -525,6 +533,7 @@ describe("agent chat thread read route", () => {
 });
 
 async function mountResourceRoutes(options?: {
+  threadAccessScope?: AgentChatPluginOptions["threadAccessScope"];
   appId?: string;
   actions?: AgentChatPluginOptions["actions"];
   mentionProviders?: AgentChatPluginOptions["mentionProviders"];
@@ -536,6 +545,7 @@ async function mountResourceRoutes(options?: {
   createAgentChatPlugin({
     actions: options?.actions ?? (() => ({})),
     appId: options?.appId,
+    threadAccessScope: "aggregate",
     a2aAgentDelegation: false,
     frameworkTools: "minimal",
     leanPrompt: true,
@@ -1323,7 +1333,10 @@ describe("agent chat thread list route", () => {
       "membership-direct-a",
       "membership-direct-b",
     ];
-    const h3App = await mountResourceRoutes({ resolveOrgId: () => orgId });
+    const h3App = await mountResourceRoutes({
+      appId: "synthetic-membership-app",
+      resolveOrgId: () => orgId,
+    });
     mocks.getSession.mockResolvedValue({ email, orgId });
     threadStoreMocks.listThreads.mockImplementation(store.listThreads);
     threadStoreMocks.searchThreads.mockImplementation(store.searchThreads);
@@ -1338,7 +1351,7 @@ describe("agent chat thread list route", () => {
       });
       for (const [index, id] of threadIds.entries()) {
         await exec.execute({
-          sql: "INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, org_id, visibility) VALUES (?, ?, 'Synthetic membership plan', '', ?, 1, 0, ?, ?, ?)",
+          sql: "INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, org_id, visibility, source_app_id) VALUES (?, ?, 'Synthetic membership plan', '', ?, 1, 0, ?, ?, ?, ?)",
           args: [
             id,
             "synthetic-chat-owner@example.test",
@@ -1346,6 +1359,7 @@ describe("agent chat thread list route", () => {
             100 - index,
             orgId,
             index === 0 ? "org" : "private",
+            "synthetic-membership-app",
           ],
         });
         if (index > 0) {
@@ -1421,6 +1435,58 @@ describe("agent chat thread list route", () => {
         sql: "DELETE FROM organizations WHERE id = ?",
         args: [orgId],
       });
+    }
+  });
+
+  it("quarantines legacy and foreign-app rows in local HTTP history while retaining aggregate access", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    const owner = "synthetic-app-history@example.test";
+    const ids = ["scope-local", "scope-other", "scope-legacy"];
+    const app = await mountResourceRoutes({
+      appId: "synthetic-local-app",
+      threadAccessScope: "local",
+    });
+    mocks.getSession.mockResolvedValue({ email: owner });
+    threadStoreMocks.listThreads.mockImplementation(store.listThreads);
+    threadStoreMocks.searchThreads.mockImplementation(store.searchThreads);
+    try {
+      for (const [index, id] of ids.entries()) {
+        await store.createThread(owner, {
+          id,
+          title: "Synthetic provenance row",
+          source:
+            index === 2
+              ? null
+              : {
+                  appId:
+                    index === 0 ? "synthetic-local-app" : "synthetic-other-app",
+                },
+          initialData: { threadData: "{}", preview: "", messageCount: 1 },
+        });
+      }
+      for (const suffix of ["", "&q=Synthetic%20provenance"]) {
+        const response = await fetchWithRequestContext(
+          app,
+          `/_agent-native/agent-chat/threads?ownership=mine${suffix}`,
+          { userEmail: owner },
+        );
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body.threads.map((thread: { id: string }) => thread.id)).toEqual(
+          [ids[0]],
+        );
+        expect(body.hasMore).toBe(false);
+      }
+      // Aggregate access remains separate; exclusion must not delete stored rows.
+      const aggregate = await store.listThreads(owner);
+      expect(aggregate.map((thread) => thread.id)).toEqual(
+        expect.arrayContaining(ids),
+      );
+      expect(await store.getThread(ids[2])).not.toBeNull();
+    } finally {
+      for (const id of ids) await store.deleteThread(id, owner);
     }
   });
 
@@ -3589,7 +3655,10 @@ describe("shared chat hide transport", () => {
     const viewer = "hide-transport-viewer@example.test";
     const outsider = "hide-transport-outsider@example.test";
     const id = "hide-transport-thread";
-    const app = await mountResourceRoutes();
+    const app = await mountResourceRoutes({
+      appId: "synthetic-hide-app",
+      threadAccessScope: "local",
+    });
     threadStoreMocks.resolveThreadAccess.mockImplementation(
       store.resolveThreadAccess,
     );
@@ -3598,6 +3667,7 @@ describe("shared chat hide transport", () => {
     await store.createThread(owner, {
       id,
       title: "Transport plan",
+      source: { appId: "synthetic-hide-app" },
       initialData: { threadData: "{}", preview: "", messageCount: 1 },
     });
     await store.grantThreadUserShare(id, viewer, "viewer", owner);
@@ -3699,5 +3769,748 @@ describe("shared chat hide transport", () => {
     } finally {
       await store.deleteThread(id, owner);
     }
+  });
+});
+
+describe("exclusive fork route validation and access", () => {
+  const path = "/_agent-native/agent-chat/threads/thread-exclusive/fork";
+  const source = {
+    threadData: JSON.stringify({
+      messages: [
+        {
+          id: "question",
+          role: "user",
+          content: [{ type: "text", text: "Question" }],
+        },
+      ],
+    }),
+    messageCount: 1,
+  };
+  it.each([
+    { beforeMessageId: "" },
+    { beforeMessageId: 3 },
+    { beforeMessageId: "question", fromMessageId: "answer" },
+  ])("rejects malformed boundary %j with 400", async (boundary) => {
+    const app = await mountResourceRoutes();
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: "thread-exclusive",
+      ownerEmail: "user@example.test",
+      scope: null,
+    });
+    const response = await fetchWithRequestContext(
+      app,
+      path,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ source: { ...source, ...boundary } }),
+      },
+    );
+    expect(response.status).toBe(400);
+    expect(threadStoreMocks.forkThread).not.toHaveBeenCalled();
+  });
+  it("does not admit an exclusive fork without access in the active organization", async () => {
+    const app = await mountResourceRoutes({ resolveOrgId: () => "org-other" });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue(null);
+    const response = await fetchWithRequestContext(
+      app,
+      path,
+      { userEmail: "user@example.test", orgId: "org-other" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          source: { ...source, beforeMessageId: "question" },
+        }),
+      },
+    );
+    expect(response.status).toBe(404);
+    expect(threadStoreMocks.forkThread).not.toHaveBeenCalled();
+    expect(threadStoreMocks.resolveThreadAccess).toHaveBeenCalledWith(
+      "user@example.test",
+      "thread-exclusive",
+      "viewer",
+      { orgId: "org-other" },
+    );
+  });
+  it("rejects an unsupported fork purpose", async () => {
+    const app = await mountResourceRoutes({ appId: "route-app" });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: "thread-exclusive",
+      ownerEmail: "user@example.test",
+      scope: null,
+    });
+    const response = await fetchWithRequestContext(
+      app,
+      path,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          forkPurpose: "retry",
+          source: { ...source, beforeMessageId: "question" },
+        }),
+      },
+    );
+    expect(response.status).toBe(400);
+    expect(threadStoreMocks.forkThread).not.toHaveBeenCalled();
+  });
+  it("rejects mismatched scope before parsing a fork body", async () => {
+    const app = await mountResourceRoutes({ appId: "route-app" });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: "thread-exclusive",
+      ownerEmail: "user@example.test",
+      scope: { type: "workspace", id: "other" },
+    });
+    const response = await fetchWithRequestContext(
+      app,
+      `${path}?scopeType=workspace&scopeId=requested`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "not json",
+      },
+    );
+    expect(response.status).toBe(404);
+    expect(threadStoreMocks.forkThread).not.toHaveBeenCalled();
+  });
+  it("passes a shared viewer edit through the route without trusting caller lineage", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    const owner = "fork-owner@example.test";
+    const viewer = "fork-viewer@example.test";
+    const id = "route-shared-source";
+    const newId = "route-shared-edit";
+    const app = await mountResourceRoutes({ appId: "route-app" });
+    mocks.getSession.mockResolvedValue({ email: viewer });
+    const data = JSON.stringify({
+      messages: [{ id: "question", role: "user", content: "Question" }],
+    });
+    try {
+      const thread = await store.createThread(owner, {
+        id,
+        source: { appId: "route-app" },
+        initialData: { threadData: data, preview: "Question", messageCount: 1 },
+      });
+      threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+      threadStoreMocks.forkThread.mockImplementation(store.forkThread);
+      const response = await fetchWithRequestContext(
+        app,
+        `/_agent-native/agent-chat/threads/${id}/fork`,
+        { userEmail: viewer },
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: newId,
+            forkPurpose: "edit",
+            editRootId: "spoofed",
+            metadata: { editRootId: "spoofed" },
+            source: { threadData: data, beforeMessageId: "question" },
+          }),
+        },
+      );
+      expect(response.status).toBe(200);
+      const result = await response.json();
+      expect(result.ownerEmail).toBe(viewer);
+      expect(result.editRootId).toBeUndefined();
+      expect((await store.getThread(newId))?.editRootId).toBeUndefined();
+    } finally {
+      await store.deleteThread(newId, viewer);
+      await store.deleteThread(id, owner);
+    }
+  });
+  it("does not let client app or root fields adopt a foreign app lineage", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    const owner = "foreign-app-owner@example.test";
+    const id = "foreign-app-source";
+    const newId = "foreign-app-edit";
+    const app = await mountResourceRoutes({ appId: "route-app" });
+    mocks.getSession.mockResolvedValue({ email: owner });
+    const data = JSON.stringify({
+      messages: [{ id: "question", role: "user", content: "Question" }],
+    });
+    try {
+      const thread = await store.createThread(owner, {
+        id,
+        source: { appId: "another-app" },
+        initialData: { threadData: data, preview: "Question", messageCount: 1 },
+      });
+      threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+      threadStoreMocks.forkThread.mockImplementation(store.forkThread);
+      const response = await fetchWithRequestContext(
+        app,
+        `/_agent-native/agent-chat/threads/${id}/fork`,
+        { userEmail: owner },
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: newId,
+            forkPurpose: "edit",
+            appId: "route-app",
+            editRootId: "forged",
+            metadata: { appId: "route-app", editRootId: "forged" },
+            source: {
+              threadData: data,
+              beforeMessageId: "question",
+              editRootId: "forged",
+            },
+          }),
+        },
+      );
+      expect(response.status).toBe(200);
+      const fork = await store.getThread(newId);
+      expect(fork?.editRootId).toBeUndefined();
+      expect(fork?.source).toBeNull();
+    } finally {
+      await store.deleteThread(newId, owner);
+      await store.deleteThread(id, owner);
+    }
+  });
+  it("passes the collapsed list flag through both list and search routes", async () => {
+    const app = await mountResourceRoutes({ appId: "route-app" });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    threadStoreMocks.listThreads.mockResolvedValue([]);
+    threadStoreMocks.searchThreads.mockResolvedValue([]);
+    for (const query of ["?collapseEdits=1", "?collapseEdits=1&q=question"]) {
+      const response = await fetchWithRequestContext(
+        app,
+        `/_agent-native/agent-chat/threads${query}`,
+        { userEmail: "user@example.test" },
+      );
+      expect(response.status).toBe(200);
+    }
+    expect(threadStoreMocks.listThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      expect.objectContaining({ collapseEdits: true }),
+    );
+    expect(threadStoreMocks.searchThreads).toHaveBeenCalledWith(
+      "user@example.test",
+      "question",
+      expect.any(Number),
+      expect.objectContaining({ collapseEdits: true }),
+    );
+  });
+  it("returns 400 for a missing authoritative exclusive boundary", async () => {
+    const { ForkThreadBoundaryError } =
+      await import("../chat-threads/store.js");
+    const app = await mountResourceRoutes();
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: "thread-exclusive",
+      ownerEmail: "user@example.test",
+      scope: null,
+    });
+    threadStoreMocks.forkThread.mockRejectedValue(
+      new ForkThreadBoundaryError(),
+    );
+    const response = await fetchWithRequestContext(
+      app,
+      path,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          source: { ...source, beforeMessageId: "unknown" },
+        }),
+      },
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("passes a valid exclusive boundary through the authenticated route", async () => {
+    const app = await mountResourceRoutes();
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: "thread-exclusive",
+      ownerEmail: "user@example.test",
+      scope: null,
+    });
+    threadStoreMocks.forkThread.mockResolvedValue({ id: "exclusive-fork" });
+    const response = await fetchWithRequestContext(
+      app,
+      path,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "exclusive-fork",
+          source: { ...source, beforeMessageId: "question" },
+        }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(threadStoreMocks.forkThread).toHaveBeenCalledWith(
+      "thread-exclusive",
+      "user@example.test",
+      {
+        id: "exclusive-fork",
+        source: expect.objectContaining({
+          beforeMessageId: "question",
+          threadData: source.threadData,
+        }),
+        sourceAccessGranted: true,
+      },
+    );
+  });
+});
+
+// App-local access/target attribution contract landed in 13c99175b8.
+// Historical aggregate route assertions above retain their explicit aggregate setup.
+describe("local fork source attribution combined with edit lineage", () => {
+  it("lets explicit local mode override aggregate test setup and rejects foreign source before parsing", async () => {
+    const app = await mountResourceRoutes({
+      appId: "local-fork-app",
+      threadAccessScope: "local",
+    });
+    const owner = "local-fork-foreign@example.test";
+    mocks.getSession.mockResolvedValue({ email: owner });
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: "local-foreign-source",
+      ownerEmail: owner,
+      scope: null,
+      source: { appId: "another-fork-app" },
+    });
+    const response = await fetchWithRequestContext(
+      app,
+      "/_agent-native/agent-chat/threads/local-foreign-source/fork",
+      { userEmail: owner },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "invalid json that must not be parsed",
+      },
+    );
+    expect(response.status).toBe(404);
+    expect(threadStoreMocks.forkThread).not.toHaveBeenCalled();
+  });
+
+  it("ignores client source attribution and derives matching edit app and root on the server", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    const owner = "local-fork-owned@example.test";
+    const id = "local-owned-fork-root";
+    const newId = "local-owned-fork-edit";
+    const app = await mountResourceRoutes({
+      appId: "local-fork-app",
+      threadAccessScope: "local",
+    });
+    const data = JSON.stringify({
+      messages: [{ id: "question", role: "user", content: "Question" }],
+    });
+    mocks.getSession.mockResolvedValue({ email: owner });
+    try {
+      const thread = await store.createThread(owner, {
+        id,
+        source: { appId: "local-fork-app" },
+        initialData: { threadData: data, preview: "Question", messageCount: 1 },
+      });
+      threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+      threadStoreMocks.forkThread.mockImplementation(store.forkThread);
+      const source = {
+        threadData: data,
+        beforeMessageId: "question",
+        title: "Question",
+        preview: "Question",
+        messageCount: 1,
+      };
+      const response = await fetchWithRequestContext(
+        app,
+        `/_agent-native/agent-chat/threads/${id}/fork`,
+        { userEmail: owner },
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: newId,
+            forkPurpose: "edit",
+            trustedAppId: "forged-app",
+            targetSource: { appId: "forged-app", platform: "external" },
+            editRootId: "forged-root",
+            source,
+          }),
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(threadStoreMocks.forkThread).toHaveBeenCalledWith(id, owner, {
+        id: newId,
+        source,
+        sourceAccessGranted: true,
+        targetSource: { appId: "local-fork-app" },
+        forkPurpose: "edit",
+        trustedAppId: "local-fork-app",
+      });
+      const result = await response.json();
+      expect(result.source).toEqual({ appId: "local-fork-app" });
+      expect(result.editRootId).toBe(id);
+      const persisted = await store.getThread(newId);
+      expect(persisted?.source).toEqual({ appId: "local-fork-app" });
+      expect(persisted?.editRootId).toBe(id);
+    } finally {
+      await store.deleteThread(newId, owner);
+      await store.deleteThread(id, owner);
+    }
+  });
+
+  it("keeps edit_root_id for an org-scoped thread when the route resolves the org from the event", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    const owner = "local-fork-org-owned@example.test";
+    const id = "local-org-fork-root";
+    const newId = "local-org-fork-edit";
+    const data = JSON.stringify({
+      messages: [{ id: "question", role: "user", content: "Question" }],
+    });
+    const app = await mountResourceRoutes({
+      appId: "app-a",
+      threadAccessScope: undefined,
+      resolveOrgId: () => "acme",
+    });
+    mocks.getSession.mockResolvedValue({ email: owner, orgId: "acme" });
+    try {
+      const thread = await store.createThread(owner, {
+        id,
+        orgId: "acme",
+        source: { appId: "app-a" },
+        initialData: { threadData: data, preview: "Question", messageCount: 1 },
+      });
+      threadStoreMocks.resolveThreadAccess.mockResolvedValue(thread);
+      threadStoreMocks.forkThread.mockImplementation(store.forkThread);
+      // No org in the outer request context: the ALS boundary installs
+      // tracking scope only, so the route must supply the event's org.
+      const response = await fetchWithRequestContext(
+        app,
+        `/_agent-native/agent-chat/threads/${id}/fork`,
+        { userEmail: owner },
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: newId,
+            forkPurpose: "edit",
+            source: { threadData: data, beforeMessageId: "question" },
+          }),
+        },
+      );
+      expect(response.status).toBe(200);
+      const result = await response.json();
+      expect(result.editRootId).toBe(id);
+      expect((await store.getThread(newId))?.editRootId).toBe(id);
+    } finally {
+      await store.deleteThread(newId, owner);
+      await store.deleteThread(id, owner);
+    }
+  });
+
+  it("does not join an owned same-org edit root when the explicit target app differs", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    const owner = "local-fork-target-mismatch@example.test";
+    const id = "local-target-mismatch-root";
+    const newId = "local-target-mismatch-edit";
+    const data = JSON.stringify({
+      messages: [{ id: "question", role: "user", content: "Question" }],
+    });
+    try {
+      await store.createThread(owner, {
+        id,
+        source: { appId: "local-fork-app" },
+        initialData: { threadData: data, preview: "Question", messageCount: 1 },
+      });
+      const fork = await store.forkThread(id, owner, {
+        id: newId,
+        source: { threadData: data, beforeMessageId: "question" },
+        forkPurpose: "edit",
+        trustedAppId: "local-fork-app",
+        targetSource: { appId: "another-fork-app" },
+      });
+      expect(fork?.editRootId).toBeUndefined();
+      expect(fork?.source).toEqual({ appId: "another-fork-app" });
+      const persisted = await store.getThread(newId);
+      expect(persisted?.editRootId).toBeUndefined();
+      expect(persisted?.source).toEqual({ appId: "another-fork-app" });
+    } finally {
+      await store.deleteThread(newId, owner);
+      await store.deleteThread(id, owner);
+    }
+  });
+});
+
+describe("local app run routes", () => {
+  beforeEach(() => {
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+  });
+  async function seedRunBoundary() {
+    const db = getDbExec();
+    for (const [id, app, owner] of [
+      ["run-boundary-local", "app-a", "user@example.test"],
+      ["run-boundary-foreign", "app-b", "user@example.test"],
+      ["run-boundary-legacy", null, "user@example.test"],
+      ["run-boundary-other-owner", "app-a", "other@example.test"],
+    ]) {
+      await db.execute({
+        sql: "INSERT INTO chat_threads (id, owner_email, title, source_app_id, message_count, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1, 1) ON CONFLICT (id) DO NOTHING",
+        args: [id, owner, id, app],
+      });
+      await db.execute({
+        sql: "INSERT INTO agent_runs (id, thread_id, turn_id, status, started_at, completed_at) VALUES (?, ?, ?, 'completed', 1, 2) ON CONFLICT (id) DO NOTHING",
+        args: [`run-${id}`, id, `turn-${id}`],
+      });
+    }
+  }
+
+  it("defaults thread opens to local app scope and cannot be widened by browser selectors", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    threadStoreMocks.resolveThreadAccess.mockImplementation(
+      store.resolveThreadAccess,
+    );
+    const h3App = await mountResourceRoutes({
+      appId: "app-a",
+      threadAccessScope: undefined,
+    });
+    await seedRunBoundary();
+    for (const id of [
+      "run-boundary-foreign",
+      "run-boundary-legacy",
+      "run-boundary-other-owner",
+    ]) {
+      const response = await fetchWithRequestContext(
+        h3App,
+        `/_agent-native/agent-chat/threads/${id}?includeExternal=1&sourceAppId=app-b`,
+        { userEmail: "user@example.test" },
+      );
+      expect(response.status, id).toBe(404);
+    }
+    const allowed = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/run-boundary-local",
+      { userEmail: "user@example.test" },
+    );
+    expect(allowed.status).toBe(200);
+    expect((await allowed.json()).id).toBe("run-boundary-local");
+    threadStoreMocks.listThreads.mockImplementation(store.listThreads);
+    const collection = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads?includeExternal=1&sourceAppId=app-b",
+      { userEmail: "user@example.test" },
+    );
+    expect(collection.status).toBe(200);
+    expect(
+      (await collection.json()).threads.map(
+        (thread: { id: string }) => thread.id,
+      ),
+    ).toEqual(["run-boundary-local"]);
+    for (const id of ["run-boundary-foreign", "run-boundary-legacy"]) {
+      const response = await fetchWithRequestContext(
+        h3App,
+        "/_agent-native/agent-chat/threads?includeExternal=1",
+        { userEmail: "user@example.test" },
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id, title: "changed" }),
+        },
+      );
+      expect(response.status, id).toBe(404);
+      expect((await store.getThread(id))?.title).toBe(id);
+    }
+  });
+
+  it("attributes a new local fork so it can be reopened after reload", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    threadStoreMocks.resolveThreadAccess.mockImplementation(
+      store.resolveThreadAccess,
+    );
+    threadStoreMocks.forkThread.mockImplementation(store.forkThread);
+    const h3App = await mountResourceRoutes({
+      appId: "app-a",
+      threadAccessScope: undefined,
+    });
+    await seedRunBoundary();
+    const fork = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/run-boundary-local/fork",
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "run-boundary-local-fork" }),
+      },
+    );
+    expect(fork.status).toBe(200);
+    expect((await fork.json()).source).toEqual({ appId: "app-a" });
+    expect(
+      (await store.getThread("run-boundary-local-fork"))?.source?.appId,
+    ).toBe("app-a");
+    const reopened = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/run-boundary-local-fork",
+      { userEmail: "user@example.test" },
+    );
+    expect(reopened.status).toBe(200);
+    expect((await reopened.json()).id).toBe("run-boundary-local-fork");
+  });
+
+  it("fails closed on thread opens when the trusted app is missing", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    threadStoreMocks.resolveThreadAccess.mockImplementation(
+      store.resolveThreadAccess,
+    );
+    const h3App = await mountResourceRoutes({
+      appId: " ",
+      threadAccessScope: undefined,
+    });
+    await seedRunBoundary();
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/run-boundary-local",
+      { userEmail: "user@example.test" },
+    );
+    expect(response.status).toBe(404);
+    const created = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads",
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "run-boundary-unattributed-new" }),
+      },
+    );
+    expect(created.status).toBe(404);
+    expect(await store.getThread("run-boundary-unattributed-new")).toBeNull();
+  });
+
+  it("retains a trusted aggregate host contract for foreign and legacy thread opens", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    threadStoreMocks.resolveThreadAccess.mockImplementation(
+      store.resolveThreadAccess,
+    );
+    const h3App = await mountResourceRoutes({
+      appId: "app-a",
+      threadAccessScope: "aggregate",
+    });
+    await seedRunBoundary();
+    for (const id of ["run-boundary-foreign", "run-boundary-legacy"]) {
+      const response = await fetchWithRequestContext(
+        h3App,
+        `/_agent-native/agent-chat/threads/${id}`,
+        { userEmail: "user@example.test" },
+      );
+      expect(response.status, id).toBe(200);
+      expect((await response.json()).id).toBe(id);
+    }
+    const foreignOwner = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/threads/run-boundary-other-owner",
+      { userEmail: "user@example.test" },
+    );
+    expect(foreignOwner.status).toBe(404);
+  });
+
+  it("lists only the trusted app and owner regardless of browser selectors", async () => {
+    const h3App = await mountResourceRoutes({
+      appId: "app-a",
+      threadAccessScope: undefined,
+    });
+    await seedRunBoundary();
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/runs/list?goalId=chat&sourceAppId=app-b&includeExternal=true",
+      { userEmail: "user@example.test" },
+    );
+    expect(response.status).toBe(200);
+    expect(
+      (await response.json()).runs.map((run: { id: string }) => run.id),
+    ).toEqual(["run-run-boundary-local"]);
+  });
+
+  it("denies foreign-app, legacy and foreign-owner run controls and thread lookups", async () => {
+    const h3App = await mountResourceRoutes({
+      appId: "app-a",
+      threadAccessScope: undefined,
+    });
+    await seedRunBoundary();
+    for (const id of [
+      "run-boundary-foreign",
+      "run-boundary-legacy",
+      "run-boundary-other-owner",
+    ]) {
+      for (const [suffix, method] of [
+        ["events", "GET"],
+        ["retry-projection", "POST"],
+        ["abort", "POST"],
+      ]) {
+        const response = await fetchWithRequestContext(
+          h3App,
+          `/_agent-native/agent-chat/runs/run-${id}/${suffix}`,
+          { userEmail: "user@example.test" },
+          { method },
+        );
+        expect(response.status, `${id}/${suffix}`).toBe(404);
+      }
+      for (const suffix of ["active", "latest"]) {
+        const response = await fetchWithRequestContext(
+          h3App,
+          `/_agent-native/agent-chat/runs/${suffix}?threadId=${id}`,
+          { userEmail: "user@example.test" },
+        );
+        if (suffix === "active") {
+          expect(response.status, `${id}/${suffix}`).toBe(200);
+          expect(await response.json()).toEqual({
+            active: false,
+            threadId: id,
+            status: "unknown",
+            heartbeatAt: null,
+            lastProgressAt: null,
+          });
+        } else {
+          expect(response.status, `${id}/${suffix}`).toBe(404);
+        }
+      }
+      const response = await fetchWithRequestContext(
+        h3App,
+        `/_agent-native/agent-chat/runs/turn/turn-${id}/abort`,
+        { userEmail: "user@example.test" },
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ threadId: id }),
+        },
+      );
+      expect(response.status, `${id}/turn-abort`).toBe(404);
+    }
+    const allowed = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/runs/run-run-boundary-local/events",
+      { userEmail: "user@example.test" },
+    );
+    expect(allowed.status).toBe(200);
+    expect(allowed.headers.get("content-type")).toContain("text/event-stream");
+    await allowed.body?.cancel();
   });
 });

@@ -1237,6 +1237,19 @@ describe("callActionWithRetry", () => {
 });
 
 describe("tryCallActionKeepalive", () => {
+  it("preserves an omitted body for a public keepalive call without inputs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const attempt = tryCallActionKeepalive<{ ok: boolean }>("empty-write");
+    if (!attempt.accepted) throw new Error("Expected keepalive to be accepted");
+    await expect(attempt.completion).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/empty-write",
+      expect.objectContaining({ method: "POST", keepalive: true }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty("body");
+  });
+
   it("uses the normal action transport and exposes response completion", async () => {
     const fetchMock = vi
       .fn()

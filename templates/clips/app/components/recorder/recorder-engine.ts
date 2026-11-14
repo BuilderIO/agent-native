@@ -910,7 +910,7 @@ export class RecorderEngine {
       const displaySurface = normalizeDisplaySurfaceForRuntime(
         this.opts.displaySurface ?? "window",
       );
-      const displayOptions: ExtendedDisplayMediaOptions =
+      let displayOptions: ExtendedDisplayMediaOptions =
         screenCaptureDisplayOptions(displaySurface, wantsMic);
 
       if (wantsMic || wantsDisplay) {
@@ -920,6 +920,42 @@ export class RecorderEngine {
 
       if (wantsDisplay) {
         try {
+          const nativeCapture = (
+            globalThis as typeof globalThis & {
+              agentNativeDisplayCapture?: {
+                prepare: (
+                  surface: "monitor" | "window",
+                ) => Promise<{ width?: number; height?: number }>;
+              };
+            }
+          ).agentNativeDisplayCapture;
+          if (
+            nativeCapture &&
+            (displaySurface === "monitor" || displaySurface === "window")
+          ) {
+            const prepared = await nativeCapture.prepare(displaySurface);
+            if (this.discarded) {
+              const cancelled = new Error("Recording cancelled");
+              cancelled.name = "AbortError";
+              throw cancelled;
+            }
+            if (displaySurface === "monitor") {
+              const { width, height } = prepared;
+              if (
+                typeof width !== "number" ||
+                typeof height !== "number" ||
+                !Number.isFinite(width) ||
+                !Number.isFinite(height)
+              ) {
+                throw new Error("Could not determine the display resolution.");
+              }
+              displayOptions = screenCaptureDisplayOptions(
+                displaySurface,
+                wantsMic,
+                { width, height },
+              );
+            }
+          }
           this.displayStream =
             await navigator.mediaDevices.getDisplayMedia(displayOptions);
         } catch (err) {
@@ -1067,6 +1103,9 @@ export class RecorderEngine {
       };
     } catch (err) {
       this.cleanupTracks();
+      if (this.discarded) {
+        throw err instanceof Error ? err : this.friendlyError(err);
+      }
       this.transition("error", { reason: errorMessage(err) });
       throw err instanceof Error ? err : this.friendlyError(err);
     }

@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import React from "react";
 import { useInRouterContext, useLocation, useNavigate } from "react-router";
 
-import { rememberSettingsReturnPath } from "../settings/index.js";
+import { rememberSettingsReturnPath } from "../settings/shell/return-path.js";
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
 /**

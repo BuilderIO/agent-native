@@ -746,7 +746,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "モデルプロバイダーが、添付ファイルの形式またはサイズを理由に拒否しました。画像は小さい PNG、JPEG、GIF、WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けてから、もう一度添付してください。",
   "errorMessages.noProviderConnected":
-    "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io（無料プランあり）を使用するか、プロバイダーキーを追加してください。",
+    "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io を接続するか、プロバイダーキーを追加してください。",
   "errorMessages.openBuilderSpaceSettings": "Builder スペース設定を開く",
   "errorMessages.providerAuthentication":
     "モデルプロバイダーが保存済みの API キーを拒否しました。設定 → 連携 → API キーでキーを更新してから再試行してください。",
@@ -788,6 +788,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "検索中...",
   "history.untitledChat": "チャット",
   "history.yesterday": "昨日",
+  "history.today": "今日",
+  "commandMenu.systemGroup": "アプリケーション",
+  "share.alreadyInvited": "招待済み",
+  "share.notInvitedToPage": "ページに招待されていません",
   "history.mine": "自分のチャット",
   "history.sharedWithYou": "共有されたチャット",
   "history.showAll": "すべて表示",
@@ -2220,6 +2224,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "パスワードを更新しました",
   "settingsShell.account.photoError": "写真を更新できませんでした。",
   "settingsShell.account.photoUpdated": "写真を更新しました",
+  "settingsShell.account.photoRemoved": "写真を削除しました",
+  "settingsShell.account.removePhoto": "写真を削除",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "ここではメール送信が設定されていません",
   "settingsShell.account.profilePhoto": "プロフィール写真",
   "settingsShell.account.requestCopyDescription":
     "管理者が本人確認を行い、対応します。",
@@ -3421,7 +3429,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "応答に失敗しました",
   "message.waitingForApproval": "承認待ち",
   "message.waitingForInput": "入力待ち",
-  "message.workSummaryFailedCount": "{{summary}}、{{count}} 件失敗",
+  "message.workSummaryFailedCount": "{{summary}}、失敗した試行: {{count}}",
   "message.taskStatusPending": "保留中",
   "message.taskStatusRunning": "実行中",
   "message.taskStatusCompleted": "完了",

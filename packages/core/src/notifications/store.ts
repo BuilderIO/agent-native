@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { getDbExec, safeJsonParse } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { recordChange } from "../server/poll.js";
 import type { Notification, NotificationSeverity } from "./types.js";
@@ -33,7 +37,8 @@ export const notificationsStore = defineStore({
             metadata TEXT,
             delivered_channels TEXT NOT NULL DEFAULT '[]',
             created_at BIGINT NOT NULL,
-            read_at BIGINT
+            read_at BIGINT,
+            archived_at BIGINT
           )
         `;
 
@@ -53,6 +58,24 @@ export const notificationsStore = defineStore({
             completed_at BIGINT,
             PRIMARY KEY (notification_id, delivery_key)
           )`,
+        );
+      },
+    },
+    {
+      // Inboxes that mirror a source app (an activity feed with an Archived
+      // filter) need to keep a notification after the reader files it away.
+      // Archiving is an additive nullable timestamp: nothing is dropped or
+      // renamed, and a row that was never archived reads exactly as before.
+      name: "notification-archive",
+      run: async () => {
+        await ensureColumnExists(
+          "notifications",
+          "archived_at",
+          `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS archived_at BIGINT`,
+        );
+        await ensureIndexExists(
+          "idx_notifications_owner_archived",
+          `CREATE INDEX IF NOT EXISTS idx_notifications_owner_archived ON notifications (owner, archived_at)`,
         );
       },
     },
@@ -80,6 +103,10 @@ function parseRow(row: Record<string, unknown>): Notification {
     createdAt: new Date(Number(row.created_at)).toISOString(),
     readAt:
       row.read_at == null ? null : new Date(Number(row.read_at)).toISOString(),
+    archivedAt:
+      row.archived_at == null
+        ? null
+        : new Date(Number(row.archived_at)).toISOString(),
   };
 }
 
@@ -141,6 +168,7 @@ export async function insertNotification(
     deliveredChannels: input.deliveredChannels ?? [],
     createdAt: new Date(createdAt).toISOString(),
     readAt: null,
+    archivedAt: null,
   };
 }
 
@@ -350,8 +378,18 @@ export async function addDeliveredChannel(
 
 export interface ListNotificationsOptions {
   unreadOnly?: boolean;
+  /** Only notifications the reader filed away (archived_at set). */
+  archivedOnly?: boolean;
+  /**
+   * Include archived notifications in a read that does not ask for them. The
+   * default leaves them out, which is what every inbox tab but "All workspace
+   * updates" wants; a row that was never archived is unaffected.
+   */
+  includeArchived?: boolean;
   limit?: number;
   before?: string;
+  /** Pair with before to continue within equal timestamps in descending ID order. */
+  beforeId?: string;
 }
 
 export async function hasNotificationWithMetadata(
@@ -398,17 +436,36 @@ export async function listNotifications(
 ): Promise<Notification[]> {
   await ensureTable();
   const client = getDbExec();
+  if (
+    options.beforeId !== undefined &&
+    (!options.before ||
+      options.beforeId.length === 0 ||
+      !Number.isFinite(new Date(options.before).getTime()))
+  ) {
+    throw new Error(
+      "A notification beforeId cursor requires a valid before and a nonempty ID.",
+    );
+  }
   const limit = normalizeLimit(options.limit);
   const args: Array<string | number> = [owner];
   let where = `owner = ?`;
+  if (options.archivedOnly) where += ` AND archived_at IS NOT NULL`;
+  else if (!options.includeArchived) where += ` AND archived_at IS NULL`;
   if (options.unreadOnly) where += ` AND read_at IS NULL`;
   if (options.before) {
-    where += ` AND created_at < ?`;
-    args.push(new Date(options.before).getTime());
+    const timestamp = new Date(options.before).getTime();
+    if (options.beforeId) {
+      where += ` AND (created_at < ? OR (created_at = ? AND id < ?))`;
+      args.push(timestamp, timestamp, options.beforeId);
+    } else {
+      where += ` AND created_at < ?`;
+      args.push(timestamp);
+    }
   }
   args.push(limit);
+  // raw-sql-ok: where is built only from literal clauses; every value is bound
   const { rows } = await client.execute({
-    sql: `SELECT * FROM notifications WHERE ${where} ORDER BY created_at DESC LIMIT ?`,
+    sql: `SELECT * FROM notifications WHERE ${where} ORDER BY created_at DESC, id DESC LIMIT ?`,
     args,
   });
   return rows.map((r) => parseRow(r as Record<string, unknown>));
@@ -417,8 +474,10 @@ export async function listNotifications(
 export async function countUnread(owner: string): Promise<number> {
   await ensureTable();
   const client = getDbExec();
+  // An archived notification was filed away, so it is not something the badge
+  // should still be asking about.
   const { rows } = await client.execute({
-    sql: `SELECT COUNT(*) as c FROM notifications WHERE owner = ? AND read_at IS NULL`,
+    sql: `SELECT COUNT(*) as c FROM notifications WHERE owner = ? AND read_at IS NULL AND archived_at IS NULL`,
     args: [owner],
   });
   return Number(rows[0]?.c ?? 0);
@@ -448,6 +507,59 @@ export async function markAllNotificationsRead(owner: string): Promise<number> {
   const res = await client.execute({
     sql: `UPDATE notifications SET read_at = ? WHERE owner = ? AND read_at IS NULL`,
     args: [now, owner],
+  });
+  const count = (res as unknown as { rowsAffected?: number }).rowsAffected ?? 0;
+  if (count > 0) bumpPoll(owner);
+  return count;
+}
+
+export type NotificationArchiveScope = "all" | "unread" | "read";
+
+/**
+ * File one notification away, or bring it back. The write is owner-scoped and
+ * returns the new state so a caller can show what it wrote instead of assuming
+ * it landed.
+ */
+export async function setNotificationArchived(
+  id: string,
+  owner: string,
+  archived: boolean,
+): Promise<Notification | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = archived ? Date.now() : null;
+  const res = await client.execute({
+    sql: `UPDATE notifications SET archived_at = ? WHERE id = ? AND owner = ?`,
+    args: [now, id, owner],
+  });
+  if (res.rowsAffected === 0) return null;
+  bumpPoll(owner);
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM notifications WHERE id = ? AND owner = ? LIMIT 1`,
+    args: [id, owner],
+  });
+  return rows[0] ? parseRow(rows[0]) : null;
+}
+
+/**
+ * Archive every notification of one scope at once (the inbox menu's "Archive
+ * all", "Archive unread" and "Archive read"). Rows already archived are left
+ * alone, and the count is what this call actually changed.
+ */
+export async function archiveNotifications(
+  owner: string,
+  scope: NotificationArchiveScope,
+): Promise<number> {
+  await ensureTable();
+  const client = getDbExec();
+  const args: Array<string | number> = [Date.now(), owner];
+  let where = `owner = ? AND archived_at IS NULL`;
+  if (scope === "unread") where += ` AND read_at IS NULL`;
+  if (scope === "read") where += ` AND read_at IS NOT NULL`;
+  // raw-sql-ok: where is built only from literal clauses; every value is bound
+  const res = await client.execute({
+    sql: `UPDATE notifications SET archived_at = ? WHERE ${where}`,
+    args,
   });
   const count = (res as unknown as { rowsAffected?: number }).rowsAffected ?? 0;
   if (count > 0) bumpPoll(owner);

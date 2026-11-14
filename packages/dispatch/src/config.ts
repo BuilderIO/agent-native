@@ -1,5 +1,6 @@
 export interface DispatchAuthConfig {
   googleOnly?: boolean;
+  workspaceAppPublicPaths?: string[];
   marketing?: Record<string, unknown>;
   publicPaths?: string[];
 }

@@ -30,6 +30,22 @@ describe("server/request-context", () => {
     vi.unstubAllEnvs();
   });
 
+  it("records context access without invoking an identity accessor", () => {
+    runWithRequestContext({ userEmail: "alice@example.test" }, () => {
+      const captured = getRequestContext();
+      if (!captured) throw new Error("missing fixture context");
+      const getter = vi.fn(() => "alice@example.test");
+      Object.defineProperty(captured, "userEmail", {
+        configurable: true,
+        get: getter,
+      });
+      captured.authContextAccessed = false;
+      expect(getRequestContext()).toBe(captured);
+      expect(getter).not.toHaveBeenCalled();
+      expect(captured.authContextAccessed).toBe(true);
+    });
+  });
+
   describe("getRequestUserEmail", () => {
     it("returns the per-request userEmail when a context is set", () => {
       runWithRequestContext({ userEmail: "alice@example.com" }, () => {

@@ -4,6 +4,7 @@ import { createRequestHandler } from "react-router";
 import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SPECULATION_RULES_PATH,
   parseSsrMaxAge,
   resolveChunkRecoveryCacheHeaders,
@@ -387,6 +388,15 @@ function applyDefaultSsrCacheHeader(
   for (const [name, value] of Object.entries(cacheHeaders)) {
     headers.set(name, value);
   }
+  // A deployment invalidates the CDN, but cannot invalidate a browser's
+  // week-long stale shell. Revalidate workspace HTML and route data at the CDN;
+  // configured durations continue to control the CDN window.
+  if (
+    getAppConfig().workspace.isWorkspace === true &&
+    !/\b(?:no-store|private)\b/i.test(cacheHeaders["cache-control"])
+  ) {
+    headers.set("cache-control", CHUNK_RECOVERY_BROWSER_CACHE_CONTROL);
+  }
   const cacheKeyHeaders = resolveSsrCacheKeyHeaders(undefined, {
     varyByQuery,
     varyByLegacyRecovery: isLegacyRecovery,
@@ -467,7 +477,11 @@ async function rewriteMountedResponse(
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
       getAppOriginClientConfigScript(),
-      pathname === "/"
+      pathname === "/" &&
+      !(
+        getAppConfig().workspace.isWorkspace === true &&
+        getAppConfig().workspace.authMode === "shared"
+      )
         ? getSsrAuthRedirectScript(
             frameworkSessionHintCookieName(
               resolveAuthCookieNamespace().frameworkCookieName,

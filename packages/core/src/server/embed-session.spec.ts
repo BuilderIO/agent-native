@@ -60,6 +60,121 @@ import { getRequestContext, runWithRequestContext } from "./request-context.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
+describe("workspace host chat ticket lifecycle", () => {
+  beforeEach(async () => {
+    process.env = {
+      ...ORIGINAL_ENV,
+      OAUTH_STATE_SECRET: "host-chat-test-secret",
+    };
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+    dbExec.execute.mockReset().mockResolvedValue({ rows: [], rowsAffected: 1 });
+    await embedSessionsStore.ready();
+    dbExec.transaction
+      .mockReset()
+      .mockImplementation(async (run) => run(dbExec));
+    installTicketStore();
+  });
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+  const input = () => ({
+    ownerEmail: "owner@example.com",
+    orgId: "workspace",
+    targetPath: "/",
+    scope: "capability:workspace-app-chat",
+    revocationAnchorCreatedAtMs: Date.now() - 1000,
+  });
+  it("rejects another owner and organization even with generic mismatch permission", async () => {
+    const ticket = await createEmbedSessionTicket(input());
+    expect(
+      await consumeEmbedSessionTicket(ticket.ticket, {
+        expectedOwnerEmail: "other@example.com",
+        allowCapabilityIdentityMismatch: true,
+      }),
+    ).toBeNull();
+    expect(
+      await consumeEmbedSessionTicket(ticket.ticket, {
+        expectedOrgId: "other-workspace",
+        allowCapabilityIdentityMismatch: true,
+      }),
+    ).toBeNull();
+    expect(
+      await consumeEmbedSessionTicket(ticket.ticket, {
+        expectedOrgId: null,
+        allowCapabilityIdentityMismatch: true,
+      }),
+    ).toBeNull();
+    expect(
+      await consumeEmbedSessionTicket(ticket.ticket, {
+        expectedOwnerEmail: "owner@example.com",
+        expectedOrgId: "workspace",
+      }),
+    ).not.toBeNull();
+    expect(await consumeEmbedSessionTicket(ticket.ticket)).toBeNull();
+  });
+  it("preserves document redemption when a signed-in owners active organization differs", async () => {
+    const ticket = await createEmbedSessionTicket({
+      ...input(),
+      scope: "minimal",
+    });
+    const event = new H3Event(
+      new Request(
+        `https://content.example.test/_agent-native/embed/start?ticket=${ticket.ticket}`,
+      ),
+    );
+    const response = await createEmbedStartRouteHandler({
+      getExistingSession: async () => ({
+        email: "owner@example.com",
+        orgId: "different-active-workspace",
+      }),
+    })(event);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).not.toBeNull();
+  });
+  it("rejects pre-logout tickets and credentials minted after logout", async () => {
+    const ticket = await createEmbedSessionTicket(input());
+    const execute = dbExec.execute.getMockImplementation()!;
+    dbExec.execute.mockImplementation(async (query) =>
+      query.sql.includes("SELECT revoked_before")
+        ? { rows: [{ revoked_before: Date.now() + 1 }], rowsAffected: 0 }
+        : execute(query),
+    );
+    expect(await consumeEmbedSessionTicket(ticket.ticket)).toBeNull();
+    await expect(createEmbedSessionTicket(input())).rejects.toThrow(
+      /revoked by logout/,
+    );
+  });
+  // Audit 18:01 explicitly rejects the old browser redirect expectation.
+  it("never delivers a chat credential via a browser redirect or cookie", async () => {
+    const ticket = await createEmbedSessionTicket(input());
+    const event = new H3Event(
+      new Request(
+        `https://content.example.test/_agent-native/embed/start?ticket=${ticket.ticket}`,
+      ),
+    );
+    const response = await createEmbedStartRouteHandler({
+      getExistingSession: async () => ({
+        email: "owner@example.com",
+        orgId: "workspace",
+      }),
+    })(event);
+    expect(response.status).toBe(401);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(await response.text()).not.toContain("agent_native_embed_token");
+  });
+  it("refuses unbound chat ticket redemption", async () => {
+    const ticket = await createEmbedSessionTicket(input());
+    expect(await consumeEmbedSessionTicket(ticket.ticket)).toBeNull();
+    expect(
+      await consumeEmbedSessionTicket(ticket.ticket, {
+        expectedOrgId: "workspace",
+      }),
+    ).toBeNull();
+  });
+});
+
 function ticketAudienceFixture(
   audienceHost = "https://content.example.test",
   audienceBasePath = "",

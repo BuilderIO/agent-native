@@ -1,10 +1,32 @@
 import { describe, expect, it } from "vitest";
 
-import { NATIVE_AUTH_COPY, resolveNativeAuthCopy } from "./auth-copy.js";
+import {
+  NATIVE_AUTH_COPY,
+  resolveNativeAuthCopy,
+  signupDomainNotAllowedMessage,
+} from "./auth-copy.js";
 
 const LOCALES = Object.keys(NATIVE_AUTH_COPY) as Array<
   keyof typeof NATIVE_AUTH_COPY
 >;
+
+describe("signup domain refusal copy", () => {
+  it("names the admitted domains instead of a generic failure", () => {
+    expect(signupDomainNotAllowedMessage(["builder.io"])).toBe(
+      "This workspace only admits @builder.io accounts. Sign in with one of those addresses.",
+    );
+  });
+
+  it("lists every allowed domain", () => {
+    expect(signupDomainNotAllowedMessage(["builder.io", "Builder.test"])).toBe(
+      "This workspace only admits @builder.io, @builder.test accounts. Sign in with one of those addresses.",
+    );
+  });
+
+  it("falls back rather than claiming an empty allow-list", () => {
+    expect(signupDomainNotAllowedMessage([])).not.toMatch(/only admits/);
+  });
+});
 
 describe("native auth copy", () => {
   it("keeps account creation discoverable from the entry subtitle", () => {

@@ -136,6 +136,7 @@ function orgCredentialSettingKey(orgId: string, key: string): string {
 
 async function readCredentialSetting(
   settingKey: string,
+  strictRef?: { scope: CredentialStorageScope; scopeId: string },
 ): Promise<string | undefined> {
   const setting = await getSetting(settingKey);
   if (!setting || typeof setting.value !== "string") return undefined;
@@ -144,8 +145,9 @@ async function readCredentialSetting(
   try {
     return decryptSecretValue(stored);
   } catch {
-    // Key rotated, corrupt, or tampered row — treat as not set rather than
-    // surfacing ciphertext or throwing into every credential lookup.
+    // Strict callers opted in to a typed unreadable distinction; the default
+    // path keeps treating a rotated/corrupt/tampered row as not set.
+    if (strictRef) throw new AppSecretDecryptionError(strictRef);
     return undefined;
   }
 }
@@ -172,14 +174,33 @@ async function readScopedAppSecret(
  */
 export async function resolveCredentialForScope(
   key: string,
-  ctx: CredentialContext & { scope: CredentialStorageScope },
+  ctx: CredentialContext & {
+    scope: CredentialStorageScope;
+    /**
+     * Strict opt-in for this exact scoped read. When `true`, an encrypted row
+     * whose decryption fails throws `AppSecretDecryptionError` instead of
+     * collapsing to `undefined`. Missing/non-string/plaintext rows are
+     * unchanged. Defaults to `false`.
+     */
+    throwOnUnreadable?: boolean;
+  },
 ): Promise<string | undefined> {
   if (!ctx?.userEmail) return undefined;
   if (ctx.scope === "org") {
     if (!ctx.orgId) return undefined;
-    return readCredentialSetting(orgCredentialSettingKey(ctx.orgId, key));
+    return readCredentialSetting(
+      orgCredentialSettingKey(ctx.orgId, key),
+      ctx.throwOnUnreadable === true
+        ? { scope: "org", scopeId: ctx.orgId }
+        : undefined,
+    );
   }
-  return readCredentialSetting(userCredentialSettingKey(ctx.userEmail, key));
+  return readCredentialSetting(
+    userCredentialSettingKey(ctx.userEmail, key),
+    ctx.throwOnUnreadable === true
+      ? { scope: "user", scopeId: ctx.userEmail.toLowerCase() }
+      : undefined,
+  );
 }
 
 /**

@@ -1225,7 +1225,15 @@ export interface UpdateThreadInput extends ThreadIdInput {
 }
 
 export interface ForkThreadInput extends ThreadIdInput {
+  /** Retain this message and everything preceding it. */
   fromMessageId?: string;
+  /**
+   * Retain only messages preceding this message; excludes the boundary itself.
+   * Derived state requires retained event provenance or an explicit message/run
+   * binding. Unscoped snapshots without that provenance are omitted.
+   */
+  beforeMessageId?: string;
+  forkPurpose?: "edit";
   title?: string;
   metadata?: AgentProtocolMetadata;
 }

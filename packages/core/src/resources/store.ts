@@ -29,6 +29,7 @@ import {
   type LocalWorkspaceResourceMeta,
 } from "../local-artifacts/index.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -1647,6 +1648,314 @@ function rowToMeta(row: any): ResourceMeta {
 function resourceToMeta(resource: Resource): ResourceMeta {
   const { content: _content, ...meta } = resource;
   return meta;
+}
+
+export class McpResourceLookupError extends Error {
+  constructor(
+    readonly code:
+      | "workspace_unavailable"
+      | "skill_unavailable"
+      | "shared_unavailable"
+      | "resource_too_large"
+      | "skill_denied",
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Read-only scoped lookup for a caller already verified by its MCP transport.
+ * It intentionally does not initialize the store, seed defaults, or clean up.
+ * Workspace inheritance needs a separate grant-aware reader and is refused.
+ */
+async function lookupScopedResourceForMcp(
+  input: {
+    scope: "personal" | "shared" | "workspace";
+    path: string;
+    signal?: AbortSignal | undefined;
+  },
+  allowSkill = false,
+): Promise<Resource | null> {
+  input.signal?.throwIfAborted();
+  const context = getRequestContext();
+  const email = context?.userEmail?.trim();
+  if (!context || !email)
+    throw new Error("An authenticated request context is required");
+  if (input.scope === "workspace")
+    throw new McpResourceLookupError(
+      "workspace_unavailable",
+      "Workspace resource lookup is unavailable",
+    );
+  const requestedScope: unknown = input.scope;
+  if (requestedScope !== "personal" && requestedScope !== "shared")
+    throw new Error("Invalid resource scope");
+  const path = input.path;
+  if (
+    typeof path !== "string" ||
+    !path ||
+    path.startsWith("/") ||
+    path.includes("\\") ||
+    path.split("/").some((part) => !part || part === "." || part === "..") ||
+    /[\x00-\x1f\x7f]/.test(path)
+  ) {
+    throw new Error("Invalid resource path");
+  }
+  if (!allowSkill && path.toLowerCase().split("/").includes("skills")) {
+    throw new McpResourceLookupError(
+      "skill_unavailable",
+      "Skill lookup requires a Lab access check",
+    );
+  }
+  const orgId =
+    context.orgScope === "personal" ? null : (context.orgId ?? null);
+  if (input.scope === "shared" && !orgId) {
+    throw new McpResourceLookupError(
+      "shared_unavailable",
+      "Shared resource lookup requires an organization",
+    );
+  }
+  const owner = input.scope === "personal" ? email : sharedResourceOwner(orgId);
+  const owners = [owner];
+  // raw-sql-ok: interpolates a constant column list and a ? placeholder list
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT ${RESOURCE_META_SELECT}, substr(content, 1, 65537) AS content, CASE WHEN content = substr(content, 1, 65537) THEN 1 ELSE 0 END AS content_complete FROM resources WHERE owner IN (${owners.map(() => "?").join(", ")}) AND path = ? AND (visibility IS NULL OR visibility != 'agent_scratch')`,
+    args: [...owners, path],
+  });
+  input.signal?.throwIfAborted();
+  const candidates = rows
+    .map((row) => ({
+      resource: rowToResource(row),
+      complete: row.content_complete,
+    }))
+    .filter(
+      ({ resource }) =>
+        owners.includes(resource.owner) &&
+        resource.path === path &&
+        resource.visibility !== "agent_scratch" &&
+        isLegacySharedResourceVisibleToOrganization(resource, orgId),
+    );
+  const selected = candidates.find(({ resource }) => resource.owner === owner);
+  const resource = selected?.resource ?? null;
+  if (
+    resource &&
+    ((selected?.complete !== 1 && selected?.complete !== "1") ||
+      typeof resource.content !== "string" ||
+      Buffer.byteLength(resource.content, "utf8") > 65_536)
+  ) {
+    throw new McpResourceLookupError(
+      "resource_too_large",
+      "Resource content is unavailable or exceeds the lookup limit",
+    );
+  }
+  return resource;
+}
+
+export function readScopedResourceForMcp(input: {
+  scope: "personal" | "shared" | "workspace";
+  path: string;
+  signal?: AbortSignal;
+}): Promise<Resource | null> {
+  return lookupScopedResourceForMcp(input);
+}
+
+export async function scopedResourceExistsForMcp(input: {
+  scope: "personal" | "shared" | "workspace";
+  path: string;
+  signal?: AbortSignal;
+}): Promise<boolean> {
+  return (await lookupScopedResourceForMcp(input)) !== null;
+}
+
+type McpSkillIdentity = import("../mcp/build-server.js").MCPCallerIdentity;
+
+function assertMcpSkillIdentity(
+  identity: McpSkillIdentity | undefined,
+): asserts identity is McpSkillIdentity & { userEmail: string } {
+  const context = getRequestContext();
+  if (
+    !identity ||
+    identity.identityAssurance !== "user" ||
+    !identity.userEmail ||
+    identity.userEmail !== context?.userEmail ||
+    (identity.orgId === null
+      ? context.orgScope !== "personal" || context.orgId != null
+      : typeof identity.orgId !== "string" ||
+        !identity.orgId.trim() ||
+        context.orgScope === "personal" ||
+        identity.orgId !== context.orgId)
+  ) {
+    throw new Error("Verified MCP user context required");
+  }
+}
+
+/** Skill access is only for an already verified MCP caller; Lab policy is rechecked per read. */
+export async function readScopedSkillForMcp(input: {
+  identity: McpSkillIdentity | undefined;
+  scope: "personal" | "shared";
+  path: string;
+  signal?: AbortSignal | undefined;
+}): Promise<Resource> {
+  input.signal?.throwIfAborted();
+  assertMcpSkillIdentity(input.identity);
+  const match = /^skills\/([a-zA-Z0-9_-]+)(?:\/(.+)|\.md)$/.exec(input.path);
+  if (!match || !match[1]) throw new Error("Unsupported skill path");
+  const manifestPath =
+    input.path.endsWith(".md") && !match[2]
+      ? input.path
+      : `skills/${match[1]}/SKILL.md`;
+  const manifest = await lookupScopedResourceForMcp(
+    { scope: input.scope, path: manifestPath, signal: input.signal },
+    true,
+  );
+  if (!manifest) throw new Error("Skill manifest unavailable");
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(
+    manifest.content,
+  );
+  const frontmatterBody: string | undefined = frontmatter?.[1];
+  if (frontmatterBody === undefined)
+    throw new Error("Invalid skill frontmatter");
+  const labLines = frontmatterBody
+    .split("\n")
+    .filter((line) => /requires-lab/i.test(line));
+  if (
+    labLines.length > 1 ||
+    labLines.some(
+      (line) => !/^requires-lab:\s*[a-zA-Z0-9_.-]+\s*\r?$/.test(line),
+    )
+  )
+    throw new Error("Invalid skill frontmatter Lab requirement");
+  const { parseSkillFrontmatter, isRuntimeVisibleScope } =
+    await import("../server/agent-chat/skill-frontmatter.js");
+  const meta = parseSkillFrontmatter(manifest.content);
+  if (!meta.name?.trim() || !meta.description?.trim())
+    throw new Error(
+      "Invalid skill frontmatter: name and description are required",
+    );
+  if (meta.userInvocable === false || !isRuntimeVisibleScope(meta.scope))
+    throw new McpResourceLookupError("skill_denied", "Skill not available");
+  if (meta.requiresLab) {
+    const { getMcpSkillLabEnabled } = await import("../labs/mcp-skill-lab.js");
+    input.signal?.throwIfAborted();
+    const enabled = await getMcpSkillLabEnabled(
+      input.identity,
+      meta.requiresLab,
+    );
+    input.signal?.throwIfAborted();
+    if (!enabled)
+      throw new McpResourceLookupError(
+        "skill_denied",
+        "Skill Lab access denied",
+      );
+  }
+  if (input.path === manifestPath) return manifest;
+  const resource = await lookupScopedResourceForMcp(
+    { scope: input.scope, path: input.path, signal: input.signal },
+    true,
+  );
+  if (!resource || resource.owner !== manifest.owner)
+    throw new Error("Skill resource unavailable");
+  const currentManifest = await lookupScopedResourceForMcp(
+    { scope: input.scope, path: manifestPath, signal: input.signal },
+    true,
+  );
+  if (
+    !currentManifest ||
+    currentManifest.id !== manifest.id ||
+    currentManifest.owner !== manifest.owner ||
+    currentManifest.content !== manifest.content
+  )
+    throw new Error("Skill manifest changed during read");
+  if (meta.requiresLab) {
+    const { getMcpSkillLabEnabled } = await import("../labs/mcp-skill-lab.js");
+    input.signal?.throwIfAborted();
+    const enabled = await getMcpSkillLabEnabled(
+      input.identity,
+      meta.requiresLab,
+    );
+    input.signal?.throwIfAborted();
+    if (!enabled)
+      throw new McpResourceLookupError(
+        "skill_denied",
+        "Skill Lab access denied",
+      );
+  }
+  return resource;
+}
+
+/** Lists a bounded set of same-owner skills after the same read and Lab checks. */
+export async function listScopedSkillsForMcp(input: {
+  identity: McpSkillIdentity | undefined;
+  scope: "personal" | "shared";
+  signal?: AbortSignal;
+}): Promise<Array<{ name: string; description: string; path: string }>> {
+  input.signal?.throwIfAborted();
+  assertMcpSkillIdentity(input.identity);
+  const context = getRequestContext();
+  if (!context) throw new Error("Verified MCP user context required");
+  const orgId =
+    context.orgScope === "personal" ? null : (context.orgId ?? null);
+  if (input.scope === "shared" && !orgId)
+    throw new McpResourceLookupError(
+      "shared_unavailable",
+      "Shared resource lookup requires an organization",
+    );
+  const requestedScope: unknown = input.scope;
+  if (requestedScope !== "personal" && requestedScope !== "shared")
+    throw new Error("Invalid resource scope");
+  const owner =
+    input.scope === "personal"
+      ? input.identity.userEmail.trim()
+      : sharedResourceOwner(orgId);
+  const { rows } = await getDbExec().execute({
+    sql: "SELECT owner, path FROM resources WHERE owner = ? AND ((path LIKE 'skills/%.md' AND path NOT LIKE 'skills/%/%') OR (path LIKE 'skills/%/SKILL.md' AND path NOT LIKE 'skills/%/%/%')) AND (visibility IS NULL OR visibility != 'agent_scratch') ORDER BY path LIMIT 25",
+    args: [owner],
+  });
+  input.signal?.throwIfAborted();
+  if (rows.length > 24)
+    throw new McpResourceLookupError(
+      "resource_too_large",
+      "Skill discovery exceeds the lookup limit",
+    );
+  const { parseSkillFrontmatter } =
+    await import("../server/agent-chat/skill-frontmatter.js");
+  const results: Array<{ name: string; description: string; path: string }> =
+    [];
+  for (const row of rows) {
+    input.signal?.throwIfAborted();
+    if (
+      row.owner !== owner ||
+      typeof row.path !== "string" ||
+      !/^skills\/(?:[a-zA-Z0-9_-]+\/SKILL\.md|[a-zA-Z0-9_-]+\.md)$/.test(
+        row.path,
+      )
+    )
+      continue;
+    let resource: Resource;
+    try {
+      resource = await readScopedSkillForMcp({
+        identity: input.identity,
+        scope: input.scope,
+        path: row.path,
+        signal: input.signal,
+      });
+    } catch (error) {
+      if (
+        error instanceof McpResourceLookupError &&
+        error.code === "skill_denied"
+      )
+        continue;
+      throw error;
+    }
+    const meta = parseSkillFrontmatter(resource.content);
+    if (!meta.name?.trim() || !meta.description?.trim()) continue;
+    results.push({
+      name: meta.name.slice(0, 160),
+      description: meta.description.slice(0, 400),
+      path: row.path,
+    });
+  }
+  return results;
 }
 
 export async function resourceGet(

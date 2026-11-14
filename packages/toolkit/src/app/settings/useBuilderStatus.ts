@@ -2,7 +2,10 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { injectedAgentNativeAppId } from "@agent-native/core/client/app-config";
 import { getCallbackOrigin } from "@agent-native/core/client/frame";
-import { scheduleAfterPaint } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  scheduleAfterPaint,
+} from "@agent-native/core/client/hooks";
 import { usePollLoop } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openMcpAppHostLink } from "@agent-native/core/client/mcp-app-host";
@@ -47,6 +50,7 @@ export type BuilderEffectiveConnection =
 
 export interface BuilderStatus {
   configured: boolean;
+  builderReauthorizationRequired?: boolean;
   /**
    * The caller's stored Builder.io connections, org and personal each read on
    * its own. `{}` means none exist; `null` means the server could not read
@@ -286,6 +290,7 @@ export interface BuilderConnectFlow {
   accountExists: boolean;
   hasFetchedStatus: boolean;
   start: (options?: BuilderConnectStartOptions) => void;
+  disconnect?: (scope: BuilderConnectionScope) => Promise<void>;
   cancel: () => void;
   retry: () => boolean;
 }
@@ -485,8 +490,10 @@ function createBuilderConnectAttemptId(): string {
 function isCurrentConnectError(
   error: { message: string; at: number } | undefined,
   startedAt: number | null,
+  reauthorizationRequired = false,
 ): error is { message: string; at: number } {
-  if (!error?.message) return false;
+  // An expired existing grant is status, not a failure of the new callback.
+  if (reauthorizationRequired || !error?.message) return false;
   if (!startedAt) return true;
   return typeof error.at !== "number" || error.at >= startedAt - 1000;
 }
@@ -846,6 +853,8 @@ export function useBuilderConnectFlow(
   );
   // Mirrors `connections` so start() can record the target grant as it was at
   // click time without re-creating the callback on every status read.
+  const disconnectPendingRef = useRef(false);
+  const connectionMutationRevisionRef = useRef(0);
   const connectionsRef = useRef<BuilderConnectionsState>(
     NO_BUILDER_CONNECTIONS,
   );
@@ -1047,6 +1056,7 @@ export function useBuilderConnectFlow(
           | "grants"
           | "effective"
           | "canConnect"
+          | "builderReauthorizationRequired"
           | "connectError"
           | "authError"
           | "privateKeyConfigured"
@@ -1097,7 +1107,11 @@ export function useBuilderConnectFlow(
       const errorRevisionAtStart = errorRevisionRef.current;
       const attemptIdAtStart = connectAttemptIdRef.current;
       const generation = ++refreshGeneration;
-      const isCurrentRefresh = () => generation === refreshGeneration;
+      const mutationRevision = connectionMutationRevisionRef.current;
+      const isCurrentRefresh = () =>
+        generation === refreshGeneration &&
+        !disconnectPendingRef.current &&
+        mutationRevision === connectionMutationRevisionRef.current;
       const s = await fetchStatus();
       const blocked = blockedLaunchRef.current;
       const sameBlockedLaunch =
@@ -1169,10 +1183,20 @@ export function useBuilderConnectFlow(
       if (errorRevisionRef.current === errorRevisionAtStart) {
         const activeConnectStartedAt = connectStartedAtRef.current;
         if (
+          !activeConnectStartedAt &&
+          s.builderReauthorizationRequired &&
+          s.connectError?.message
+        ) {
+          setError(s.connectError.message);
+        } else if (
           (!connectAttemptIdRef.current ||
             cancelledConnectAttemptIdRef.current !==
               connectAttemptIdRef.current) &&
-          isCurrentConnectError(s.connectError, activeConnectStartedAt)
+          isCurrentConnectError(
+            s.connectError,
+            activeConnectStartedAt,
+            s.builderReauthorizationRequired,
+          )
         ) {
           setError(s.connectError.message);
         } else if (!activeConnectStartedAt && s.authError?.message) {
@@ -1282,6 +1306,12 @@ export function useBuilderConnectFlow(
   const start = useCallback(
     (startOptions?: BuilderConnectStartOptions) => {
       if (!enabled) return;
+      if (disconnectPendingRef.current) {
+        setError(
+          "Disconnect is still in progress. Try connecting again when it finishes.",
+        );
+        return;
+      }
       const started = Date.now();
       const previousAttemptId = connectAttemptIdRef.current;
       const connectAttemptId = createBuilderConnectAttemptId();
@@ -1870,7 +1900,11 @@ export function useBuilderConnectFlow(
         }
       } else if (
         cancelledConnectAttemptIdRef.current !== attemptId &&
-        isCurrentConnectError(s?.connectError, started)
+        isCurrentConnectError(
+          s?.connectError,
+          started,
+          s?.builderReauthorizationRequired,
+        )
       ) {
         connectStartedAtRef.current = null;
         setConnecting(false);
@@ -2028,7 +2062,11 @@ export function useBuilderConnectFlow(
           if (
             (s && isBuilderConnectComplete(s, connectTargetRef.current)) ||
             (cancelledConnectAttemptIdRef.current !== attemptId &&
-              isCurrentConnectError(s?.connectError, started))
+              isCurrentConnectError(
+                s?.connectError,
+                started,
+                s?.builderReauthorizationRequired,
+              ))
           ) {
             break;
           }
@@ -2071,7 +2109,11 @@ export function useBuilderConnectFlow(
       if (!isBuilderConnectComplete(s, connectTargetRef.current)) {
         const connectError =
           cancelledConnectAttemptIdRef.current !== attemptId &&
-          isCurrentConnectError(s.connectError, started)
+          isCurrentConnectError(
+            s.connectError,
+            started,
+            s.builderReauthorizationRequired,
+          )
             ? s.connectError
             : null;
         setHasFetchedStatus(true);
@@ -2193,6 +2235,43 @@ export function useBuilderConnectFlow(
     };
   }, [fetchStatus, markStatusAvailable, notifyProvisionedAccount, setError]);
 
+  const disconnect = async (scope: BuilderConnectionScope) => {
+    if (disconnectPendingRef.current)
+      throw new Error("A Builder disconnect is already in progress");
+    disconnectPendingRef.current = true;
+    ++connectionMutationRevisionRef.current;
+    const previous = connectionsRef.current;
+    const previousConfigured = configured;
+    const previousOrgName = orgName;
+    const grants = { ...previous.grants };
+    delete grants[scope];
+    const effective = previous.effective === scope ? null : previous.effective;
+    setConnections({ ...previous, grants, effective });
+    if (!effective) {
+      setConfigured(false);
+      setOrgName(null);
+    }
+    try {
+      const result = await callAction<{ disconnected: BuilderConnectionScope }>(
+        "manage-builder-connection",
+        { disconnect: scope },
+      );
+      if (result.disconnected !== scope)
+        throw new Error("Disconnect did not confirm success");
+      setError(null);
+      disconnectPendingRef.current = false;
+      notifyAgentEngineConfiguredChanged("builder-disconnect");
+    } catch (error) {
+      setConnections(previous);
+      setConfigured(previousConfigured);
+      setOrgName(previousOrgName);
+      setError(error instanceof Error ? error.message : "Disconnect failed");
+      throw error;
+    } finally {
+      disconnectPendingRef.current = false;
+    }
+  };
+
   const statusReadIsCurrent =
     statusUnavailableRevision !== null &&
     statusUnavailableRevision > (errorState?.revision ?? 0);
@@ -2207,6 +2286,7 @@ export function useBuilderConnectFlow(
     envManaged,
     credentialSource,
     canDisconnect,
+    disconnect,
     grants: connections.grants,
     effective: connections.effective,
     canConnect: connections.canConnect,

@@ -38,6 +38,7 @@ import {
   subscribeToRun,
   type ActiveRun,
 } from "../agent/run-manager.js";
+import { threadMatchesRunApp } from "../agent/run-ownership.js";
 import {
   ensureRunTables,
   getRunEventsSince,
@@ -198,6 +199,7 @@ export interface AgentTask {
 }
 
 export interface AgentTeamOwnerScope {
+  sourceAppId?: string | null;
   ownerEmail: string | null;
   orgId?: string | null;
 }
@@ -3099,7 +3101,7 @@ export async function getTask(
   scope?: AgentTeamOwnerScope,
 ): Promise<AgentTask | undefined> {
   const task = await loadTask(taskId);
-  if (!task || !taskMatchesOwnerScope(task, resolveOwnerScope(scope))) {
+  if (!task || !(await taskMatchesOwnerScope(task, resolveOwnerScope(scope)))) {
     return undefined;
   }
   return await reconcileTaskForRead(task);
@@ -3110,7 +3112,7 @@ export async function getTaskByThread(
   scope?: AgentTeamOwnerScope,
 ): Promise<AgentTask | undefined> {
   const task = await loadTaskByThread(threadId);
-  if (!task || !taskMatchesOwnerScope(task, resolveOwnerScope(scope))) {
+  if (!task || !(await taskMatchesOwnerScope(task, resolveOwnerScope(scope)))) {
     return undefined;
   }
   return await reconcileTaskForRead(task);
@@ -3121,9 +3123,11 @@ export async function listTasks(
 ): Promise<AgentTask[]> {
   const ownerScope = resolveOwnerScope(scope);
   const entries = await listAppState(TASK_PREFIX);
-  const tasks = entries
-    .map((e) => e.value as unknown as AgentTask)
-    .filter((task) => taskMatchesOwnerScope(task, ownerScope));
+  const tasks: AgentTask[] = [];
+  for (const entry of entries) {
+    const task = entry.value as unknown as AgentTask;
+    if (await taskMatchesOwnerScope(task, ownerScope)) tasks.push(task);
+  }
   const reconciled = await Promise.all(tasks.map(reconcileTaskForRead));
   return reconciled.sort(
     (a, b) =>
@@ -3275,7 +3279,7 @@ export async function sendToTask(
   queuedCount?: number;
 }> {
   const task = await loadTask(taskId);
-  if (!task || !taskMatchesOwnerScope(task, resolveOwnerScope(scope))) {
+  if (!task || !(await taskMatchesOwnerScope(task, resolveOwnerScope(scope)))) {
     return { ok: false, error: "Task not found" };
   }
   if (task.status !== "running")
@@ -3377,7 +3381,7 @@ export async function stopAgentTeamBackgroundRun(
   let stoppedTask: AgentTask | null = null;
   for (let retry = 0; retry < 3 && !stoppedTask; retry += 1) {
     const task = await loadTask(taskId);
-    if (!task || !taskMatchesOwnerScope(task, ownerScope)) {
+    if (!task || !(await taskMatchesOwnerScope(task, ownerScope))) {
       return { ok: false, error: "Task not found" };
     }
     if (task.status !== "running") {
@@ -3408,7 +3412,7 @@ export async function stopAgentTeamBackgroundRun(
           const currentTask = await loadTask(taskId);
           if (
             currentTask &&
-            taskMatchesOwnerScope(currentTask, ownerScope) &&
+            (await taskMatchesOwnerScope(currentTask, ownerScope)) &&
             currentTask.status === "running"
           ) {
             const expectedTask = structuredClone(currentTask);
@@ -3449,7 +3453,7 @@ export async function stopAgentTeamBackgroundRun(
           const currentTask = await loadTask(taskId);
           if (
             !currentTask ||
-            !taskMatchesOwnerScope(currentTask, ownerScope) ||
+            !(await taskMatchesOwnerScope(currentTask, ownerScope)) ||
             currentTask.status !== "running" ||
             currentTask.stopRequestedAt !== requestedAt ||
             currentTask.stopRequestedRunId !== requestedRunId ||
@@ -3497,7 +3501,7 @@ export async function stopAgentTeamBackgroundRun(
     const currentTask = await loadTask(taskId);
     if (
       !currentTask ||
-      !taskMatchesOwnerScope(currentTask, ownerScope) ||
+      !(await taskMatchesOwnerScope(currentTask, ownerScope)) ||
       currentTask.status !== "running" ||
       currentTask.stopRequestedAt !== stopRequestedTask.stopRequestedAt ||
       currentTask.stopRequestedRunId !== stopRequestedTask.stopRequestedRunId ||
@@ -3542,12 +3546,18 @@ function resolveOwnerScope(
   };
 }
 
-function taskMatchesOwnerScope(
+async function taskMatchesOwnerScope(
   task: AgentTask,
   scope: AgentTeamOwnerScope | undefined,
-): boolean {
+): Promise<boolean> {
   if (!scope) return true;
   return (
+    (await threadMatchesRunApp(
+      task.threadId,
+      "sourceAppId" in scope
+        ? { sourceAppId: scope.sourceAppId ?? null }
+        : undefined,
+    )) &&
     (task.ownerEmail ?? null) === scope.ownerEmail &&
     (scope.orgId === undefined || (task.orgId ?? null) === scope.orgId)
   );
@@ -3568,7 +3578,7 @@ export async function markTaskErrored(
 
   for (let retry = 0; retry < 3; retry += 1) {
     const task = await loadTask(taskId);
-    if (!task || !taskMatchesOwnerScope(task, ownerScope)) return;
+    if (!task || !(await taskMatchesOwnerScope(task, ownerScope))) return;
     if (task.status !== "running") return;
 
     const dispatch = await getAgentTeamRunDispatchState(taskId);
@@ -3648,7 +3658,7 @@ export async function markTaskErrored(
           const currentTask = await loadTask(taskId);
           if (
             !currentTask ||
-            !taskMatchesOwnerScope(currentTask, ownerScope) ||
+            !(await taskMatchesOwnerScope(currentTask, ownerScope)) ||
             currentTask.status !== "running"
           ) {
             return { kind: "skip" as const };

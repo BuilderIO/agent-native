@@ -208,6 +208,8 @@ beforeEach(() => {
   delete process.env.GOOGLE_CLIENT_SECRET;
   delete process.env.NOTION_CLIENT_ID;
   delete process.env.NOTION_CLIENT_SECRET;
+  delete process.env.ZOOM_CLIENT_ID;
+  delete process.env.ZOOM_CLIENT_SECRET;
   delete process.env.SLACK_SIGNING_SECRET;
   delete process.env.SLACK_BOT_TOKEN;
   delete process.env.GITHUB_TOKEN;
@@ -622,9 +624,11 @@ describe("Builder credential auth failure markers", () => {
     expect(key).not.toContain("bpk-secret");
     expect(key).not.toContain("pub-secret");
     expect(value).toMatchObject({
-      message: "Invalid key",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
+      provider: "builder",
       status: 401,
-      code: "unauthorized",
+      code: "builder_auth_error",
       ownerEmail: null,
       orgId: null,
     });
@@ -646,9 +650,11 @@ describe("Builder credential auth failure markers", () => {
 
     expect(failure).toMatchObject({
       fingerprint: builderCredentialFingerprint("bpk-secret", "pub-secret"),
-      message: "Invalid key",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
+      provider: "builder",
       status: 401,
-      code: "unauthorized",
+      code: "builder_auth_error",
       at,
     });
     expect(mockGetSetting).toHaveBeenCalledWith(
@@ -774,7 +780,9 @@ describe("provider credential auth failure markers", () => {
     expect(key).not.toContain("sk-example-invalid");
     expect(value).toMatchObject({
       key: "OPENAI_API_KEY",
-      message: "401 status code (no body)",
+      message:
+        "The model provider rejected the saved API key. Update it in Settings.",
+      provider: "openai",
       status: 401,
       code: "http_401",
       ownerEmail: null,
@@ -805,7 +813,9 @@ describe("provider credential auth failure markers", () => {
     expect(failure).toMatchObject({
       fingerprint,
       key: "OPENAI_API_KEY",
-      message: "Invalid key",
+      message:
+        "The model provider rejected the saved API key. Update it in Settings.",
+      provider: "openai",
       status: 401,
       code: "http_401",
       at,
@@ -2299,6 +2309,31 @@ describe("resolveSecret (generic)", () => {
         resolveSecret("SLACK_SIGNING_SECRET"),
       ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
     });
+  });
+
+  it("uses app-provided meeting-recorder OAuth client env in a signed-in production shared-database request", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.ZOOM_CLIENT_ID = "recorder-deploy-client-id";
+    process.env.ZOOM_CLIENT_SECRET = "recorder-deploy-secret";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    // The connect flow asks for these two through resolveSecret; without them in
+    // the app-provided deploy list a hosted workspace answers "not configured"
+    // even though the pair is set on the deployment.
+    expect(await resolveSecret("ZOOM_CLIENT_ID")).toBe(
+      "recorder-deploy-client-id",
+    );
+    expect(await resolveSecret("ZOOM_CLIENT_SECRET")).toBe(
+      "recorder-deploy-secret",
+    );
+    expect(canUseDeployCredentialFallbackForRequest("ZOOM_CLIENT_ID")).toBe(
+      true,
+    );
+    expect(canUseDeployCredentialFallbackForRequest("ZOOM_CLIENT_SECRET")).toBe(
+      true,
+    );
   });
 
   it("uses app-provided Notion OAuth client env in a signed-in production shared-database request", async () => {

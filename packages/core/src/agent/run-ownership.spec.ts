@@ -123,4 +123,108 @@ describe("run-ownership", () => {
       expect(await callerHasRunAccess("b@x.com", "r1", "viewer")).toBe(true);
     });
   });
+
+  describe("local app scope", () => {
+    it.each(["app-b", null, "", " app-a "])(
+      "denies foreign or unattributed provenance %s",
+      async (appId) => {
+        hasThreadAccess.mockResolvedValue(true);
+        getThread.mockResolvedValue({
+          source: appId === null ? null : { appId },
+        });
+        expect(
+          await callerHasThreadAccess(
+            "a@x.com",
+            "t1",
+            "viewer",
+            {},
+            { sourceAppId: "app-a" },
+          ),
+        ).toBe(false);
+      },
+    );
+
+    it("preserves same-app role and organization checks", async () => {
+      getThread.mockResolvedValue({ source: { appId: "app-a" } });
+      hasThreadAccess.mockResolvedValue(true);
+      expect(
+        await callerHasThreadAccess(
+          "a@x.com",
+          "t1",
+          "editor",
+          { orgId: "org-a" },
+          { sourceAppId: "app-a" },
+        ),
+      ).toBe(true);
+      expect(hasThreadAccess).toHaveBeenLastCalledWith(
+        "a@x.com",
+        "t1",
+        "editor",
+        { orgId: "org-a" },
+      );
+      hasThreadAccess.mockResolvedValue(false);
+      expect(
+        await callerHasThreadAccess(
+          "a@x.com",
+          "t1",
+          "editor",
+          {},
+          { sourceAppId: "app-a" },
+        ),
+      ).toBe(false);
+    });
+
+    it.each([null, "", "   "])(
+      "denies missing trusted app %s",
+      async (sourceAppId) => {
+        hasThreadAccess.mockResolvedValue(true);
+        getThread.mockResolvedValue({ source: { appId: "app-a" } });
+        expect(
+          await callerHasThreadAccess(
+            "a@x.com",
+            "t1",
+            "viewer",
+            {},
+            { sourceAppId },
+          ),
+        ).toBe(false);
+      },
+    );
+
+    it("applies the app boundary to SQL and in-memory run resolution", async () => {
+      hasThreadAccess.mockResolvedValue(true);
+      getThread.mockResolvedValue({ source: { appId: "app-b" } });
+      getRun.mockReturnValue({ threadId: "t1" });
+      expect(
+        await callerHasRunAccess(
+          "a@x.com",
+          "r1",
+          "editor",
+          {},
+          { sourceAppId: "app-a" },
+        ),
+      ).toBe(false);
+      getRun.mockReturnValue(null);
+      getRunById.mockResolvedValue({ threadId: "t1" });
+      expect(
+        await callerHasRunAccess(
+          "a@x.com",
+          "r1",
+          "viewer",
+          {},
+          { sourceAppId: "app-a" },
+        ),
+      ).toBe(false);
+      getThread.mockResolvedValue({ source: { appId: "app-a" } });
+      expect(
+        await callerHasRunAccess(
+          "a@x.com",
+          "r1",
+          "viewer",
+          {},
+          { sourceAppId: "app-a" },
+        ),
+      ).toBe(true);
+    });
+  });
 });

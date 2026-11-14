@@ -20,6 +20,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import { signA2AToken, verifyA2AToken } from "@agent-native/core/a2a";
+import { getAppConfig } from "@agent-native/core/app-config";
 import { getDbExec } from "@agent-native/core/db";
 import {
   hasActiveFeatureFlagRollout,
@@ -487,6 +488,9 @@ export async function isBrowserIdentitySsoEnabledForEmail(
 
 export const organizationFederationHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
+    if (getAppConfig().auth.identitySsoExistingAccountsOnly) {
+      return jsonResponse({ error: "not_found" }, 404);
+    }
     if (getMethod(event) !== "POST") {
       return jsonResponse({ error: "Method not allowed" }, 405);
     }
@@ -1275,6 +1279,9 @@ async function redeemIdentityBootstrapContinuation(
 
 export const bootstrapHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
+    if (getAppConfig().auth.identitySsoExistingAccountsOnly) {
+      return jsonResponse({ error: "not_found" }, 404);
+    }
     const method = getMethod(event);
     let url: URL;
     try {
@@ -1419,6 +1426,9 @@ function resolveBootstrapReturnUrl(
 
 export const bootstrapActivationHandler = defineEventHandler(
   async (event: H3Event): Promise<Response> => {
+    if (getAppConfig().auth.identitySsoExistingAccountsOnly) {
+      return jsonResponse({ error: "not_found" }, 404);
+    }
     const method = getMethod(event);
     let url: URL;
     try {
@@ -1685,13 +1695,20 @@ export const authorizeHandler = defineEventHandler(
       );
     }
 
-    const hasFederationRollout = await hasActiveFeatureFlagRollout(
-      CROSS_APP_ORG_FEDERATION_FLAG.key,
-    ).catch((error) => {
-      // coercion-ok: unreadable rollout state must not add org claims.
-      void error;
-      return false;
-    });
+    const existingAccountsOnly =
+      getAppConfig().auth.identitySsoExistingAccountsOnly;
+    if (existingAccountsOnly && session.emailVerified !== true) {
+      return jsonResponse({ error: "access_denied" }, 403);
+    }
+    const hasFederationRollout =
+      !existingAccountsOnly &&
+      (await hasActiveFeatureFlagRollout(
+        CROSS_APP_ORG_FEDERATION_FLAG.key,
+      ).catch((error) => {
+        // coercion-ok: unreadable rollout state must not add org claims.
+        void error;
+        return false;
+      }));
     const localOrg = hasFederationRollout
       ? await getOrgContext(event).catch((error) => {
           // coercion-ok: malformed or unreadable local org state omits org
@@ -1726,7 +1743,9 @@ export const authorizeHandler = defineEventHandler(
         codeChallenge: safeCodeChallenge,
         email: session.email,
         name: session.name,
-        orgDomain: await resolveOrgDomain(federatedOrg?.orgId ?? session.orgId),
+        orgDomain: existingAccountsOnly
+          ? null
+          : await resolveOrgDomain(federatedOrg?.orgId ?? session.orgId),
         ...(federatedOrg?.orgId
           ? {
               orgId: federatedOrg.orgId,
@@ -1803,26 +1822,46 @@ export const tokenHandler = defineEventHandler(
     });
     if (!identity) return jsonResponse({ error: "invalid_grant" }, 400);
 
+    const existingAccountsOnly =
+      getAppConfig().auth.identitySsoExistingAccountsOnly;
+    if (existingAccountsOnly && identity.bootstrapHandleHash) {
+      return jsonResponse({ error: "invalid_grant" }, 400);
+    }
+    if (existingAccountsOnly) {
+      try {
+        const { rows } = await getDbExec().execute({
+          sql: 'SELECT email_verified FROM "user" WHERE email = $1 LIMIT 1',
+          args: [identity.email],
+        });
+        if (rows[0]?.email_verified !== true) {
+          return jsonResponse({ error: "invalid_grant" }, 400);
+        }
+      } catch {
+        return jsonResponse({ error: "identity_unavailable" }, 503);
+      }
+    }
     const claims = buildIdentityClaims({
       email: identity.email,
       name: identity.name,
-      orgDomain: identity.orgDomain,
-      orgId: identity.orgId,
-      orgName: identity.orgName,
-      orgRole: identity.orgRole,
+      orgDomain: existingAccountsOnly ? null : identity.orgDomain,
+      orgId: existingAccountsOnly ? null : identity.orgId,
+      orgName: existingAccountsOnly ? null : identity.orgName,
+      orgRole: existingAccountsOnly ? null : identity.orgRole,
     });
-    const identityAuthProvider = identity.bootstrapHandleHash
-      ? identity.bootstrapAuthProvider === "google"
-        ? "google"
-        : undefined
-      : (await hasGoogleAuthIdentity(identity.email))
-        ? "google"
-        : undefined;
+    const identityAuthProvider = existingAccountsOnly
+      ? undefined
+      : identity.bootstrapHandleHash
+        ? identity.bootstrapAuthProvider === "google"
+          ? "google"
+          : undefined
+        : (await hasGoogleAuthIdentity(identity.email))
+          ? "google"
+          : undefined;
     let assertion: string;
     try {
       assertion = await signA2AToken(
         identity.email,
-        identity.orgDomain,
+        existingAccountsOnly ? undefined : identity.orgDomain,
         undefined,
         {
           preferGlobalSecret: true,

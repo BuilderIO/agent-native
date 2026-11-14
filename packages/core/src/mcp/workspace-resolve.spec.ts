@@ -80,13 +80,13 @@ describe("findWorkspaceRoot", () => {
     expect(findWorkspaceRoot(plain)).toBeNull();
   });
 
-  it("ignores a workspaceCore package.json that lacks an apps/ dir", () => {
+  it("recognizes a workspace marker without a default apps directory", () => {
     const dir = fs.mkdtempSync(path.join(tmpRoot, "noapps-"));
     writePkg(dir, {
       name: "ws",
       "agent-native": { workspaceCore: "@agent-native/core" },
     });
-    expect(findWorkspaceRoot(dir)).toBeNull();
+    expect(findWorkspaceRoot(dir)).toBe(dir);
   });
 
   it("keeps walking past an unparsable package.json", () => {

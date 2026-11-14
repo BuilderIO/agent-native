@@ -2,11 +2,29 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconDatabase } from "@tabler/icons-react";
 
 import type { AgentChatDataChartLayout } from "../../../agentkit/react/data-chart-layout.js";
+import {
+  formatLocaleNumber,
+  useReaderLocale,
+} from "../../../shared/reader-locale.js";
 import type { DataWidgetResult } from "./data-widget-types.js";
 import { DataChartWidget } from "./DataChartWidget.js";
 import { DataTableWidget } from "./DataTableWidget.js";
 
-function SummaryPill({ label, value }: { label: string; value: unknown }) {
+export function formatSummaryPillValue(value: unknown, locale: string): string {
+  return typeof value === "number"
+    ? formatLocaleNumber(value, locale)
+    : String(value);
+}
+
+function SummaryPill({
+  label,
+  value,
+  locale,
+}: {
+  label: string;
+  value: unknown;
+  locale: string;
+}) {
   if (value === undefined || value === null || value === "") return null;
   return (
     <div className="rounded-md border border-border bg-muted/30 px-2 py-1">
@@ -14,7 +32,7 @@ function SummaryPill({ label, value }: { label: string; value: unknown }) {
         {label}
       </div>
       <div className="text-xs font-medium text-foreground">
-        {typeof value === "number" ? value.toLocaleString() : String(value)}
+        {formatSummaryPillValue(value, locale)}
       </div>
     </div>
   );
@@ -28,6 +46,8 @@ export function DataInsightsWidget({
   layout?: AgentChatDataChartLayout;
 }) {
   const t = useT();
+  // A metric's digits follow the locale the reader picked in the app.
+  const readerLocale = useReaderLocale();
   const title =
     result.display?.title ?? result.title ?? t("agentChat.widget.dataInsights");
   const summary = result.summary ?? {};
@@ -51,7 +71,12 @@ export function DataInsightsWidget({
             .filter(([, value]) => typeof value !== "object")
             .slice(0, 4)
             .map(([key, value]) => (
-              <SummaryPill key={key} label={key} value={value} />
+              <SummaryPill
+                key={key}
+                label={key}
+                value={value}
+                locale={readerLocale}
+              />
             ))}
         </div>
       </div>

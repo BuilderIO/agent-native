@@ -452,6 +452,19 @@ async function processRecurringJobsWithLease(
         continue;
       }
 
+      // An end date is a promise: once it passes the automation stops, and it
+      // stops on its own so the owner does not have to come back and pause it.
+      const expiration = meta.expiresAt ? Date.parse(meta.expiresAt) : NaN;
+      if (Number.isFinite(expiration) && expiration <= now.getTime()) {
+        meta.enabled = false;
+        delete meta.nextRun;
+        await updateResource(resource, meta, body, {
+          enabled: false,
+          nextRun: undefined,
+        });
+        continue;
+      }
+
       if (meta.nextRun) {
         const nextRunDate = new Date(meta.nextRun);
         if (nextRunDate > now) continue;

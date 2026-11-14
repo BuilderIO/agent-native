@@ -93,11 +93,13 @@ function expectNoDefaultCdnCacheHeaders(response: Response) {
 
 describe("createH3SSRHandler", () => {
   beforeEach(() => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "");
     resetAppConfigForTests();
     defineAppConfig({ app: { homePath: "/home" } });
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     resetAppConfigForTests();
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
@@ -295,6 +297,28 @@ describe("createH3SSRHandler", () => {
     expect(handoff).toBeGreaterThan(html.indexOf("<head>"));
     expect(handoff).toBeLessThan(html.indexOf("</head>"));
     expect(handoff).toBeLessThan(html.indexOf("<body>"));
+  });
+
+  it("leaves shared workspace root navigation to the app instead of a second home handoff", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    defineAppConfig({
+      workspace: { isWorkspace: true, authMode: "shared" },
+      app: { homePath: "/home" },
+    });
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>app</body></html>", {
+        headers: { "content-type": "text/html" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+    const response = await handler(createEvent("/"));
+    const html = await response.text();
+    expect(html).not.toContain("data-agent-native-auth-redirect");
+    expect(html).toContain('"appHomePath":"/home"');
+    expect(response.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(mocks.getSession).not.toHaveBeenCalled();
   });
 
   it("only adds the auth handoff to the public root shell", async () => {
@@ -1424,6 +1448,79 @@ describe("createH3SSRHandler", () => {
         "max-age",
       );
       expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
+    });
+
+    it.each(["1", "true", "on", "yes"])(
+      "revalidates workspace documents with %s while retaining the deployment CDN cache",
+      async (value) => {
+        vi.stubEnv("AGENT_NATIVE_WORKSPACE", value);
+        try {
+          mockHtmlResponse();
+          const handler = createH3SSRHandler(() => ({})) as any;
+          const response = await handler(createEvent("/"));
+          expect(response.headers.get("cache-control")).toBe(
+            CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+          );
+          expect(response.headers.get("cdn-cache-control")).toBe(
+            DEFAULT_SSR_CDN_CACHE_CONTROL,
+          );
+          expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+            DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+          );
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      },
+    );
+
+    it("keeps workspace no-store responses uncached", async () => {
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      try {
+        process.env.AGENT_NATIVE_SSR_CACHE = "off";
+        mockHtmlResponse();
+        const handler = createH3SSRHandler(() => ({})) as any;
+        const response = await handler(createEvent("/"));
+        expectCacheHeaders(response, "no-store");
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it("preserves workspace route caps and recovery cache bypass", async () => {
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      try {
+        const handler = createH3SSRHandler(() => ({})) as any;
+        mockHtmlResponse({ [SSR_MAX_AGE_HEADER]: "20" });
+        const capped = await handler(createEvent("/page"));
+        expect(capped.headers.get("cache-control")).toBe(
+          CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+        );
+        expect(capped.headers.get("cdn-cache-control")).toBe(
+          "public, s-maxage=20, stale-while-revalidate=20",
+        );
+        mockHtmlResponse({ [SSR_MAX_AGE_HEADER]: "0" });
+        expectCacheHeaders(await handler(createEvent("/page")), "no-store");
+        for (const pathname of [
+          `/page${CHUNK_RECOVERY_PATH_SUFFIX}`,
+          `/page${CHUNK_RECOVERY_PATH_SUFFIX}.data`,
+        ]) {
+          mockHtmlResponse();
+          const response = await handler(createEvent(pathname));
+          expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+          expect(response.headers.get("netlify-cdn-cache-control")).toBe(
+            "no-store",
+          );
+        }
+        mocks.requestHandler.mockResolvedValueOnce(
+          new Response('{"ok":true}', {
+            headers: { "content-type": "application/json" },
+          }),
+        );
+        const json = await handler(createEvent("/plain-json"));
+        expect(json.headers.get("cache-control")).toBeNull();
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
 
     it("keeps the default policy byte-identical when unset", async () => {

@@ -139,6 +139,65 @@ describe("user profile actions", () => {
     );
   });
 
+  it("rejects stale expected user or org context before writing the profile", async () => {
+    const context = {
+      caller: "frontend" as const,
+      userEmail: "alice@example.com",
+      orgId: "org-a",
+    };
+    await expect(
+      updateProfile.run(
+        {
+          name: "Alice Smith",
+          expectedUserEmail: "bob@example.com",
+          expectedOrgId: "org-a",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    await expect(
+      updateProfile.run(
+        {
+          name: "Alice Smith",
+          expectedUserEmail: "alice@example.com",
+          expectedOrgId: "org-b",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(updateUserProfileMock).not.toHaveBeenCalled();
+  });
+
+  it("saves a matching-context name while preserving the existing job role", async () => {
+    updateUserProfileMock.mockResolvedValueOnce({
+      email: "alice@example.com",
+      name: "Alice Smith",
+      onboardingRole: "designer",
+    });
+    await expect(
+      updateProfile.run(
+        {
+          name: "Alice Smith",
+          expectedUserEmail: "alice@example.com",
+          expectedOrgId: "org-a",
+        },
+        {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          orgId: "org-a",
+        },
+      ),
+    ).resolves.toEqual({
+      email: "alice@example.com",
+      name: "Alice Smith",
+      onboardingRole: "designer",
+    });
+    expect(updateUserProfileMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      "Alice Smith",
+    );
+  });
+
   it("passes the onboarding role through to the shared profile write", async () => {
     await expect(
       updateProfile.run(

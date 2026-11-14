@@ -47,6 +47,29 @@ export interface DatabaseSchemaHealthResult {
   checked: boolean;
   missingTables: string[];
   missingColumns: Array<{ table: string; column: string }>;
+  /**
+   * The migration-ledger half of a schema read (D210): every ledger table the
+   * database actually has, with its row count and newest version, plus two
+   * whole-database facts a publish must not ship past. Absent unless the schema
+   * read was asked for, and `checked: false` is a failed read, never an empty
+   * pass — the rule this file already applies to required tables.
+   */
+  migrations?: MigrationSchemaClause;
+  error?: string;
+}
+
+export interface MigrationLedgerRow {
+  table: string;
+  rows: number;
+  maxVersion: number | null;
+}
+
+export interface MigrationSchemaClause {
+  checked: boolean;
+  ledgers: MigrationLedgerRow[];
+  invalidIndexes: number | null;
+  waitingLocks: number | null;
+  readAt: string;
   error?: string;
 }
 
@@ -272,6 +295,87 @@ async function tableColumns(
 }
 
 const SCHEMA_HEALTH_MEMO_MS = 5_000;
+
+// A migration ledger is a table with a `version` column whose name says so
+// (`mail2_migrations`, `calendar_studio_migrations`, drizzle's
+// `__drizzle_migrations`). Discovering them from information_schema rather than
+// a hard-coded list is deliberate: the list differs per template, and a
+// hard-coded one silently stops covering the next app that adds its own ledger —
+// which is exactly the blind spot that let a publish ship ahead of its ledger.
+const LEDGER_DISCOVERY_SQL = `select table_name from information_schema.columns
+  where table_schema = 'public' and column_name = 'version'
+    and (table_name like '%_migrations' or table_name like '%_migration' or table_name = 'schema_migrations')
+  order by table_name`;
+const INVALID_INDEXES_SQL = `select count(*)::int as n from pg_index where not indisvalid`;
+// A migration takes an exclusive/advisory lock; a waiting lock means one is
+// live. This is a whole-database read, so it is reported as a number, never
+// as "no migration running" on its own.
+const WAITING_LOCKS_SQL = `select count(*)::int as n from pg_locks where not granted`;
+
+/**
+ * Read the migration ledger(s) and two whole-database facts, read-only.
+ *
+ * Used by the publish step (D210): a publish to a DB-backed site must carry this
+ * read on the target database AFTER the publish, and a read that cannot run is a
+ * failed read (`checked: false` + `error`), never a pass. The table names come
+ * from the database, are re-checked against an identifier pattern before being
+ * quoted, and only `count(*)`/`max(version)` are selected — no row data leaves
+ * the database.
+ */
+export async function readMigrationSchemaClause(
+  exec: DbExec,
+): Promise<MigrationSchemaClause> {
+  const readAt = new Date().toISOString();
+  const clause: MigrationSchemaClause = {
+    checked: false,
+    ledgers: [],
+    invalidIndexes: null,
+    waitingLocks: null,
+    readAt,
+  };
+  try {
+    const found = await exec.execute(LEDGER_DISCOVERY_SQL);
+    const names = found.rows
+      .map((row) => String((row as { table_name?: unknown }).table_name ?? ""))
+      .filter((name) => /^[a-z0-9_]+$/i.test(name));
+    for (const table of names) {
+      // raw-sql-ok: ledger names come from the catalog and match /^[a-z0-9_]+$/
+      const res = await exec.execute(
+        `select count(*)::int as rows, max(version) as max_version from "${table}"`,
+      );
+      const row = (res.rows[0] ?? {}) as {
+        rows?: unknown;
+        max_version?: unknown;
+      };
+      clause.ledgers.push({
+        table,
+        rows: Number(row.rows ?? 0),
+        maxVersion:
+          row.max_version === null || row.max_version === undefined
+            ? null
+            : Number(row.max_version),
+      });
+    }
+    const invalid = await exec.execute(INVALID_INDEXES_SQL);
+    clause.invalidIndexes = Number(
+      (invalid.rows[0] as { n?: unknown } | undefined)?.n ?? 0,
+    );
+    const locks = await exec.execute(WAITING_LOCKS_SQL);
+    clause.waitingLocks = Number(
+      (locks.rows[0] as { n?: unknown } | undefined)?.n ?? 0,
+    );
+    clause.checked = true;
+  } catch (err) {
+    // coercion-ok: an unreadable ledger is reported, never swallowed into
+    // "nothing to see": a publish must not pass on a read that did not happen.
+    return {
+      ...clause,
+      checked: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+  return clause;
+}
 let schemaHealthMemo: {
   at: number;
   result: DatabaseSchemaHealthResult;
@@ -281,6 +385,8 @@ export async function runDatabaseSchemaHealthCheck(
   options: {
     exec?: DbExec;
     required?: RequiredSchemaTable[];
+    /** D210: also read the migration ledgers and whole-database lock/index facts. */
+    migrations?: boolean;
   } = {},
 ): Promise<DatabaseSchemaHealthResult> {
   const memoizable = !options.exec && !options.required;
@@ -329,6 +435,11 @@ export async function runDatabaseSchemaHealthCheck(
     missingTables,
     missingColumns,
   };
+  // The ledger half is additive and only on request: it is 3+N read-only
+  // queries, and the hot health path must not pay for them on every poll.
+  if (options.migrations) {
+    result.migrations = await readMigrationSchemaClause(exec);
+  }
   if (memoizable && result.ok) schemaHealthMemo = { at: Date.now(), result };
   return result;
 }

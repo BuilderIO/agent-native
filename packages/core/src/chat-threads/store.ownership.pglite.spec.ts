@@ -17,6 +17,12 @@ import { runWithRequestContext } from "../server/request-context.js";
 // access-basis projection run their genuine SQL, including LIMIT/OFFSET.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 const membershipQueries: string[] = [];
+const renameRace = vi.hoisted(() => ({ enabled: false }));
+const renameLineageRace = vi.hoisted(() => ({
+  insert: false,
+  deleteRoot: false,
+}));
+const deleteRace = vi.hoisted(() => ({ enabled: false, deleteRoot: false }));
 const federation = vi.hoisted(() => ({
   enabled: vi.fn(async () => true),
   validate: vi.fn(async () => ({ active: true, role: "member" })),
@@ -64,6 +70,60 @@ vi.mock("../db/client.js", () => ({
       const { changes } = await pglite.prepare(sql).run(...args);
       return { rows: [], rowsAffected: changes };
     },
+    transaction: async <T>(fn: Parameters<typeof pglite.transaction<T>>[0]) => {
+      if (renameLineageRace.insert) {
+        renameLineageRace.insert = false;
+        await pglite.query(
+          `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, source_app_id, edit_root_id, edit_prefix_count) VALUES (?, ?, 'Old title', '', ?, 1, 20, 20, 'app', ?, 0)`,
+          [
+            "rename-race-child",
+            "rename-race@example.com",
+            '{"messages":[{"id":"new-question"}]}',
+            "rename-race-root",
+          ],
+        );
+      }
+      if (renameLineageRace.deleteRoot) {
+        renameLineageRace.deleteRoot = false;
+        await pglite.query(`DELETE FROM chat_threads WHERE id = ?`, [
+          "rename-vanished-root",
+        ]);
+      }
+      if (deleteRace.deleteRoot) {
+        deleteRace.deleteRoot = false;
+        await pglite.query(`DELETE FROM chat_threads WHERE id = ?`, [
+          "edit-race-root",
+        ]);
+      }
+      if (deleteRace.enabled) {
+        deleteRace.enabled = false;
+        await pglite.query(
+          `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, source_app_id, edit_root_id, edit_prefix_count) VALUES (?, ?, '', '', '{}', 2, 20, 20, 'app', ?, 1)`,
+          ["race-child", "race@example.com", "race-root"],
+        );
+      }
+      return pglite.transaction(async (tx) =>
+        fn({
+          ...tx,
+          execute: async (input) => {
+            if (
+              renameRace.enabled &&
+              typeof input !== "string" &&
+              "sql" in input &&
+              input.sql.startsWith("UPDATE chat_threads SET thread_data = ?")
+            ) {
+              renameRace.enabled = false;
+              const args = input.args ?? [];
+              await tx.execute({
+                sql: "UPDATE chat_threads SET thread_data = ? WHERE id = ?",
+                args: ['{"messages":[{"id":"new"}]}', args[3]],
+              });
+            }
+            return tx.execute(input);
+          },
+        }),
+      );
+    },
   }),
 }));
 
@@ -75,8 +135,17 @@ vi.mock("../db/ddl-guard.js", () => ({
 
 vi.mock("./emitter.js", () => ({ emitChatThreadChange: vi.fn() }));
 
-const { listThreads, searchThreads, resolveThreadsAccess } =
-  await import("./store.js");
+const {
+  listThreads,
+  searchThreads,
+  resolveThreadsAccess,
+  setThreadPinned,
+  setThreadArchived,
+  renameThread,
+  deleteThread,
+  forkThread,
+  getThread,
+} = await import("./store.js");
 
 const ME = "Me@Example.com";
 const ORG = "org-1";
@@ -88,12 +157,14 @@ interface SeedThread {
   visibility?: "private" | "org";
   orgId?: string | null;
   title?: string;
+  /** Provenance: which app wrote this thread. Null models a legacy row. */
+  sourceAppId?: string | null;
 }
 
 async function seed(thread: SeedThread) {
   await pglite.query(
-    `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, org_id, visibility)
-     VALUES (?, ?, ?, '', '{}', 1, ?, ?, ?, ?)`,
+    `INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, org_id, visibility, source_app_id)
+     VALUES (?, ?, ?, '', '{}', 1, ?, ?, ?, ?, ?)`,
     [
       thread.id,
       thread.owner,
@@ -102,6 +173,7 @@ async function seed(thread: SeedThread) {
       thread.updatedAt,
       thread.orgId ?? null,
       thread.visibility ?? "private",
+      thread.sourceAppId ?? null,
     ],
   );
 }
@@ -141,7 +213,7 @@ describe("chat thread ownership lists (real SQL)", () => {
         scope_type TEXT, scope_id TEXT, scope_label TEXT,
         pinned_at BIGINT, archived_at BIGINT, share_token_hash TEXT,
         source_platform TEXT, source_app_id TEXT, source_url TEXT,
-        org_id TEXT,
+        org_id TEXT, edit_root_id TEXT, edit_prefix_count BIGINT,
         visibility TEXT NOT NULL DEFAULT 'private'
       );
       CREATE TABLE chat_thread_shares (
@@ -153,6 +225,9 @@ describe("chat thread ownership lists (real SQL)", () => {
         created_by TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL DEFAULT '',
         notified_at TEXT
+      );
+      CREATE TABLE agent_chat_submission_inbox (
+        id TEXT PRIMARY KEY, thread_id TEXT NOT NULL
       );
       CREATE TABLE organizations (
         id TEXT PRIMARY KEY, identity_authority TEXT, identity_id TEXT
@@ -240,6 +315,532 @@ describe("chat thread ownership lists (real SQL)", () => {
   });
 
   const ids = (rows: Array<{ id: string }>) => rows.map((row) => row.id);
+
+  it("collapses eligible edits before paging and preserves the group pin", async () => {
+    const owner = "edits@example.com";
+    await seed({ id: "edit-root", owner, updatedAt: 1, sourceAppId: "app" });
+    await pglite.query(`UPDATE chat_threads SET pinned_at = 5 WHERE id = ?`, [
+      "edit-root",
+    ]);
+    for (let i = 0; i < 65; i++) {
+      await seed({
+        id: `edit-${i}`,
+        owner,
+        updatedAt: 10 + i,
+        sourceAppId: "app",
+      });
+      await pglite.query(
+        `UPDATE chat_threads SET edit_root_id = ?, edit_prefix_count = 1, message_count = 2 WHERE id = ?`,
+        ["edit-root", `edit-${i}`],
+      );
+    }
+    await pglite.query(
+      `UPDATE chat_threads SET updated_at = 500 WHERE id = ?`,
+      ["edit-root"],
+    );
+    await seed({
+      id: "edit-pending",
+      owner,
+      updatedAt: 1000,
+      sourceAppId: "app",
+    });
+    await pglite.query(
+      `UPDATE chat_threads SET edit_root_id = ?, edit_prefix_count = 1 WHERE id = ?`,
+      ["edit-root", "edit-pending"],
+    );
+    await seed({ id: "another", owner, updatedAt: 900, sourceAppId: "app" });
+    const collapsed = await listThreads(owner, {
+      limit: 2,
+      collapseEdits: true,
+    });
+    expect(ids(collapsed)).toEqual(["edit-64", "another"]);
+    expect(collapsed[0]?.pinnedAt).toBe(5);
+    expect(collapsed[0]?.editRootId).toBe("edit-root");
+    const raw = await listThreads(owner, { limit: 2 });
+    expect(ids(raw)).toEqual(["edit-root", "edit-pending"]);
+    expect(
+      await setThreadPinned("edit-64", false, {
+        ownerEmail: owner,
+        collapseEdits: true,
+      }),
+    ).toBe(true);
+    expect(
+      ids(await listThreads(owner, { limit: 2, collapseEdits: true })),
+    ).toEqual(["another", "edit-64"]);
+    expect(
+      await setThreadArchived("edit-64", true, {
+        ownerEmail: owner,
+        collapseEdits: true,
+      }),
+    ).toBe(true);
+    expect(ids(await listThreads(owner, { collapseEdits: true }))).toEqual([
+      "another",
+    ]);
+    expect(
+      await setThreadArchived("edit-64", false, {
+        ownerEmail: owner,
+        collapseEdits: true,
+      }),
+    ).toBe(true);
+    expect(ids(await listThreads(owner, { collapseEdits: true }))).toEqual([
+      "another",
+      "edit-64",
+    ]);
+  });
+
+  it("separates lineages by app, organization, and scope", async () => {
+    const owner = "partitions@example.com";
+    for (const [id, app, org, scope] of [
+      ["partition-root", "app", "org-1", "one"],
+      ["partition-same", "app", "org-1", "one"],
+      ["partition-other-app", "other", "org-1", "one"],
+      ["partition-other-org", "app", "org-2", "one"],
+      ["partition-other-scope", "app", "org-1", "two"],
+    ]) {
+      await seed({
+        id,
+        owner,
+        updatedAt: id === "partition-same" ? 10 : 5,
+        sourceAppId: app,
+        orgId: org,
+      });
+      await pglite.query(
+        `UPDATE chat_threads SET scope_type = 'workspace', scope_id = ?, edit_root_id = ?, edit_prefix_count = 0 WHERE id = ?`,
+        [scope, id === "partition-root" ? null : "partition-root", id],
+      );
+    }
+    const rows = await listThreads(owner, { collapseEdits: true });
+    expect(ids(rows).sort()).toEqual(
+      [
+        "partition-other-app",
+        "partition-other-org",
+        "partition-other-scope",
+        "partition-same",
+      ].sort(),
+    );
+    const search = await searchThreads(owner, "Quarterly", 20, {
+      collapseEdits: true,
+    });
+    expect(ids(search).sort()).toEqual(ids(rows).sort());
+    await setThreadPinned("partition-same", true, {
+      ownerEmail: owner,
+      collapseEdits: true,
+    });
+    await setThreadArchived("partition-same", true, {
+      ownerEmail: owner,
+      collapseEdits: true,
+    });
+    const left = await listThreads(owner, { collapseEdits: true });
+    expect(ids(left).sort()).toEqual(
+      [
+        "partition-other-app",
+        "partition-other-org",
+        "partition-other-scope",
+      ].sort(),
+    );
+    expect(left.every((row) => row.pinnedAt === null)).toBe(true);
+  });
+
+  it("deletes an edit committed immediately before the delete transaction", async () => {
+    await seed({
+      id: "race-root",
+      owner: "race@example.com",
+      updatedAt: 1,
+      sourceAppId: "app",
+    });
+    deleteRace.enabled = true;
+    expect(
+      await deleteThread("race-root", "race@example.com", {
+        collapseEdits: true,
+      }),
+    ).toBe(true);
+    expect(
+      ids(await listThreads("race@example.com", { collapseEdits: true })),
+    ).toEqual([]);
+  });
+
+  it("rejects an edit if its root disappeared before the transaction", async () => {
+    const owner = "edit-race@example.com";
+    await seed({
+      id: "edit-race-root",
+      owner,
+      updatedAt: 1,
+      sourceAppId: "app",
+    });
+    await seed({
+      id: "edit-race-source",
+      owner,
+      updatedAt: 2,
+      sourceAppId: "app",
+    });
+    const data = { messages: [{ id: "question", role: "user", parts: [] }] };
+    await pglite.query(
+      `UPDATE chat_threads SET edit_root_id = ?, edit_prefix_count = 0, thread_data = ? WHERE id = ?`,
+      ["edit-race-root", JSON.stringify(data), "edit-race-source"],
+    );
+    deleteRace.deleteRoot = true;
+    const fork = await forkThread("edit-race-source", owner, {
+      id: "edit-race-new",
+      forkPurpose: "edit",
+      trustedAppId: "app",
+      source: { threadData: JSON.stringify(data), beforeMessageId: "question" },
+    });
+    expect(fork).toBeNull();
+    expect(
+      (
+        await pglite.query(`SELECT id FROM chat_threads WHERE id = ?`, [
+          "edit-race-new",
+        ])
+      ).rows,
+    ).toEqual([]);
+  });
+
+  it.each([
+    {
+      name: "ordinary fork without destination",
+      edit: false,
+      target: null,
+      expectedSource: null,
+      rooted: false,
+    },
+    {
+      name: "ordinary fork with local destination",
+      edit: false,
+      target: { appId: "app-b" },
+      expectedSource: { appId: "app-b" },
+      rooted: false,
+    },
+    {
+      name: "trusted edit without explicit destination",
+      edit: true,
+      target: null,
+      expectedSource: { appId: "app-a" },
+      rooted: true,
+    },
+    {
+      name: "trusted edit with matching destination",
+      edit: true,
+      target: { appId: "app-a" },
+      expectedSource: { appId: "app-a" },
+      rooted: true,
+    },
+    {
+      name: "edit targeting another app",
+      edit: true,
+      target: { appId: "app-b" },
+      expectedSource: { appId: "app-b" },
+      rooted: false,
+    },
+    {
+      name: "edit targeting an external platform",
+      edit: true,
+      target: { appId: "app-a", platform: "external" },
+      expectedSource: { appId: "app-a", platform: "external" },
+      rooted: false,
+    },
+  ])(
+    "preserves destination attribution and edit isolation: $name",
+    async ({ name, edit, target, expectedSource, rooted }) => {
+      const rootId = `destination-${name.replaceAll(" ", "-")}-root`;
+      const childId = `${rootId}-child`;
+      const owner = "destination-owner@example.test";
+      const data = { messages: [{ id: "question", role: "user", parts: [] }] };
+      await seed({ id: rootId, owner, updatedAt: 1, sourceAppId: "app-a" });
+      await pglite.query(
+        `UPDATE chat_threads SET thread_data = ? WHERE id = ?`,
+        [JSON.stringify(data), rootId],
+      );
+      const fork = await forkThread(rootId, owner, {
+        id: childId,
+        ...(edit
+          ? { forkPurpose: "edit" as const, trustedAppId: "app-a" }
+          : {}),
+        ...(target ? { targetSource: target } : {}),
+        source: {
+          threadData: JSON.stringify(data),
+          beforeMessageId: "question",
+        },
+      });
+      expect(fork).not.toBeNull();
+      expect(fork?.editRootId).toBe(rooted ? rootId : undefined);
+      const normalizeSource = (
+        value:
+          | {
+              appId?: string | null;
+              platform?: string | null;
+              url?: string | null;
+            }
+          | null
+          | undefined,
+      ) =>
+        value
+          ? {
+              appId: value.appId ?? null,
+              platform: value.platform ?? null,
+              url: value.url ?? null,
+            }
+          : null;
+      expect(normalizeSource(fork?.source)).toEqual(
+        normalizeSource(expectedSource),
+      );
+      const saved = await getThread(childId);
+      expect(normalizeSource(saved?.source)).toEqual(
+        normalizeSource(expectedSource),
+      );
+      expect(saved?.editRootId).toBe(rooted ? rootId : undefined);
+    },
+  );
+
+  // The ALS request boundary installs tracking scope only, so an ordinary HTTP
+  // request has no request org. The route resolves the owner's org from the
+  // event and must pass it; otherwise an org-scoped edit fork compares against
+  // null and stores edit_root_id = NULL, which shows one edit as its own row.
+  it("groups an org-scoped edit under its root when the route supplies the org", async () => {
+    const owner = "org-edit-owner@example.test";
+    const rootId = "org-edit-root";
+    const childId = "org-edit-child";
+    const data = { messages: [{ id: "question", role: "user", parts: [] }] };
+    await seed({
+      id: rootId,
+      owner,
+      orgId: "acme",
+      updatedAt: 1,
+      sourceAppId: "app-a",
+    });
+    await pglite.query(`UPDATE chat_threads SET thread_data = ? WHERE id = ?`, [
+      JSON.stringify(data),
+      rootId,
+    ]);
+    const fork = await runWithRequestContext(
+      { userEmail: owner, orgId: "acme" },
+      () =>
+        forkThread(rootId, owner, {
+          id: childId,
+          forkPurpose: "edit",
+          trustedAppId: "app-a",
+          targetSource: { appId: "app-a" },
+          sourceAccessGranted: true,
+          source: {
+            threadData: JSON.stringify(data),
+            beforeMessageId: "question",
+          },
+        }),
+    );
+    expect(fork?.editRootId).toBe(rootId);
+    expect((await getThread(childId))?.editRootId).toBe(rootId);
+  });
+
+  it("leaves an org-scoped edit ungrouped when neither the route nor the request supplies the org", async () => {
+    const owner = "org-edit-miss@example.test";
+    const rootId = "org-edit-miss-root";
+    const childId = "org-edit-miss-child";
+    const data = { messages: [{ id: "question", role: "user", parts: [] }] };
+    await seed({
+      id: rootId,
+      owner,
+      orgId: "acme",
+      updatedAt: 1,
+      sourceAppId: "app-a",
+    });
+    await pglite.query(`UPDATE chat_threads SET thread_data = ? WHERE id = ?`, [
+      JSON.stringify(data),
+      rootId,
+    ]);
+    const fork = await forkThread(rootId, owner, {
+      id: childId,
+      forkPurpose: "edit",
+      trustedAppId: "app-a",
+      targetSource: { appId: "app-a" },
+      sourceAccessGranted: true,
+      source: { threadData: JSON.stringify(data), beforeMessageId: "question" },
+    });
+    expect(fork?.editRootId).toBeUndefined();
+  });
+
+  it.each(["actor", "organization"] as const)(
+    "keeps a destination-attributed edit separate across %s",
+    async (boundary) => {
+      const owner = "edit-destination-owner@example.test";
+      const rootId = `destination-boundary-${boundary}`;
+      const childId = `${rootId}-child`;
+      const data = { messages: [{ id: "question", role: "user", parts: [] }] };
+      await seed({
+        id: rootId,
+        owner: boundary === "actor" ? "source-owner@example.test" : owner,
+        orgId: boundary === "organization" ? "other-organization" : null,
+        updatedAt: 1,
+        sourceAppId: "app-a",
+      });
+      await pglite.query(
+        `UPDATE chat_threads SET thread_data = ? WHERE id = ?`,
+        [JSON.stringify(data), rootId],
+      );
+      const fork = await forkThread(rootId, owner, {
+        id: childId,
+        forkPurpose: "edit",
+        trustedAppId: "app-a",
+        targetSource: { appId: "app-a" },
+        sourceAccessGranted: true,
+        source: {
+          threadData: JSON.stringify(data),
+          beforeMessageId: "question",
+        },
+      });
+      expect(fork).not.toBeNull();
+      expect(fork?.editRootId).toBeUndefined();
+      expect(fork?.source).toEqual({ appId: "app-a" });
+      expect((await getThread(childId))?.editRootId).toBeUndefined();
+    },
+  );
+
+  it("inserts a locked owned edit that grouped deletion removes", async () => {
+    const owner = "locked-edit@example.com";
+    const data = { messages: [{ id: "question", role: "user", parts: [] }] };
+    await seed({ id: "locked-root", owner, updatedAt: 1, sourceAppId: "app" });
+    await pglite.query(`UPDATE chat_threads SET thread_data = ? WHERE id = ?`, [
+      JSON.stringify(data),
+      "locked-root",
+    ]);
+    const fork = await forkThread("locked-root", owner, {
+      id: "locked-child",
+      forkPurpose: "edit",
+      trustedAppId: "app",
+      source: { threadData: JSON.stringify(data), beforeMessageId: "question" },
+    });
+    expect(fork?.editRootId).toBe("locked-root");
+    expect(
+      await deleteThread("locked-root", owner, { collapseEdits: true }),
+    ).toBe(true);
+    expect(
+      (
+        await pglite.query(`SELECT id FROM chat_threads WHERE id = ?`, [
+          "locked-child",
+        ])
+      ).rows,
+    ).toEqual([]);
+  });
+
+  it("renames an edit committed immediately before the rename transaction", async () => {
+    const owner = "rename-race@example.com";
+    await seed({
+      id: "rename-race-root",
+      owner,
+      updatedAt: 1,
+      sourceAppId: "app",
+    });
+    renameLineageRace.insert = true;
+    expect(
+      await renameThread("rename-race-root", "New title", {
+        ownerEmail: owner,
+        collapseEdits: true,
+      }),
+    ).toBe(true);
+    expect(renameLineageRace.insert).toBe(false);
+    const { rows } = await pglite.query(
+      `SELECT id, title, thread_data FROM chat_threads WHERE owner_email = ? ORDER BY id`,
+      [owner],
+    );
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.title).toBe("New title");
+      expect(JSON.parse(String(row.thread_data))._titleOverride).toBe(
+        "New title",
+      );
+    }
+    expect(JSON.parse(String(rows[0]?.thread_data)).messages).toEqual([
+      { id: "new-question" },
+    ]);
+  });
+
+  it("declines grouped rename if its root disappeared before the transaction", async () => {
+    const owner = "rename-race@example.com";
+    for (const id of ["rename-vanished-root", "rename-vanished-child"]) {
+      await seed({ id, owner, updatedAt: 1, sourceAppId: "app" });
+    }
+    await pglite.query(
+      `UPDATE chat_threads SET edit_root_id = ? WHERE id = ?`,
+      ["rename-vanished-root", "rename-vanished-child"],
+    );
+    renameLineageRace.deleteRoot = true;
+    expect(
+      await renameThread("rename-vanished-child", "New title", {
+        ownerEmail: owner,
+        collapseEdits: true,
+      }),
+    ).toBe(false);
+    expect(renameLineageRace.deleteRoot).toBe(false);
+    const { rows } = await pglite.query(
+      `SELECT title FROM chat_threads WHERE id = ?`,
+      ["rename-vanished-child"],
+    );
+    expect(rows[0]?.title).toBe("Quarterly plan");
+  });
+
+  it("deletes only owned lineage members", async () => {
+    const owner = "lifecycle@example.com";
+    for (const id of ["life-root", "life-edit", "life-unrelated"]) {
+      await seed({ id, owner, updatedAt: 5, sourceAppId: "app" });
+      await pglite.query(
+        `UPDATE chat_threads SET thread_data = ? WHERE id = ?`,
+        [
+          JSON.stringify({
+            messages: [{ id, role: "user", content: "unchanged" }],
+            agentKit: {
+              runs: [{ id: `run-${id}`, state: { payload: "unchanged" } }],
+            },
+          }),
+          id,
+        ],
+      );
+    }
+    await pglite.query(
+      `UPDATE chat_threads SET edit_root_id = ?, edit_prefix_count = 0 WHERE id = ?`,
+      ["life-root", "life-edit"],
+    );
+    renameRace.enabled = true;
+    await expect(
+      renameThread("life-edit", "Conflict", {
+        ownerEmail: owner,
+        collapseEdits: true,
+      }),
+    ).rejects.toThrow("Concurrent chat thread write");
+    const afterConflict = await pglite.query(
+      `SELECT thread_data FROM chat_threads WHERE id = ?`,
+      ["life-edit"],
+    );
+    expect(
+      JSON.parse(String(afterConflict.rows[0]?.thread_data)).messages,
+    ).toEqual([{ id: "life-edit", role: "user", content: "unchanged" }]);
+    expect(
+      await renameThread("life-edit", "Renamed", {
+        ownerEmail: owner,
+        collapseEdits: true,
+      }),
+    ).toBe(true);
+    const { rows } = await pglite.query(
+      `SELECT id, title, thread_data FROM chat_threads WHERE owner_email = ? ORDER BY id`,
+      [owner],
+    );
+    for (const row of rows as Array<{
+      id: string;
+      title: string;
+      thread_data: string;
+    }>) {
+      expect(row.title).toBe(
+        row.id === "life-unrelated" ? "Quarterly plan" : "Renamed",
+      );
+      expect(JSON.parse(row.thread_data).messages).toEqual([
+        { id: row.id, role: "user", content: "unchanged" },
+      ]);
+      expect(JSON.parse(row.thread_data).agentKit.runs).toEqual([
+        { id: `run-${row.id}`, state: { payload: "unchanged" } },
+      ]);
+    }
+    expect(
+      await deleteThread("life-edit", owner, { collapseEdits: true }),
+    ).toBe(true);
+    expect(ids(await listThreads(owner))).toEqual(["life-unrelated"]);
+  });
 
   it("mine is ownership alone, so an org-visible chat I own stays mine", async () => {
     const rows = await listThreads(ME, { orgId: ORG, ownership: "mine" });
@@ -496,5 +1097,85 @@ describe("chat thread ownership lists (real SQL)", () => {
         expect(await listThreads(serviceEmail, { orgId: ORG })).toEqual([]);
       },
     );
+  });
+
+  it("lists only chats attributed to the requesting app, and never an unattributed legacy row", async () => {
+    const stamp = 1_700_000_900_000;
+    await seed({
+      id: "app-a-chat",
+      owner: ME,
+      updatedAt: stamp,
+      sourceAppId: "app-a",
+    });
+    await seed({
+      id: "app-b-chat",
+      owner: ME,
+      updatedAt: stamp + 1,
+      sourceAppId: "app-b",
+    });
+    // A row written before provenance existed: stored, owned by the same user,
+    // and deliberately not adopted by whichever app reads it first.
+    await seed({ id: "legacy-chat", owner: ME, updatedAt: stamp + 2 });
+
+    const appA = await listThreads(ME, {
+      orgId: null,
+      ownership: "mine",
+      includeExternal: false,
+      sourceAppId: "app-a",
+    });
+    expect(ids(appA)).toEqual(["app-a-chat"]);
+
+    const appB = await listThreads(ME, {
+      orgId: null,
+      ownership: "mine",
+      includeExternal: false,
+      sourceAppId: "app-b",
+    });
+    expect(ids(appB)).toEqual(["app-b-chat"]);
+  });
+
+  it("finds only the requesting app's chats in search", async () => {
+    const stamp = 1_700_000_910_000;
+    // A word no other case in this fixture uses, so the assertion is about
+    // attribution rather than about what earlier tests happened to seed.
+    await seed({
+      id: "search-a",
+      owner: ME,
+      updatedAt: stamp,
+      sourceAppId: "app-a",
+      title: "Zephyr rollout",
+    });
+    await seed({
+      id: "search-b",
+      owner: ME,
+      updatedAt: stamp + 1,
+      sourceAppId: "app-b",
+      title: "Zephyr rollout",
+    });
+    await seed({
+      id: "search-legacy",
+      owner: ME,
+      updatedAt: stamp + 2,
+      title: "Zephyr rollout",
+    });
+
+    const hits = await searchThreads(ME, "Zephyr", 20, {
+      orgId: null,
+      ownership: "mine",
+      includeExternal: false,
+      sourceAppId: "app-a",
+    });
+    expect(ids(hits)).toEqual(["search-a"]);
+  });
+
+  it("returns no local chats at all when the reader has no proven app id", async () => {
+    // Without an app id there is nothing to scope to, so the local view is empty
+    // rather than every app's history. This is the fail-closed default.
+    const rows = await listThreads(ME, {
+      orgId: null,
+      ownership: "mine",
+      includeExternal: false,
+    });
+    expect(rows).toEqual([]);
   });
 });
