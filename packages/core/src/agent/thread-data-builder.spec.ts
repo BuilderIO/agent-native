@@ -7297,6 +7297,29 @@ describe("upsertUserMessage", () => {
     });
   });
 
+  it("tells history to reconnect Builder instead of retrying the upload", () => {
+    const message = buildUserMessage({
+      text: "Keep this failed upload visible",
+      runId: "run-upload-reconnect",
+      attachments: [
+        {
+          type: "image",
+          name: "failed.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,AAAA",
+          storageRequired: true,
+          storageUploadFailed: true,
+          storageReconnectRequired: true,
+        } as any,
+      ],
+    });
+
+    const text = (message.attachments?.[0]?.content[0] as { text: string })
+      .text;
+    expect(text).toContain("Reconnect Builder");
+    expect(text).not.toContain("Retry the upload");
+  });
+
   it("preserves bounded text attachments when storage is required", () => {
     const message = buildUserMessage({
       text: "Keep these notes in the thread",

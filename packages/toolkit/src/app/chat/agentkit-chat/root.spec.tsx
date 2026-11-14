@@ -8,12 +8,19 @@ import { CoreAgentKitRoot } from "./root.js";
 
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
+  nativeUpload: vi.fn(),
+  getUploadDriver: vi.fn(),
   rootProps: null as AgentKitRootProps | null,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
   useFormatters: () => ({ formatDate: (date: Date) => date.toISOString() }),
+}));
+
+vi.mock("@agent-native/core/client/agentkit-chat/transport", () => ({
+  getAgentNativeAgentKitUploadDriver: mocks.getUploadDriver,
+  clearAgentNativeAgentKitUploads: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -38,6 +45,8 @@ const transport = {
 describe("CoreAgentKitRoot", () => {
   beforeEach(() => {
     mocks.callAction.mockReset();
+    mocks.nativeUpload.mockReset();
+    mocks.getUploadDriver.mockReset();
     mocks.rootProps = null;
   });
 
@@ -124,6 +133,36 @@ describe("CoreAgentKitRoot", () => {
     expect(format?.("gpt-6-luna")).toBe("GPT-6 Luna");
     // A model the catalog does not know keeps its id.
     expect(format?.("my-custom-model")).toBe("my-custom-model");
+  });
+
+  it("localizes a non-retryable Builder reconnect upload error", async () => {
+    mocks.getUploadDriver.mockReturnValue(mocks.nativeUpload);
+    mocks.nativeUpload.mockRejectedValue(
+      Object.assign(new Error("untrusted"), {
+        code: "upload_builder_oauth_reauthorization_required",
+        status: 503,
+        retryable: false,
+      }),
+    );
+    renderToStaticMarkup(
+      <CoreAgentKitRoot transport={transport} threadId="thread-1" />,
+    );
+    await expect(
+      mocks.rootProps?.clientOptions?.upload?.(
+        { uploadId: "id", method: "POST", url: "/upload" },
+        {
+          name: "file",
+          mediaType: "text/plain",
+          size: 1,
+          body: new Blob(["x"]),
+        },
+      ),
+    ).rejects.toMatchObject({
+      message: "agentChat.composer.uploadBuilderReconnect",
+      code: "upload_builder_oauth_reauthorization_required",
+      status: 503,
+      retryable: false,
+    });
   });
 
   it("keeps a host's own usage loader", () => {

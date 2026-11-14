@@ -582,6 +582,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.sessionExpired":
     "세션이 만료되었습니다. 다시 로그인한 후 메시지를 보내세요.",
   "composer.unsupportedFileType": "지원되지 않는 파일 형식입니다.",
+  "composer.uploadBuilderReconnect":
+    "Builder.io 연결을 다시 설정해야 합니다. 설정에서 Builder를 다시 연결한 후 다시 시도하세요.",
   "composer.uploadUnavailable":
     "지금은 파일을 업로드할 수 없습니다. 잠시 후 다시 시도하세요.",
   "composer.uploadOffline":

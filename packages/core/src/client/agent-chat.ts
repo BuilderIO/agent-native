@@ -1155,6 +1155,7 @@ function parseSubmitChatAttachments(
         "referenceOnly",
         "storageRequired",
         "storageUploadFailed",
+        "storageReconnectRequired",
       ] as const) {
         if (typeof item[key] === "boolean") attachment[key] = item[key];
       }

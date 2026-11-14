@@ -1745,6 +1745,25 @@ export const AgentKitAssistantChat = forwardRef<
           cause && typeof cause === "object" && "status" in cause
             ? cause.status
             : undefined;
+        if (
+          status === 503 &&
+          "code" in (cause as object) &&
+          (cause as { code: unknown }).code ===
+            "upload_builder_oauth_reauthorization_required"
+        ) {
+          throw Object.assign(
+            new Error(
+              translatorRef.current(
+                "agentChat.composer.uploadBuilderReconnect",
+              ),
+            ),
+            {
+              code: "upload_builder_oauth_reauthorization_required",
+              status,
+              retryable: false,
+            },
+          );
+        }
         if (typeof status === "number")
           throw uploadHttpError(status, translatorRef.current);
         const code =
@@ -7496,6 +7515,7 @@ function queueSubmissionErrorMessage(
     t("agentChat.composer.uploadFailed"),
     t("agentChat.composer.uploadUnavailable"),
     t("agentChat.composer.uploadOffline"),
+    t("agentChat.composer.uploadBuilderReconnect"),
     t("onboarding.fileStorage.title"),
   ];
   return localizedUploadMessages.some(

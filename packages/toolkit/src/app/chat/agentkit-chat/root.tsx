@@ -78,17 +78,19 @@ export function CoreAgentKitRoot(props: AgentKitRootProps) {
                   ? cause.code
                   : undefined;
               const key =
-                code === "upload_too_large"
-                  ? "agentChat.composer.fileTooLarge"
-                  : code === "upload_session_expired"
-                    ? "agentChat.composer.sessionExpired"
-                    : code === "upload_unsupported_type"
-                      ? "agentChat.composer.unsupportedFileType"
-                      : code === "upload_network_error"
-                        ? "agentChat.composer.uploadOffline"
-                        : code === "upload_unavailable"
-                          ? "agentChat.composer.uploadUnavailable"
-                          : "agentChat.composer.uploadFailed";
+                code === "upload_builder_oauth_reauthorization_required"
+                  ? "agentChat.composer.uploadBuilderReconnect"
+                  : code === "upload_too_large"
+                    ? "agentChat.composer.fileTooLarge"
+                    : code === "upload_session_expired"
+                      ? "agentChat.composer.sessionExpired"
+                      : code === "upload_unsupported_type"
+                        ? "agentChat.composer.unsupportedFileType"
+                        : code === "upload_network_error"
+                          ? "agentChat.composer.uploadOffline"
+                          : code === "upload_unavailable"
+                            ? "agentChat.composer.uploadUnavailable"
+                            : "agentChat.composer.uploadFailed";
               throw Object.assign(new Error(t(key, { size: 25 }), { cause }), {
                 code,
                 ...(cause && typeof cause === "object" && "status" in cause
