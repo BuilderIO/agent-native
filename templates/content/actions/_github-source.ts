@@ -1,13 +1,17 @@
+import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 
 import {
   ActionContractError,
   isAgentConnectionRequiredError,
 } from "@agent-native/core/action";
+import { isPrivateBlobConfiguredForRequest } from "@agent-native/core/private-blob";
 import {
-  getActiveFileUploadProviderForRequest,
-  uploadFile,
-} from "@agent-native/core/file-upload";
+  deletePrivateMedia,
+  PrivateMediaStorageUnavailableError,
+  PrivateMediaValidationError,
+  putPrivateMedia,
+} from "@agent-native/core/private-media";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -71,6 +75,10 @@ import type {
   ImportAssetRequest,
   ImportAssetResolution,
 } from "../shared/import/types.js";
+import {
+  privateMediaIdFromSrc,
+  privateMediaPath,
+} from "../shared/private-media.js";
 import {
   defaultPropertyOptions,
   normalizePropertyValueWithOptions,
@@ -508,7 +516,7 @@ export async function previewGitHubFolder(
     sampledFiles: sample.length,
     images: [...files.blobs.keys()].filter((path) => importImageMediaType(path))
       .length,
-    storageReady: Boolean(await getActiveFileUploadProviderForRequest()),
+    storageReady: await isPrivateBlobConfiguredForRequest(),
   };
 }
 
@@ -768,6 +776,13 @@ interface RowState {
    * rejects can't hold back the others.
    */
   imagesFailedAt?: string;
+  /**
+   * Images the page links but left out for a reason a new version of the
+   * image file can fix: missing, too large, or not the image its name says.
+   * By folder-relative path, with the blob SHA seen (empty when the file
+   * wasn't there). The page is rebuilt when one of them changes.
+   */
+  imagesLeftOut?: Record<string, string>;
 }
 
 function rowState(row: Pick<SourceRow, "sourceValuesJson">): RowState | null {
@@ -788,6 +803,14 @@ function rowState(row: Pick<SourceRow, "sourceValuesJson">): RowState | null {
       }
     }
   }
+  const imagesLeftOut: Record<string, string> = {};
+  if (value.imagesLeftOut && typeof value.imagesLeftOut === "object") {
+    for (const [path, sha] of Object.entries(
+      value.imagesLeftOut as Record<string, unknown>,
+    )) {
+      if (typeof sha === "string") imagesLeftOut[path] = sha;
+    }
+  }
   return {
     path: value.path,
     blobSha: value.blobSha,
@@ -802,7 +825,15 @@ function rowState(row: Pick<SourceRow, "sourceValuesJson">): RowState | null {
     ...(typeof value.imagesFailedAt === "string"
       ? { imagesFailedAt: value.imagesFailedAt }
       : {}),
+    ...(Object.keys(imagesLeftOut).length > 0 ? { imagesLeftOut } : {}),
   };
+}
+
+/** Whether an image a page left out has a new version, or showed up. */
+function leftOutImageChanged(run: SyncRun, previous: RowState) {
+  return Object.entries(previous.imagesLeftOut ?? {}).some(
+    ([path, sha]) => (run.files.blobs.get(path)?.sha ?? "") !== sha,
+  );
 }
 
 function metaHash(page: {
@@ -1063,13 +1094,21 @@ interface SyncRun {
   removedKeys: Set<string>;
   /** Document id for each folder-relative path, for links between files. */
   documentIdByPath: Map<string, string>;
-  /** Uploaded image URL by blob SHA, shared across pages. */
-  assetUrlBySha: Map<string, string>;
+  /**
+   * Stored private image links, shared across pages: a file's by its blob
+   * SHA and the type its name claims, a data URL's by its hash, which covers
+   * its type. The same bytes named as another type are checked again.
+   */
+  assetUrls: Map<string, string>;
   /**
    * Blob SHAs of images whose upload failed this run. Other pages that use
    * one leave it out without trying again, so one image counts once.
    */
   failedAssetShas: Set<string>;
+  /** Images storage refused as not the image they claim to be, keyed as `assetUrls` is. */
+  rejectedAssets: Set<string>;
+  /** Private images this run stored; see `deleteUnboundImages`. */
+  storedMediaIds: Set<string>;
   /** Set once an upload finds no file storage, so later images skip the read. */
   storageMissing: boolean;
   /** Set once an upload fails, so the status says storage couldn't save images. */
@@ -1092,37 +1131,48 @@ function itemIdForDocument(run: SyncRun, documentId: string) {
   return opaqueId("content_github_item", `${run.sourceId}:${documentId}`);
 }
 
+/**
+ * A file image's key in a run's caches. Storage checks bytes against the type
+ * a file's name claims, so the same bytes under another type are another image.
+ */
+function fileImageKey(sha: string, mimeType: string) {
+  return `${sha} ${mimeType}`;
+}
+
 function folderRelative(run: SyncRun, repoPath: string) {
   const folder = normalizeGitHubFolderPath(run.state.path);
   return folder ? repoPath.slice(folder.length + 1) : repoPath;
 }
 
 /**
- * Stores one image's bytes and returns its URL. Returns null when storage
- * isn't set up, which stops the run's uploads, or `"failed"` when this upload
- * failed; a later sync tries it again. `uploadFile` also returns nothing when
- * it couldn't check a Builder credential, so storage that's still set up
- * after an empty answer counts as a failed upload.
+ * Stores one image's bytes privately, as the collection's owner, and returns
+ * its link. The page that shows it binds it when the page is written, so the
+ * page's readers can load it. Returns null when private storage isn't set up,
+ * which stops the run's uploads; `"rejected"` when the bytes aren't the image
+ * their type says, which no later sync can change; or `"failed"` when this
+ * upload failed, which a later sync tries again.
  */
 async function storeImage(
   run: SyncRun,
-  file: Omit<Parameters<typeof uploadFile>[0], "ownerEmail">,
-): Promise<{ url: string } | "failed" | null> {
+  file: { data: Uint8Array; filename: string; mimeType: string },
+): Promise<{ url: string } | "rejected" | "failed" | null> {
   try {
-    const uploaded = await asLinker(run.state, run.database.orgId, () =>
-      uploadFile({ ...file, ownerEmail: run.database.ownerEmail }),
+    const media = await asLinker(run.state, run.database.orgId, () =>
+      putPrivateMedia({
+        ...file,
+        ownerEmail: run.database.ownerEmail,
+        orgId: run.database.orgId,
+      }),
     );
-    if (uploaded?.url) {
-      run.uploadFailuresInARow = 0;
-      return { url: uploaded.url };
-    }
-    const provider = await asLinker(run.state, run.database.orgId, () =>
-      getActiveFileUploadProviderForRequest(),
-    );
-    if (provider) return uploadFailed(run, "file storage returned no URL");
-    run.storageMissing = true;
-    return null;
+    run.storedMediaIds.add(media.id);
+    run.uploadFailuresInARow = 0;
+    return { url: privateMediaPath(media.id) };
   } catch (error) {
+    if (error instanceof PrivateMediaStorageUnavailableError) {
+      run.storageMissing = true;
+      return null;
+    }
+    if (error instanceof PrivateMediaValidationError) return "rejected";
     return uploadFailed(
       run,
       error instanceof Error ? error.message : String(error),
@@ -1168,9 +1218,10 @@ function waitsForStorage(run: SyncRun, file: PlannedFile) {
 }
 
 /**
- * Copies one image into Content's file storage. `"no-storage"` means storage
- * isn't set up or is down, and `"failed"` that this upload failed; either way
- * the page leaves the image out until a later sync can store it.
+ * Copies one image into Content's private storage. `"no-storage"` means
+ * storage isn't set up or is down, and `"failed"` that this upload failed;
+ * either way the page leaves the image out until a later sync can store it.
+ * Null means the image can't be stored at all, and the page leaves it out.
  * `beforeUpload` runs before each copy the sync can't take back.
  */
 async function uploadAsset(
@@ -1183,8 +1234,9 @@ async function uploadAsset(
     const data = dataUrlBytes(request.dataUrl);
     if (!data || data.byteLength > GITHUB_SOURCE_MAX_IMAGE_BYTES) return null;
     const sha = hash(request.dataUrl);
-    const cached = run.assetUrlBySha.get(sha);
+    const cached = run.assetUrls.get(sha);
     if (cached) return { sha, url: cached };
+    if (run.rejectedAssets.has(sha)) return null;
     if (run.failedAssetShas.has(sha)) return "failed";
     if (storageDown(run)) return "no-storage";
     await beforeUpload();
@@ -1194,12 +1246,16 @@ async function uploadAsset(
       filename: `github-image.${extension}`,
       mimeType: request.mediaType,
     });
+    if (stored === "rejected") {
+      run.rejectedAssets.add(sha);
+      return null;
+    }
     if (stored === "failed") {
       run.failedAssetShas.add(sha);
       return stored;
     }
     if (!stored) return "no-storage";
-    run.assetUrlBySha.set(sha, stored.url);
+    run.assetUrls.set(sha, stored.url);
     return { sha, url: stored.url };
   }
   const entry = run.files.blobs.get(request.path);
@@ -1208,8 +1264,10 @@ async function uploadAsset(
   if (entry.size !== null && entry.size > GITHUB_SOURCE_MAX_IMAGE_BYTES) {
     return null;
   }
-  const cached = run.assetUrlBySha.get(entry.sha);
+  const key = fileImageKey(entry.sha, mimeType);
+  const cached = run.assetUrls.get(key);
   if (cached) return { sha: entry.sha, url: cached };
+  if (run.rejectedAssets.has(key)) return null;
   if (run.failedAssetShas.has(entry.sha)) return "failed";
   if (storageDown(run)) return "no-storage";
   await beforeUpload();
@@ -1227,12 +1285,16 @@ async function uploadAsset(
     filename: request.path.split("/").pop() ?? "image",
     mimeType,
   });
+  if (stored === "rejected") {
+    run.rejectedAssets.add(key);
+    return null;
+  }
   if (stored === "failed") {
     run.failedAssetShas.add(entry.sha);
     return stored;
   }
   if (!stored) return "no-storage";
-  run.assetUrlBySha.set(entry.sha, stored.url);
+  run.assetUrls.set(key, stored.url);
   return { sha: entry.sha, url: stored.url };
 }
 
@@ -1270,6 +1332,7 @@ async function buildPage(
     "preview",
   );
   const assets: RowState["assets"] = {};
+  const imagesLeftOut: Record<string, string> = {};
   const urls = new Map<string, string>();
   let imagesWaiting = 0;
   let imagesFailed = false;
@@ -1277,6 +1340,14 @@ async function buildPage(
     const uploaded = await uploadAsset(run, request, beforeUpload);
     if (uploaded === "no-storage" || uploaded === "failed") imagesWaiting += 1;
     if (uploaded === "failed") imagesFailed = true;
+    if (
+      uploaded === null &&
+      request.kind === "file" &&
+      importImageMediaType(request.path)
+    ) {
+      imagesLeftOut[request.path] =
+        run.files.blobs.get(request.path)?.sha ?? "";
+    }
     if (!uploaded || uploaded === "no-storage" || uploaded === "failed") {
       continue;
     }
@@ -1301,7 +1372,26 @@ async function buildPage(
     },
     "apply",
   );
-  return { draft, page, assets, imagesWaiting, imagesFailed };
+  // Only images this collection's syncs stored, in this run or an earlier
+  // one, bind to the page: a link the file itself spells out to some other
+  // private image never gains readers this way.
+  const mediaIds = [
+    ...new Set(
+      [...urls.values()].flatMap((url) => {
+        const id = privateMediaIdFromSrc(url);
+        return id ? [id] : [];
+      }),
+    ),
+  ];
+  return {
+    draft,
+    page,
+    assets,
+    imagesLeftOut,
+    mediaIds,
+    imagesWaiting,
+    imagesFailed,
+  };
 }
 
 /**
@@ -1545,6 +1635,8 @@ async function readTextsAhead(run: SyncRun, work: PlannedFile[], from: number) {
 interface BuiltFile {
   file: PlannedFile;
   page: Awaited<ReturnType<typeof buildPage>>["page"];
+  /** The private images this sync stored that the page shows. */
+  mediaIds: string[];
   values: Record<string, unknown>;
   state: RowState;
 }
@@ -1571,12 +1663,15 @@ async function buildFile(
         await assertLegacyBodyWriter(linkedRow.documentId, GITHUB_BODY_WRITER);
       }
     })());
-  const { draft, page, assets, imagesWaiting, imagesFailed } = await buildPage(
-    run,
-    file.entry.path,
-    text,
-    beforeUpload,
-  );
+  const {
+    draft,
+    page,
+    assets,
+    imagesLeftOut,
+    mediaIds,
+    imagesWaiting,
+    imagesFailed,
+  } = await buildPage(run, file.entry.path, text, beforeUpload);
   if (page.content.length > MAX_IMPORT_PAGE_CHARACTERS) {
     return { skipped: "too-large" };
   }
@@ -1585,6 +1680,7 @@ async function buildFile(
   return {
     file,
     page,
+    mediaIds,
     values,
     state: {
       path: file.repoPath,
@@ -1600,6 +1696,7 @@ async function buildFile(
         : imagesWaiting && previous?.imagesFailedAt
           ? { imagesFailedAt: previous.imagesFailedAt }
           : {}),
+      ...(Object.keys(imagesLeftOut).length > 0 ? { imagesLeftOut } : {}),
     },
   };
 }
@@ -1705,6 +1802,9 @@ async function applyFile(
                 now: run.now,
               });
             }
+            await bindStoredImages(tx, [
+              { documentId: document.id, mediaIds: built.mediaIds },
+            ]);
           } else if (moved) {
             await tx
               .update(schema.documents)
@@ -1850,6 +1950,27 @@ async function settlePageIds(db: Db, run: SyncRun, files: PlannedFile[]) {
 }
 
 /**
+ * Records that the private images this sync stored for pages belong to
+ * them, so each page's readers can load the ones it shows. A row an earlier
+ * version of a page left stays: it's inert once the body stops linking it.
+ */
+async function bindStoredImages(
+  tx: Db,
+  pages: { documentId: string; mediaIds: string[] }[],
+) {
+  await inStatements(
+    pages.flatMap(({ documentId, mediaIds }) =>
+      mediaIds.map((mediaId) => ({ documentId, mediaId })),
+    ),
+    (rows) =>
+      tx
+        .insert(schema.privateMediaReferences)
+        .values(rows)
+        .onConflictDoNothing(),
+  );
+}
+
+/**
  * Writes rows a few statements at a time rather than one a row, each small
  * enough for SQLite's cap on the values one statement carries.
  */
@@ -1983,6 +2104,14 @@ async function insertNewPages(tx: Db, run: SyncRun, pages: BuiltFile[]) {
     })),
     now: run.now,
   });
+  await bindStoredImages(
+    tx,
+    pages.map(({ mediaIds }, index) => {
+      const documentId = documentIds[index];
+      assert(documentId, "A synced page has no document id.");
+      return { documentId, mediaIds };
+    }),
+  );
   // Every page's values fit the columns before any are written, and each
   // column's new select options are added in one write.
   const options = new Map<GitHubColumn, unknown[]>();
@@ -2287,15 +2416,14 @@ export async function syncGitHubSource(
   if (options.signal?.aborted) endBudget();
   options.signal?.addEventListener("abort", endBudget, { once: true });
   const outOfTime = () => Date.now() >= deadline || budget.signal.aborted;
+  const storedMediaIds = new Set<string>();
   try {
     // Pages left without images get rebuilt once storage is set up, even
     // when the branch hasn't moved.
     storageFound =
       state.imagesWaiting > 0
-        ? Boolean(
-            await asLinker(state, database.orgId, () =>
-              getActiveFileUploadProviderForRequest(),
-            ),
+        ? await asLinker(state, database.orgId, () =>
+            isPrivateBlobConfiguredForRequest(),
           )
         : null;
     const retryImages = storageFound === true;
@@ -2380,13 +2508,18 @@ export async function syncGitHubSource(
         eq(schema.contentDatabaseSourceRows.sourceId, options.sourceId),
       )) as SourceRow[];
     const rowByPath = new Map<string, SourceRow>();
-    const assetUrlBySha = new Map<string, string>();
+    const assetUrls = new Map<string, string>();
     for (const row of storedRows) {
       const rowValues = rowState(row);
       if (!rowValues) continue;
       rowByPath.set(rowValues.path, row);
-      for (const asset of Object.values(rowValues.assets)) {
-        assetUrlBySha.set(asset.sha, asset.url);
+      for (const [path, asset] of Object.entries(rowValues.assets)) {
+        // Syncs before images went private stored them at public URLs; a
+        // page rebuilt now gets a private copy instead of reusing one.
+        const mimeType = importImageMediaType(path);
+        if (mimeType && privateMediaIdFromSrc(asset.url)) {
+          assetUrls.set(fileImageKey(asset.sha, mimeType), asset.url);
+        }
       }
     }
     const { columns, removed } = await loadColumns(db, options.sourceId);
@@ -2402,8 +2535,10 @@ export async function syncGitHubSource(
       columns,
       removedKeys: removed,
       documentIdByPath: new Map(),
-      assetUrlBySha,
+      assetUrls,
       failedAssetShas: new Set(),
+      rejectedAssets: new Set(),
+      storedMediaIds,
       storageMissing: false,
       storageFailed: false,
       uploadFailuresInARow: 0,
@@ -2467,7 +2602,8 @@ export async function syncGitHubSource(
       return (
         !previous ||
         previous.blobSha !== file.entry.sha ||
-        (retryImages && (previous.imagesWaiting ?? 0) > 0)
+        (retryImages && (previous.imagesWaiting ?? 0) > 0) ||
+        leftOutImageChanged(run, previous)
       );
     });
     // Files a run's time ran out on go after the rest, least recently cut
@@ -2806,6 +2942,49 @@ export async function syncGitHubSource(
   } finally {
     clearTimeout(budgetTimer);
     options.signal?.removeEventListener("abort", endBudget);
+    await deleteUnboundImages(state, database.orgId, storedMediaIds);
+  }
+}
+
+/**
+ * Deletes the images a run stored that no page it wrote took, such as those
+ * of a page whose write failed or that turned out too long, so retries don't
+ * pile up copies nobody can open. A later sync stores them again. A page's
+ * images bind in the write that saves the page, so once the run is over, an
+ * image without a binding was never shown by a saved page.
+ */
+async function deleteUnboundImages(
+  state: GitHubSourceState,
+  orgId: string | null,
+  mediaIds: Set<string>,
+) {
+  if (mediaIds.size === 0) return;
+  const warn = (what: string, error: unknown) =>
+    console.warn(
+      `[github-source] couldn't ${what}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  const bound = new Set<string>();
+  try {
+    for (const ids of chunks([...mediaIds], 500)) {
+      const rows = await getDb()
+        .selectDistinct({ mediaId: schema.privateMediaReferences.mediaId })
+        .from(schema.privateMediaReferences)
+        .where(inArray(schema.privateMediaReferences.mediaId, ids));
+      for (const row of rows) bound.add(row.mediaId);
+    }
+  } catch (error) {
+    warn("check which stored images a page took", error);
+    return;
+  }
+  // One delete storage refuses doesn't keep the rest.
+  for (const id of mediaIds) {
+    if (bound.has(id)) continue;
+    try {
+      await asLinker(state, orgId, () => deletePrivateMedia(id));
+    } catch (error) {
+      warn(`delete image ${id}, which no page took`, error);
+    }
   }
 }
 

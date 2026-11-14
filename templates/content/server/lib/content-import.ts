@@ -7,20 +7,21 @@ import {
   isActionContractError,
 } from "@agent-native/core/action";
 import {
-  deleteUploadedFile,
-  type FileUploadResult,
-  getActiveFileUploadProviderForRequest,
-  uploadFile,
-} from "@agent-native/core/file-upload";
-import {
   deletePrivateBlob,
   isPrivateBlobConfiguredForRequest,
   putPrivateBlob,
 } from "@agent-native/core/private-blob";
+import {
+  deletePrivateMedia,
+  PrivateMediaStorageUnavailableError,
+  PrivateMediaValidationError,
+  putPrivateMedia,
+} from "@agent-native/core/private-media";
 import { captureError } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 
+import { resolveContentSpaceAccess } from "../../actions/_content-space-access.js";
 import { resolveContentSpaceTarget } from "../../actions/_content-space-target.js";
 import createDocument, {
   withinDocumentCreation,
@@ -51,6 +52,7 @@ import {
   type ImportPageStatus,
 } from "../../shared/import/types.js";
 import { docToNfm, nfmToDoc } from "../../shared/nfm.js";
+import { privateMediaPath } from "../../shared/private-media.js";
 import { getDb, schema } from "../db/index.js";
 import { requireDocumentRequestActor } from "./document-attribution.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
@@ -105,13 +107,8 @@ export async function runContentImport(
     }
   }
   const uploads = [...usedImagePaths].map((path) => images.get(path)!.name);
-  const needsServerUpload = planned.some((page) =>
-    page.uploads.some((request) => request.kind === "data-url"),
-  );
-  const storageReady =
-    (await isPrivateBlobConfiguredForRequest()) &&
-    (!needsServerUpload ||
-      Boolean(await getActiveFileUploadProviderForRequest()));
+  // Originals and embedded images both go to private storage.
+  const storageReady = await isPrivateBlobConfiguredForRequest();
 
   if (args.dryRun) {
     return importResult({
@@ -164,9 +161,11 @@ export async function runContentImport(
     planned.map((page) => [page.path, importPageId(importId, page.path)]),
   );
 
-  const dataUrlUploads = new Map<string, FileUploadResult>();
+  const dataUrlUploads = new Map<string, EmbeddedImageUpload>();
   const usedUploads = new Set<string>();
   const pages: ImportContentPageResult[] = [];
+  // Read once, on the first embedded image.
+  let mediaOrgId: string | null | undefined;
   try {
     // Every new page is filled in and measured before any is created: image
     // urls and page links only exist now, and can make a page longer than its
@@ -178,7 +177,17 @@ export async function runContentImport(
         if (request.kind !== "data-url") continue;
         const key = assetKey(request);
         if (!dataUrlUploads.has(key)) {
-          dataUrlUploads.set(key, await uploadDataUrl(request, actor));
+          if (mediaOrgId === undefined) {
+            mediaOrgId = await importedPagesOrgId(destination);
+          }
+          dataUrlUploads.set(
+            key,
+            await uploadDataUrl(request, {
+              ownerEmail: actor,
+              orgId: mediaOrgId,
+              sourceName: sourceFile(markdown, page.path).name,
+            }),
+          );
         }
       }
       const filled = finalizePlannedPage(page, {
@@ -327,19 +336,22 @@ async function incompleteImportError(
   const reason = contract
     ? error.message
     : "The server hit an unexpected error.";
-  return new ActionContractError(
-    `${landed}: ${reason} Import again with the same idempotencyKey to finish, or undo-content-import to move the imported pages to Trash.`,
-    {
-      errorCode: "IMPORT_INCOMPLETE",
-      statusCode: contract ? error.statusCode : 500,
-      details: {
-        importId: input.importId,
-        documentIds,
-        documentIdsComplete,
-        cause: contract ? error.errorCode : "unexpected",
-      },
+  // The same key carries the same image, so importing again with it can't
+  // get past a bad one.
+  const next =
+    contract && error.errorCode === "IMPORT_IMAGE_INVALID"
+      ? "Use undo-content-import to move the imported pages to Trash, then import the fixed files with a new idempotencyKey."
+      : "Import again with the same idempotencyKey to finish, or undo-content-import to move the imported pages to Trash.";
+  return new ActionContractError(`${landed}: ${reason} ${next}`, {
+    errorCode: "IMPORT_INCOMPLETE",
+    statusCode: contract ? error.statusCode : 500,
+    details: {
+      importId: input.importId,
+      documentIds,
+      documentIdsComplete,
+      cause: contract ? error.errorCode : "unexpected",
     },
-  );
+  });
 }
 
 async function resolveImportDestination(
@@ -456,10 +468,42 @@ function importImageUrl(file: ImportContentFileInput): string {
   });
 }
 
+interface EmbeddedImageUpload {
+  id: string;
+  url: string;
+}
+
+/**
+ * The workspace the imported pages join, as create-document picks it, so
+ * their embedded images are filed under the same one.
+ */
+async function importedPagesOrgId(
+  destination: ImportContentResult["destination"],
+): Promise<string | null> {
+  if (destination.parentId) {
+    const access = await assertAccess(
+      "document",
+      destination.parentId,
+      "editor",
+    );
+    return (access.resource as { orgId?: string | null }).orgId ?? null;
+  }
+  const access = await resolveContentSpaceAccess(
+    destination.spaceId,
+    "contributor",
+  );
+  return access.space.orgId;
+}
+
+/**
+ * Stores an embedded image privately. Nothing links it yet, so only the
+ * importer can load it until create-document binds it to the page whose body
+ * links it, and the page's readers can load it from then on.
+ */
 async function uploadDataUrl(
   request: Extract<ImportAssetRequest, { kind: "data-url" }>,
-  ownerEmail: string,
-): Promise<FileUploadResult> {
+  input: { ownerEmail: string; orgId: string | null; sourceName: string },
+): Promise<EmbeddedImageUpload> {
   const data = dataUrlBytes(request.dataUrl);
   // The preview reports an embedded image with no payload, or one that won't
   // decode, as missing, so only a planning bug sends one here.
@@ -467,14 +511,29 @@ async function uploadDataUrl(
     throw new Error(`An embedded ${request.mediaType} image won't decode`);
   }
   const extension = request.mediaType.split("/")[1]?.split("+")[0] ?? "img";
-  const uploaded = await uploadFile({
-    data,
-    filename: `imported-image.${extension}`,
-    mimeType: request.mediaType,
-    ownerEmail,
-  });
-  if (!uploaded?.url) storageUnavailable();
-  return uploaded;
+  try {
+    const media = await putPrivateMedia({
+      ownerEmail: input.ownerEmail,
+      orgId: input.orgId,
+      data,
+      mimeType: request.mediaType,
+      filename: `imported-image.${extension}`,
+    });
+    return { id: media.id, url: privateMediaPath(media.id) };
+  } catch (error) {
+    if (error instanceof PrivateMediaStorageUnavailableError) {
+      storageUnavailable();
+    }
+    // The preview checks the type and size but not the bytes, which must be
+    // the image the data URL says they are.
+    if (error instanceof PrivateMediaValidationError) {
+      fail(
+        `An embedded image in ${input.sourceName} can't be stored: ${error.message} Replace or remove it, then import again.`,
+        { errorCode: "IMPORT_IMAGE_INVALID", statusCode: error.statusCode },
+      );
+    }
+    throw error;
+  }
 }
 
 /**
@@ -484,19 +543,16 @@ async function uploadDataUrl(
  * import's own result.
  */
 async function deleteUnusedUploads(
-  uploads: ReadonlyMap<string, FileUploadResult>,
+  uploads: ReadonlyMap<string, EmbeddedImageUpload>,
   used: ReadonlySet<string>,
 ): Promise<void> {
   for (const [key, upload] of uploads) {
     if (used.has(key)) continue;
     try {
-      const deleted = await deleteUploadedFile(upload.provider, {
-        url: upload.url,
-        id: upload.id,
-      });
+      const deleted = await deletePrivateMedia(upload.id);
       if (!deleted) {
         console.error(
-          `[content] Unused imported image ${upload.url} was not deleted: the provider kept it`,
+          `[content] Unused imported image ${upload.url} was not deleted: it was already gone`,
         );
       }
     } catch (error) {

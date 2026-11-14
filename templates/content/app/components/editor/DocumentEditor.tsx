@@ -3326,7 +3326,8 @@ function PageEditorSessionBody({
   const isLocalFileDocument = document.source?.mode === "local-files";
   // Pages that follow a GitHub file are written by sync; edit the file instead.
   const isGitHubSourceDocument = document.source?.mode === "github";
-  // Files and GitHub write the body back out, so their images stay public.
+  // Local files write the body back out, so their images stay public. GitHub
+  // pages can't be edited here; sync stores their images privately.
   const privateImageUploads = !isLocalFileDocument && !isGitHubSourceDocument;
   useConvertPageToLiveCopyOnOpen(
     documentId,
