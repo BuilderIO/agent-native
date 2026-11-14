@@ -717,7 +717,8 @@ export function AppProviders({
           <EarlySessionBootstrapScript />
           <EarlyBetaRedirectScript />
           {isFirstRunOnboardingEnabled(
-            import.meta.env,
+            // oxlint-disable-next-line typescript/no-unnecessary-condition -- Native Node does not define import.meta.env.
+            import.meta.env ?? {},
             typeof __AGENT_NATIVE_APP_CONFIG__ === "undefined"
               ? {}
               : __AGENT_NATIVE_APP_CONFIG__,
