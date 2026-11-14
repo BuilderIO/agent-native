@@ -48,6 +48,8 @@ const mockPanel = vi.hoisted(() => {
     suggestionLayout: undefined as string | undefined,
     onSettledChange: undefined as ((settled: boolean) => void) | undefined,
     composer: undefined as React.ReactNode,
+    // While set, the panel suspends as a slow chunk would.
+    loading: undefined as Promise<void> | undefined,
     importGate: new Promise<void>((resolve) => {
       resolveImport = resolve;
     }),
@@ -82,6 +84,7 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       suggestionLayout?: string;
       onSettledChange?: (settled: boolean) => void;
     }) => {
+      if (mockPanel.loading) React.use(mockPanel.loading);
       mockPanel.mcpSuggestionExcludedIntegrationIds =
         mcpSuggestionExcludedIntegrationIds;
       mockPanel.hostedHarness = hostedHarness;
@@ -2490,6 +2493,36 @@ describe("AgentSidebar panel", () => {
         expect(placeholder(host)).toBeNull();
         host.remove();
       } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps a placeholder past 3 seconds while the chat is still loading", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      let finishLoading!: () => void;
+      mockPanel.loading = new Promise<void>((resolve) => {
+        finishLoading = resolve;
+      });
+      try {
+        mockPanel.resolveImport();
+        const host = renderHosted();
+        await act(async () => {});
+
+        await act(async () => vi.advanceTimersByTime(3000));
+        const inner = host.querySelector(".agent-sidebar-panel-inner");
+        expect(inner?.classList.contains("opacity-0")).toBe(false);
+        expect(
+          inner?.querySelector("[data-agent-sidebar-placeholder]"),
+        ).toBeTruthy();
+        expect(host.querySelector("textarea")).toBeNull();
+
+        mockPanel.loading = undefined;
+        await act(async () => finishLoading());
+        expect(placeholder(host)).toBeNull();
+        expect(host.querySelector("textarea")).toBeTruthy();
+        host.remove();
+      } finally {
+        mockPanel.loading = undefined;
         vi.useRealTimers();
       }
     });

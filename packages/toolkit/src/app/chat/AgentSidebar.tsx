@@ -1793,8 +1793,11 @@ export function AgentSidebar({
     >
       <Suspense
         fallback={
-          // A hosted panel's placeholder already covers it.
-          hostedPanel ? null : (
+          // A hosted panel keeps its placeholder until the chat loads, even
+          // once the held placeholder has given up waiting.
+          hostedPanel ? (
+            <HostedAgentPanelPlaceholder />
+          ) : (
             <div
               aria-hidden="true"
               className="flex min-h-0 flex-1 flex-col gap-3 p-3"

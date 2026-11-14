@@ -40,6 +40,10 @@ vi.mock("../sharing/index.js", () => ({
   ShareButton: () => <button data-testid="share-trigger">Share</button>,
 }));
 
+vi.mock("../resources/ResourcesPanel.js", () => ({
+  ResourcesPanel: () => null,
+}));
+
 describe("AgentPanel in a host's panel head", () => {
   let root: Root;
   let container: HTMLDivElement;
@@ -178,6 +182,25 @@ describe("AgentPanel in a host's panel head", () => {
 
     const picker = head.querySelector("[data-agent-thread-switcher]");
     expect(picker?.textContent).toContain("Terminal 1");
+    expect(picker?.className).toContain("h-8");
+  });
+
+  it("keeps a picker back to chat there in Workspace mode", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <AgentPanel
+            storageKey="header-host-resources-test"
+            onCollapse={() => {}}
+            headerHost={head}
+            defaultMode="resources"
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    const picker = head.querySelector("[data-agent-thread-switcher]");
+    expect(picker?.textContent).toContain("Current thread");
     expect(picker?.className).toContain("h-8");
   });
 

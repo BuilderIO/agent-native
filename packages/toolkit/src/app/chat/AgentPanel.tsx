@@ -2140,10 +2140,8 @@ function AgentPanelInner({
                 data-agent-panel-head=""
               >
                 <div className="flex min-w-0 flex-1 items-center">
-                  {/* Terminals keep their picker, which also leads back to chat. */}
-                  {mode === "cli" ? (
-                    renderUnifiedSurfaceTabs(HEADER_HOST_PICKER_CLASS)
-                  ) : mode === "chat" ? (
+                  {/* Terminals and Workspace keep a picker that leads back to chat. */}
+                  {mode === "chat" ? (
                     <AgentPanelThreadSwitcher
                       tabListLabel={t("agentChat.agentPanel.chatTabs")}
                       items={chatThreadItems()}
@@ -2153,7 +2151,9 @@ function AgentPanelInner({
                       closeLabel={t("agentPanel.closeTab")}
                       triggerClassName={HEADER_HOST_PICKER_CLASS}
                     />
-                  ) : null}
+                  ) : (
+                    renderUnifiedSurfaceTabs(HEADER_HOST_PICKER_CLASS)
+                  )}
                 </div>
                 {headerActions}
               </div>,
