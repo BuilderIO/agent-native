@@ -5452,6 +5452,27 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         },
       );
 
+      it("takes a pin brought back before the session loaded off the canvas when the session loads into an organization", async () => {
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click(),
+        );
+        await reload();
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
+
+        mocks.session = { email: "reviewer@example.com", orgId: "org-b" };
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(1);
+        expect(storedDraftTexts()).toEqual({
+          [`new:${JSON.stringify(["screen-1", "screen-1"])}`]:
+            "Make the background darker",
+        });
+      });
+
       it("keeps a new comment's draft on its own screen when the screen changes as you type", async () => {
         await renderPins({ ...signedIn, active: true });
         await placePin();

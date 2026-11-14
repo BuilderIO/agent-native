@@ -2207,25 +2207,22 @@ export function ReviewCanvasPins({
   // Another account's unsent pin isn't this one's to see or write to: it
   // stays kept for the account it was written in and leaves the canvas, and
   // the effect below brings back this account's. It leaves before the new
-  // account's first paint, so not even a frame of it shows. The session
-  // loading after the page does isn't a change of account, but a personal
-  // account switching to an organization is.
-  const sessionLoaded = Boolean(session);
-  const draftAccountRef = useRef({
-    currentUserEmail,
-    sessionOrgId,
-    sessionLoaded,
-  });
+  // account's first paint, so not even a frame of it shows. A session loading
+  // into an organization is a change too, from the personal account a pin
+  // shown before then was kept for.
+  const draftAccountRef = useRef({ currentUserEmail, sessionOrgId });
   useLayoutEffect(() => {
     const previous = draftAccountRef.current;
-    draftAccountRef.current = { currentUserEmail, sessionOrgId, sessionLoaded };
-    const sameEmail = previous.currentUserEmail === currentUserEmail;
-    if (sameEmail && previous.sessionOrgId === sessionOrgId) return;
+    draftAccountRef.current = { currentUserEmail, sessionOrgId };
+    if (
+      previous.currentUserEmail === currentUserEmail &&
+      previous.sessionOrgId === sessionOrgId
+    )
+      return;
     if (!previous.currentUserEmail) return;
-    if (sameEmail && !previous.sessionLoaded) return;
     leftDraftPinRef.current = draftPinRef.current;
     cancelDraft();
-  }, [cancelDraft, currentUserEmail, sessionLoaded, sessionOrgId]);
+  }, [cancelDraft, currentUserEmail, sessionOrgId]);
 
   // In comment mode, a new comment kept on this screen comes back on its pin,
   // closed, as a pin left with text does. Leaving comment mode hides it and
