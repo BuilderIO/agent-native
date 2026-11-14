@@ -2767,6 +2767,17 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "为幻灯片和设计生成图像。",
   "settingsInfra.whyEmbeddings":
     "改进语义搜索。不使用它，关键词搜索也照常可用。",
+  "settingsInfra.semanticSearch": "语义搜索",
+  "settingsInfra.semanticSearchOn":
+    "除了字词，还按含义查找页面。页面文本和搜索内容会发送给嵌入提供商。",
+  "settingsInfra.semanticSearchOff":
+    "已关闭。搜索只匹配字词，不会向嵌入提供商发送页面文本。",
+  "settingsInfra.semanticSearchUnknown": "无法读取语义搜索是否已开启。",
+  "settingsInfra.semanticSearchTurnedOn":
+    "语义搜索已开启。现有页面会在后台建立索引。",
+  "settingsInfra.semanticSearchTurnedOff":
+    "语义搜索已关闭。已删除存储的页面向量。",
+  "settingsInfra.semanticSearchSaveFailed": "无法更改语义搜索。",
   "settingsInfra.designSystem": "设计系统智能",
   "settingsInfra.whyDesignSystem": "让生成的幻灯片和设计符合品牌规范。",
   "settingsInfra.whyBackground": "在生产环境中修改代码。",

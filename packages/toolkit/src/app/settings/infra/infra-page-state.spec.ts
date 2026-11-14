@@ -98,6 +98,7 @@ describe("optimisticServiceStatus", () => {
     canManage: true,
     updatedAt: null,
     updatedBy: null,
+    semanticSearch: { enabled: true, updatedAt: null, updatedBy: null },
     services: [voice({ builder: "org", gemini: "org" }, null, "builder")],
   };
 

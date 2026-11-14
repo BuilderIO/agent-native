@@ -2,8 +2,13 @@ import { defineAction } from "@agent-native/core/action";
 import {
   indexedSearchSql,
   prepareSearchIndex,
+  reciprocalRankFusion,
+  searchSemanticIndex,
+  semanticSearcherAudienceIds,
   SearchTermTooLongError,
   type IndexedSearchSql,
+  type SemanticSearchResult,
+  type SemanticSearchUnavailableReason,
 } from "@agent-native/core/search";
 import {
   getRequestOrgId,
@@ -56,9 +61,66 @@ function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
+/**
+ * How many results from each lane hybrid search fuses: the depth the
+ * question-search bake-off measured. Words past it follow the fused results.
+ */
+const LANE_DEPTH = 20;
+/** Meaning matches read, so enough remain after access and filter checks. */
+const SEMANTIC_CANDIDATES = 40;
+
+type SemanticSkipReason =
+  | "words-mode"
+  | "exact-title"
+  | "title-only"
+  | "operators"
+  | "empty-query";
+
+/** Whether the meaning lane ran for a search, and why not when it didn't. */
+type SemanticSearchStatus =
+  | { status: "used" }
+  | { status: "off" }
+  | { status: "unavailable"; reason: SemanticSearchUnavailableReason }
+  | { status: "skipped"; reason: SemanticSkipReason };
+
+type MatchedBy = "words" | "meaning" | "both";
+
+/**
+ * Why a search is answered by words alone before the meaning lane is asked.
+ * Operators, title-only and exact-title searches ask for literal matches.
+ */
+function semanticSkipReason(
+  args: {
+    mode?: "hybrid" | "words";
+    exactTitle?: string;
+    searchFields?: "all" | "title";
+  },
+  parsed: ParsedSearchQuery,
+): SemanticSkipReason | null {
+  if (args.mode === "words") return "words-mode";
+  if (args.exactTitle !== undefined) return "exact-title";
+  if (args.searchFields === "title") return "title-only";
+  if (parsed.empty) return "empty-query";
+  const usesOperators =
+    parsed.negatives.length > 0 ||
+    parsed.groups.some(
+      (group) =>
+        group.terms.length > 1 ||
+        group.terms.some((term) => term.phrase || term.titleOnly),
+    );
+  return usesOperators ? "operators" : null;
+}
+
+function semanticStatus(result: SemanticSearchResult): SemanticSearchStatus {
+  if (result.status === "unavailable") {
+    return { status: "unavailable", reason: result.reason };
+  }
+  return { status: result.status };
+}
+
 export default defineAction({
   description:
-    'Search one relevance-ranked, bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Exact and partial title matches rank above description and body matches. Titles and descriptions match anywhere; body text matches from the start of words. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. When nothing matches, each word of four or more letters that appears in no visible title or description is also matched as the closest words that do, and spellingCorrections lists them. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
+    'Search one relevance-ranked, bounded page of access-scoped documents by title and content, or find an exact title within a parent, space, and document type. Exact and partial title matches rank above description and body matches. Titles and descriptions match anywhere; body text matches from the start of words. The query supports Google-style operators: "exact phrase", -excludedTerm, OR between terms (uppercase), intitle:term; bare words combine with AND and %, _ match literally. When nothing matches, each word of four or more letters that appears in no visible title or description is also matched as the closest words that do, and spellingCorrections lists them. By default a plain query also finds pages by meaning, so a question finds the page that answers it in other words: the best word and meaning matches are merged first, then the remaining word matches follow. Each result says whether it matched by words, meaning, or both, and semanticSearch says whether meaning was used. Pass mode "words" to match words only; operators, searchFields "title", and exactTitle always match words only. Returns explicit pagination; follow nextOffset until hasMore is false. Returns metadata and snippets; use get-document for full content.',
   deferLoading: false,
   mcpTool: true,
   schema: z
@@ -98,6 +160,12 @@ export default defineAction({
         .enum(["all", "title"])
         .optional()
         .describe("Match title only, or title, description and body (default)"),
+      mode: z
+        .enum(["hybrid", "words"])
+        .optional()
+        .describe(
+          "hybrid (default) finds pages by meaning as well as words; words matches words only",
+        ),
       modifiedAfter: z.iso
         .datetime()
         .optional()
@@ -222,7 +290,17 @@ export default defineAction({
       (indexReady ??= prepareSearchIndex(documentSearchIndex).then(
         (state) => state.ready,
       ));
-    const searchPage = async (query: ParsedSearchQuery | null) => {
+    const searchPage = async (
+      query: ParsedSearchQuery | null,
+      window: {
+        limit: number;
+        offset: number;
+        /** Leave out these pages, already shown. */
+        excludeIds?: readonly string[];
+        /** Only these pages, when non-empty. */
+        onlyIds?: readonly string[];
+      },
+    ) => {
       const matchPredicates: SQL[] = [];
       let bodyNeedles: string[] = [];
       if (query) {
@@ -269,9 +347,17 @@ export default defineAction({
           indexedSearch = null;
         }
       }
+      const windowWhere = and(
+        window.excludeIds?.length
+          ? notInArray(schema.documents.id, [...window.excludeIds])
+          : undefined,
+        window.onlyIds?.length
+          ? inArray(schema.documents.id, [...window.onlyIds])
+          : undefined,
+      );
       const where = indexedSearch
-        ? and(baseWhere, indexedSearch.match)
-        : and(baseWhere, ...matchPredicates);
+        ? and(baseWhere, windowWhere, indexedSearch.match)
+        : and(baseWhere, windowWhere, ...matchPredicates);
       const normalizedContent = sql<string>`coalesce(${schema.documents.content}, '')`;
       const ranking =
         !indexedSearch && query?.groups.length
@@ -336,8 +422,8 @@ export default defineAction({
           desc(schema.documents.updatedAt),
           asc(schema.documents.id),
         )
-        .limit(args.limit)
-        .offset(args.offset);
+        .limit(window.limit)
+        .offset(window.offset);
       const previewById = await loadDocumentSearchPreviews({
         db,
         where: baseWhere,
@@ -391,10 +477,32 @@ export default defineAction({
       return searchVocabulary(rows.map((row) => row.word));
     };
 
-    let { docs, previewById, totalItems } = await searchPage(parsedQuery);
+    // The meaning lane runs beside the first word search, never before it.
+    const skipReason = parsedQuery
+      ? semanticSkipReason(args, parsedQuery)
+      : null;
+    const semanticPending =
+      args.query && parsedQuery && !skipReason
+        ? searchSemanticIndex(documentSearchIndex, {
+            query: args.query,
+            audienceIds: semanticSearcherAudienceIds({
+              userEmail,
+              orgIds: authorizedOrgIds,
+            }),
+            limit: SEMANTIC_CANDIDATES,
+          })
+        : null;
+    // Hybrid search reads the top word matches to fuse; words alone read the
+    // requested page.
+    const firstWindow = semanticPending
+      ? { limit: LANE_DEPTH, offset: 0 }
+      : { limit: args.limit, offset: args.offset };
+
+    let lexical = await searchPage(parsedQuery, firstWindow);
+    let lexicalQuery = parsedQuery;
     let spellingCorrections: SpellingCorrection[] | undefined;
     if (
-      totalItems === 0 &&
+      lexical.totalItems === 0 &&
       parsedQuery &&
       !parsedQuery.empty &&
       !args.exactTitle &&
@@ -405,11 +513,114 @@ export default defineAction({
         await visibleVocabulary(),
       );
       if (corrected) {
-        const correctedPage = await searchPage(corrected.query);
+        const correctedPage = await searchPage(corrected.query, firstWindow);
         if (correctedPage.totalItems > 0) {
-          ({ docs, previewById, totalItems } = correctedPage);
+          lexical = correctedPage;
+          lexicalQuery = corrected.query;
           spellingCorrections = corrected.corrections;
         }
+      }
+    }
+
+    let { docs, previewById, totalItems } = lexical;
+    let matchedBy: Map<string, MatchedBy> | undefined;
+    let semanticSearch: SemanticSearchStatus | undefined = skipReason
+      ? { status: "skipped", reason: skipReason }
+      : undefined;
+    if (semanticPending) {
+      const semantic = await semanticPending;
+      semanticSearch = semanticStatus(semantic);
+      // Meaning matches the caller may open, in the requested place, under
+      // the same filters as word matches.
+      const meaningIds: string[] = [];
+      if (semantic.status === "used" && semantic.hits.length) {
+        const hitIds = semantic.hits.map((hit) => hit.id);
+        const visible = await db
+          .select({ id: schema.documents.id })
+          .from(schema.documents)
+          .where(and(baseWhere, inArray(schema.documents.id, hitIds)));
+        const visibleIds = new Set(visible.map((row) => row.id));
+        for (const id of hitIds) {
+          if (visibleIds.has(id)) meaningIds.push(id);
+          if (meaningIds.length >= LANE_DEPTH) break;
+        }
+      }
+      if (!meaningIds.length) {
+        // Words alone, whose first matches are already read.
+        if (args.offset + args.limit > LANE_DEPTH) {
+          ({ docs, previewById, totalItems } = await searchPage(lexicalQuery, {
+            limit: args.limit,
+            offset: args.offset,
+          }));
+        } else {
+          docs = lexical.docs.slice(args.offset, args.offset + args.limit);
+        }
+        if (semantic.status === "used") {
+          matchedBy = new Map(docs.map((doc) => [doc.id, "words" as const]));
+        }
+      } else {
+        const fused = reciprocalRankFusion(
+          {
+            words: lexical.docs.map((doc, index) => ({
+              key: doc.id,
+              value: doc.id,
+              score: LANE_DEPTH - index,
+            })),
+            meaning: meaningIds.map((id, index) => ({
+              key: id,
+              value: id,
+              score: LANE_DEPTH - index,
+            })),
+          },
+          { rankConstant: 60, limit: 2 * LANE_DEPTH },
+        );
+        const fusedIds = fused.map((candidate) => candidate.key);
+        const pageIds = fusedIds.slice(args.offset, args.offset + args.limit);
+        const lexicalIds = new Set(lexical.docs.map((doc) => doc.id));
+        const meaningOnlyIds = pageIds.filter((id) => !lexicalIds.has(id));
+        const meaningRows = meaningOnlyIds.length
+          ? await searchPage(null, {
+              limit: meaningOnlyIds.length,
+              offset: 0,
+              onlyIds: meaningOnlyIds,
+            })
+          : null;
+        // Word matches past the fused ones, which they never repeat. A page
+        // inside the fused results still reads their count.
+        const tail = await searchPage(lexicalQuery, {
+          limit: args.limit - pageIds.length,
+          offset: Math.max(0, args.offset - fusedIds.length),
+          excludeIds: fusedIds,
+        });
+        const rowById = new Map(
+          [...lexical.docs, ...(meaningRows ? meaningRows.docs : [])].map(
+            (doc) => [doc.id, doc],
+          ),
+        );
+        docs = [
+          ...pageIds.flatMap((id) => {
+            const doc = rowById.get(id);
+            return doc ? [doc] : [];
+          }),
+          ...tail.docs,
+        ];
+        previewById = new Map([
+          ...lexical.previewById,
+          ...(meaningRows ? meaningRows.previewById : []),
+          ...tail.previewById,
+        ]);
+        totalItems = fusedIds.length + tail.totalItems;
+        matchedBy = new Map([
+          ...fused.map((candidate): [string, MatchedBy] => [
+            candidate.key,
+            candidate.laneRanks.words && candidate.laneRanks.meaning
+              ? "both"
+              : candidate.laneRanks.words
+                ? "words"
+                : "meaning",
+          ]),
+          ...tail.docs.map((doc): [string, MatchedBy] => [doc.id, "words"]),
+        ]);
       }
     }
 
@@ -451,6 +662,9 @@ export default defineAction({
           contentLength: preview?.contentLength ?? 0,
           hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
           updatedAt: doc.updatedAt,
+          ...(matchedBy?.has(doc.id)
+            ? { matchedBy: matchedBy.get(doc.id) }
+            : {}),
         };
       }),
       pagination: documentDiscoveryPagination({
@@ -460,6 +674,7 @@ export default defineAction({
         returnedItems: docs.length,
       }),
       ...(spellingCorrections ? { spellingCorrections } : {}),
+      ...(semanticSearch ? { semanticSearch } : {}),
       ...(args.withinSubtreeOf ? { withinSubtreeTruncated } : {}),
     };
   },

@@ -404,14 +404,30 @@ function fenced(fence: ResourceChangeFence | undefined) {
  * Leases up to `limit` ready changes, oldest first. Rows another claimant is
  * locking right now are skipped, and the lease expires on its own if this
  * process dies, so there is nothing to clean up.
+ *
+ * `settledSeconds` skips changes recorded less than that long ago. Every
+ * write records the change afresh, so a resource being edited stays unclaimed
+ * until its edits pause.
  */
 export async function claimResourceChanges(
   exec: DbExec,
   feed: ResourceChangeFeed,
   limit: number,
   fence?: ResourceChangeFence,
+  options: { settledSeconds?: number } = {},
 ): Promise<ClaimedResourceChange[]> {
   const guard = fenced(fence);
+  const settled = options.settledSeconds ?? 0;
+  if (!Number.isFinite(settled) || settled < 0) {
+    throw new Error("settledSeconds must be a non-negative number.");
+  }
+  const settle =
+    settled > 0
+      ? {
+          sql: " AND changed_at <= clock_timestamp() - make_interval(secs => ?)",
+          args: [settled],
+        }
+      : { sql: "", args: [] };
   // The pick is an uncorrelated ARRAY(...) sub-select, which Postgres runs
   // once, and the update then finds each row by its full primary key. Two
   // other shapes go wrong: a subquery in FROM can be rescanned inside a
@@ -419,6 +435,7 @@ export async function claimResourceChanges(
   // the next ones, claiming far past the limit; and any join back to this
   // table depends on statistics, which PGlite never gathers, so it can
   // compare every pending row against every picked one.
+  // raw-sql-ok: the table name is a constant, and the settle and guard fragments bind their values.
   const { rows } = await exec.execute({
     sql: `UPDATE ${RESOURCE_CHANGES_TABLE} AS c
           SET available_at = clock_timestamp() + interval '${CLAIM_LEASE_SECONDS} seconds',
@@ -427,7 +444,7 @@ export async function claimResourceChanges(
             AND c.resource_id = ANY (ARRAY(
               SELECT resource_id FROM ${RESOURCE_CHANGES_TABLE}
               WHERE consumer = ? AND app = ? AND resource_type = ?
-                AND available_at <= clock_timestamp()
+                AND available_at <= clock_timestamp()${settle.sql}
               ORDER BY seq
               LIMIT ?
               FOR UPDATE SKIP LOCKED
@@ -440,6 +457,7 @@ export async function claimResourceChanges(
       feed.consumer,
       feed.app,
       feed.resourceType,
+      ...settle.args,
       limit,
       ...guard.args,
     ],
@@ -613,6 +631,34 @@ export async function enqueueAllResourceChanges(
     `SELECT nextval('${RESOURCE_CHANGE_SEQUENCE}')::text AS seq`,
   );
   return String(rows[0]?.seq);
+}
+
+/**
+ * Queues a change for one consumer for each `resource_id` that `select`
+ * returns, replacing any change already queued for it, as
+ * `enqueueAllResourceChanges` does for every row of a table. `select.sql`
+ * must be fixed SQL with `?` placeholders for every value.
+ */
+export async function enqueueSelectedResourceChanges(
+  exec: DbExec,
+  feed: ResourceChangeFeed,
+  select: { sql: string; args: unknown[] },
+  reason: string,
+): Promise<void> {
+  // raw-sql-ok: table and sequence names are constants; select is fixed SQL whose values are bound in select.args.
+  await exec.execute({
+    sql: `INSERT INTO ${RESOURCE_CHANGES_TABLE} (consumer, app, resource_type, resource_id, reason, seq)
+          SELECT ?, ?, ?, picked.resource_id::text, ?, nextval('${RESOURCE_CHANGE_SEQUENCE}')
+          FROM (${select.sql}) AS picked
+          ON CONFLICT (consumer, app, resource_type, resource_id) DO UPDATE SET
+            reason = EXCLUDED.reason,
+            seq = nextval('${RESOURCE_CHANGE_SEQUENCE}'),
+            changed_at = clock_timestamp(),
+            available_at = clock_timestamp(),
+            attempts = 0,
+            failed_at = NULL`,
+    args: [feed.consumer, feed.app, feed.resourceType, reason, ...select.args],
+  });
 }
 
 type DrainHook = () => Promise<unknown>;

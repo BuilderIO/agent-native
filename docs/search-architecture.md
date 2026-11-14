@@ -5,8 +5,9 @@ implementation. Revision 2 incorporated an independent design review:
 whole-resource matching, access checked inside the query, and change capture by
 database triggers. Revision 3 records the first implementation. Change capture
 became a general resource change feed that search consumes, search never wakes
-a sleeping database, and core tokenizes text itself. Each section says what is
-built and what is planned. Update this document when the design changes.
+a sleeping database, and core tokenizes text itself. Revision 4 adds the
+meaning lane and hybrid search in Content (see [Meaning lane](#meaning-lane)).
+Each section says what is built and what is planned. Update this document when the design changes.
 
 ## Decision
 
@@ -43,10 +44,14 @@ namespaced tables; this layer adds its own fixed tables.
   When a query finds nothing, `search-documents` runs a typo pass over the
   words in titles and descriptions the caller can see (see
   [Querying](#querying)).
+- **Meaning lane:** page-chunk embeddings kept fresh by a second consumer of
+  the change feed, and hybrid search in Content's `search-documents`, which
+  fuses word and meaning matches. Organizations can turn it off (see
+  [Meaning lane](#meaning-lane)).
 - **Not built yet:** the `searchResources` library call, `createSearchAction`,
   the per-app `search` action, cursors, chunks and passage snippets, audience
   tokens, `ts_rank_cd` ordering, the `search_vocabulary` table and typo
-  correction of body words, the semantic lane, and lifting the browser lane
+  correction of body words, and lifting the browser lane
   into core. Until the library call exists, an app
   composes the index into its own query (see [Querying](#querying)).
 
@@ -56,13 +61,15 @@ namespaced tables; this layer adds its own fixed tables.
 | -------- | ------- | ---------------------------------------------------------------- | --------------------------- |
 | Title    | Browser | Titles the app already loaded, including fuzzy matches           | Every keystroke, no network |
 | Lexical  | Server  | Substrings of titles and summaries; words and prefixes in bodies | After a short debounce      |
-| Semantic | Server  | Meaning, via chunk embeddings (hosted Postgres only)             | Later                       |
+| Semantic | Server  | Meaning, via chunk embeddings (Postgres with pgvector)           | Beside the lexical lane     |
 
-One ordering function defines results for every caller. Modes change only the
-latency budget, never the result set or its order. The last query term is
-always a prefix, for people and agents alike. When the semantic lane exists,
-it is fused the same way for every caller. The UI may show lexical results
-first, but its final state equals what an agent gets for the same inputs.
+One ordering function defines results for every caller. Latency modes change
+only the latency budget, never the result set or its order. The last query
+term is always a prefix, for people and agents alike. The semantic lane is
+fused the same way for every caller; a search that asks for words only (see
+[Hybrid search in Content](#hybrid-search-in-content)) leaves it out, which
+changes its results. The UI may show lexical results first, but its final
+state equals what an agent gets for the same inputs.
 
 ## Registration
 
@@ -468,6 +475,125 @@ scans the visible titles and descriptions on every search that finds nothing.
 Correcting body words needs `search_vocabulary`, whose rows will carry
 audience tokens.
 
+## Meaning lane
+
+Built in revision 4. Word search misses a question phrased in other words:
+"how do customers get their money back?" shares no words with a page called
+"Refund policy". The question-search bake-off
+([#8943](https://github.com/BuilderIO/agent-native/pull/8943)) compared
+embedding page chunks, HyDE, reranking and query enrichment on the relevance
+eval's invented pages. Embedding chunks and fusing them with today's search won,
+with 96% of question searches finding their page in the top three using
+OpenAI's `text-embedding-3-small`.
+
+- **Registration.** An app sets `semantic: true` and returns an `audience`
+  (`{ orgId, ownerEmail }`) from `load`. The audience decides who may match a
+  page by meaning: `org:<id>`, else `user:<email>`. A searcher matches their
+  own audience and their organizations'.
+- **A second consumer of the change feed.** `search-embeddings` receives the
+  same `app_resource_changes` rows as the lexical index, with no new triggers.
+  It takes a change only after it has settled for 60 seconds, so editing a
+  page doesn't embed every save, and claims up to 16 at a time with a lease.
+  It drains after writes and on the recurring tick, as the lexical index does.
+  Each embedding call times out after 15 seconds or at the drain's deadline,
+  whichever comes first, and none starts after the deadline. When a batch
+  fails, the drain retries its pages one at a time only until its deadline.
+  Changes left when time runs out stay claimed until their lease expires, so
+  an outage can't hold claims past their lease. An app adds the consumer with
+  `semanticSearchMigration()`, which queues a backfill.
+- **Chunks.** About 1,200 characters each, cut at sentence ends and led by the
+  title and summary (cut to 400 characters), with at most 12 per page. A page
+  scores as its best chunk. A resource whose `load` returns `semantic: false`,
+  such as a trashed or hidden Content page, stays in the word index but isn't
+  embedded, and its vectors are deleted; restoring it embeds it again.
+- **Tables.** `search_embeddings` keeps one row per resource: its audience,
+  embedding set, chunk count, a hash of its chunks, and the change it embedded.
+  An unchanged hash skips the embedding call. Before storing vectors, the row
+  is marked pending with a count covering old and new chunks; it gets the hash
+  only after the vectors are stored and stale chunks removed. A failed store is
+  embedded again, and deleting the page finds every vector. Every write to the
+  row is skipped if a later change already recorded newer work, and a drain
+  claims the row that way before deleting another model's vectors. If two
+  drains still store one page at once (one stalled past its lease), the one
+  that finishes second marks the row `repair`, counting every chunk either
+  wrote, and queues the page; no drain can record over `repair`, and the next
+  embeds the page again and removes the extras. A drain's final write only
+  updates the row its pending write made, so when a newer drain deleted the
+  page meanwhile, it records nothing and removes what it stored. Vectors live
+  in a
+  `SearchVectorStore`, by default pgvector's per-dimension tables under the
+  `search` namespace. When the database offers `vector` but hasn't installed
+  it, the store creates the extension.
+- **Provider.** Pages embed with the organization's embedding family, Builder's
+  gateway by default. A page with no organization, such as one in a personal
+  space, embeds as its owner, whose credentials resolve to their active
+  organization (else their first), so that organization's provider embeds it.
+  With no provider, the row records `no-provider` and keeps any vectors it
+  had; choosing a provider in the Embeddings setting queues the
+  organization's pages again. Every embedding call records usage:
+  `search-index-embeddings` for pages and `search-query-embeddings` for
+  queries.
+- **Off switch.** The organization setting `semantic-search` is on unless an
+  admin turns it off, in Settings → Infrastructure or with
+  `manage-service-providers` `{ semanticSearch: false }`. It governs the pages
+  its provider would embed: the organization's own, and its members' pages
+  with no organization whose owner's credentials resolve to it. The same rule
+  decides whether a search with no organization in its request may embed the
+  query. Turning it off deletes the organization's vectors and every member's
+  private-page vectors, then queues the members' pages, so those another of
+  the owner's organizations governs are embedded again. The drain checks the
+  setting before embedding, before storing and after storing, reading past the
+  request's settings snapshot, so a page in flight when another request turns
+  it off leaves nothing behind. Rows marked pending or `repair` keep their
+  chunk count when it turns off, so vectors stored after the deletion, even by
+  a store that fails part way, are found and deleted when the drain retries.
+  Turning it on queues the pages it governs again, along with any queued page
+  never embedded. If deleting or queuing fails, the setting stays changed and
+  calling again finishes the job; the settings page offers Retry. Each change
+  is audited.
+- **Querying.** `searchSemanticIndex()` embeds the query (cached for 10
+  minutes, with a 4-second timeout) and asks the store for the 100 nearest
+  chunks in the searcher's audiences. It drops chunks below the model's
+  `minSimilarity`, so a question no page answers finds nothing rather than the
+  nearest unrelated pages. It never throws. It returns `used` with resource
+  ids in order, `off`, or `unavailable` with a reason: `no-provider`,
+  `no-vector-store` or `error`.
+- **The similarity floor.** Each model scores on its own scale, so each family
+  sets its own floor, from an eval run. Builder's model and
+  voyage-multimodal-3.5 use 0.30. On the question-search eval corpus, every
+  judged page scored 0.326 or more, and no off-topic question scored above
+  0.250. Gemini and Cohere have none yet and keep every match.
+
+### Hybrid search in Content
+
+`search-documents` takes `mode: "hybrid" | "words"`, hybrid by default. Hybrid
+runs the meaning query beside the word query, then:
+
+1. Checks each meaning match against the same access rules and filters as word
+   matches, keeping at most 20.
+2. Fuses the top 20 word matches with those meaning matches by reciprocal rank
+   (k = 60), for at most 40 results.
+3. Lists the remaining word matches after the fused ones, leaving out any
+   already shown. Paging reaches every result exactly once, and `totalItems`
+   stays exact.
+
+Each document says how it matched (`matchedBy`: `words`, `meaning` or
+`both`), and the response reports `semanticSearch`. Search matches words only
+for `mode: "words"`, exact-title lookups, title-only searches, empty queries,
+and queries with operators (quoted phrases, `-`, `OR`, `intitle:`). The
+command menu asks for words, since it searches as you type.
+
+### Not settled yet
+
+- **Floors for Gemini and Cohere.** Without one, fusion keeps up to 20
+  meaning matches even when none is close.
+- **Pages shared from another audience** match by words only, since their
+  vectors sit in their owner's audience.
+- **Snippets.** A page found only by meaning shows its opening, not the chunk
+  that matched.
+- **A provider connected outside the Embeddings setting** embeds each page at
+  its next edit.
+
 ## Library and actions
 
 Planned. Core will export:
@@ -540,10 +666,12 @@ back a `CommandSearchProvider` when the shared command menu lands.
   than relying on the planner to pick a good join. A trigram-backed
   `search_vocabulary` will need `pg_trgm`, which core's PGlite client must
   pass at construction; Content's title typo pass compares words in
-  JavaScript and needs no extension. There is no
-  semantic lane; the action will report `semantic: "unavailable"`.
-- **Neon:** `pg_trgm` and `vector` are created at release when those lanes
-  land. Each search reads the index state and pending changes in its own
+  JavaScript and needs no extension. Core's PGlite client loads no pgvector,
+  so the meaning lane reports `unavailable` (`no-vector-store`) and search
+  matches words. Tests plug in core's in-memory vector store from
+  `@agent-native/core/testing`.
+- **Neon:** the meaning lane creates `vector` on first use; `pg_trgm` is
+  created at release when that lane lands. Each search reads the index state and pending changes in its own
   round trip. That's short when the app runs in the database's region; from a
   distant client it was the whole latency difference from the previous
   engine. If it ever matters, the check can move into the search statement.
@@ -662,6 +790,21 @@ Planned:
 - **The first slice leaves out** audience tokens, chunks, `ts_rank_cd`, and
   cursors. The app's own statement enforces access, and Content keeps exact
   totals and offset paging.
+
+## Decisions made in revision 4
+
+- **Hybrid over HyDE, reranking and enrichment,** from the bake-off. It adds
+  one embedding call per new query and no model call per result.
+- **On by default through Builder's gateway, with an organization off switch.**
+  Off deletes the organization's vectors, and its members' private-page
+  vectors, rather than hiding them.
+- **Embeddings are another consumer of the change feed,** not a separate queue,
+  so they reuse the triggers, leases and backoff the lexical index has.
+- **Vectors are grouped by audience** (organization or owner), not by a page's
+  sharing list, so a sharing change needs no new vectors. Exact access is
+  checked again by the app's own statement.
+- **The vector store is pluggable,** so PGlite and CI test the whole path with
+  an in-memory store.
 
 ## Open questions
 

@@ -1,5 +1,8 @@
 import { runMigrations } from "@agent-native/core/db";
-import { searchIndexMigration } from "@agent-native/core/search";
+import {
+  searchIndexMigration,
+  semanticSearchMigration,
+} from "@agent-native/core/search";
 
 import { documentSearchIndex } from "../db/index.js";
 import { scheduleStartupMaintenance } from "../lib/startup-maintenance.js";
@@ -1681,6 +1684,12 @@ export const runContentMigrations = runMigrations(
       name: "content-comment-author-client",
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS author_client TEXT`,
     },
+    // Queues every page to be embedded for question search. The capture
+    // installed by version 117 records later changes for it too.
+    semanticSearchMigration(documentSearchIndex, {
+      version: 138,
+      name: "search-embeddings-documents",
+    }),
   ],
   { table: "content_migrations" },
 );

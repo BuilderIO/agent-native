@@ -27,6 +27,7 @@ import {
 } from "@agent-native/toolkit/ui/dialog";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
   IconBox,
   IconBrowser,
@@ -41,7 +42,7 @@ import {
   IconServer,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { ServiceKeyDialog } from "../api-keys/ApiKeyDialogs.js";
@@ -280,6 +281,12 @@ function InfrastructurePageContent({
   );
   const [environmentOpen, setEnvironmentOpen] =
     useState<EnvironmentDialogId | null>(null);
+  const [semanticSearchSaving, setSemanticSearchSaving] = useState(false);
+  // The value a failed change tried to set. The server may have saved it
+  // before failing, so the row offers to finish the change.
+  const [semanticSearchRetry, setSemanticSearchRetry] = useState<
+    boolean | null
+  >(null);
 
   // Owners and admins connect Builder.io for the organization (open question
   // 8.1.1); a deploy-level key also powers every service.
@@ -334,6 +341,45 @@ function InfrastructurePageContent({
     } catch (cause) {
       if (previous) queryClient.setQueryData(SERVICES_QUERY_KEY, previous);
       throw cause;
+    }
+  };
+
+  // Like setService, but the switch has no dialog to hold a failure.
+  const setSemanticSearch = async (enabled: boolean): Promise<void> => {
+    const previous =
+      queryClient.getQueryData<ServiceProvidersStatus>(SERVICES_QUERY_KEY);
+    void queryClient.cancelQueries({ queryKey: SERVICES_QUERY_KEY });
+    if (previous?.semanticSearch) {
+      queryClient.setQueryData<ServiceProvidersStatus>(SERVICES_QUERY_KEY, {
+        ...previous,
+        semanticSearch: { ...previous.semanticSearch, enabled },
+      });
+    }
+    setSemanticSearchSaving(true);
+    try {
+      const result = await callAction<ServiceProvidersStatus>(
+        "manage-service-providers" as never,
+        { semanticSearch: enabled } as never,
+      );
+      queryClient.setQueryData(SERVICES_QUERY_KEY, result);
+      setSemanticSearchRetry(null);
+      toast.success(
+        t(
+          enabled
+            ? `${K}semanticSearchTurnedOn`
+            : `${K}semanticSearchTurnedOff`,
+        ),
+      );
+    } catch (cause) {
+      if (previous) queryClient.setQueryData(SERVICES_QUERY_KEY, previous);
+      // The server may have saved the setting before failing, so read it.
+      void queryClient.invalidateQueries({ queryKey: SERVICES_QUERY_KEY });
+      setSemanticSearchRetry(enabled);
+      toast.error(t(`${K}semanticSearchSaveFailed`), {
+        description: errorMessage(cause),
+      });
+    } finally {
+      setSemanticSearchSaving(false);
     }
   };
 
@@ -591,6 +637,50 @@ function InfrastructurePageContent({
     };
   };
 
+  // Services › Semantic search, under Embeddings, whose provider it uses.
+  const semanticSearchRow = () => {
+    if (!services.data) return failedRow(services.refetch);
+    const setting = services.data.semanticSearch;
+    if (!setting) {
+      return {
+        icon: <IconSearch aria-hidden />,
+        description: (
+          <span className="text-destructive">
+            {t(`${K}semanticSearchUnknown`)}
+          </span>
+        ),
+        control: (
+          <RowButton onClick={() => void services.refetch()}>
+            {t(`${K}retry`)}
+          </RowButton>
+        ),
+      };
+    }
+    return {
+      icon: <IconSearch aria-hidden />,
+      description: t(
+        setting.enabled ? `${K}semanticSearchOn` : `${K}semanticSearchOff`,
+      ),
+      control: (
+        <span className="flex items-center gap-2">
+          {semanticSearchRetry === setting.enabled &&
+          services.data.canManage &&
+          !semanticSearchSaving ? (
+            <RowButton onClick={() => void setSemanticSearch(setting.enabled)}>
+              {t(`${K}retry`)}
+            </RowButton>
+          ) : null}
+          <Switch
+            checked={setting.enabled}
+            disabled={!services.data.canManage || semanticSearchSaving}
+            aria-label={t(`${K}semanticSearch`)}
+            onCheckedChange={(checked) => void setSemanticSearch(checked)}
+          />
+        </span>
+      ),
+    };
+  };
+
   const openService: ServiceProviderServiceStatus | null =
     (serviceOpen &&
       services.data?.services.find((item) => item.service === serviceOpen)) ||
@@ -677,12 +767,20 @@ function InfrastructurePageContent({
               );
             case "provider":
               return hasOrg ? (
-                <SettingsRow
-                  key={service.id}
-                  id={service.id}
-                  label={t(PROVIDER_SERVICES[service.id].labelKey)}
-                  {...serviceRow(service.id)}
-                />
+                <Fragment key={service.id}>
+                  <SettingsRow
+                    id={service.id}
+                    label={t(PROVIDER_SERVICES[service.id].labelKey)}
+                    {...serviceRow(service.id)}
+                  />
+                  {service.id === "embeddings" ? (
+                    <SettingsRow
+                      id="semantic-search"
+                      label={t(`${K}semanticSearch`)}
+                      {...semanticSearchRow()}
+                    />
+                  ) : null}
+                </Fragment>
               ) : null;
             case "builder-only": {
               return builderProvidedServiceRow(

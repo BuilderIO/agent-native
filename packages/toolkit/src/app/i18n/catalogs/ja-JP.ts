@@ -3037,6 +3037,19 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyImages": "スライドとデザインの画像を生成します。",
   "settingsInfra.whyEmbeddings":
     "セマンティック検索を改善します。キーワード検索はこれがなくても使えます。",
+  "settingsInfra.semanticSearch": "セマンティック検索",
+  "settingsInfra.semanticSearchOn":
+    "言葉だけでなく意味でもページを見つけます。ページのテキストと検索語は埋め込みのプロバイダーに送信されます。",
+  "settingsInfra.semanticSearchOff":
+    "オフ。検索は言葉の一致だけで、ページのテキストは埋め込みのプロバイダーに送信されません。",
+  "settingsInfra.semanticSearchUnknown":
+    "セマンティック検索がオンかどうかを読み取れませんでした。",
+  "settingsInfra.semanticSearchTurnedOn":
+    "セマンティック検索をオンにしました。既存のページはバックグラウンドでインデックスされます。",
+  "settingsInfra.semanticSearchTurnedOff":
+    "セマンティック検索をオフにしました。保存されていたページのベクトルは削除されました。",
+  "settingsInfra.semanticSearchSaveFailed":
+    "セマンティック検索を変更できませんでした。",
   "settingsInfra.designSystem": "デザインシステムインテリジェンス",
   "settingsInfra.whyDesignSystem":
     "生成したスライドとデザインをブランドに沿わせます。",

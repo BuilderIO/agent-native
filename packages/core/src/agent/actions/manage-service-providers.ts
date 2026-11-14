@@ -5,6 +5,15 @@ import { auditAttribution } from "../../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../../audit/org-admin.js";
 import { canManageOrg } from "../../org/permissions.js";
 import {
+  readSemanticSearchSetting,
+  writeSemanticSearchSetting,
+  type SemanticSearchSetting,
+} from "../../search/semantic-setting.js";
+import {
+  forgetSemanticSearchForOrg,
+  requeueSemanticSearchForOrg,
+} from "../../search/semantic.js";
+import {
   prefetchSecrets,
   resolveBuilderCredentialsDetailed,
 } from "../../server/credential-provider.js";
@@ -67,15 +76,36 @@ export interface ServiceProvidersStatus {
   /** The caller is an owner or admin and may change the choices. */
   canManage: boolean;
   services: ServiceProviderServiceStatus[];
+  /**
+   * Whether apps search the organization's pages by meaning as well as by
+   * words, sending page text and search queries to the Embeddings provider.
+   * Null when the setting could not be read.
+   */
+  semanticSearch: SemanticSearchSetting | null;
   updatedAt: number | null;
   updatedBy: string | null;
   /** Set calls only: whether the choice actually changed. */
   changed?: boolean;
   /**
    * Set calls only: the provider that answers for Embeddings changed, so
-   * existing vectors no longer match. Brain re-embeds through `backfill-search-embeddings`.
+   * existing vectors no longer match. Brain re-embeds through
+   * `backfill-search-embeddings`; core search re-embeds on its own.
    */
   reindexRequired?: boolean;
+}
+
+async function readSemanticSearchState(
+  orgId: string,
+): Promise<SemanticSearchSetting | null> {
+  try {
+    return await readSemanticSearchSetting(orgId);
+  } catch (error) {
+    console.warn(
+      "[service-providers] Reading the semantic search setting failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
 }
 
 const ALL_PROVIDERS = Array.from(
@@ -156,9 +186,11 @@ function buildStatus(
   settings: ServiceProviderSettings,
   states: Map<ServiceProviderId, ServiceProviderKeyState>,
   canManage: boolean,
+  semanticSearch: SemanticSearchSetting | null,
 ): ServiceProvidersStatus {
   return {
     canManage,
+    semanticSearch,
     updatedAt: settings.updatedAt,
     updatedBy: settings.updatedBy,
     services: SERVICE_IDS.map((service) => {
@@ -217,9 +249,34 @@ async function recordChoiceAudit(
   });
 }
 
+async function recordSemanticSearchAudit(
+  ctx: ActionRunContext | undefined,
+  input: {
+    email: string;
+    orgId: string;
+    enabled: boolean;
+    status: "success" | "denied";
+  },
+): Promise<void> {
+  await recordOrgAdminAuditEvent({
+    action: ctx?.actionName ?? "manage-service-providers",
+    targetType: "service-providers",
+    targetId: "semantic-search",
+    summary:
+      input.status === "denied"
+        ? `Refused to turn semantic search ${input.enabled ? "on" : "off"}`
+        : `Turned semantic search ${input.enabled ? "on" : "off"}`,
+    userEmail: input.email,
+    orgId: input.orgId,
+    status: input.status,
+    attribution: auditAttribution(ctx),
+    args: { semanticSearch: input.enabled },
+  });
+}
+
 export default defineAction({
   description:
-    'Read or change which provider powers each organization service: Voice input (dictation in every app), Image generation (Slides and Design), and Embeddings (semantic search in Brain). Providers: voice builder, gemini, groq, openai; images builder, gemini, openai; embeddings builder, gemini, cohere, voyage. Omit `provider` to read: each service returns the organization\'s choice (null means the default order, Builder.io first), the provider that answers next, and each option\'s key state ("org", "personal", "none", or "unavailable"). Pass `service` and `provider` to change one; owners and admins only. "builder" returns a service to Builder.io, and null resets it to the default order. Voice and images fall back through the other providers when the chosen one has no key; embeddings use only the chosen provider. A non-Builder provider needs its API key saved for the organization (see keyName). Changing embeddings means Brain must re-index (backfill-search-embeddings) before semantic search covers existing items. A member\'s own Voice source setting (Mac native, Google realtime, or a specific batch provider) still wins over the organization choice.',
+    'Read or change which provider powers each organization service: Voice input (dictation in every app), Image generation (Slides and Design), and Embeddings (semantic search in Brain). Providers: voice builder, gemini, groq, openai; images builder, gemini, openai; embeddings builder, gemini, cohere, voyage. Omit `provider` to read: each service returns the organization\'s choice (null means the default order, Builder.io first), the provider that answers next, and each option\'s key state ("org", "personal", "none", or "unavailable"). Pass `service` and `provider` to change one; owners and admins only. "builder" returns a service to Builder.io, and null resets it to the default order. Voice and images fall back through the other providers when the chosen one has no key; embeddings use only the chosen provider. A non-Builder provider needs its API key saved for the organization (see keyName). Changing embeddings means Brain must re-index (backfill-search-embeddings) before semantic search covers existing items; page search in apps like Content re-embeds on its own. Pass `semanticSearch` (true or false) to turn search by meaning on or off for the organization; owners and admins only. It is on by default; off stops sending page text and search queries to the Embeddings provider and deletes stored page vectors, and searches then match words only. A member\'s own Voice source setting (Mac native, Google realtime, or a specific batch provider) still wins over the organization choice.',
   schema: z.object({
     service: z
       .enum(SERVICE_IDS as [ServiceId, ...ServiceId[]])
@@ -232,13 +289,22 @@ export default defineAction({
       .describe(
         "The provider for `service`, or null to reset it to the default order. Omit to read.",
       ),
+    semanticSearch: z
+      .boolean()
+      .optional()
+      .describe(
+        "Turn search by meaning on (true) or off (false) for the organization. Omit to leave it.",
+      ),
   }),
   http: { method: "POST" },
   // A read must not announce a change, or every query keyed on actions
   // refetches after each read.
   planMode: {
-    effect: (args) => (args.provider === undefined ? "read" : "write"),
-    omittedProperties: ["provider"],
+    effect: (args) =>
+      args.provider === undefined && args.semanticSearch === undefined
+        ? "read"
+        : "write",
+    omittedProperties: ["provider", "semanticSearch"],
   },
   // Rerouting the organization's dictation audio and documents to another
   // provider is not something a sandboxed extension should be able to do.
@@ -266,12 +332,69 @@ export default defineAction({
     const inContext = <T>(fn: () => Promise<T>) =>
       runWithRequestContext({ userEmail: email, orgId }, fn) as Promise<T>;
 
-    if (args.provider === undefined) {
+    if (args.semanticSearch !== undefined) {
+      if (args.provider !== undefined) {
+        fail("Change `semanticSearch` and a provider in separate calls.", {
+          statusCode: 400,
+        });
+      }
+      const enabled = args.semanticSearch;
+      if (!canManage) {
+        await recordSemanticSearchAudit(ctx, {
+          email,
+          orgId,
+          enabled,
+          status: "denied",
+        });
+        fail("Only organization owners and admins can change services.", {
+          statusCode: 403,
+          errorCode: SERVICE_PROVIDERS_ADMIN_REQUIRED_ERROR_CODE,
+        });
+      }
+      const { before, after } = await writeSemanticSearchSetting(orgId, {
+        enabled,
+        updatedBy: email,
+      });
+      const changed = before.enabled !== after.enabled;
+      if (changed) {
+        await recordSemanticSearchAudit(ctx, {
+          email,
+          orgId,
+          enabled,
+          status: "success",
+        });
+      }
+      // Run on every call, not only on a change, so calling again finishes
+      // a call that failed part way.
+      try {
+        if (enabled) await requeueSemanticSearchForOrg(orgId);
+        else await forgetSemanticSearchForOrg(orgId);
+      } catch (cause) {
+        console.error(
+          `[manage-service-providers] Semantic search was turned ${enabled ? "on" : "off"}, but finishing that failed:`,
+          cause instanceof Error ? cause.message : String(cause),
+        );
+        fail(
+          enabled
+            ? "Semantic search is on, but queuing pages to embed again failed. Try again to finish."
+            : "Semantic search is off, so nothing new is embedded or searched, but deleting stored embeddings failed. Try again to finish.",
+          { statusCode: 500 },
+        );
+      }
       const [settings, states] = await Promise.all([
         readServiceProviderSettings(orgId),
         inContext(readProviderStates),
       ]);
-      return buildStatus(settings, states, canManage);
+      return { ...buildStatus(settings, states, canManage, after), changed };
+    }
+
+    if (args.provider === undefined) {
+      const [settings, states, semanticSearch] = await Promise.all([
+        readServiceProviderSettings(orgId),
+        inContext(readProviderStates),
+        readSemanticSearchState(orgId),
+      ]);
+      return buildStatus(settings, states, canManage, semanticSearch);
     }
 
     const service = args.service;
@@ -316,13 +439,18 @@ export default defineAction({
         status: "success",
       });
     }
-    const states = await inContext(readProviderStates);
+    const [states, semanticSearch] = await Promise.all([
+      inContext(readProviderStates),
+      readSemanticSearchState(orgId),
+    ]);
     const reindexRequired =
       service === "embeddings" &&
       effectiveProviderFor(service, previous, states) !==
         effectiveProviderFor(service, provider, states);
+    // Page vectors from the old provider don't match searches with the new one.
+    if (reindexRequired) await requeueSemanticSearchForOrg(orgId);
     return {
-      ...buildStatus(settings, states, canManage),
+      ...buildStatus(settings, states, canManage, semanticSearch),
       changed,
       ...(reindexRequired ? { reindexRequired: true } : {}),
     };

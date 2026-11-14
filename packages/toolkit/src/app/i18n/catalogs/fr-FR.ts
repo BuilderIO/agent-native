@@ -3268,6 +3268,19 @@ const messages: ToolkitAgentChatTranslation = {
     "Génère des images pour les diapositives et les designs.",
   "settingsInfra.whyEmbeddings":
     "Améliore la recherche sémantique. La recherche par mots-clés fonctionne toujours sans.",
+  "settingsInfra.semanticSearch": "Recherche sémantique",
+  "settingsInfra.semanticSearchOn":
+    "Trouve les pages par leur sens, en plus de leurs mots. Le texte des pages et les recherches sont envoyés au fournisseur d’Embeddings.",
+  "settingsInfra.semanticSearchOff":
+    "Désactivée. La recherche ne trouve que les mots, et aucun texte de page n’est envoyé au fournisseur d’Embeddings.",
+  "settingsInfra.semanticSearchUnknown":
+    "Impossible de savoir si la recherche sémantique est activée.",
+  "settingsInfra.semanticSearchTurnedOn":
+    "La recherche sémantique est activée. Les pages existantes sont indexées en arrière-plan.",
+  "settingsInfra.semanticSearchTurnedOff":
+    "La recherche sémantique est désactivée. Les vecteurs de pages enregistrés ont été supprimés.",
+  "settingsInfra.semanticSearchSaveFailed":
+    "Impossible de modifier la recherche sémantique.",
   "settingsInfra.designSystem": "Intelligence du système de design",
   "settingsInfra.whyDesignSystem":
     "Garde les diapositives et designs générés fidèles à votre marque.",
