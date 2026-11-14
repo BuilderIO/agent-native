@@ -1736,3 +1736,77 @@ fn current_fn_flag_down() -> bool {
 fn current_fn_flag_down() -> bool {
     true
 }
+
+/// A push-to-talk link's press: idle, down while the dictation key already
+/// ran a dictation, or down and owning the dictation it started. Kept apart
+/// from the key's own flag so a link release only ends what its press began.
+const LINK_PUSH_IDLE: u8 = 0;
+const LINK_PUSH_DOWN: u8 = 1;
+const LINK_PUSH_OWNS: u8 = 2;
+static LINK_PUSH: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(LINK_PUSH_IDLE);
+
+fn set_dictation_key_down(app: &AppHandle, down: bool) -> bool {
+    let mut was_down = false;
+    if let Some(state) = app.try_state::<DictationActive>() {
+        if let Ok(mut g) = state.0.lock() {
+            was_down = *g;
+            *g = down;
+        }
+    }
+    was_down
+}
+
+/// `clips://dictate` links. Push-to-talk acts exactly like the dictation key
+/// going down and up (source "link", whatever the key's mode setting is).
+/// Hands-free starts a dictation that keeps going until the next press;
+/// pressed while one runs, it stops it.
+pub fn dictate_from_link(app: &AppHandle, action: crate::deep_links::DictateLink) {
+    use crate::deep_links::DictateLink;
+    match action {
+        DictateLink::PushDown => {
+            // A repeated down (no up in between) leaves the state alone.
+            if LINK_PUSH
+                .compare_exchange(LINK_PUSH_IDLE, LINK_PUSH_DOWN, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+            {
+                return;
+            }
+            // A held dictation key owns the running dictation: this press
+            // neither starts nor (on its release) stops it.
+            if set_dictation_key_down(app, true) {
+                return;
+            }
+            LINK_PUSH.store(LINK_PUSH_OWNS, Ordering::SeqCst);
+            note_voice_press();
+            eprintln!("[clips-tray] dictate link down — starting voice dictation");
+            sync_dictation_escape_shortcut(app.clone(), true);
+            emit_voice_start(app, "link");
+        }
+        DictateLink::PushUp => {
+            if LINK_PUSH.swap(LINK_PUSH_IDLE, Ordering::SeqCst) != LINK_PUSH_OWNS {
+                return;
+            }
+            set_dictation_key_down(app, false);
+            eprintln!("[clips-tray] dictate link up — stopping voice dictation");
+            sync_dictation_escape_shortcut(app.clone(), false);
+            let held = held_since_press();
+            release_voice_start(&PENDING_VOICE_START, held, || {
+                let _ = app.emit("voice:shortcut-stop", voice_stop_payload("link", held));
+            });
+        }
+        DictateLink::HandsFree => {
+            eprintln!("[clips-tray] dictate link — hands-free start/stop");
+            remember_voice_target(app);
+            wake_popover_for_voice(app);
+            let app = app.clone();
+            thread::spawn(move || {
+                // Same wake delay as a key press, so the popover's listener is up.
+                thread::sleep(Duration::from_millis(80));
+                let _ = app.emit(
+                    "voice:shortcut-start",
+                    serde_json::json!({ "source": "link-hands-free" }),
+                );
+            });
+        }
+    }
+}

@@ -114,7 +114,10 @@ type VoiceShortcutSource =
   | "fn"
   | "cmd-shift-space"
   | "ctrl-shift-space"
-  | "custom";
+  | "custom"
+  // clips://dictate links (Stream Deck): push-to-talk down/up, and hands-free.
+  | "link"
+  | "link-hands-free";
 
 interface DesktopVoiceDictationOptions {
   enabled: boolean;
@@ -837,6 +840,7 @@ export function installDesktopVoiceDictation(
   };
 
   const acceptsShortcut = (source: VoiceShortcutSource | undefined) => {
+    if (source === "link" || source === "link-hands-free") return true;
     if (!source) return shortcut === "both";
     if (shortcut === "both") return true;
     return source === shortcut;
@@ -2719,9 +2723,39 @@ export function installDesktopVoiceDictation(
     }),
   );
 
+  // clips://dictate?mode=hands-free: starts a dictation that runs until the
+  // next press (this link, the dictation key or Escape); pressed while one
+  // runs, it stops it.
+  const startOrStopHandsFreeFromLink = () => {
+    if (session || startInFlight) {
+      stop();
+      return;
+    }
+    setHandsFreeActive(true);
+    void start("link-hands-free").then(() => {
+      if (handsFreeActive && !session && !startInFlight) {
+        setHandsFreeActive(false);
+      }
+    });
+  };
+
   registerListener(
     listen<VoiceShortcutEvent>("voice:shortcut-start", (event) => {
       if (!acceptsShortcut(event.payload?.source)) return;
+      if (event.payload?.source === "link-hands-free") {
+        startOrStopHandsFreeFromLink();
+        return;
+      }
+      if (event.payload?.source === "link") {
+        // Push-to-talk link down, whatever the key's mode setting is.
+        if (handsFreeActive) {
+          stop();
+          return;
+        }
+        if (session || startInFlight) return;
+        void start("link");
+        return;
+      }
       if (mode === "toggle" && (session || startInFlight)) {
         stop();
         return;
@@ -2759,8 +2793,14 @@ export function installDesktopVoiceDictation(
   registerListener(
     listen<VoiceShortcutEvent>("voice:shortcut-stop", (event) => {
       if (!acceptsShortcut(event.payload?.source)) return;
-      if (mode === "toggle") return;
       if (handsFreeActive) return;
+      if (event.payload?.source === "link") {
+        // A push-to-talk link up ends its dictation even in toggle mode;
+        // no short-tap handling, a link has no double-tap gesture.
+        stop();
+        return;
+      }
+      if (mode === "toggle") return;
       stop(event.payload.heldMs);
     }),
   );

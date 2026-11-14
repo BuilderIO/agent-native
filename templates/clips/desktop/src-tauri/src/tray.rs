@@ -530,3 +530,21 @@ mod tests {
         assert_eq!(tray_icon_mode(1), Some(true));
     }
 }
+
+/// `clips://stop`: stops the running recording the way a tray click does,
+/// and does nothing when no recording runs (a meeting is left alone).
+pub fn stop_recording_from_link(app: &tauri::AppHandle) {
+    use tauri::{Emitter, Manager};
+    if !tray_recording_active() || crate::util::is_meeting_active(app) {
+        dlog!("[clips-tray] stop link ignored: no recording running");
+        return;
+    }
+    if app.get_webview_window("toolbar").is_some() {
+        let _ = app.emit(
+            "clips:tray-stop-request",
+            serde_json::json!({ "fallback": true }),
+        );
+    } else {
+        let _ = app.emit("clips:recorder-stop", ());
+    }
+}
