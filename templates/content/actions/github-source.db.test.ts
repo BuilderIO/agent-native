@@ -83,9 +83,13 @@ const github = vi.hoisted(() => {
     storageOrgIds: [] as Array<string | undefined>,
   };
   let commitCount = 0;
-  /** The ID private storage gives the nth image stored since the reset. */
+  let resets = 0;
+  /**
+   * The ID private storage gives the nth image stored since the reset. Each
+   * test's IDs are new, as real ones are, since bindings outlive a test.
+   */
   const mediaId = (upload: number) =>
-    `00000000-0000-4000-8000-${upload.toString(16).padStart(12, "0")}`;
+    `00000000-0000-4000-8000-${resets.toString(16).padStart(6, "0")}${upload.toString(16).padStart(6, "0")}`;
   return {
     state,
     blobSha,
@@ -93,6 +97,7 @@ const github = vi.hoisted(() => {
     /** The link a page shows the nth stored image by. */
     uploadedPath: (upload: number) => `/api/private-media/${mediaId(upload)}`,
     reset() {
+      resets += 1;
       state.commits.clear();
       state.head = "";
       state.renames = [];
