@@ -58,6 +58,10 @@ import {
 import { WriteFailureToaster } from "../shared/WriteFailureToaster.js";
 import { BuilderSignupStartupGate } from "./BuilderSignupActivation.js";
 
+declare const __AGENT_NATIVE_APP_CONFIG__: Parameters<
+  typeof isFirstRunOnboardingEnabled
+>[1];
+
 export interface AppProvidersProps {
   queryClient: QueryClient;
 
@@ -712,7 +716,12 @@ export function AppProviders({
         <>
           <EarlySessionBootstrapScript />
           <EarlyBetaRedirectScript />
-          {isFirstRunOnboardingEnabled() && !skipFirstRunOnboarding ? (
+          {isFirstRunOnboardingEnabled(
+            import.meta.env,
+            typeof __AGENT_NATIVE_APP_CONFIG__ === "undefined"
+              ? {}
+              : __AGENT_NATIVE_APP_CONFIG__,
+          ) && !skipFirstRunOnboarding ? (
             <FirstRunFirstPaintScript />
           ) : null}
         </>
