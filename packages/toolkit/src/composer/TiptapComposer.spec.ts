@@ -24,6 +24,7 @@ import { ComposerRuntimeAdaptersProvider } from "./runtime-adapters.js";
 import {
   canSubmitComposerContent,
   canRemoveVoicePreview,
+  isVoicePreviewRangeValid,
   compactComposerModelName,
   createTiptapComposerExtensions,
   focusComposerEditorWhenVisible,
@@ -5747,6 +5748,28 @@ describe("voice composer insertion", () => {
         currentText: "sent",
       }),
     ).toBe(false);
+  });
+
+  it("treats a live preview range past the document end as stale", () => {
+    const base = { anchor: 582, previewText: "hello", currentText: "" };
+    expect(isVoicePreviewRangeValid({ ...base, documentSize: 5 })).toBe(false);
+    expect(
+      isVoicePreviewRangeValid({
+        ...base,
+        anchor: 1,
+        documentSize: 8,
+        currentText: "hello",
+      }),
+    ).toBe(true);
+    expect(
+      isVoicePreviewRangeValid({
+        ...base,
+        anchor: 1,
+        previewText: "",
+        documentSize: 2,
+        currentText: "",
+      }),
+    ).toBe(true);
   });
 });
 
