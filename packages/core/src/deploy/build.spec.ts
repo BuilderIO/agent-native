@@ -6,6 +6,7 @@ import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 
+import { build as esbuildBuild, transform } from "esbuild";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -135,6 +136,12 @@ import {
 } from "./netlify-static-headers.js";
 
 const tempDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 describe("nitroNoExternalsForPreset", () => {
   it("bundles all Amplify dependencies and leaves Yjs external elsewhere", () => {
@@ -1711,6 +1718,640 @@ describe("publicRecurringJobsSweepPath", () => {
 });
 
 describe("patchCloudflareModuleServerOutput", () => {
+  it.each([
+    [
+      "const alias",
+      'import {createRequire} from "node:module"; const f = createRequire;',
+      'f(import.meta.url)("process")',
+    ],
+    [
+      "destructured alias",
+      'import * as module from "node:module"; const {createRequire: factory} = module;',
+      'factory(import.meta.url)("process")',
+    ],
+    [
+      "let alias",
+      'import {createRequire} from "node:module"; let factory = createRequire;',
+      'factory(import.meta.url)("process")',
+    ],
+    [
+      "assigned let alias",
+      'import {createRequire} from "node:module"; let factory; factory = createRequire;',
+      'factory(import.meta.url)("process")',
+    ],
+    [
+      "let alias changed from module",
+      'import * as module from "node:module"; let factory = module; factory = module.createRequire;',
+      'factory(import.meta.url)("process")',
+    ],
+    [
+      "multiple star relay",
+      'import {createRequire} from "./multi.mjs";',
+      'createRequire(import.meta.url)("process")',
+    ],
+    [
+      "direct factory export",
+      'import {factory} from "./direct.mjs";',
+      'factory(import.meta.url)("process")',
+    ],
+    [
+      "computed member",
+      'import * as module from "node:module";',
+      'module["createRequire"](import.meta.url)("process")',
+    ],
+    [
+      "star relay",
+      'import {createRequire} from "./relay.mjs";',
+      'createRequire(import.meta.url)("process")',
+    ],
+    [
+      "parenthesized callee",
+      'import {createRequire} from "node:module";',
+      '(createRequire)(import.meta.url)("process")',
+    ],
+    [
+      "chained member alias",
+      'import * as module from "node:module"; const m = module; const f = m["createRequire"]; const g = f;',
+      'g(import.meta.url)("process")',
+    ],
+    [
+      "parenthesized computed member",
+      'import * as module from "node:module";',
+      '((module["createRequire"])) /* separator */ (import.meta.url)("process")',
+    ],
+  ])(
+    "loads process through %s in workerd",
+    async (_name, imports, expression) => {
+      const requireFromWrangler = createRequire(
+        createRequire(import.meta.url).resolve("wrangler/package.json"),
+      );
+      const { Miniflare } = requireFromWrangler("miniflare") as {
+        Miniflare: new (options: {
+          modules: boolean;
+          scriptPath: string;
+          modulesRoot: string;
+          compatibilityDate: string;
+          compatibilityFlags: string[];
+        }) => {
+          dispatchFetch(url: string): Promise<Response>;
+          dispose(): Promise<void>;
+        };
+      };
+      const dir = makeTempDir();
+      fs.writeFileSync(
+        path.join(dir, "relay.mjs"),
+        'export * from "node:module";',
+      );
+      fs.writeFileSync(path.join(dir, "other.mjs"), "export const other = 1;");
+      fs.writeFileSync(
+        path.join(dir, "direct.mjs"),
+        'import {createRequire} from "node:module"; export const factory = createRequire;',
+      );
+      fs.writeFileSync(
+        path.join(dir, "multi.mjs"),
+        'export * from "./other.mjs"; export * from "./relay.mjs";',
+      );
+      const entry = path.join(dir, "worker.mjs");
+      fs.writeFileSync(
+        entry,
+        `${imports}
+      import process from "node:process";
+      export default {fetch() {return Response.json({same: ${expression} === process});}};`,
+      );
+      patchCloudflareModuleServerOutput(dir);
+      const worker = new Miniflare({
+        modules: true,
+        scriptPath: entry,
+        modulesRoot: dir,
+        compatibilityDate: "2026-04-01",
+        compatibilityFlags: ["nodejs_compat"],
+      });
+      try {
+        const response = await worker.dispatchFetch("http://localhost/");
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ same: true });
+      } finally {
+        await worker.dispose();
+      }
+    },
+  );
+
+  it("handles native factories passed to local helper parameters without changing custom calls or shadowed bindings in workerd", async () => {
+    const requireFromWrangler = createRequire(
+      createRequire(import.meta.url).resolve("wrangler/package.json"),
+    );
+    const { Miniflare } = requireFromWrangler("miniflare") as {
+      Miniflare: new (options: {
+        modules: boolean;
+        scriptPath: string;
+        modulesRoot: string;
+        compatibilityDate: string;
+        compatibilityFlags: string[];
+      }) => {
+        dispatchFetch(url: string): Promise<Response>;
+        dispose(): Promise<void>;
+      };
+    };
+    const dir = makeTempDir();
+    const entry = path.join(dir, "worker.mjs");
+    fs.writeFileSync(
+      entry,
+      `
+      import {createRequire as native} from "node:module";
+      import process from "node:process";
+      const alias = native;
+      const events = [];
+      function helper(label, factory) {
+        const local = factory;
+        return local((events.push(label), import.meta.url))("process");
+      }
+      const arrow = (factory) => factory(import.meta.url)("node:process");
+      function relay(factory) { return helper("relay", factory); }
+      function recursive(factory, recurse) {
+        return recurse ? recursive(factory, false) : factory(import.meta.url)("process");
+      }
+      const custom = function(base) {
+        events.push(this === undefined ? "unbound" : "bound");
+        return (name) => "custom:" + name + ":" + (typeof base);
+      };
+      function shadow() {
+        function helper(label, factory) { return factory(label)("process"); }
+        return helper("shadow", (base) => (name) => base + ":" + name);
+      }
+      const direct = helper("direct", native) === process;
+      const aliased = helper("alias", alias) === process;
+      const forwarded = relay(native) === process;
+      const arrowResult = arrow(native) === process;
+      const recursiveResult = recursive(native, true) === process;
+      const customResult = helper("custom", custom);
+      const apply = Reflect.apply;
+      let shadowWraps = 0;
+      Reflect.apply = (...args) => { shadowWraps++; return apply(...args); };
+      const shadowResult = shadow();
+      Reflect.apply = apply;
+      export default {fetch() {return Response.json({direct, aliased, forwarded, arrowResult, recursiveResult, customResult, shadowResult, shadowWraps, events});}};
+    `,
+    );
+    patchCloudflareModuleServerOutput(dir);
+    const worker = new Miniflare({
+      modules: true,
+      scriptPath: entry,
+      modulesRoot: dir,
+      compatibilityDate: "2026-04-01",
+      compatibilityFlags: ["nodejs_compat"],
+    });
+    try {
+      const response = await worker.dispatchFetch("http://localhost/");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        direct: true,
+        aliased: true,
+        forwarded: true,
+        arrowResult: true,
+        recursiveResult: true,
+        customResult: "custom:process:string",
+        shadowResult: "shadow:process",
+        shadowWraps: 0,
+        events: ["direct", "alias", "relay", "custom", "unbound"],
+      });
+    } finally {
+      await worker.dispose();
+    }
+  });
+
+  it.each([
+    "receiver.createRequire",
+    'receiver["createRequire"]',
+    "(receiver.createRequire)",
+  ])(
+    "preserves getter receiver and evaluation order for %s in workerd",
+    async (callee) => {
+      const requireFromWrangler = createRequire(
+        createRequire(import.meta.url).resolve("wrangler/package.json"),
+      );
+      const { Miniflare } = requireFromWrangler("miniflare") as {
+        Miniflare: new (options: {
+          modules: boolean;
+          scriptPath: string;
+          modulesRoot: string;
+          compatibilityDate: string;
+          compatibilityFlags: string[];
+        }) => {
+          dispatchFetch(url: string): Promise<Response>;
+          dispose(): Promise<void>;
+        };
+      };
+      const dir = makeTempDir();
+      const entry = path.join(dir, "worker.mjs");
+      fs.writeFileSync(
+        entry,
+        `
+        import module from "node:module";
+        let receiver = module;
+        const events = [];
+        const old = { get createRequire() {
+          events.push("getter");
+          receiver = { marker: "new" };
+          return function(arg) {
+            events.push(this === old ? "old" : "new");
+            return (name) => arg + ":" + name;
+          };
+        } };
+        receiver = old;
+        function argument() { events.push("argument"); return "base"; }
+        const value = ${callee}(argument())("process");
+        export default {fetch() { return Response.json({events, value}); }};
+      `,
+      );
+      patchCloudflareModuleServerOutput(dir);
+      const worker = new Miniflare({
+        modules: true,
+        scriptPath: entry,
+        modulesRoot: dir,
+        compatibilityDate: "2026-04-01",
+        compatibilityFlags: ["nodejs_compat"],
+      });
+      try {
+        const response = await worker.dispatchFetch("http://localhost/");
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+          events: ["getter", "argument", "old"],
+          value: "base:process",
+        });
+      } finally {
+        await worker.dispose();
+      }
+    },
+  );
+
+  it("preserves a custom factory that overrides a star export in workerd", async () => {
+    const requireFromWrangler = createRequire(
+      createRequire(import.meta.url).resolve("wrangler/package.json"),
+    );
+    const { Miniflare } = requireFromWrangler("miniflare") as {
+      Miniflare: new (options: {
+        modules: boolean;
+        scriptPath: string;
+        modulesRoot: string;
+        compatibilityDate: string;
+        compatibilityFlags: string[];
+      }) => {
+        dispatchFetch(url: string): Promise<Response>;
+        dispose(): Promise<void>;
+      };
+    };
+    const dir = makeTempDir();
+    fs.writeFileSync(path.join(dir, "other.mjs"), "export const other = 1;");
+    fs.writeFileSync(
+      path.join(dir, "live.mjs"),
+      `
+      import {createRequire} from "node:module";
+      export let factory = createRequire;
+      export function setFactory(value) { factory = value; }
+    `,
+    );
+    fs.writeFileSync(
+      path.join(dir, "relay.mjs"),
+      `
+      export * from "node:module";
+      export * from "./other.mjs";
+      export const createRequire = () => (name) => "custom:" + name;
+    `,
+    );
+    const entry = path.join(dir, "worker.mjs");
+    fs.writeFileSync(
+      entry,
+      `
+      import {createRequire} from "./relay.mjs";
+      import {createRequire as native} from "node:module";
+      import {factory as live, setFactory} from "./live.mjs";
+      import process from "node:process";
+      const alias = createRequire;
+      let mutable = native;
+      mutable = () => (name) => "reassigned:" + name;
+      const reassigned = mutable("base")("process");
+      mutable = native;
+      const restored = mutable(import.meta.url)("process") === process;
+      setFactory(() => (name) => "live:" + name);
+      const liveCustom = live("base")("process");
+      setFactory(native);
+      const liveRestored = live(import.meta.url)("node:process") === process;
+      export default {fetch() {return Response.json({value: alias("base")("process"), reassigned, restored, liveCustom, liveRestored});}};
+    `,
+    );
+    patchCloudflareModuleServerOutput(dir);
+    const worker = new Miniflare({
+      modules: true,
+      scriptPath: entry,
+      modulesRoot: dir,
+      compatibilityDate: "2026-04-01",
+      compatibilityFlags: ["nodejs_compat"],
+    });
+    try {
+      const response = await worker.dispatchFetch("http://localhost/");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        value: "custom:process",
+        reassigned: "reassigned:process",
+        restored: true,
+        liveCustom: "live:process",
+        liveRestored: true,
+      });
+    } finally {
+      await worker.dispose();
+    }
+  });
+
+  it("preserves cyclic exports and module identity while handling re-exported createRequire in workerd", async () => {
+    const requireFromWrangler = createRequire(
+      createRequire(import.meta.url).resolve("wrangler/package.json"),
+    );
+    const { Miniflare } = requireFromWrangler("miniflare") as {
+      Miniflare: new (options: {
+        modules: boolean;
+        scriptPath: string;
+        modulesRoot: string;
+        compatibilityDate: string;
+        compatibilityFlags: string[];
+      }) => {
+        dispatchFetch(url: string): Promise<Response>;
+        dispose(): Promise<void>;
+      };
+    };
+    const dir = makeTempDir();
+    const relay = await transform(
+      'export { createRequire as factory } from "node:module";',
+      { format: "esm", minify: true },
+    );
+    fs.writeFileSync(path.join(dir, "relay.mjs"), relay.code);
+    fs.writeFileSync(
+      path.join(dir, "cycle-a.mjs"),
+      `
+      import { early } from "./cycle-b.mjs";
+      import { createRequire } from "node:module";
+      export { createRequire };
+      export function earlyProcess() { return createRequire(import.meta.url)("process"); }
+      export const cycle = early;
+    `,
+    );
+    fs.writeFileSync(
+      path.join(dir, "cycle-b.mjs"),
+      `
+      import { createRequire, earlyProcess } from "./cycle-a.mjs";
+      import process from "node:process";
+      export const early = { factory: typeof createRequire, process: earlyProcess() === process };
+    `,
+    );
+    const entry = path.join(dir, "worker.mjs");
+    fs.writeFileSync(
+      entry,
+      `
+      import * as first from "node:module";
+      import * as second from "node:module";
+      import defaultFirst from "node:module";
+      import defaultSecond from "node:module";
+      import { factory } from "./relay.mjs";
+      import { cycle } from "./cycle-a.mjs";
+      import process from "node:process";
+      const require = factory(import.meta.url);
+      const shadowRequire = (require) => require("process");
+      export default { fetch() { return Response.json({
+        shadowRequire: shadowRequire((value) => "custom:" + value),
+        namespaceIdentity: first === second,
+        defaultIdentity: defaultFirst === defaultSecond,
+        cycle,
+        process: require("process") === process,
+        buffer: typeof require("node:buffer").Buffer,
+      }); } };
+    `,
+    );
+    patchCloudflareModuleServerOutput(dir);
+    const worker = new Miniflare({
+      modules: true,
+      scriptPath: entry,
+      modulesRoot: dir,
+      compatibilityDate: "2026-04-01",
+      compatibilityFlags: ["nodejs_compat"],
+    });
+    try {
+      const response = await worker.dispatchFetch("http://localhost/");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        shadowRequire: "custom:process",
+        namespaceIdentity: true,
+        defaultIdentity: true,
+        cycle: { factory: "function", process: true },
+        process: true,
+        buffer: "function",
+      });
+    } finally {
+      await worker.dispose();
+    }
+  });
+
+  it.each(["a", "z"])(
+    "rewrites calls through a long cyclic export chain when the consumer sorts %s",
+    async (consumerPrefix) => {
+      const requireFromWrangler = createRequire(
+        createRequire(import.meta.url).resolve("wrangler/package.json"),
+      );
+      const { Miniflare } = requireFromWrangler("miniflare") as {
+        Miniflare: new (options: {
+          modules: boolean;
+          scriptPath: string;
+          modulesRoot: string;
+          compatibilityDate: string;
+          compatibilityFlags: string[];
+        }) => {
+          dispatchFetch(url: string): Promise<Response>;
+          dispose(): Promise<void>;
+        };
+      };
+      const dir = makeTempDir();
+      for (let i = 0; i < 16; i++) {
+        fs.writeFileSync(
+          path.join(dir, `relay-${i}.mjs`),
+          `${i === 7 ? 'export * from "./relay-0.mjs";\n' : ""}export * from "./relay-${(i + 1) % 16}.mjs";${
+            i === 15
+              ? '\nexport { createRequire as factory } from "node:module";'
+              : ""
+          }`,
+        );
+      }
+      const shared = path.join(dir, "shared.mjs");
+      const sharedSource = `import {factory} from "./relay-0.mjs";
+         import process from "node:process";
+         export {factory};
+         export function check() { return factory(import.meta.url)("process") === process; }`;
+      fs.writeFileSync(shared, sharedSource);
+      const entry = path.join(dir, `${consumerPrefix}-worker.mjs`);
+      fs.writeFileSync(
+        entry,
+        `import {factory, check} from "./shared.mjs";
+         import process from "node:process";
+         export default {fetch() {return Response.json({
+           shared: check(),
+           consumer: [${Array.from({ length: 100 }, () => 'factory(import.meta.url)("node:process") === process').join(",")}].every(Boolean),
+           buffer: typeof factory(import.meta.url)("node:buffer").Buffer,
+         });}};`,
+      );
+      const reads = vi.spyOn(fs, "readFileSync");
+      let sharedReads: unknown[];
+      try {
+        patchCloudflareModuleServerOutput(dir);
+        sharedReads = reads.mock.calls.flatMap((args, index) =>
+          args[0] === shared ? [reads.mock.results[index]?.value] : [],
+        );
+      } finally {
+        reads.mockRestore();
+      }
+      expect(sharedReads.length).toBeGreaterThanOrEqual(2);
+      expect(sharedReads).toEqual(sharedReads.map(() => sharedSource));
+      const worker = new Miniflare({
+        modules: true,
+        scriptPath: entry,
+        modulesRoot: dir,
+        compatibilityDate: "2026-04-01",
+        compatibilityFlags: ["nodejs_compat"],
+      });
+      try {
+        const response = await worker.dispatchFetch("http://localhost/");
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({
+          shared: true,
+          consumer: true,
+          buffer: "function",
+        });
+      } finally {
+        await worker.dispose();
+      }
+    },
+  );
+
+  it.each([
+    [
+      "require function",
+      'import {createRequire} from "node:module"; export const factory = createRequire(import.meta.url);',
+      'factory("process")',
+      'factory("node:process")',
+    ],
+    [
+      "factory alias",
+      'import {createRequire} from "node:module"; export const factory = createRequire;',
+      'factory(import.meta.url)("process")',
+      'factory(import.meta.url)("node:process")',
+    ],
+  ])(
+    "loads process through a %s exported from an esbuild split chunk",
+    async (_name, shared, bare, node) => {
+      const requireFromWrangler = createRequire(
+        createRequire(import.meta.url).resolve("wrangler/package.json"),
+      );
+      const { Miniflare } = requireFromWrangler("miniflare") as {
+        Miniflare: new (options: {
+          modules: boolean;
+          scriptPath: string;
+          modulesRoot: string;
+          compatibilityDate: string;
+          compatibilityFlags: string[];
+        }) => {
+          dispatchFetch(url: string): Promise<Response>;
+          dispose(): Promise<void>;
+        };
+      };
+      const dir = makeTempDir();
+      fs.writeFileSync(path.join(dir, "shared.mjs"), shared);
+      fs.writeFileSync(
+        path.join(dir, "one.mjs"),
+        `import {factory} from "./shared.mjs"; import process from "node:process"; export default {fetch() {return Response.json({process: ${bare} === process});}};`,
+      );
+      fs.writeFileSync(
+        path.join(dir, "two.mjs"),
+        `import {factory} from "./shared.mjs"; export const value = () => ${node};`,
+      );
+      const output = path.join(dir, "output");
+      await esbuildBuild({
+        entryPoints: [path.join(dir, "one.mjs"), path.join(dir, "two.mjs")],
+        outdir: output,
+        outExtension: { ".js": ".mjs" },
+        bundle: true,
+        splitting: true,
+        format: "esm",
+        platform: "node",
+        minify: true,
+      });
+      patchCloudflareModuleServerOutput(output);
+      const worker = new Miniflare({
+        modules: true,
+        scriptPath: path.join(output, "one.mjs"),
+        modulesRoot: output,
+        compatibilityDate: "2026-04-01",
+        compatibilityFlags: ["nodejs_compat"],
+      });
+      try {
+        const response = await worker.dispatchFetch("http://localhost/");
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ process: true });
+      } finally {
+        await worker.dispose();
+      }
+    },
+  );
+
+  it("preserves native require properties and escaped identifiers", async () => {
+    const serverDir = makeTempDir();
+    const file = path.join(serverDir, "properties.mjs");
+    fs.writeFileSync(
+      file,
+      `import { createRequire as create } from "node:module";
+       import process from "node:process";
+       const __cf_\\u0070rocess = "original";
+       const Proxy = 1, Reflect = 2, WeakMap = 3;
+       const require = create(import.meta.url);
+       export const result = {
+         process: require("process") === process,
+         resolve: require.resolve("node:buffer"),
+         cache: typeof require.cache,
+         extensions: typeof require.extensions,
+         collision: __cf_\\u0070rocess,
+       };`,
+    );
+    patchCloudflareModuleServerOutput(serverDir);
+    const result = (await import(pathToFileURL(file).href)).result;
+    expect(result).toEqual({
+      process: true,
+      resolve: "node:buffer",
+      cache: "object",
+      extensions: "object",
+      collision: "original",
+    });
+
+    const override = path.join(serverDir, "override.mjs");
+    fs.writeFileSync(
+      override,
+      `
+      import module from "node:module";
+      const original = module.createRequire;
+      try {
+        module.createRequire = function(value) {
+          const receiver = this === module;
+          return (specifier) => [receiver, value, specifier];
+        };
+        const customRequire = module.createRequire /* preserve */ ("value");
+        globalThis.__cfOverrideResult = customRequire("process");
+      } finally { module.createRequire = original; }
+      export const result = globalThis.__cfOverrideResult;
+      delete globalThis.__cfOverrideResult;
+    `,
+    );
+    patchCloudflareModuleServerOutput(serverDir);
+    const overrideResult = (await import(pathToFileURL(override).href)).result;
+    expect(Array.isArray(overrideResult)).toBe(true);
+    if (Array.isArray(overrideResult)) {
+      expect(overrideResult).toEqual([true, "value", "process"]);
+    }
+  });
+
   it("recurses into nested dependency paths a flat scan would miss", () => {
     const serverDir = makeTempDir();
     const nestedDir = path.join(serverDir, "_libs", "@agent-native");
@@ -1861,7 +2502,13 @@ function expectDefaultWorkerSsrCacheHeaders(response: Response) {
 }
 
 function makeTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-worker-test-"));
+  const root = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../../..",
+    ".tmp",
+  );
+  fs.mkdirSync(root, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(root, "worker-test-"));
   tempDirs.push(dir);
   return dir;
 }
@@ -2206,9 +2853,6 @@ describe("generateWorkerEntry", () => {
   afterEach(() => {
     resetAppConfigForTests();
     vi.unstubAllEnvs();
-    for (const dir of tempDirs.splice(0)) {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
   });
 
   it("pins generated React Router SSR to an anonymous request context", () => {
@@ -2499,6 +3143,7 @@ export default async (event) => {
 
     it("restores the real setInterval once patched dependencies share the Module preset's timer capture", async () => {
       const dir = makeTempDir();
+      linkCorePackageForWorker(dir);
       const actionPath = path.join(dir, "keep-alive-action.mjs");
       const rawAction = `
 // A module-scope timer, the same shape a dependency chunk gets after
@@ -2989,6 +3634,7 @@ export default (event) =>
 
   it("resolves a custom app home from a generated config plugin", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     const configPath = path.join(dir, "home-config.mjs");
     fs.writeFileSync(
       configPath,
@@ -3010,6 +3656,7 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
 
   it("includes configured app identity in the generated worker shell config", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     const configPath = path.join(dir, "identity-config.mjs");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     vi.stubEnv(
@@ -3087,6 +3734,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
 
   it("projects the configured current mount when the worker manifest only lists siblings", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     const configPath = path.join(dir, "mount-config.mjs");
     vi.stubEnv("APP_BASE_PATH", "/dispatch/");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch/");
@@ -3128,6 +3776,7 @@ export default defineAppConfig({ app: { workspaceId: "dispatch" } });
 
   it("projects an explicit root workspace mount into the worker shell config", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     const configPath = path.join(dir, "root-mount-config.mjs");
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     vi.stubEnv(
