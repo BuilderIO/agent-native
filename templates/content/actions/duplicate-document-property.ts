@@ -12,6 +12,7 @@ import {
 } from "../shared/properties.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertOrdinaryPropertySetupAllowed } from "./_database-setup-mutation.js";
 import {
   nextAppendPosition,
   propertyDefinitionsPositionScope,
@@ -46,6 +47,7 @@ export default defineAction({
       "editor",
     );
     if (!database) throw new Error("Document is not part of a database.");
+    assertOrdinaryPropertySetupAllowed(database);
 
     const [definition] = await db
       .select()

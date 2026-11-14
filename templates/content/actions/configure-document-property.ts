@@ -33,6 +33,7 @@ import {
   runConfigureDocumentProperty,
 } from "./_database-property-setup.js";
 import {
+  assertOrdinaryPropertySetupAllowed,
   refreshAfterSetup,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
@@ -178,6 +179,9 @@ export default defineAction({
         "Properties belong to databases. Create or open a database before adding properties.",
       );
     }
+    // Without an id this creates a property. Edits to one a system collection
+    // already has still go through, so it can be renamed or cleaned up.
+    if (!args.id) assertOrdinaryPropertySetupAllowed(database);
     if (args.icon !== undefined) {
       const userEmail = getRequestUserEmail();
       if (!userEmail) throw new Error("Authentication is required.");

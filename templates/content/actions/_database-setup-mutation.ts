@@ -115,6 +115,23 @@ export function setupError(
   throw new ActionContractError(message, { errorCode, statusCode });
 }
 
+/**
+ * A system collection such as Files keeps only the properties the app gives
+ * it: the Files sidebar filters on those alone, so an ordinary one there
+ * would break a filtered view. Every path that creates a property calls this.
+ */
+export function assertOrdinaryPropertySetupAllowed(database: {
+  systemRole: string | null;
+}) {
+  if (database.systemRole) {
+    setupError(
+      "SYSTEM_DATABASE_UNSUPPORTED",
+      "Ordinary property setup is unavailable for system databases.",
+      400,
+    );
+  }
+}
+
 export async function assertSetupAccess(
   tx: Db,
   target: Target,

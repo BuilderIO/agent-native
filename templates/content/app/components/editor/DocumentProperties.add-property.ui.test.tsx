@@ -4,6 +4,8 @@ import type {
   ContentDatabaseSource,
   ContentDatabaseSourceFieldMapping,
 } from "@shared/api";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -42,6 +44,8 @@ vi.mock("@/hooks/use-content-database", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-content-database")>()),
   useAddContentDatabaseSourceFieldProperty: () => mutations.addSourceField,
 }));
+
+import { contentDatabaseQueryKey } from "@/hooks/use-content-database";
 
 import { AddProperty } from "./DocumentProperties";
 
@@ -227,5 +231,39 @@ describe("Add Property picker", () => {
     expect(onConnectSource).toHaveBeenCalledTimes(1);
     expect(queryByLabel(SEARCH)).toBeNull();
     expect(mutations.configure.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  // Files keeps only the properties the app gives it, and its view has read
+  // the collection before it draws the button.
+  it("draws nothing on a collection that refuses new properties", async () => {
+    function ReadCollection({
+      systemRole,
+      children,
+    }: {
+      systemRole: string | null;
+      children: ReactNode;
+    }) {
+      const queryClient = useQueryClient();
+      useState(() =>
+        queryClient.setQueryData(contentDatabaseQueryKey("document"), {
+          database: { id: "database", systemRole },
+        }),
+      );
+      return children;
+    }
+
+    const { rerender } = renderUi(
+      <ReadCollection systemRole="files">
+        <AddProperty documentId="document" databaseId="database" />
+      </ReadCollection>,
+    );
+    expect(queryByLabel("editor.properties.addProperty")).toBeNull();
+
+    rerender(
+      <ReadCollection key="ordinary" systemRole={null}>
+        <AddProperty documentId="document" databaseId="database" />
+      </ReadCollection>,
+    );
+    expect(queryByLabel("editor.properties.addProperty")).not.toBeNull();
   });
 });

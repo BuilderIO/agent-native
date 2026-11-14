@@ -28,6 +28,7 @@ import {
   type BuilderCmsSourceEntry,
 } from "./_builder-cms-source-adapter.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertOrdinaryPropertySetupAllowed } from "./_database-setup-mutation.js";
 import {
   resolveDatabaseForSourceMutation,
   serializeSourceField,
@@ -351,6 +352,8 @@ export default defineAction({
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
+    // A source attached to Files can't give it a property either.
+    assertOrdinaryPropertySetupAllowed(database);
 
     const db = getDb();
     let [field] = await db
