@@ -116,7 +116,7 @@ export function isSelectionElementInfoPayload(
     !provenance.safeParse(value.provenance).success
   )
     return false;
-  const snapshot = value.portableStyleSnapshot;
+  const snapshot: unknown = value.portableStyleSnapshot;
   if (snapshot === undefined) return true;
   if (
     !isPlainRecord(snapshot) ||
