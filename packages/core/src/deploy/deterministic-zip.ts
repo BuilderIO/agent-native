@@ -28,7 +28,7 @@ function findEndOfCentralDirectory(zip: Buffer): number {
   throw new Error("not a zip: end of central directory record not found");
 }
 
-function readEntries(zip: Buffer): ZipEntry[] {
+function readEntriesUnchecked(zip: Buffer): ZipEntry[] {
   const eocd = findEndOfCentralDirectory(zip);
   const count = zip.readUInt16LE(eocd + 10);
   const centralOffset = zip.readUInt32LE(eocd + 16);
@@ -95,6 +95,18 @@ function readEntries(zip: Buffer): ZipEntry[] {
  * The compressed payloads are copied verbatim, so file contents and unix
  * permissions are untouched.
  */
+function readEntries(zip: Buffer): ZipEntry[] {
+  try {
+    return readEntriesUnchecked(zip);
+  } catch (error) {
+    // Offsets pointing outside the buffer surface as RangeError from Buffer reads.
+    if (error instanceof RangeError) {
+      throw new Error("corrupt zip: offset outside the archive");
+    }
+    throw error;
+  }
+}
+
 export function normalizeZip(zip: Buffer): Buffer {
   const entries = readEntries(zip).sort((a, b) =>
     Buffer.compare(a.name, b.name),

@@ -339,6 +339,13 @@ describe("readBuildFunctionsDir", () => {
 });
 
 describe("normalizeZip bounds", () => {
+  it("reports a central directory offset past the end as corrupt", async () => {
+    const zip = await zipOf(FILES, new Date());
+    const broken = Buffer.from(zip);
+    broken.writeUInt32LE(zip.length + 1000, zip.length - 22 + 16);
+    expect(() => normalizeZip(broken)).toThrow(/corrupt zip/);
+  });
+
   it("rejects a truncated archive instead of reading past it", async () => {
     const zip = await zipOf(FILES, new Date());
     const cd = zip.readUInt32LE(zip.length - 22 + 16);

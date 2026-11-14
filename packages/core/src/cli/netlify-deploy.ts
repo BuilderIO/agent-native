@@ -135,7 +135,7 @@ export async function runNetlifyDeploy(rawArgs: string[]): Promise<void> {
   const configured = readBuildFunctionsDir(siteRoot);
   if (
     configured &&
-    optionValue(deployArgs, "--functions", "-f") === undefined &&
+    optionValue(rawArgs, "--functions", "-f") === undefined &&
     path.resolve(siteRoot, configured) !==
       path.resolve(siteRoot, DEFAULT_FUNCTIONS_DIR)
   ) {
