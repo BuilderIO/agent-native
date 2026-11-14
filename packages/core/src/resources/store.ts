@@ -3268,7 +3268,7 @@ export async function resourceStoredPathsTaken(
   }
   await ensureTable();
   const { rows } = await getDbExec().execute(
-    sql`SELECT path FROM resources WHERE owner = ${owner} AND path IN ${sql.in(candidates)}`,
+    sql`SELECT path FROM resources WHERE owner = ${sql.value(owner)} AND path IN ${sql.in(candidates)}`,
   );
   for (const row of rows) taken.add(String(row.path));
   return taken;
