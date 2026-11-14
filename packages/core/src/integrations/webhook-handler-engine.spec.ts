@@ -2873,6 +2873,76 @@ describe("integration webhook handler engine resolution", () => {
     expect(clearIntegrationAwaitingInputMock).not.toHaveBeenCalled();
   });
 
+  it("lists every question of a multi-question Slack ask", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const slackIncoming = {
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.333",
+      text: "Plan the launch",
+      senderId: "U123",
+      tenantId: "T123",
+      platformContext: {
+        apiAppId: "A123",
+        teamId: "T123",
+        channelId: "C123",
+        threadTs: "111.333",
+      },
+      timestamp: 1,
+    };
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "ask-question",
+        input: {
+          questions: JSON.stringify([
+            {
+              header: "Audience",
+              question: "Who is the launch page for?",
+              options: [
+                { label: "Existing customers" },
+                { label: "Prospects" },
+              ],
+            },
+            {
+              question: "When does it ship?",
+              options: JSON.stringify([{ label: "This week" }]),
+              allowFreeText: false,
+            },
+          ]),
+        },
+      });
+      send({
+        type: "tool_done",
+        tool: "ask-question",
+        result:
+          "Asked the user a clarifying question and rendered it in the chat. This turn is over — their answer arrives as a new message.",
+      });
+    });
+    const task = pendingTask({
+      platform: "slack",
+      externalThreadId: slackIncoming.externalThreadId,
+      payload: JSON.stringify({ incoming: slackIncoming }),
+    });
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "test-model",
+      apiKey: "",
+      ownerEmail: task.ownerEmail,
+    });
+
+    const text = String(sendResponse.mock.calls[0]?.[0].text);
+    expect(text).toContain("*Audience*\nWho is the launch page for?");
+    expect(text).toContain("1. Existing customers");
+    expect(text).toContain("When does it ship?\n\n1. This week");
+    expect(text).toContain(
+      "Reply in this thread with your choices or a short answer.",
+    );
+  });
+
   it("clears a Slack reply window after a terminal response", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const slackIncoming = {

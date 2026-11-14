@@ -14,6 +14,7 @@ import {
   privateMediaPath,
 } from "../../shared/private-media.js";
 import { getDb, schema } from "../db/index.js";
+import { documentTextOutsideBody } from "./private-media-references.js";
 
 /** The scope of an agent's link to one private image. */
 export const PRIVATE_MEDIA_AGENT_RESOURCE_KIND = "content:private-media";
@@ -44,7 +45,10 @@ const AGENT_CALLERS = new Set<ActionRunContext["caller"]>([
 export interface PrivateMediaAgentLinks {
   /** When every link below stops working. */
   expiresAt: string;
-  /** Each private image the page shows, by the link its body stores. */
+  /**
+   * Each private image the page shows, in its body, a property value or a
+   * Blocks field, by the link stored there.
+   */
   links: Array<{ src: string; url: string }>;
   /** How many more of its images got no link: one read links at most 200. */
   omitted?: number;
@@ -57,8 +61,9 @@ export function readsWithoutSessionCookie(
 }
 
 /**
- * Expiring links to the private images a page shows, for a reader that
- * can't send Content's sign-in cookie, such as an agent over MCP. The caller
+ * Expiring links to the private images a page shows (in `content`, then in
+ * its property values and Blocks fields), for a reader that can't send
+ * Content's sign-in cookie, such as an agent over MCP. The caller
  * must already have checked that the reader can read `documentId`. Only
  * images bound to that page get a link, and only while the page is live (not
  * in Trash or in a deleted collection): those are the ones the reader could
@@ -69,7 +74,11 @@ export async function privateMediaAgentLinks(input: {
   content: string | null | undefined;
   origin?: string;
 }): Promise<PrivateMediaAgentLinks | undefined> {
-  const ids = [...privateMediaIdsInContent(input.content ?? "")];
+  const found = privateMediaIdsInContent(input.content ?? "");
+  for (const text of await documentTextOutsideBody(getDb(), input.documentId)) {
+    for (const id of privateMediaIdsInContent(text)) found.add(id);
+  }
+  const ids = [...found];
   if (ids.length === 0) return undefined;
   const rows = await getDb()
     .select({ mediaId: schema.privateMediaReferences.mediaId })

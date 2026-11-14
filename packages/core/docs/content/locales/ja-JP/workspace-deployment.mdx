@@ -354,6 +354,12 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=1
 
 例のメールアドレスを、各 workspace の最初の管理者の確認済みアドレスに置き換えてください。空のデータベースでは、その管理者が最初にサインインすると初期組織のオーナーになり、Settings → Organization → Members からメンバーを招待できます。初期設定の詳しい手順は[管理対象デプロイ](/docs/administered-deployments)を参照してください。
 
+## 決定的な関数 ZIP {#workspace-netlify-function-zips}
+
+Netlify は各関数の ZIP 全体をハッシュ化しますが、そのバンドラーは実行のたびにエントリの順序が変わるため、変更のない関数もデプロイごとに再アップロードされます。`netlify deploy` を直接実行する代わりに `npx @agent-native/core@latest netlify-deploy` で公開してください。このコマンドは、インストール済みの Netlify CLI 自身のバンドラーで関数を ZIP 化し、各 ZIP をエントリ順の整列と固定タイムスタンプで書き直し、関数マニフェストを書き出してから、同じコマンド内で `netlify deploy` を実行します。ルート、スケジュール、バックグラウンド設定は保持されます。独自の `netlify deploy` 引数はコマンドの後ろに渡します。既定は `--prod --dir=dist --functions=.netlify/functions-internal` です。
+
+CLI はそのマニフェストを 2 分間しか読み込みません。CLI の起動時にそれより古い場合、または CLI が破棄した場合、コマンドは `manifest-expired` の行を出力して非ゼロで終了し、不安定な ZIP のまま黙ってデプロイすることはありません。
+
 ## 次は何ですか
 
 - [**デプロイ**](/docs/deployment) — ワークスペースをデプロイする前に、永続的なデータベース、Nitro プリセット、プラットフォームを選ぶ

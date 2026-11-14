@@ -893,6 +893,46 @@ describe("secrets routes", () => {
     });
   });
 
+  it("reports an organization key created through the Vault as the Vault's", async () => {
+    mockListRequiredSecrets.mockReturnValue([
+      {
+        key: "GOOGLE_API_KEY",
+        label: "Google API key",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+      },
+    ]);
+    mockResolveSecretDetailed.mockResolvedValue({
+      value: "sk-live-vault-value",
+      lookupFailed: false,
+      source: "org",
+      scopeId: "org-qa",
+    });
+    mockReadAppSecretMeta.mockResolvedValue({
+      key: "GOOGLE_API_KEY",
+      scope: "org",
+      scopeId: "org-qa",
+      last4: "vaul",
+      description: null,
+      createdBy: "admin@example.test",
+      urlAllowlist: null,
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    const handler = createListSecretsHandler();
+    const result = await handler(event("/", "GET"));
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        key: "GOOGLE_API_KEY",
+        source: "vault",
+        managedHere: false,
+      }),
+    ]);
+  });
+
   it("reports the one Gemini key as set from a row saved under the older name", async () => {
     mockListRequiredSecrets.mockReturnValue([
       {

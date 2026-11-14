@@ -2718,6 +2718,64 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
+  it("serves optimized dependencies without Vite's inline identity maps", async () => {
+    const root = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "an-dep-sourcemaps-"),
+    );
+    const dep = path.join(root, "node_modules", "fixture-dep");
+    fs.mkdirSync(dep, { recursive: true });
+    fs.writeFileSync(
+      path.join(dep, "package.json"),
+      JSON.stringify({ name: "fixture-dep", main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(dep, "index.js"), 'module.exports = "dep";\n');
+    fs.writeFileSync(
+      path.join(root, "app.ts"),
+      'import value from "fixture-dep"; console.log(value);\n',
+    );
+
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const config = await configPlugin.config(
+      {},
+      { command: "serve", mode: "development" },
+    );
+    const server = await createServer({
+      root,
+      configFile: false,
+      server: { host: "127.0.0.1", port: 0, ws: false },
+      plugins: plugins.filter(
+        (p) => p?.name === "agent-native:no-served-dep-sourcemaps",
+      ),
+      optimizeDeps: {
+        ...config.optimizeDeps,
+        noDiscovery: true,
+        include: ["fixture-dep"],
+      },
+    });
+
+    try {
+      await server.listen();
+      const origin = server.resolvedUrls?.local[0];
+      expect(origin).toBeDefined();
+      const request = { headers: { "sec-fetch-dest": "script" } };
+      const app = await fetch(new URL("/app.ts", origin), request);
+      expect(app.status).toBe(200);
+      const source = await app.text();
+      expect(source).toContain("sourceMappingURL=data:");
+      const depUrl = source.match(/"([^"]+\/fixture-dep\.js\?v=[^"]+)"/)?.[1];
+      expect(depUrl).toBeDefined();
+      const dependency = await fetch(new URL(String(depUrl), origin), request);
+      expect(dependency.status).toBe(200);
+      const code = await dependency.text();
+      expect(code).toContain('module.exports = "dep"');
+      expect(code).not.toContain("sourceMappingURL=");
+    } finally {
+      await server.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not re-emit Vite's deprecated rollupOptions alias", async () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");

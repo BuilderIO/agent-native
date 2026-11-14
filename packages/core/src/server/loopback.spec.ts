@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getRequestIPMock = vi.hoisted(() => vi.fn());
 
@@ -84,5 +84,84 @@ describe("isDirectLoopbackRequest", () => {
         ),
       ),
     ).toBe(false);
+  });
+
+  describe("behind the dev proxy", () => {
+    const proxiedSocket = {
+      encrypted: false,
+      localAddress: "127.0.0.1",
+      remoteAddress: "127.0.0.1",
+      localPort: 61586,
+    };
+    const optIn = { behindDevProxy: true };
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("accepts the proxy's public port in development when the caller opts in", () => {
+      vi.stubEnv("NODE_ENV", "development");
+      expect(
+        isDirectLoopbackRequest(
+          makeEvent({ host: "127.0.0.1:3000" }, proxiedSocket),
+          optIn,
+        ),
+      ).toBe(true);
+    });
+
+    it("keeps the socket port requirement for callers that do not opt in", () => {
+      vi.stubEnv("NODE_ENV", "development");
+      expect(
+        isDirectLoopbackRequest(
+          makeEvent({ host: "127.0.0.1:3000" }, proxiedSocket),
+        ),
+      ).toBe(false);
+    });
+
+    it.each(["production", "test"])(
+      "keeps the socket port requirement when NODE_ENV is %s",
+      (nodeEnv) => {
+        vi.stubEnv("NODE_ENV", nodeEnv);
+        expect(
+          isDirectLoopbackRequest(
+            makeEvent({ host: "127.0.0.1:3000" }, proxiedSocket),
+            optIn,
+          ),
+        ).toBe(false);
+      },
+    );
+
+    it.each([
+      ["a forwarded request", { host: "127.0.0.1:3000", forwarded: "for=1" }],
+      ["a localhost Host", { host: "localhost:3000" }],
+      ["a hostname Host", { host: "app.example.test:3000" }],
+    ])("still rejects %s", (_label, headers) => {
+      vi.stubEnv("NODE_ENV", "development");
+      expect(
+        isDirectLoopbackRequest(makeEvent(headers, proxiedSocket), optIn),
+      ).toBe(false);
+    });
+
+    it("still rejects a peer that is not on the loopback interface", () => {
+      vi.stubEnv("NODE_ENV", "development");
+      expect(
+        isDirectLoopbackRequest(
+          makeEvent(
+            { host: "127.0.0.1:3000" },
+            { ...proxiedSocket, remoteAddress: "203.0.113.8" },
+          ),
+          optIn,
+        ),
+      ).toBe(false);
+      expect(
+        isDirectLoopbackRequest(
+          makeEvent(
+            { host: "127.0.0.1:3000" },
+            { ...proxiedSocket, localAddress: "192.168.1.10" },
+          ),
+          optIn,
+        ),
+      ).toBe(false);
+    });
   });
 });

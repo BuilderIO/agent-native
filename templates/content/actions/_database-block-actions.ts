@@ -598,6 +598,11 @@ export async function compareAndSwapAdditionalBlocksField(args: {
       { propertyId: args.propertyId },
     );
   }
+  await syncPrivateMediaReferences(args.db, {
+    documentId: args.documentId,
+    after: args.content,
+    userEmail: documentAttributionActor(),
+  });
 }
 
 async function readExistingReceipt(

@@ -5,13 +5,11 @@ import {
   IconThumbDownFilled,
   IconThumbDown,
   IconActivity,
-  IconAlertCircle,
   IconAlertTriangle,
   IconArrowDown,
   IconArrowFork,
   IconBook2,
   IconBrain,
-  IconCheck,
   IconChevronLeft,
   IconChevronRight,
   IconCircle,
@@ -125,6 +123,10 @@ import {
   type AgentKitComposerSubmission,
 } from "./composer-submission.js";
 import { CoreFileStorageSetupContext } from "./core-file-storage.js";
+import {
+  AgentKitDeferClosedContentContext,
+  useUntilFoundContent,
+} from "./disclosure-content.js";
 export type { AgentKitComposerSubmission } from "./composer-submission.js";
 
 import { splitAgentKitMessageContext } from "@agent-native/agentkit";
@@ -153,9 +155,20 @@ import {
   type AgentThread,
   type AgentToolCall,
   type AgentWidget,
+  type CitationPart,
   type RunId,
 } from "@agent-native/agentkit/protocol";
 
+import { prettyLanguageName } from "../../code-highlighter.js";
+import {
+  CodeBlock,
+  CodeBlockActions,
+  CodeBlockContent,
+  CodeBlockCopyButton,
+  CodeBlockFooter,
+  CodeBlockHeader,
+  CodeBlockTitle,
+} from "./code-block.js";
 import {
   defaultAgentKitLabels,
   useAgentCapability,
@@ -180,6 +193,8 @@ import {
   type AgentKitSuggestionsRenderProps,
   type AgentRunFailureRenderProps,
 } from "./context.js";
+import { formatAgentKitDuration } from "./duration.js";
+import { FileChange, type FileChangeData } from "./file-change.js";
 import { scheduleIdleMount } from "./idle-mount.js";
 import { orderMessageContent } from "./message-content-order.js";
 import {
@@ -187,12 +202,28 @@ import {
   agentKitTurnInProgress,
   pendingSubmissionFiles,
 } from "./pending-submissions.js";
+import { parseStackTrace, StackTrace } from "./stack-trace.js";
+import { Terminal } from "./terminal.js";
+
+export { formatAgentKitDuration };
+import { useRovingFocus } from "./roving-focus.js";
 import { useAgentKitStopButton } from "./stop-button.js";
 import {
   AgentStreamingText,
   usePrefersReducedMotion,
   useStreamingRevealOrigin,
 } from "./streaming-text.js";
+import {
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceDescription,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+  type TraceStatus,
+} from "./trace.js";
 import { TranscriptGlide } from "./transcript-glide.js";
 import {
   workedForRowChevronStyle,
@@ -329,7 +360,7 @@ const AgentKitSurfaceBoundary = memo(function AgentKitSurfaceBoundary({
           data-render-surface={surface}
           role="alert"
         >
-          <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
+          <IconAlertTriangle aria-hidden="true" className="agentkit-icon" />
           <span>{labels.renderError}</span>
         </div>
       }
@@ -463,12 +494,31 @@ function AgentLink({
   );
 }
 
-function codeBlockLanguage(children: ReactNode): string | undefined {
+function fencedCode(children: ReactNode): {
+  text: string;
+  language: string | undefined;
+} {
   const code = Array.isArray(children) ? children[0] : children;
-  if (!code || typeof code !== "object" || !("props" in code)) return undefined;
-  const className = (code.props as { className?: unknown }).className;
-  if (typeof className !== "string") return undefined;
-  return /(?:^|\s)language-([\w+#.-]+)/.exec(className)?.[1];
+  if (!isValidElement<{ className?: unknown; children?: ReactNode }>(code)) {
+    return { text: nodeText(children), language: undefined };
+  }
+  const className = code.props.className;
+  return {
+    text: nodeText(code.props.children),
+    language:
+      typeof className === "string"
+        ? /(?:^|\s)language-([\w+#.-]+)/.exec(className)?.[1]
+        : undefined,
+  };
+}
+
+function nodeText(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return `${node}`;
+  if (Array.isArray(node)) return node.map(nodeText).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return nodeText(node.props.children);
+  }
+  return "";
 }
 
 function AgentMarkdownCodeBlock({
@@ -485,64 +535,36 @@ function AgentMarkdownCodeBlock({
       .filter((name) => name && name !== STREAMING_REVEAL_BLOCK_CLASS)
       .join(" ") || undefined;
   const { labels } = useAgentKit();
-  const preRef = useRef<HTMLPreElement>(null);
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    },
-    [],
-  );
-  const language = codeBlockLanguage(children);
-  const copy = async () => {
-    const text = preRef.current?.textContent ?? "";
-    if (!(await writeClipboardText(text))) return;
-    setCopied(true);
-    if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    copiedTimer.current = setTimeout(() => setCopied(false), 2_000);
-  };
+  const { text, language } = fencedCode(children);
+  const languageName = prettyLanguageName(language);
   return (
-    <figure
-      className={
-        revealsAsBlock
-          ? `agentkit-code-block ${STREAMING_REVEAL_BLOCK_CLASS}`
-          : "agentkit-code-block"
-      }
+    <CodeBlock
+      className={revealsAsBlock ? STREAMING_REVEAL_BLOCK_CLASS : undefined}
     >
-      <div className="agentkit-code-block-header">
-        <span className="agentkit-code-block-language" aria-hidden="true">
-          {language}
-        </span>
-        <IconButton
-          label={copied ? labels.codeCopied : labels.copyCode}
-          icon={
-            copied ? (
-              <IconCheck aria-hidden="true" size={16} />
-            ) : (
-              <IconCopy aria-hidden="true" size={16} />
-            )
-          }
-          size="compact"
-          className="size-6"
-          onPress={() => void copy()}
-        />
-      </div>
-      <pre
+      <CodeBlockHeader>
+        <CodeBlockTitle aria-hidden="true">{languageName}</CodeBlockTitle>
+        <CodeBlockActions>
+          <CodeBlockCopyButton value={text} />
+        </CodeBlockActions>
+      </CodeBlockHeader>
+      <CodeBlockContent
         {...props}
         className={preClassName}
-        ref={preRef}
-        tabIndex={0}
-        role="region"
+        language={language}
+        // A group, not a region: a landmark per code block buries the real ones.
+        role="group"
         aria-label={
-          language
-            ? labels.codeBlockLanguage.replace("{{language}}", () => language)
+          languageName
+            ? labels.codeBlockLanguage.replace(
+                "{{language}}",
+                () => languageName,
+              )
             : labels.codeBlock
         }
       >
-        {children}
-      </pre>
-    </figure>
+        {text}
+      </CodeBlockContent>
+    </CodeBlock>
   );
 }
 
@@ -557,7 +579,7 @@ function AgentMarkdownTable({
     <div
       className="agentkit-markdown-table"
       tabIndex={0}
-      role="region"
+      role="group"
       aria-label={labels.table}
     >
       <table ref={table} {...props} />
@@ -804,6 +826,8 @@ export interface AgentKitDisclosureSummaryProps {
   rowClassName?: string | undefined;
   style?: CSSProperties | undefined;
   chevronStyle?: CSSProperties | undefined;
+  /** Omit for finished work. */
+  status?: TraceStatus | undefined;
   /** Replaces the default icon, label and chevron. */
   children?: ReactNode;
 }
@@ -811,7 +835,7 @@ export interface AgentKitDisclosureSummaryProps {
 const DISCLOSURE_ROW_INTERACTIVE =
   "button, a, input, textarea, select, [role='button'], [contenteditable='true']";
 
-/** One summary row for every AgentKit disclosure: icon, label, then chevron. */
+/** The label keeps its own styling; `TraceTitle` is for host rows. */
 export function AgentKitDisclosureSummary({
   open,
   onToggle,
@@ -825,16 +849,17 @@ export function AgentKitDisclosureSummary({
   rowClassName,
   style,
   chevronStyle,
+  status,
   children,
 }: AgentKitDisclosureSummaryProps) {
   const content = children ?? (
     <>
-      {icon !== undefined ? (
-        <span className="agentkit-disclosure-icon-slot" aria-hidden="true">
-          {icon}
+      <TraceLine status={status}>
+        {icon !== undefined ? <TraceIcon>{icon}</TraceIcon> : null}
+        <span data-slot="trace-title" className="agentkit-disclosure-label">
+          {label}
         </span>
-      ) : null}
-      <span className="agentkit-disclosure-label">{label}</span>
+      </TraceLine>
       {expandable && as === "button" ? (
         <IconChevronRight
           aria-hidden="true"
@@ -859,6 +884,7 @@ export function AgentKitDisclosureSummary({
     ) : (
       <button
         type="button"
+        data-slot={expandable ? "trace-collapsible-trigger" : undefined}
         className={["agentkit-disclosure-summary", className]
           .filter(Boolean)
           .join(" ")}
@@ -906,14 +932,7 @@ export function AgentKitDisclosureSummary({
   );
 }
 
-/** True while a long thread opens, so closed rows can mount later. */
-const AgentKitDeferClosedContentContext = createContext(false);
-
-/**
- * Mounted while closed, like <details>, so find-in-page can reveal it. In a
- * long thread, closed content mounts in the next idle period rather than with
- * the transcript, so the history paints before every collapsed step renders.
- */
+/** Mounted while closed, like <details>, so find-in-page can reveal it. */
 export function AgentKitDisclosureContent({
   id,
   open,
@@ -925,32 +944,17 @@ export function AgentKitDisclosureContent({
   onReveal?: (() => void) | undefined;
   children: ReactNode;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const revealRef = useRef(onReveal);
-  revealRef.current = onReveal;
-  const deferClosed = useContext(AgentKitDeferClosedContentContext);
-  const [contentMounted, setContentMounted] = useState(open || !deferClosed);
-  if (open && !contentMounted) setContentMounted(true);
-  useEffect(() => {
-    if (contentMounted) return;
-    return scheduleIdleMount(() => setContentMounted(true));
-  }, [contentMounted]);
-  useEffect(() => {
-    const element = ref.current;
-    if (!element || open) return;
-    element.setAttribute("hidden", "until-found");
-    const reveal = () => revealRef.current?.();
-    element.addEventListener("beforematch", reveal);
-    return () => element.removeEventListener("beforematch", reveal);
-  }, [open]);
+  const { ref, mounted } = useUntilFoundContent(open, onReveal);
   return (
     <div
       ref={ref}
       id={id}
+      data-slot="trace-collapsible-content"
+      data-state={open ? "open" : "closed"}
       className="agentkit-disclosure-content"
       hidden={!open}
     >
-      {contentMounted || open ? children : null}
+      {mounted ? children : null}
     </div>
   );
 }
@@ -970,7 +974,7 @@ function interactionIcon(kind: string): ReactNode {
     case "completed":
       return <IconCircleCheck {...props} />;
     case "failed":
-      return <IconAlertCircle {...props} />;
+      return <IconAlertTriangle {...props} />;
     case "closed":
       return <IconX {...props} />;
     default:
@@ -1497,6 +1501,82 @@ function formatActivityToolValue(
   return `${formatted.slice(0, contentLimit).trimEnd()}…${omissionMarker}`;
 }
 
+interface ActivityToolInput {
+  text: string;
+  language?: string | undefined;
+  /** The call's other arguments, when `text` is its source. */
+  options?: Array<[string, string]>;
+}
+
+/** Fields whose string is the program a tool runs, with its grammar. */
+const ACTIVITY_TOOL_SOURCE_FIELDS: Record<string, string | undefined> = {
+  command: "bash",
+  script: undefined,
+  code: undefined,
+};
+
+function formatActivityToolInput(
+  value: unknown,
+  labels: Partial<AgentKitLabels> = {},
+): ActivityToolInput | undefined {
+  const source = activityToolSource(value);
+  if (!source) {
+    const text = formatActivityToolValue(value, labels);
+    return text ? { text } : undefined;
+  }
+  const text = formatActivityToolValue(source.text, labels);
+  if (!text) return undefined;
+  const options = Object.entries(source.rest).flatMap(
+    ([key, option]): Array<[string, string]> => {
+      const formatted = formatActivityToolValue(option, labels);
+      return formatted ? [[key, formatted.replace(/\s+/g, " ")]] : [];
+    },
+  );
+  return {
+    text,
+    language: source.language,
+    ...(options.length ? { options } : {}),
+  };
+}
+
+function activityToolSource(value: unknown):
+  | {
+      text: string;
+      language: string | undefined;
+      rest: Record<string, unknown>;
+    }
+  | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const input = value as Record<string, unknown>;
+  const field = Object.keys(ACTIVITY_TOOL_SOURCE_FIELDS).find((key) => {
+    const text = input[key];
+    // `code` also names short values such as a country or a promo code.
+    return (
+      typeof text === "string" &&
+      (key === "command" ? text.trim() !== "" : /\n|.{40}/.test(text))
+    );
+  });
+  if (!field) return undefined;
+  const languageField = ["language", "lang"].find(
+    (key) => typeof input[key] === "string",
+  );
+  const rest = Object.fromEntries(
+    Object.entries(input).filter(
+      ([key, option]) =>
+        key !== field && key !== languageField && option !== undefined,
+    ),
+  );
+  return {
+    text: input[field] as string,
+    language: languageField
+      ? (input[languageField] as string)
+      : ACTIVITY_TOOL_SOURCE_FIELDS[field],
+    rest,
+  };
+}
+
 function activityLabel(activity: AgentActivity, workingLabel: string): string {
   const label = readableText(activity.label);
   if (label.toLowerCase() === "processing") return workingLabel;
@@ -1520,6 +1600,16 @@ function AgentIdentityChip({
   kind?: string;
   status?: AgentParticipant["status"];
 }) {
+  const { labels } = useAgentKit();
+  // The chip's tint and shimmer carry the state, so it is said in words too.
+  const statusLabel =
+    status === "working"
+      ? labels.taskStatusRunning
+      : status === "failed"
+        ? labels.taskStatusFailed
+        : status === "waiting"
+          ? labels.taskStatusAwaitingInput
+          : undefined;
   return (
     <span
       className="agentkit-agent"
@@ -1527,9 +1617,15 @@ function AgentIdentityChip({
       data-agent-kind={kind}
       data-status={status}
     >
+      {status === "failed" ? (
+        <IconAlertTriangle aria-hidden="true" className="agentkit-icon" />
+      ) : null}
       <span className="agentkit-agent-name">
         {readableText(name) || fallbackName}
       </span>
+      {statusLabel ? (
+        <span className="agentkit-visually-hidden">{statusLabel}</span>
+      ) : null}
     </span>
   );
 }
@@ -1565,8 +1661,11 @@ export function AgentInteractionItem({
   value: interaction,
   threadId,
 }: AgentKitRenderProps<AgentInteraction>) {
-  const { slots, registry, labels } = useAgentKit();
+  const { slots, registry, labels, formatAgentInteractionDetail } =
+    useAgentKit();
   const thread = useAgentThreadSlice(sameAgents, threadId);
+  const showAgent =
+    useContext(AgentSubagentStepContext) !== interaction.agentId;
   const agent = thread.agents[interaction.agentId];
   const target = interaction.targetAgentId
     ? thread.agents[interaction.targetAgentId]
@@ -1604,16 +1703,21 @@ export function AgentInteractionItem({
   const visibleLabel =
     humanizeAgentLabel(label) ||
     defaultInteractionLabel({ ...interaction, label: undefined }, labels);
-  const detail = readableText(interaction.detail);
+  const detail = readableText(
+    formatAgentInteractionDetail?.(interaction) ?? interaction.detail,
+  );
   return (
     <div
       className="agentkit-agent-interaction"
       data-kind={interaction.kind}
       data-scope={interaction.scope}
     >
-      <span className="agentkit-agent-interaction-head">
-        {interactionIcon(interaction.kind)}
-        {agent && AgentRenderer ? (
+      <TraceLine
+        className="agentkit-agent-interaction-head"
+        status={interaction.kind === "failed" ? "error" : undefined}
+      >
+        <TraceIcon>{interactionIcon(interaction.kind)}</TraceIcon>
+        {!showAgent ? null : AgentRenderer ? (
           <AgentRenderer value={agent} threadId={threadId} />
         ) : (
           <AgentIdentityChip
@@ -1622,7 +1726,12 @@ export function AgentInteractionItem({
             fallbackName={labels.assistant}
           />
         )}
-        <span className="agentkit-agent-interaction-label">{visibleLabel}</span>
+        <span
+          data-slot="trace-title"
+          className="agentkit-agent-interaction-label"
+        >
+          {visibleLabel}
+        </span>
         {target && TargetRenderer ? (
           <TargetRenderer value={target} threadId={threadId} />
         ) : interaction.targetAgentId ? (
@@ -1633,7 +1742,7 @@ export function AgentInteractionItem({
           />
         ) : null}
         {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
-      </span>
+      </TraceLine>
       {detail && (!object || interaction.kind === "failed") ? (
         <span
           {...(interaction.kind === "failed"
@@ -1685,6 +1794,7 @@ export function AgentActivityItem({
       previous.tools[activity.id] === next.tools[activity.id],
   );
   const [open, setOpen] = useState(false);
+  const showAgent = useContext(AgentSubagentStepContext) !== activity.agentId;
   const agent = activity.agentId ? thread.agents[activity.agentId] : undefined;
   const agentName = resolveAgentName(
     thread,
@@ -1694,13 +1804,26 @@ export function AgentActivityItem({
   );
   const tool = thread.tools[activity.id] as AgentToolCall | undefined;
   const toolInput = useMemo(
-    () => (tool ? formatActivityToolValue(tool.input, labels) : undefined),
+    () => (tool ? formatActivityToolInput(tool.input, labels) : undefined),
     [labels, tool],
   );
   const toolResult = useMemo(
     () => (tool ? formatActivityToolValue(tool.output, labels) : undefined),
     [labels, tool],
   );
+  const stackTrace = useMemo(() => {
+    if (!tool) return undefined;
+    const sources = [
+      toolResult,
+      formatActivityToolValue(tool.error?.details, labels),
+      formatActivityToolValue(tool.error?.message, labels),
+    ];
+    for (const source of sources) {
+      const parsed = source ? parseStackTrace(source) : undefined;
+      if (parsed) return { parsed, fromResult: source === toolResult };
+    }
+    return undefined;
+  }, [labels, tool, toolResult]);
   const toolInputLabel = labels.toolInput;
   const toolResultLabel = labels.toolResult;
   const expandable = Boolean(
@@ -1716,6 +1839,14 @@ export function AgentActivityItem({
     activity.object ??
     sourceObjectUnlessRepresented(activity.source, thread, [activity.agentId]);
   const failed = activity.status === "failed";
+  const statusWords =
+    activity.status === "running"
+      ? labels.taskStatusRunning
+      : failed
+        ? labels.taskStatusFailed
+        : activity.status === "cancelled"
+          ? labels.runStopped
+          : undefined;
   const errorPreview = activityErrorPreview(activity, tool, labels);
   // A tool call names what it acted on, so rows in a group tell apart.
   const toolObject =
@@ -1726,132 +1857,345 @@ export function AgentActivityItem({
     tool || failed
       ? readableText(toolObject?.text)
       : readableText(activity.detail);
-  const summaryId = useId();
-  return (
-    <div
-      className="agentkit-activity-item"
-      data-activity-kind={activity.kind}
-      data-status={activity.status}
-      data-open={expandable && open ? "true" : "false"}
-    >
-      <AgentKitDisclosureSummary
-        rowClassName="agentkit-activity-row"
-        open={open}
-        onToggle={() => setOpen((current) => !current)}
-        expandable={expandable}
-        as={expandable ? "button" : "static"}
-        controls={open ? summaryId : undefined}
-        icon={
-          failed ? (
-            <IconAlertTriangle aria-hidden="true" className="agentkit-icon" />
-          ) : (
-            <ActivitySourceIcon activity={activity} threadId={threadId} />
-          )
-        }
-        label={
-          <>
-            {agent && AgentRenderer ? (
-              <AgentRenderer value={agent} threadId={threadId} />
-            ) : activity.agentId ? (
-              <AgentIdentityChip
-                id={activity.agentId}
-                name={agentName}
-                fallbackName={labels.assistant}
-              />
-            ) : null}
-            <span className="agentkit-activity-label">
-              {activityLabel(activity, labels.working)}
-            </span>
-          </>
-        }
-        meta={
-          object || detail ? (
-            <>
-              {object ? (
-                <ObjectRenderer value={object} threadId={threadId} />
-              ) : null}
-              {detail ? (
-                <span
-                  {...(toolObject ? SESSION_REPLAY_MASK_PROPS : {})}
-                  title={toolObject ? undefined : detail}
-                  className="agentkit-activity-detail"
-                  data-kind={toolObject?.kind}
-                >
-                  {detail}
-                </span>
-              ) : null}
-            </>
-          ) : null
-        }
-      />
-      {errorPreview ? (
-        // Replays mask text but record attributes, so failure text gets no title.
-        <span
-          {...SESSION_REPLAY_MASK_PROPS}
-          className="agentkit-activity-error"
-        >
-          {errorPreview}
-        </span>
-      ) : null}
-      {open ? (
-        // Summary parts can render links, and replays keep their attributes.
-        <div
-          {...(activity.status === "failed" ? SESSION_REPLAY_BLOCK_PROPS : {})}
-          id={summaryId}
-          className="agentkit-activity-summary"
-        >
-          {activity.summary?.map((part, index) => {
-            const safePart =
-              part.type === "text"
-                ? {
-                    ...part,
-                    text: part.text.trim()
-                      ? formatActivityText(part.text, labels)
-                      : "",
-                  }
-                : part;
-            return safePart.type === "text" && !safePart.text ? null : (
-              <AgentMessagePartView
-                key={`${activity.id}-summary-${index}`}
-                value={safePart}
-                threadId={threadId}
-              />
-            );
-          })}
-          {toolInput ? (
-            <div className="agentkit-activity-summary-section">
-              <div className="agentkit-activity-summary-label">
-                {toolInputLabel}
-              </div>
-              <pre
-                role="region"
-                aria-label={toolInputLabel}
-                tabIndex={0}
-                className="agentkit-activity-summary-value"
-              >
-                {toolInput}
-              </pre>
-            </div>
-          ) : null}
-          {toolResult ? (
-            <div className="agentkit-activity-summary-section">
-              <div className="agentkit-activity-summary-label">
-                {toolResultLabel}
-              </div>
-              <pre
-                role="region"
-                aria-label={toolResultLabel}
-                tabIndex={0}
-                className="agentkit-activity-summary-value"
-              >
-                {toolResult}
-              </pre>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+  const line = (
+    <TraceLine status={traceStatus(activity.status)}>
+      <TraceIcon>
+        {failed ? (
+          <IconAlertTriangle aria-hidden="true" className="agentkit-icon" />
+        ) : (
+          <ActivitySourceIcon activity={activity} threadId={threadId} />
+        )}
+      </TraceIcon>
+      <span className="agentkit-disclosure-label">
+        {!showAgent ? null : agent && AgentRenderer ? (
+          <AgentRenderer value={agent} threadId={threadId} />
+        ) : activity.agentId ? (
+          <AgentIdentityChip
+            id={activity.agentId}
+            name={agentName}
+            fallbackName={labels.assistant}
+          />
+        ) : null}
+        <TraceTitle className="agentkit-activity-label">
+          {activityLabel(activity, labels.working)}
+        </TraceTitle>
+        {/* State shows only as color, motion and icon, so say it in words too. */}
+        {statusWords ? (
+          <span className="agentkit-visually-hidden">{statusWords}</span>
+        ) : null}
+      </span>
+    </TraceLine>
   );
+  const meta = (
+    <>
+      {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+      {detail ? (
+        <TraceDescription
+          {...(toolObject ? SESSION_REPLAY_MASK_PROPS : {})}
+          title={toolObject ? undefined : detail}
+          className="agentkit-activity-detail"
+          data-kind={toolObject?.kind}
+        >
+          {detail}
+        </TraceDescription>
+      ) : null}
+    </>
+  );
+  const errorLine = errorPreview ? (
+    // Replays mask text but record attributes, so failure text gets no title.
+    <span {...SESSION_REPLAY_MASK_PROPS} className="agentkit-activity-error">
+      {errorPreview}
+    </span>
+  ) : null;
+  const rootProps = {
+    className: "agentkit-activity-item",
+    "data-activity-kind": activity.kind,
+    "data-status": activity.status,
+    "data-open": expandable && open ? "true" : "false",
+  };
+  const fileChange = tool ? fileChangeTool(tool) : undefined;
+  if (fileChange) {
+    return (
+      <div {...rootProps}>
+        <FileChange
+          change={fileChange}
+          running={activity.status === "running"}
+        />
+        {errorLine}
+      </div>
+    );
+  }
+  const terminal = tool ? terminalTool(tool) : undefined;
+  if (terminal) {
+    return (
+      <div {...rootProps}>
+        <Terminal
+          command={terminal.command}
+          output={typeof tool?.output === "string" ? tool.output : toolResult}
+          running={activity.status === "running"}
+          exitCode={terminal.exitCode}
+          durationMs={terminal.durationMs}
+          timedOut={terminal.timedOut}
+          failed={failed}
+        />
+      </div>
+    );
+  }
+  if (!expandable) {
+    return (
+      <div {...rootProps}>
+        <div className="agentkit-disclosure-row agentkit-activity-row">
+          <span className="agentkit-disclosure-summary" data-expandable="false">
+            {line}
+          </span>
+          {meta}
+        </div>
+        {errorLine}
+      </div>
+    );
+  }
+  return (
+    <TraceCollapsible {...rootProps} open={open} onOpenChange={setOpen}>
+      <div
+        className="agentkit-disclosure-row agentkit-activity-row"
+        data-expandable="true"
+        onClick={(event) => {
+          // Meta controls handle their own clicks; a text-selecting drag is no toggle.
+          const target = event.target;
+          if (
+            target instanceof Element &&
+            target.closest(DISCLOSURE_ROW_INTERACTIVE)
+          )
+            return;
+          if (globalThis.getSelection()?.toString()) return;
+          setOpen((current) => !current);
+        }}
+      >
+        <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
+        {meta}
+      </div>
+      {errorLine}
+      <TraceCollapsibleContent
+        // A fresh node on each toggle: the recorder can drop a block marker
+        // changed on a node it has recorded, and the closed body stays mounted.
+        key={open ? "open" : "closed"}
+        keepMounted
+        {...(activity.status === "failed" || !open
+          ? SESSION_REPLAY_BLOCK_PROPS
+          : {})}
+        className="agentkit-activity-summary"
+      >
+        {activity.summary?.map((part, index) => {
+          const safePart =
+            part.type === "text"
+              ? {
+                  ...part,
+                  text: part.text.trim()
+                    ? formatActivityText(part.text, labels)
+                    : "",
+                }
+              : part;
+          return safePart.type === "text" && !safePart.text ? null : (
+            <AgentMessagePartView
+              key={`${activity.id}-summary-${index}`}
+              value={safePart}
+              threadId={threadId}
+            />
+          );
+        })}
+        {toolInput ? (
+          <ActivityToolValue
+            label={toolInputLabel}
+            value={toolInput.text}
+            language={toolInput.language}
+            options={toolInput.options}
+          />
+        ) : null}
+        {stackTrace ? (
+          <StackTrace trace={stackTrace.parsed} defaultOpen />
+        ) : null}
+        {toolResult && !(stackTrace?.fromResult && stackTrace.parsed.whole) ? (
+          <ActivityToolValue label={toolResultLabel} value={toolResult} />
+        ) : null}
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
+  );
+}
+
+function terminalTool(tool: AgentToolCall):
+  | {
+      command: string;
+      exitCode: number | null | undefined;
+      durationMs: number | undefined;
+      timedOut: boolean | undefined;
+    }
+  | undefined {
+  const metadata = tool.metadata;
+  if (metadata?.toolKind !== "bash" || typeof metadata.command !== "string") {
+    return undefined;
+  }
+  return {
+    command: metadata.command,
+    exitCode:
+      typeof metadata.exitCode === "number" || metadata.exitCode === null
+        ? metadata.exitCode
+        : undefined,
+    durationMs:
+      typeof metadata.durationMs === "number" ? metadata.durationMs : undefined,
+    timedOut: metadata.timedOut === true ? true : undefined,
+  };
+}
+
+function fileChangeTool(tool: AgentToolCall): FileChangeData | undefined {
+  const metadata = tool.metadata;
+  const kind = metadata?.toolKind;
+  if (
+    (kind !== "edit" && kind !== "write") ||
+    typeof metadata?.filePath !== "string"
+  ) {
+    return undefined;
+  }
+  const text = (value: unknown) =>
+    typeof value === "string" ? value : undefined;
+  return {
+    filePath: metadata.filePath,
+    kind,
+    oldText: text(metadata.oldText),
+    newText: text(metadata.newText),
+    content: text(metadata.content),
+    lineCount:
+      typeof metadata.lineCount === "number" ? metadata.lineCount : undefined,
+    truncated: metadata.truncated === true,
+  };
+}
+
+function ActivityToolValue({
+  label,
+  value,
+  language: sourceLanguage,
+  options,
+}: {
+  label: string;
+  value: string;
+  language?: string | undefined;
+  options?: Array<[string, string]> | undefined;
+}) {
+  const language = useMemo(
+    () => sourceLanguage ?? (isJsonText(value) ? "json" : undefined),
+    [sourceLanguage, value],
+  );
+  return (
+    <CodeBlock size="sm" className="agentkit-activity-summary-section">
+      <CodeBlockHeader>
+        <CodeBlockTitle>{label}</CodeBlockTitle>
+        <CodeBlockActions>
+          <CodeBlockCopyButton value={value} />
+        </CodeBlockActions>
+      </CodeBlockHeader>
+      <CodeBlockContent
+        wrap
+        language={language}
+        role="group"
+        aria-label={label}
+        className="agentkit-activity-summary-value"
+      >
+        {value}
+      </CodeBlockContent>
+      {options ? (
+        <CodeBlockFooter>
+          <dl className="agentkit-activity-tool-options">
+            {options.map(([key, option]) => (
+              <div key={key}>
+                <dt>{key}</dt>
+                <dd>{option}</dd>
+              </div>
+            ))}
+          </dl>
+        </CodeBlockFooter>
+      ) : null}
+    </CodeBlock>
+  );
+}
+
+function isJsonText(text: string): boolean {
+  const start = text.trimStart()[0];
+  if (start !== "{" && start !== "[") return false;
+  try {
+    JSON.parse(text);
+    return true;
+    // coercion-ok: text that does not parse is the predicate's false answer.
+  } catch {
+    return false;
+  }
+}
+
+/** The same page cited twice counts as one source. */
+export function AgentSources({ citations }: { citations: CitationPart[] }) {
+  const { labels } = useAgentKit();
+  const sources = useMemo(() => {
+    const seen = new Set<string>();
+    return citations.filter((citation) => {
+      const key = safeAgentHref(citation.url) ?? `title:${citation.title}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [citations]);
+  const label = (
+    sources.length === 1
+      ? labels.workStepSourcesOne
+      : labels.workStepSourcesOther
+  ).replace("{{count}}", () => `${sources.length}`);
+  return (
+    <Trace className="agentkit-sources">
+      <TraceCollapsible>
+        <TraceCollapsibleTrigger>
+          <TraceLine>
+            <TraceIcon>
+              <IconWorld aria-hidden="true" className="agentkit-icon" />
+            </TraceIcon>
+            <span className="agentkit-disclosure-label">{label}</span>
+          </TraceLine>
+        </TraceCollapsibleTrigger>
+        <TraceCollapsibleContent keepMounted>
+          <ul className="agentkit-sources-list">
+            {sources.map((source, index) => (
+              <li key={`${index}:${source.url ?? source.title}`}>
+                <AgentLink href={source.url}>
+                  <TraceLine>
+                    <TraceIcon>
+                      <IconWorld aria-hidden="true" className="agentkit-icon" />
+                    </TraceIcon>
+                    <TraceTitle>{sourceTitle(source)}</TraceTitle>
+                  </TraceLine>
+                </AgentLink>
+              </li>
+            ))}
+          </ul>
+        </TraceCollapsibleContent>
+      </TraceCollapsible>
+    </Trace>
+  );
+}
+
+function sourceTitle(source: CitationPart): string {
+  const title = readableText(source.title);
+  if (title) return title;
+  const href = safeAgentHref(source.url);
+  if (!href) return source.title;
+  try {
+    return new URL(href).hostname;
+  } catch {
+    return href;
+  }
+}
+
+function traceStatus(status: AgentActivity["status"]): TraceStatus | undefined {
+  return status === "running"
+    ? "running"
+    : status === "failed"
+      ? "error"
+      : undefined;
 }
 
 function ActivitySourceIcon({
@@ -1971,29 +2315,6 @@ function workedSummaryLabel(
   return durationMs !== undefined && durationMs >= 1_000
     ? labels.workedFor.replace("{{duration}}", () => formatDuration(durationMs))
     : labels.worked;
-}
-
-export function formatAgentKitDuration(
-  ms: number,
-  units: { hour?: string; minute?: string; second?: string } = {},
-): string {
-  const hour = units.hour ?? "h";
-  const minute = units.minute ?? "m";
-  const second = units.second ?? "s";
-  const totalSeconds = Math.max(0, Math.round(ms / 1_000));
-  if (totalSeconds < 60) return `${Math.max(1, totalSeconds)}${second}`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes < 60) {
-    return seconds === 0
-      ? `${minutes}${minute}`
-      : `${minutes}${minute} ${seconds}${second}`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return remainingMinutes === 0
-    ? `${hours}${hour}`
-    : `${hours}${hour} ${remainingMinutes}${minute}`;
 }
 
 function isVisibleReasoningPart(part: AgentMessagePart): boolean {
@@ -2802,6 +3123,7 @@ export const AgentActivityGroup = memo(function AgentActivityGroup({
               open={false}
               onToggle={() => {}}
               expandable={false}
+              status={summaryLabel ? undefined : "running"}
               icon={summaryIcon}
               label={
                 summaryLabel ? (
@@ -3009,6 +3331,7 @@ function AgentWorkGroupRow({
         open={open}
         onToggle={() => setOpen((current) => !current)}
         controls={contentId}
+        status={group.failed ? "error" : group.running ? "running" : undefined}
         icon={
           group.failed ? (
             <IconAlertTriangle aria-hidden="true" className="agentkit-icon" />
@@ -3166,6 +3489,7 @@ function AgentWorkStepItem({
             className="agentkit-work-step-title"
             open={open}
             onToggle={() => setOpen((current) => !current)}
+            status={step.active ? "running" : undefined}
             expandable={hasBody}
             as={hasBody ? "button" : "static"}
             controls={hasBody ? bodyId : undefined}
@@ -3424,6 +3748,7 @@ function AgentWorkDisclosure({
         rowClassName="agentkit-activities-row"
         open={open}
         onToggle={() => setOpen((value) => !value)}
+        status={running ? "running" : undefined}
         expandable={expandable}
         controls={contentId}
         style={workedForRowSummaryStyle(workedForRowLayout)}
@@ -3474,6 +3799,7 @@ function AgentReasoningPartDisclosure({
         open={open}
         onToggle={() => setOpen((value) => !value)}
         controls={contentId}
+        status={active ? "running" : undefined}
         icon={activityIcon("reasoning")}
         label={<span className="agentkit-reasoning-label">{label}</span>}
       />
@@ -3536,22 +3862,55 @@ function AgentReasoningSteps({
   );
 }
 
-export function AgentCollaborationFeed({
-  runId,
-  afterSequence,
-  throughSequence,
-}: AgentEventRange) {
-  const { threadId, slots, registry, labels } = useAgentKit();
-  const thread = useAgentThreadSlice((previous, next) =>
-    sameRunWork(previous, next, runId),
-  );
-  const runEvents = agentRunEvents(thread, runId);
-  const entries = new Map<
-    string,
-    | { type: "interaction"; value: AgentInteraction }
-    | { type: "activity"; value: AgentActivity }
-  >();
+/** `sequence` is the entry's latest event. */
+type AgentCollaborationEntry =
+  | { type: "interaction"; value: AgentInteraction; sequence: number }
+  | { type: "activity"; value: AgentActivity; sequence: number };
+
+type AgentCollaborationItem =
+  | { type: "entry"; key: string; entry: AgentCollaborationEntry }
+  | {
+      type: "subagent";
+      key: string;
+      agentId: string;
+      entries: AgentCollaborationEntry[];
+    };
+
+function collaborationSubjectId(
+  entry: AgentCollaborationEntry,
+  thread: AgentThreadState,
+): string | undefined {
+  const isPrimary = (id: string | undefined) =>
+    id !== undefined && thread.agents[id]?.kind === "primary";
+  if (entry.type === "activity") {
+    const id = entry.value.agentId;
+    return id && !isPrimary(id) ? id : undefined;
+  }
+  const { agentId, targetAgentId } = entry.value;
+  if (isPrimary(agentId)) {
+    return targetAgentId && !isPrimary(targetAgentId)
+      ? targetAgentId
+      : undefined;
+  }
+  return agentId;
+}
+
+/** Each delegated agent's entries fold into one item where it first appears. */
+function agentCollaborationItems(
+  thread: AgentThreadState,
+  runEvents: readonly AgentEvent[],
+  labels: Partial<AgentKitLabels>,
+  range: {
+    afterSequence?: number | undefined;
+    throughSequence?: number | undefined;
+  },
+): AgentCollaborationItem[] {
+  const entries = new Map<string, AgentCollaborationEntry>();
+  const firstSequence = new Map<string, number>();
+  const order: string[] = [];
   const delegatedAgentIds = new Map<string, string>();
+  // A delegated agent's own tool calls leave the parent's work for its step.
+  const delegatedToolAgentIds = new Map<string, string>();
   for (const event of runEvents) {
     if (
       event.type === "activity.started" ||
@@ -3562,9 +3921,12 @@ export function AgentCollaborationFeed({
       const agentId = event.activity.agentId ?? activity.agentId;
       if (agentId) delegatedAgentIds.set(event.activity.id, agentId);
     }
+    if (event.type === "tool.started" || event.type === "tool.updated") {
+      const agentId =
+        event.toolCall.agentId ?? thread.tools[event.toolCall.id]?.agentId;
+      if (agentId) delegatedToolAgentIds.set(event.toolCall.id, agentId);
+    }
   }
-  const firstSequence = new Map<string, number>();
-  const order: string[] = [];
   const remember = (
     key: string,
     sequence: number,
@@ -3576,7 +3938,7 @@ export function AgentCollaborationFeed({
       order.push(key);
       firstSequence.set(key, sequence);
     }
-    entries.set(key, entry);
+    entries.set(key, { ...entry, sequence });
   };
   for (const event of runEvents) {
     if (event.type === "agent.interaction") {
@@ -3598,24 +3960,527 @@ export function AgentCollaborationFeed({
         value: { ...activity, agentId },
       });
     }
+    const toolId =
+      event.type === "tool.started" || event.type === "tool.updated"
+        ? event.toolCall.id
+        : event.type === "tool.delta"
+          ? event.toolCallId
+          : undefined;
+    const toolAgentId = toolId ? delegatedToolAgentIds.get(toolId) : undefined;
+    if (toolId && toolAgentId) {
+      const tool =
+        toolId in thread.tools
+          ? thread.tools[toolId]
+          : event.type === "tool.started" || event.type === "tool.updated"
+            ? event.toolCall
+            : undefined;
+      if (tool) {
+        remember(`tool:${toolId}`, event.sequence, {
+          type: "activity",
+          value: { ...toolToActivity(tool, labels), agentId: toolAgentId },
+        });
+      }
+    }
   }
-  const selectedOrder = order.filter((key) => {
+  const items: AgentCollaborationItem[] = [];
+  const subagents = new Map<string, AgentCollaborationEntry[]>();
+  for (const key of order) {
     const sequence = firstSequence.get(key);
-    return (
-      sequence !== undefined &&
-      sequenceInRange(sequence, { afterSequence, throughSequence })
-    );
+    const entry = entries.get(key);
+    if (!entry || sequence === undefined || !sequenceInRange(sequence, range)) {
+      continue;
+    }
+    const agentId = collaborationSubjectId(entry, thread);
+    if (!agentId) {
+      items.push({ type: "entry", key, entry });
+      continue;
+    }
+    const grouped = subagents.get(agentId);
+    if (grouped) {
+      grouped.push(entry);
+      continue;
+    }
+    const created = [entry];
+    subagents.set(agentId, created);
+    items.push({
+      type: "subagent",
+      key: `subagent:${agentId}`,
+      agentId,
+      entries: created,
+    });
+  }
+  return items;
+}
+
+/** The one task a Subagent step shows: the agent's active task, else its first. */
+function subagentStepTask(
+  thread: AgentThreadState,
+  agentId: string,
+): AgentTask | undefined {
+  const agent = agentId in thread.agents ? thread.agents[agentId] : undefined;
+  return Object.values(thread.tasks).find(
+    (candidate) =>
+      candidate.assignedAgentId === agentId &&
+      (agent?.activeTaskId === undefined ||
+        candidate.id === agent.activeTaskId),
+  );
+}
+
+/** Tasks the Subagent steps in this range of a run show. */
+function subagentStepTaskIds(
+  thread: AgentThreadState,
+  runId: RunId | undefined,
+  labels: Partial<AgentKitLabels>,
+  range: {
+    afterSequence?: number | undefined;
+    throughSequence?: number | undefined;
+  },
+): Set<string> {
+  const ids = new Set<string>();
+  for (const item of agentCollaborationItems(
+    thread,
+    agentRunEvents(thread, runId),
+    labels,
+    range,
+  )) {
+    if (item.type !== "subagent") continue;
+    const task = subagentStepTask(thread, item.agentId);
+    if (task) ids.add(task.id);
+  }
+  return ids;
+}
+
+/** Set inside a Subagent step, so its rows do not repeat the agent's chip. */
+const AgentSubagentStepContext = createContext<string | undefined>(undefined);
+
+const SUBAGENT_LIFECYCLE_KINDS = new Set([
+  "started",
+  "resumed",
+  "delegated",
+  "paused",
+  "completed",
+  "failed",
+  "closed",
+]);
+
+type SubagentState = "running" | "paused" | "completed" | "failed" | "closed";
+
+function subagentState(
+  agent: AgentParticipant | undefined,
+  entries: readonly AgentCollaborationEntry[],
+): SubagentState {
+  switch (agent?.status) {
+    case "waiting":
+    case "paused":
+      return "paused";
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "closed":
+      return "closed";
+    case "idle":
+    case "working":
+    case undefined:
+      break;
+  }
+  // Status can stay "working" past its last event; a finished call is not a finished agent.
+  const newestFirst = [...entries].sort((a, b) => b.sequence - a.sequence);
+  for (const entry of newestFirst) {
+    if (entry.type === "activity") {
+      if (entry.value.status === "running") return "running";
+      continue;
+    }
+    switch (entry.value.kind) {
+      case "completed":
+        return "completed";
+      case "failed":
+        return "failed";
+      case "paused":
+        return "paused";
+      case "closed":
+        return "closed";
+      case "started":
+      case "resumed":
+      case "delegated":
+        return "running";
+      case "messaged":
+      default:
+        break;
+    }
+  }
+  if (agent?.status === "working") return "running";
+  const latest = newestFirst.at(0);
+  return latest?.type === "activity" && latest.value.status === "failed"
+    ? "failed"
+    : latest?.type === "activity" && latest.value.status === "completed"
+      ? "completed"
+      : "running";
+}
+
+function metadataDurationMs(
+  metadata: Record<string, unknown> | undefined,
+): number | undefined {
+  const value = metadata?.durationMs;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function subagentDurationMs(
+  agent: AgentParticipant | undefined,
+  entries: readonly AgentCollaborationEntry[],
+): number | undefined {
+  const fromAgent = metadataDurationMs(agent?.metadata);
+  if (fromAgent !== undefined) return fromAgent;
+  for (const entry of [...entries].sort((a, b) => b.sequence - a.sequence)) {
+    const fromEntry = metadataDurationMs(entry.value.metadata);
+    if (fromEntry !== undefined) return fromEntry;
+  }
+  const started = agent?.startedAt ? Date.parse(agent.startedAt) : Number.NaN;
+  const completed = agent?.completedAt
+    ? Date.parse(agent.completedAt)
+    : Number.NaN;
+  return Number.isFinite(started) &&
+    Number.isFinite(completed) &&
+    completed >= started
+    ? completed - started
+    : undefined;
+}
+
+/** One row per delegated agent, with its own calls and its result inside. */
+export function AgentSubagentStep({
+  agentId,
+  entries,
+  runId,
+  threadId,
+}: {
+  agentId: string;
+  entries: readonly AgentCollaborationEntry[];
+  runId: RunId | undefined;
+  threadId: string;
+}) {
+  const {
+    slots,
+    registry,
+    labels,
+    formatWorkedForDuration,
+    formatAgentInteractionDetail,
+  } = useAgentKit();
+  const thread = useAgentThreadSlice(
+    (previous, next) =>
+      sameAgentsAndTasks(previous, next) &&
+      previous.tools === next.tools &&
+      previous.runs === next.runs,
+  );
+  const [open, setOpen] = useState(false);
+  const agent = agentId in thread.agents ? thread.agents[agentId] : undefined;
+  const AgentRenderer = agent
+    ? (registry.agents?.[agent.kind ?? ""] ??
+      slots.agent ??
+      AgentParticipantView)
+    : undefined;
+  const name = resolveAgentName(
+    thread,
+    agentId,
+    entries.map((entry) => entry.value.source),
+    labels.assistant,
+  );
+  const runStatus =
+    runId === undefined ? undefined : thread.runs[runId]?.status;
+  const liveState = subagentState(agent, entries);
+  // Agents can outlive their run, so one still "working" after it settled has stopped.
+  const settledStatus =
+    liveState !== "running"
+      ? undefined
+      : runStatus === "completed"
+        ? "completed"
+        : runStatus === "failed"
+          ? "failed"
+          : runStatus === "cancelled"
+            ? "closed"
+            : undefined;
+  const state: SubagentState = settledStatus ?? liveState;
+  const durationMs =
+    state === "running" ? undefined : subagentDurationMs(agent, entries);
+  const duration =
+    durationMs === undefined
+      ? undefined
+      : (formatWorkedForDuration?.(durationMs) ??
+        formatAgentKitDuration(durationMs, {
+          hour: labels.durationHourShort,
+          minute: labels.durationMinuteShort,
+          second: labels.durationSecondShort,
+        }));
+  const task = subagentStepTask(thread, agentId);
+  const taskTitle = task ? humanizeAgentLabel(task.title) : "";
+  const shownTaskTitle =
+    taskTitle && taskTitle.toLocaleLowerCase() !== name.toLocaleLowerCase()
+      ? taskTitle
+      : "";
+  const newestFirst = [...entries].sort((a, b) => b.sequence - a.sequence);
+  const latest = <T,>(
+    pick: (entry: AgentCollaborationEntry) => T | undefined,
+  ) => {
+    for (const entry of newestFirst) {
+      const value = pick(entry);
+      if (value !== undefined) return value;
+    }
+    return undefined;
+  };
+  // A call's detail is its output, which is no headline.
+  const progress =
+    state === "running"
+      ? latest((entry) =>
+          entry.type === "activity" &&
+          entry.value.status === "running" &&
+          !(entry.value.id in thread.tools) &&
+          readableText(entry.value.detail)
+            ? entry.value
+            : undefined,
+        )
+      : undefined;
+  const progressDetail = progress ? readableText(progress.detail) : "";
+  const failureDetail =
+    state === "failed"
+      ? latest((entry) =>
+          entry.type === "interaction" && entry.value.kind === "failed"
+            ? readableText(
+                formatAgentInteractionDetail?.(entry.value) ??
+                  entry.value.detail,
+              ) || undefined
+            : entry.type === "activity" && entry.value.status === "failed"
+              ? readableText(entry.value.detail) || undefined
+              : undefined,
+        )
+      : undefined;
+  const status =
+    state === "running"
+      ? labels.agentWorking
+      : state === "failed"
+        ? labels.agentFailed
+        : state === "paused"
+          ? labels.agentPaused
+          : state === "closed"
+            ? labels.agentClosed
+            : duration
+              ? labels.agentWorkedFor.replace("{{duration}}", () => duration)
+              : labels.agentCompleted;
+  const content = entries.flatMap((entry): ReactNode[] => {
+    const key = `${entry.type}:${entry.value.id}`;
+    if (entry.type === "interaction") {
+      const interaction = entry.value;
+      const Custom =
+        registry.agentInteractions?.[interaction.kind] ??
+        slots.agentInteraction;
+      if (Custom) {
+        return [<Custom key={key} value={interaction} threadId={threadId} />];
+      }
+      // The row's own status, duration and error line already say these.
+      if (
+        SUBAGENT_LIFECYCLE_KINDS.has(interaction.kind) &&
+        (interaction.kind === "failed" ||
+          !(
+            interaction.label ||
+            interaction.detail ||
+            interaction.object ||
+            interaction.targetAgentId
+          ))
+      ) {
+        return [];
+      }
+      return [
+        <AgentInteractionItem
+          key={key}
+          value={interaction}
+          threadId={threadId}
+        />,
+      ];
+    }
+    const activity = entry.value;
+    const Custom = registry.activities?.[activity.kind] ?? slots.activity;
+    if (Custom) {
+      return [<Custom key={key} value={activity} threadId={threadId} />];
+    }
+    if (activity.id in thread.tools) {
+      return [
+        <AgentActivityItem key={key} value={activity} threadId={threadId} />,
+      ];
+    }
+    // The agent's report is the step's result, so it shows in place.
+    const summary = (activity.summary ?? []).flatMap((part, partIndex) => {
+      const safePart =
+        part.type === "text"
+          ? {
+              ...part,
+              text: part.text.trim()
+                ? formatActivityText(part.text, labels)
+                : "",
+            }
+          : part;
+      return safePart.type === "text" && !safePart.text
+        ? []
+        : [
+            <AgentMessagePartView
+              key={`${key}:summary:${partIndex}`}
+              value={safePart}
+              threadId={threadId}
+            />,
+          ];
+    });
+    if (summary.length) return summary;
+    // A summary-less "agent" activity is the status line the header carries.
+    if (activity === progress || activity.kind === "agent") return [];
+    return [
+      <AgentActivityItem key={key} value={activity} threadId={threadId} />,
+    ];
   });
-  if (selectedOrder.length === 0) return null;
+  const failed = state === "failed";
+  const line = (
+    <TraceLine
+      status={state === "running" ? "running" : failed ? "error" : undefined}
+    >
+      <TraceIcon>
+        {/* A failed agent's chip already carries the triangle. */}
+        <IconArrowFork aria-hidden="true" className="agentkit-icon" />
+      </TraceIcon>
+      <span className="agentkit-disclosure-label">
+        {agent && AgentRenderer ? (
+          <AgentRenderer
+            value={settledStatus ? { ...agent, status: settledStatus } : agent}
+            threadId={threadId}
+          />
+        ) : (
+          <AgentIdentityChip
+            id={agentId}
+            name={name}
+            fallbackName={labels.assistant}
+            {...(failed
+              ? { status: "failed" as const }
+              : state === "running"
+                ? { status: "working" as const }
+                : {})}
+          />
+        )}
+        <TraceTitle className="agentkit-activity-label">{status}</TraceTitle>
+      </span>
+    </TraceLine>
+  );
+  const detail = shownTaskTitle || progressDetail;
+  const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
+  const taskObject = task
+    ? (task.object ??
+      sourceObjectUnlessRepresented(task.source, thread, [agentId]))
+    : undefined;
+  const meta =
+    detail || taskObject ? (
+      <>
+        {taskObject ? (
+          <ObjectRenderer value={taskObject} threadId={threadId} />
+        ) : null}
+        {detail ? (
+          <TraceDescription
+            {...SESSION_REPLAY_MASK_PROPS}
+            className="agentkit-activity-detail"
+          >
+            {detail}
+          </TraceDescription>
+        ) : null}
+      </>
+    ) : null;
+  const errorLine = failureDetail ? (
+    <span {...SESSION_REPLAY_MASK_PROPS} className="agentkit-activity-error">
+      {failureDetail}
+    </span>
+  ) : null;
+  const rootProps = {
+    className: "agentkit-subagent-step",
+    "data-agent-id": agentId,
+    // Not data-state: the collapsible keeps its open state there.
+    "data-status": state,
+  };
+  if (!content.length) {
+    return (
+      <div {...rootProps}>
+        <div className="agentkit-disclosure-row agentkit-activity-row">
+          <span className="agentkit-disclosure-summary" data-expandable="false">
+            {line}
+          </span>
+          {meta}
+        </div>
+        {errorLine}
+      </div>
+    );
+  }
+  return (
+    <TraceCollapsible {...rootProps} open={open} onOpenChange={setOpen}>
+      <div
+        className="agentkit-disclosure-row agentkit-activity-row"
+        data-expandable="true"
+        onClick={(event) => {
+          const target = event.target;
+          if (
+            target instanceof Element &&
+            target.closest(DISCLOSURE_ROW_INTERACTIVE)
+          )
+            return;
+          if (globalThis.getSelection()?.toString()) return;
+          setOpen((current) => !current);
+        }}
+      >
+        <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
+        {meta}
+      </div>
+      {errorLine}
+      <TraceCollapsibleContent
+        key={open ? "open" : "closed"}
+        keepMounted
+        {...(failed || !open ? SESSION_REPLAY_BLOCK_PROPS : {})}
+        className="agentkit-subagent-content"
+      >
+        <AgentSubagentStepContext.Provider value={agentId}>
+          {content}
+        </AgentSubagentStepContext.Provider>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
+  );
+}
+
+export function AgentCollaborationFeed({
+  runId,
+  afterSequence,
+  throughSequence,
+}: AgentEventRange) {
+  const { threadId, slots, registry, labels } = useAgentKit();
+  const thread = useAgentThreadSlice((previous, next) =>
+    sameRunWork(previous, next, runId),
+  );
+  const items = agentCollaborationItems(
+    thread,
+    agentRunEvents(thread, runId),
+    labels,
+    { afterSequence, throughSequence },
+  );
+  if (items.length === 0) return null;
   return (
     <section
       className="agentkit-agent-feed"
       aria-label={labels.agents}
       data-agent-collaboration-feed="true"
     >
-      {selectedOrder.map((key) => {
-        const entry = entries.get(key);
-        if (!entry) return null;
+      {items.map((item) => {
+        if (item.type === "subagent") {
+          return (
+            <AgentSubagentStep
+              key={item.key}
+              agentId={item.agentId}
+              entries={item.entries}
+              runId={runId}
+              threadId={threadId}
+            />
+          );
+        }
+        const { entry, key } = item;
         if (entry.type === "interaction") {
           const Renderer =
             registry.agentInteractions?.[entry.value.kind] ??
@@ -3694,8 +4559,11 @@ export function AgentTaskItem({
       slots.agent ??
       AgentParticipantView)
     : undefined;
-  const progress = task.progress
-    ? `${task.progress.completed}/${task.progress.total}`
+  const taskProgress = task.progress;
+  const progress = taskProgress
+    ? labels.tasksProgress
+        .replace("{{completed}}", () => String(taskProgress.completed))
+        .replace("{{total}}", () => String(taskProgress.total))
     : undefined;
   const title =
     humanizeAgentLabel(task.title) ||
@@ -3709,8 +4577,18 @@ export function AgentTaskItem({
     title.toLocaleLowerCase() !== agentName.toLocaleLowerCase();
   const status = taskStatusPresentation(task.status, labels);
   return (
-    <div className="agentkit-task-row" data-status={task.status}>
-      {status.icon}
+    <TraceLine
+      className="agentkit-task-row"
+      data-status={task.status}
+      status={
+        task.status === "running"
+          ? "running"
+          : task.status === "failed"
+            ? "error"
+            : undefined
+      }
+    >
+      <TraceIcon>{status.icon}</TraceIcon>
       <span className="agentkit-visually-hidden">{status.label}</span>
       {showAgent && agent && AgentRenderer ? (
         <AgentRenderer value={agent} threadId={threadId} />
@@ -3721,7 +4599,7 @@ export function AgentTaskItem({
           fallbackName={labels.assistant}
         />
       ) : null}
-      <span className="agentkit-task-title">{title}</span>
+      <TraceTitle className="agentkit-task-title">{title}</TraceTitle>
       {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
       {detail ? (
         <span className="agentkit-task-detail" title={detail}>
@@ -3729,9 +4607,11 @@ export function AgentTaskItem({
         </span>
       ) : null}
       {progress ? (
-        <span className="agentkit-task-progress">{progress}</span>
+        <TraceDescription className="agentkit-task-progress">
+          {progress}
+        </TraceDescription>
       ) : null}
-    </div>
+    </TraceLine>
   );
 }
 
@@ -3763,14 +4643,23 @@ export function AgentTaskGroup({
     }
     tasks.set(event.task.id, thread.tasks[event.task.id] ?? event.task);
   }
+  // Only the task a Subagent step shows moves out of this list.
+  const stepTaskIds = subagentStepTaskIds(thread, runId, labels, {
+    afterSequence,
+    throughSequence,
+  });
   const selectedIds = ids.filter((id) => {
     const sequence = firstSequence.get(id);
     return (
       sequence !== undefined &&
-      sequenceInRange(sequence, { afterSequence, throughSequence })
+      sequenceInRange(sequence, { afterSequence, throughSequence }) &&
+      !stepTaskIds.has(id)
     );
   });
   if (selectedIds.length === 0) return null;
+  const completedCount = selectedIds.filter(
+    (id) => tasks.get(id)?.status === "completed",
+  ).length;
   return (
     <div className="agentkit-tasks" data-open={open ? "true" : "false"}>
       <AgentKitDisclosureSummary
@@ -3782,7 +4671,11 @@ export function AgentTaskGroup({
         label={
           <>
             <span>{labels.tasks}</span>
-            <span className="agentkit-tasks-count">{selectedIds.length}</span>
+            <span className="agentkit-tasks-count">
+              {labels.tasksProgress
+                .replace("{{completed}}", () => String(completedCount))
+                .replace("{{total}}", () => String(selectedIds.length))}
+            </span>
           </>
         }
       />
@@ -4194,8 +5087,8 @@ export function AgentConnectionRequestCard({
   return (
     <Surface
       as="section"
-      className="agentkit-connection-request shadow-(--agent-kit-control-elevation)"
-      elevation="low"
+      className="agentkit-connection-request"
+      elevation="none"
       padding="none"
       data-status={request.status}
       aria-labelledby={`${request.id}-title`}
@@ -4249,7 +5142,7 @@ export function AgentConnectionRequestCard({
       ) : null}
       {resolution.error ? (
         <div className="agentkit-command-error" role="alert">
-          <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
+          <IconAlertTriangle aria-hidden="true" className="agentkit-icon" />
           <span {...SESSION_REPLAY_MASK_PROPS}>{resolution.error.message}</span>
         </div>
       ) : null}
@@ -5214,39 +6107,100 @@ function AgentMessageTimestamp({
   );
 }
 
+/** Enter and Space fire a click with no pointer detail. */
+function pressedByKeyboard(event: { detail: number } | undefined): boolean {
+  return event?.detail === 0;
+}
+
+/** Keyboard presses only: focusing the composer on touch opens the on-screen keyboard. */
+function useRescueFocusToComposer(threadId: string): () => void {
+  const { requestComposerFocus } = useAgentKit();
+  return useCallback(() => {
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) requestComposerFocus(threadId);
+    });
+  }, [requestComposerFocus, threadId]);
+}
+
 /**
  * Names an icon-only message action on hover and keyboard focus. Below the
  * button, so it never covers the message it acts on.
  */
 function MessageActionButton({
   title,
+  busy = false,
+  unavailable = false,
+  icon,
+  onPress,
+  className,
   ...props
-}: ComponentPropsWithoutRef<typeof IconButton>) {
-  // A disabled button gets no pointer events, so only a native title can
-  // explain it; an enabled one shows the reason in its tooltip instead, so a
-  // degraded action never opens both.
-  const inactive = Boolean(props.disabled || props.pending);
+}: ComponentPropsWithoutRef<typeof IconButton> & {
+  /** Stays focusable: disabling the pressed button drops focus to the page. */
+  busy?: boolean;
+  /** Announced with aria-disabled and kept focusable. */
+  unavailable?: boolean;
+}) {
+  // Only a native title explains a disabled button, never also the tooltip. An
+  // unavailable one stays focusable and a press opens its tooltip: taps never hover.
+  const inactive = Boolean(props.disabled || props.pending || busy);
   const reason = inactive ? undefined : title;
+  const reasonId = useId();
+  const [tooltipOpen, setTooltipOpen] = useState(false);
   return (
-    <Tooltip
-      content={
-        reason ? (
-          <>
-            {props.label}
-            <span className="block text-muted-foreground">{reason}</span>
-          </>
-        ) : (
-          props.label
-        )
-      }
-      placement="bottom"
-      trigger={
-        <IconButton
-          {...props}
-          {...(inactive && title !== undefined ? { title } : {})}
-        />
-      }
-    />
+    <>
+      <Tooltip
+        open={tooltipOpen}
+        onOpenChange={setTooltipOpen}
+        content={
+          reason ? (
+            <>
+              {props.label}
+              <span className="block text-muted-foreground">{reason}</span>
+            </>
+          ) : (
+            props.label
+          )
+        }
+        placement="bottom"
+        trigger={
+          <IconButton
+            {...props}
+            icon={
+              busy ? (
+                <IconLoader2 aria-hidden="true" className="animate-spin" />
+              ) : (
+                icon
+              )
+            }
+            {...(unavailable
+              ? {
+                  className: `${className ?? ""} aria-disabled:cursor-default aria-disabled:opacity-50`,
+                }
+              : className
+                ? { className }
+                : {})}
+            {...(busy ? { "aria-busy": true } : {})}
+            {...(unavailable ? { "aria-disabled": true } : {})}
+            {...(reason ? { "aria-describedby": reasonId } : {})}
+            onPress={(event) => {
+              if (unavailable) {
+                if (reason) setTooltipOpen(true);
+                return;
+              }
+              if (busy) return;
+              onPress?.(event);
+            }}
+            {...(inactive && title !== undefined ? { title } : {})}
+          />
+        }
+      />
+      {reason ? (
+        <span id={reasonId} hidden>
+          {reason}
+        </span>
+      ) : null}
+    </>
   );
 }
 
@@ -5262,6 +6216,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     onCopyMessage,
     branchNavigation,
   } = useAgentKit();
+  const rescueFocusToComposer = useRescueFocusToComposer(threadId);
   const feedbackCapability = useAgentCapability("feedback");
   const forkingCapability = useAgentCapability("threadForking");
   const control = useAgentKitControl(threadId);
@@ -5315,6 +6270,10 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     null,
   );
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  // One tab stop per message: the toolbar for a reply, the row for a sent message.
+  useRovingFocus(toolbarRef, isAssistant);
+  useRovingFocus(actionsRef, !isAssistant);
   const moreToggleRef = useRef<HTMLButtonElement>(null);
   const secondaryActionsRef = useRef<HTMLDivElement>(null);
   const pendingFocusRef = useRef<"secondary" | "toggle" | null>(null);
@@ -5475,7 +6434,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
         )
       }
       size="compact"
-      className="size-6"
+      className="size-6 rounded-[var(--agent-kit-radius-xs,0.25rem)]"
       // Copies stay enabled while they run: disabling the pressed button drops
       // focus to the page, where Escape can no longer close the toolbar.
       aria-busy={copyAction.pending || undefined}
@@ -5498,11 +6457,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
           label={labels.previousBranch}
           icon={<IconChevronLeft aria-hidden="true" />}
           size="compact"
-          className="size-6"
-          disabled={
-            branchNavigation.index <= 1 || branchNavigationAction.pending
-          }
-          pending={branchNavigationAction.pending}
+          className="size-6 rounded-[var(--agent-kit-radius-xs,0.25rem)]"
+          unavailable={branchNavigation.index <= 1}
+          busy={branchNavigationAction.pending}
           onPress={() =>
             void branchNavigationAction
               .execute("previous")
@@ -5523,12 +6480,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
           label={labels.nextBranch}
           icon={<IconChevronRight aria-hidden="true" />}
           size="compact"
-          className="size-6"
-          disabled={
-            branchNavigation.index >= branchNavigation.count ||
-            branchNavigationAction.pending
-          }
-          pending={branchNavigationAction.pending}
+          className="size-6 rounded-[var(--agent-kit-radius-xs,0.25rem)]"
+          unavailable={branchNavigation.index >= branchNavigation.count}
+          busy={branchNavigationAction.pending}
           onPress={() =>
             void branchNavigationAction.execute("next").catch(() => undefined)
           }
@@ -5539,7 +6493,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
     <div
       ref={toolbarRef}
       className="agentkit-message-toolbar"
-      role="group"
+      role="toolbar"
       aria-label={labels.messageActions}
       data-placement={placement}
       data-latest={isLastAssistantMessage ? "true" : undefined}
@@ -5617,15 +6571,14 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                       )
                     }
                     size="compact"
-                    className="size-6"
+                    className="size-6 rounded-[var(--agent-kit-radius-xs,0.25rem)]"
                     data-message-action={`feedback-${value}`}
                     aria-pressed={chosen}
                     aria-haspopup={toggle ? "dialog" : undefined}
                     aria-expanded={toggle ? open : undefined}
                     aria-controls={toggle && open ? contentId : undefined}
-                    disabled={
-                      !feedbackCapability.enabled || feedbackAction.pending
-                    }
+                    unavailable={!feedbackCapability.enabled}
+                    busy={feedbackAction.pending}
                     {...(feedbackCapability.reason === undefined
                       ? {}
                       : { title: feedbackCapability.reason })}
@@ -5664,20 +6617,23 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                 label={labels.regenerateResponse}
                 icon={<IconRefresh aria-hidden="true" />}
                 size="compact"
-                className="size-6"
+                className="size-6 rounded-[var(--agent-kit-radius-xs,0.25rem)]"
                 data-message-action="retry"
-                pending={regenerateAction.pending}
-                disabled={
-                  regenerateAction.pending ||
-                  position.active ||
-                  !forkingCapability.enabled
-                }
+                busy={regenerateAction.pending}
+                unavailable={position.active || !forkingCapability.enabled}
                 {...(forkingCapability.reason === undefined
                   ? {}
                   : { title: forkingCapability.reason })}
-                onPress={() =>
-                  void regenerateAction.execute().catch(() => undefined)
-                }
+                onPress={(event) => {
+                  const keyboard = pressedByKeyboard(event);
+                  void regenerateAction
+                    .execute()
+                    .catch(() => undefined)
+                    // The new response replaces this toolbar.
+                    .finally(() => {
+                      if (keyboard) rescueFocusToComposer();
+                    });
+                }}
               />
             ) : null}
             {showFork ? (
@@ -5685,10 +6641,10 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                 label={labels.forkFromHere}
                 icon={<IconArrowFork aria-hidden="true" />}
                 size="compact"
-                className="size-6"
+                className="size-6 rounded-[var(--agent-kit-radius-xs,0.25rem)]"
                 data-message-action="fork"
-                pending={forkAction.pending}
-                disabled={!forkingCapability.enabled || forkAction.pending}
+                busy={forkAction.pending}
+                unavailable={!forkingCapability.enabled}
                 {...(forkingCapability.reason === undefined
                   ? {}
                   : { title: forkingCapability.reason })}
@@ -5708,7 +6664,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                   )
                 }
                 size="compact"
-                className="size-6"
+                className="size-6 rounded-[var(--agent-kit-radius-xs,0.25rem)]"
                 data-message-action="request-id"
                 aria-busy={requestIdAction.pending || undefined}
                 onPress={() => {
@@ -5728,7 +6684,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
           size="compact"
           // Hover is lighter than open, the toolkit's menu-trigger pattern,
           // so pressing it reads as a change while the pointer is still on it.
-          className="agentkit-message-actions-toggle size-6 hover:bg-accent/60 aria-expanded:bg-accent aria-expanded:text-foreground"
+          className="agentkit-message-actions-toggle size-6 rounded-[var(--agent-kit-radius-xs,0.25rem)] hover:bg-accent/60 aria-expanded:bg-accent aria-expanded:text-foreground"
           data-message-actions-toggle=""
           aria-expanded={moreActionsOpen}
           aria-controls={secondaryActionsId}
@@ -5743,7 +6699,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
       <span className="agentkit-visually-hidden" aria-live="polite">
         {feedbackConfirmed
           ? labels.feedbackSubmitted
-          : requestIdCopied
+          : requestIdCopied || copied
             ? labels.copied
             : ""}
       </span>
@@ -5751,6 +6707,7 @@ export const AgentMessageActions = memo(function AgentMessageActions({
   ) : null;
   return (
     <div
+      ref={actionsRef}
       className="agentkit-message-actions"
       data-role={message.role}
       data-placement={placement}
@@ -5758,6 +6715,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
       data-streaming={message.status === "streaming" ? "true" : undefined}
       data-expanded={moreActionsOpen ? "true" : undefined}
       data-has-error={footerError ? "true" : undefined}
+      {...(isAssistant
+        ? {}
+        : { role: "toolbar", "aria-label": labels.messageActions })}
     >
       {isAssistant ? (
         <>
@@ -5776,8 +6736,8 @@ export const AgentMessageActions = memo(function AgentMessageActions({
                 label={labels.editMessage}
                 icon={<IconPencil aria-hidden="true" />}
                 size="compact"
-                className="size-6"
-                disabled={position.active || !forkingCapability.enabled}
+                className="size-6 rounded-[var(--agent-kit-radius-xs,0.25rem)]"
+                unavailable={position.active || !forkingCapability.enabled}
                 {...(forkingCapability.reason === undefined
                   ? {}
                   : { title: forkingCapability.reason })}
@@ -5794,6 +6754,9 @@ export const AgentMessageActions = memo(function AgentMessageActions({
               />
             ) : null}
           </div>
+          <span className="agentkit-visually-hidden" aria-live="polite">
+            {copied ? labels.copied : ""}
+          </span>
         </>
       )}
       {footerError ? (
@@ -5909,15 +6872,28 @@ export const AgentMessageView = memo(function AgentMessageView({
   let hasSeenWidget = false;
   const renderedContent: ReactNode[] = [];
   let citationRun: ReactNode[] = [];
+  let citationParts: CitationPart[] = [];
   let citationRunKey = "";
   const flushCitations = () => {
     if (!citationRun.length) return;
     renderedContent.push(
-      <span key={`citations:${citationRunKey}`} className="agentkit-citations">
-        {citationRun}
-      </span>,
+      // A host citation renderer keeps the inline run it was written for.
+      slots.citation || registry.messageParts?.citation ? (
+        <span
+          key={`citations:${citationRunKey}`}
+          className="agentkit-citations"
+        >
+          {citationRun}
+        </span>
+      ) : (
+        <AgentSources
+          key={`citations:${citationRunKey}`}
+          citations={citationParts}
+        />
+      ),
     );
     citationRun = [];
+    citationParts = [];
   };
   orderedContent.forEach((item, index) => {
     const isWidget = item.type === "widget" || item.part.type === "widget";
@@ -5944,6 +6920,7 @@ export const AgentMessageView = memo(function AgentMessageView({
     if (item.type === "part" && item.part.type === "citation") {
       if (!citationRun.length) citationRunKey = item.key;
       citationRun.push(<Fragment key={item.key}>{content}</Fragment>);
+      citationParts.push(item.part);
       return;
     }
     flushCitations();
@@ -5970,6 +6947,10 @@ export const AgentMessageView = memo(function AgentMessageView({
       aria-label={message.role === "user" ? labels.you : labels.assistant}
       aria-busy={message.status === "streaming"}
     >
+      {/* Lets screen-reader users jump between turns by heading. */}
+      <h2 className="agentkit-visually-hidden">
+        {message.role === "user" ? labels.you : labels.assistant}
+      </h2>
       <div className="agentkit-message-content">
         {renderedContent}
         {attachedAnnotations.length ? (
@@ -6057,19 +7038,17 @@ export function AgentRunFailure({
       setContinueFailed(true);
     });
   };
-  // A failure the user can recover from is a warning; red means it is final.
-  const tone = error.retryable === true ? "warning" : "danger";
-  const ToneIcon = tone === "warning" ? IconAlertTriangle : IconAlertCircle;
+  // Amber, not red, even when not retryable: a failed run destroys nothing.
   return (
     <div
       className="agentkit-run-failure"
-      data-tone={tone}
+      data-tone="warning"
       data-error-code={error.code}
       data-run-id={runId}
       data-thread-id={threadId}
       role={!superseded && latestFailure ? "alert" : undefined}
     >
-      <ToneIcon aria-hidden="true" className="agentkit-icon" />
+      <IconAlertTriangle aria-hidden="true" className="agentkit-icon" />
       <div className="agentkit-run-failure-copy">
         <strong>{labels.runFailed}</strong>
         <span {...SESSION_REPLAY_MASK_PROPS}>{error.message}</span>
@@ -6106,7 +7085,7 @@ export function AgentConnectionErrorView({
   const { labels } = useAgentKit();
   return (
     <ComposerNotice
-      tone={error.retryable ? "warning" : "danger"}
+      tone="warning"
       role="alert"
       noticeId="connection-error"
       className="agentkit-connection-notice"
@@ -6622,7 +7601,7 @@ export function AgentKitComposer({
         trigger={
           <span
             tabIndex={0}
-            className="inline-flex min-w-0 items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex min-w-0 items-center gap-2 rounded-[var(--agent-kit-radius-xs,0.25rem)] outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <IconPencil aria-hidden="true" className="size-4 shrink-0" />
             <span id={editingLabelId} className="truncate">
@@ -6799,6 +7778,9 @@ export function AgentKitComposer({
         threadId: forkedThread.id,
         text: payload.text,
         attachments: [...payload.attachments],
+        ...(payload.references.length
+          ? { references: [...payload.references] }
+          : {}),
         options: payload.options,
         metadata: sendMetadata,
         onLocalSubmit,
@@ -6841,6 +7823,9 @@ export function AgentKitComposer({
     const message = {
       text: payload.text,
       attachments: [...payload.attachments],
+      ...(payload.references.length
+        ? { references: [...payload.references] }
+        : {}),
       options: payload.options,
       metadata: sendMetadata,
       queueWhileRunning,
@@ -7280,6 +8265,8 @@ export interface AgentKitChatProps {
   emptyComposerPlacement?: "center" | "bottom";
   /** Follow new output until the user deliberately scrolls away. */
   autoScroll?: boolean;
+  /** Hold a sent message near the top while its reply streams; `false` follows the bottom. */
+  anchorTurns?: boolean;
   /** Optional transcript geometry. Omitted values keep the shared defaults. */
   transcriptLayout?: AgentChatTranscriptLayout;
   /**
@@ -7408,6 +8395,8 @@ const AGENTKIT_HISTORY_ROW_CHUNK = 16;
 const AGENTKIT_TRANSCRIPT_SCROLLBAR_IDLE_MS = 900;
 /** Outlasts the reveal's bounded drain after a run ends. */
 const AGENTKIT_TRANSCRIPT_GLIDE_AFTER_RUN_MS = 2_000;
+/** How much of the previous turn shows above an anchored message. */
+const AGENTKIT_TURN_ANCHOR_PEEK_PX = 32;
 const AGENTKIT_TRANSCRIPT_SCROLL_KEYS = new Set([
   "ArrowDown",
   "ArrowUp",
@@ -7417,7 +8406,8 @@ const AGENTKIT_TRANSCRIPT_SCROLL_KEYS = new Set([
   "PageUp",
   " ",
 ]);
-const AGENTKIT_ACTIVITY_ANNOUNCE_INTERVAL_MS = 2_000;
+// Long enough for a screen reader to finish speaking between step names.
+const AGENTKIT_ACTIVITY_ANNOUNCE_INTERVAL_MS = 10_000;
 
 export function isAgentKitTranscriptNearBottom(
   element: Pick<HTMLElement, "clientHeight" | "scrollHeight" | "scrollTop">,
@@ -7445,7 +8435,7 @@ export function AgentKitTranscriptSkeleton({
     >
       <span className="agentkit-visually-hidden">{label}</span>
       <div className="agentkit-transcript-skeleton-user" aria-hidden="true">
-        <Skeleton className="agentkit-transcript-skeleton-bubble ms-auto h-10 w-2/5 rounded-2xl" />
+        <Skeleton className="agentkit-transcript-skeleton-bubble ms-auto h-11 w-2/5 rounded-[var(--agent-kit-radius-sm,0.5rem)]" />
       </div>
       <div
         className="agentkit-transcript-skeleton-assistant"
@@ -7565,6 +8555,24 @@ function currentRunActivityLabel(
   return labels.working;
 }
 
+// A run that stops to wait on the user is as much news as one that ends.
+const RUN_STATUS_ANNOUNCEMENTS: Partial<
+  Record<
+    string,
+    | "responseReady"
+    | "responseFailed"
+    | "runStopped"
+    | "waitingForApproval"
+    | "waitingForInput"
+  >
+> = {
+  completed: "responseReady",
+  failed: "responseFailed",
+  cancelled: "runStopped",
+  awaiting_approval: "waitingForApproval",
+  awaiting_input: "waitingForInput",
+};
+
 /**
  * One polite status region for the whole chat. The transcript itself stays
  * aria-live="off": streamed text would otherwise be read token by token.
@@ -7575,6 +8583,8 @@ function AgentKitLiveStatus({ threadId }: { threadId: string }) {
   const runId = latestRunId(thread);
   const run = runId ? thread.runs[runId] : undefined;
   const status = run?.status;
+  // A failure with an error has its own alert; announcing it here reads it twice.
+  const failureHasAlert = status === "failed" && Boolean(run?.error);
   const running = status === "running";
   const activityText =
     running && runId ? currentRunActivityLabel(thread, runId, labels) : "";
@@ -7599,15 +8609,14 @@ function AgentKitLiveStatus({ threadId }: { threadId: string }) {
     if (!runId || previous.runId !== runId || previous.status === status) {
       return;
     }
-    if (status === "completed" || status === "failed") {
-      if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
-      pendingTimerRef.current = undefined;
-      lastAnnouncedAtRef.current = Date.now();
-      setAnnouncement(
-        status === "completed" ? labels.responseReady : labels.responseFailed,
-      );
-    }
-  }, [labels.responseFailed, labels.responseReady, runId, status]);
+    const announced = status ? RUN_STATUS_ANNOUNCEMENTS[status] : undefined;
+    if (!announced) return;
+    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    pendingTimerRef.current = undefined;
+    lastAnnouncedAtRef.current = Date.now();
+    // Cleared rather than left on the last step name, which is stale now.
+    setAnnouncement(failureHasAlert ? "" : labels[announced]);
+  }, [failureHasAlert, labels, runId, status]);
   useEffect(() => {
     if (!activityText) return;
     const announce = () => {
@@ -7672,6 +8681,7 @@ export function AgentKitChat({
   hasRenderedMessages = false,
   emptyComposerPlacement = "center",
   autoScroll = true,
+  anchorTurns = true,
   transcriptLayout,
   expectExistingThread,
   onStartNewChat,
@@ -7686,6 +8696,7 @@ export function AgentKitChat({
     onThreadForked,
     threadLoad,
     formatWorkedForDuration,
+    requestComposerFocus,
   } = useAgentKit();
   const formatReasoningDuration = (ms: number) =>
     formatWorkedForDuration?.(ms) ??
@@ -7773,6 +8784,9 @@ export function AgentKitChat({
   }, [threadId]);
   useRealtimeVoiceTranscripts(controller, threadId, hasActiveRuns(thread));
   const transcriptContentRef = useRef<HTMLDivElement>(null);
+  const turnSpacerRef = useRef<HTMLDivElement>(null);
+  // Set by a message sent in this thread; a thread that opens has no anchor.
+  const turnAnchoredRef = useRef(false);
   const fileDragDepthRef = useRef(0);
   const followsTranscriptRef = useRef(true);
   const programmaticScrollTopRef = useRef<number | undefined>(undefined);
@@ -7968,7 +8982,41 @@ export function AgentKitChat({
     scheduleTranscriptScrollbarHide();
   }, [scheduleTranscriptScrollbarHide]);
 
+  // The spacer pads what the reply has not filled, so following the bottom holds
+  // the sent message near the top. Sized imperatively so streaming never re-renders.
+  const updateTurnSpacer = useCallback(() => {
+    const transcript = transcriptRef.current;
+    const content = transcriptContentRef.current;
+    const spacer = turnSpacerRef.current;
+    if (!transcript || !content || !spacer) return;
+    // No stylesheet may size the spacer: its inline height is read back as-is.
+    const current = Number.parseFloat(spacer.style.blockSize) || 0;
+    const rows = content.querySelectorAll<HTMLElement>(
+      '.agentkit-message[data-role="user"]',
+    );
+    const row = rows.length ? rows[rows.length - 1] : undefined;
+    if (!anchorTurns || !turnAnchoredRef.current || !row) {
+      if (current) spacer.style.blockSize = "";
+      return;
+    }
+    const rowTop =
+      row.getBoundingClientRect().top -
+      transcript.getBoundingClientRect().top +
+      transcript.scrollTop;
+    const anchorTop = Math.max(0, rowTop - AGENTKIT_TURN_ANCHOR_PEEK_PX);
+    const next = Math.max(
+      0,
+      Math.ceil(
+        anchorTop +
+          transcript.clientHeight -
+          (transcript.scrollHeight - current),
+      ),
+    );
+    if (next !== current) spacer.style.blockSize = next ? `${next}px` : "";
+  }, [anchorTurns]);
+
   const scrollTranscriptToBottom = useCallback(() => {
+    updateTurnSpacer();
     const transcript = transcriptRef.current;
     if (!autoScroll || !transcript || !followsTranscriptRef.current) return;
     const nextScrollTop = Math.max(
@@ -7977,7 +9025,7 @@ export function AgentKitChat({
     );
     if (Math.abs(transcript.scrollTop - nextScrollTop) <= 1) return;
     writeTranscriptScrollTop(transcript, nextScrollTop);
-  }, [autoScroll, writeTranscriptScrollTop]);
+  }, [autoScroll, updateTurnSpacer, writeTranscriptScrollTop]);
 
   const stopTranscriptGlide = useCallback(() => {
     transcriptGlideRef.current?.glide.stop();
@@ -7986,6 +9034,7 @@ export function AgentKitChat({
   // Streamed growth glides to the new bottom; anything else (opening a
   // thread, a long jump) lands there at once instead of gliding through it.
   const followTranscriptToBottom = useCallback(() => {
+    updateTurnSpacer();
     const transcript = transcriptRef.current;
     if (!autoScroll || !transcript || !followsTranscriptRef.current) return;
     const distance =
@@ -8004,7 +9053,22 @@ export function AgentKitChat({
       transcriptGlideRef.current = {
         element: transcript,
         glide: new TranscriptGlide({
-          element: transcript,
+          // Size the spacer first so an anchored message holds still as the reply grows.
+          element: {
+            get scrollTop() {
+              return transcript.scrollTop;
+            },
+            set scrollTop(value: number) {
+              transcript.scrollTop = value;
+            },
+            get scrollHeight() {
+              updateTurnSpacer();
+              return transcript.scrollHeight;
+            },
+            get clientHeight() {
+              return transcript.clientHeight;
+            },
+          },
           write: (scrollTop) => writeTranscriptScrollTop(transcript, scrollTop),
           following: () => followsTranscriptRef.current,
         }),
@@ -8015,6 +9079,7 @@ export function AgentKitChat({
     autoScroll,
     scrollTranscriptToBottom,
     stopTranscriptGlide,
+    updateTurnSpacer,
     writeTranscriptScrollTop,
   ]);
 
@@ -8110,6 +9175,7 @@ export function AgentKitChat({
     if (transcriptThreadIdRef.current !== threadId) {
       transcriptThreadIdRef.current = threadId;
       previousLastMessageIdRef.current = undefined;
+      turnAnchoredRef.current = false;
       transcriptGlidesUntilRef.current = 0;
       jumps = true;
       setTranscriptFollow(true);
@@ -8124,6 +9190,8 @@ export function AgentKitChat({
       lastMessage.id !== previousLastMessageId
     ) {
       jumps = true;
+      // Only a send anchors: the first render of an opened thread is not one.
+      if (previousLastMessageId !== undefined) turnAnchoredRef.current = true;
       setTranscriptFollow(true);
       hideTranscriptScrollbar();
     }
@@ -8144,6 +9212,31 @@ export function AgentKitChat({
     setTranscriptFollow,
     stopTranscriptGlide,
     threadId,
+  ]);
+
+  // Anchor from the pending submission so the message never lands at the bottom first.
+  const newestPendingSubmissionId = pendingSubmissions.at(-1)?.id;
+  const previousPendingSubmissionIdRef = useRef(newestPendingSubmissionId);
+  useLayoutEffect(() => {
+    const previous = previousPendingSubmissionIdRef.current;
+    previousPendingSubmissionIdRef.current = newestPendingSubmissionId;
+    if (
+      !autoScroll ||
+      !newestPendingSubmissionId ||
+      newestPendingSubmissionId === previous
+    ) {
+      return;
+    }
+    turnAnchoredRef.current = true;
+    setTranscriptFollow(true);
+    stopTranscriptGlide();
+    scrollTranscriptToBottom();
+  }, [
+    autoScroll,
+    newestPendingSubmissionId,
+    scrollTranscriptToBottom,
+    setTranscriptFollow,
+    stopTranscriptGlide,
   ]);
 
   useLayoutEffect(() => {
@@ -9164,12 +10257,28 @@ export function AgentKitChat({
                       ) : null}
                       {toolbar ? (
                         <AgentKitRegionSlot slot={Toolbar} threadId={threadId}>
-                          <div className="agentkit-chat-toolbar">{toolbar}</div>
+                          <div
+                            // Host buttons carry the primitive's own radius
+                            // utility, which beats layered CSS.
+                            className="agentkit-chat-toolbar [&_:is(button,[role=button])]:rounded-[var(--agentkit-radius-xs)]"
+                          >
+                            {toolbar}
+                          </div>
                         </AgentKitRegionSlot>
                       ) : null}
                     </header>
                   </AgentKitRegionSlot>
                 </AgentKitSurfaceBoundary>
+              ) : null}
+              {composer && !showEmptyState ? (
+                <button
+                  type="button"
+                  className="agentkit-skip-link"
+                  data-agentkit-skip-link="composer"
+                  onClick={() => requestComposerFocus(threadId)}
+                >
+                  {labels.skipToComposer}
+                </button>
               ) : null}
               <div
                 ref={transcriptRef}
@@ -9296,6 +10405,11 @@ export function AgentKitChat({
                       </AgentKitSurfaceBoundary>
                     ) : null}
                   </AgentKitRegionSlot>
+                  <div
+                    ref={turnSpacerRef}
+                    className="agentkit-turn-spacer"
+                    aria-hidden="true"
+                  />
                 </div>
               </div>
               {/* Outside the scroller so its shadow is never clipped and it
@@ -9310,8 +10424,14 @@ export function AgentKitChat({
                   label={labels.scrollToBottom}
                   icon={<IconArrowDown aria-hidden="true" />}
                   size="compact"
-                  className="rounded-full border border-[color:var(--agentkit-border)] bg-(--agentkit-surface) text-[color:var(--agentkit-text)] shadow-(--agent-kit-overlay-elevation) hover:bg-(--agentkit-subtle) hover:text-[color:var(--agentkit-text)]"
-                  onPress={returnTranscriptToBottom}
+                  className="rounded-[var(--agent-kit-radius-sm,0.5rem)] border border-[color:var(--agentkit-border)] bg-(--agentkit-surface) text-[color:var(--agentkit-text)] shadow-(--agent-kit-overlay-elevation) hover:bg-(--agentkit-subtle) hover:text-[color:var(--agentkit-text)]"
+                  onPress={(event) => {
+                    returnTranscriptToBottom();
+                    // The control goes inert at the bottom, which would drop
+                    // a keyboard user's focus to the page.
+                    if (pressedByKeyboard(event))
+                      requestComposerFocus(threadId);
+                  }}
                 />
               </div>
               <AgentKitLiveStatus threadId={threadId} />

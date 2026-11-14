@@ -40,6 +40,8 @@ registerIdentityColumns([
     "dispatch_destinations",
     "dispatch_dreams",
     "dispatch_link_tokens",
+    // No longer read or written. The table stays in existing databases until
+    // it is dropped, and identity migrations refuse any column without a policy.
     "vault_secrets",
     "workspace_resources",
   ].map((table) => ({
