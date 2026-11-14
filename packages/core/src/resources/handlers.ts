@@ -55,10 +55,12 @@ import {
   resourceListAccessible,
   resourceListOrganization,
   resourceMove,
+  resourceStoredPathsTaken,
   resourceEffectiveContext,
   ensurePersonalDefaults,
   canWriteLocalWorkspaceResourcePath,
   isLocalWorkspaceResourceId,
+  isSameLocalWorkspaceFile,
   isLegacyOrganizationWorkspaceFile,
   isLegacySharedResourceVisibleToOrganization,
   isWorkspaceResourceOwner,
@@ -68,7 +70,6 @@ import {
   SHARED_OWNER,
   WORKSPACE_OWNER,
   type ResourceMeta,
-  type ResourceResolutionOptions,
 } from "./store.js";
 
 function isSameSkillUpload(
@@ -639,52 +640,66 @@ export async function handleCreateResource(event: any) {
   return resource;
 }
 
-/** How many numbered paths a rename refusal looks at for a free one. */
-const FREE_PATH_PROBES = 50;
+/** How many numbered paths a rename refusal checks at once for a free one, and how many rounds. */
+const FREE_PATH_BATCH = 50;
+const FREE_PATH_BATCHES = 20;
 
 /**
- * A free path next to `path` for `owner`: the file's name numbered the way
- * `nextFreeName` numbers it ("notes/todo-2.md"), or for a skill its folder
- * ("skills/review-2/SKILL.md").
+ * A free path next to `path` for a resource stored for `owner`: the file's
+ * name numbered the way `nextFreeName` numbers it ("notes/todo-2.md"), or
+ * for a skill its folder ("skills/review-2/SKILL.md"). Null when none of the
+ * paths it checks is free, or when no numbered path could be written: a
+ * local workspace file outside skills/ is one of a few fixed names
+ * (AGENTS.md, .mcp.json).
  */
 async function freeResourcePath(
   owner: string,
   path: string,
-  options: ResourceResolutionOptions,
-): Promise<string> {
+  localFiles: boolean,
+): Promise<string | null> {
+  if (localFiles && !path.startsWith("skills/")) return null;
   const skill = /^skills\/([^/]+)\/SKILL\.md$/.exec(path);
   const folder = path.slice(0, path.lastIndexOf("/") + 1);
   const base = skill ? skill[1]! : path.slice(folder.length);
   const pathFor = (name: string) =>
     skill ? `skills/${name}/SKILL.md` : `${folder}${name}`;
-  const taken = new Set([base]);
-  for (let probe = 0; probe < FREE_PATH_PROBES; probe += 1) {
-    const name = nextFreeName(base, taken);
-    if (!(await resourceGetByPath(owner, pathFor(name), options))) {
-      return pathFor(name);
+  const named = new Set([base]);
+  for (let batch = 0; batch < FREE_PATH_BATCHES; batch += 1) {
+    const names: string[] = [];
+    while (names.length < FREE_PATH_BATCH) {
+      const name = nextFreeName(base, named);
+      named.add(name);
+      names.push(name);
     }
-    taken.add(name);
+    const taken = await resourceStoredPathsTaken(owner, names.map(pathFor), {
+      localFiles,
+    });
+    const free = names.find((name) => !taken.has(pathFor(name)));
+    if (free) return pathFor(free);
   }
-  return pathFor(nextFreeName(base, taken));
+  return null;
 }
 
 /**
  * The refusal for a rename onto a path another resource already has: a 409
  * `name_taken` carrying a free path, in the shape actions send, so the
- * browser reads it with `isNameTaken` the same way. Nothing has been written.
+ * browser reads it with `isNameTaken` the same way. Without a free path to
+ * offer, it's a plain 409. Nothing has been written.
  */
 async function resourcePathTaken(
   event: any,
   owner: string,
   path: string,
-  options: ResourceResolutionOptions,
+  localFiles: boolean,
 ) {
-  const refusal = nameTaken(
-    "resource",
-    path,
-    await freeResourcePath(owner, path, options),
-  );
+  const suggestion = await freeResourcePath(owner, path, localFiles);
   setResponseStatus(event, 409);
+  if (!suggestion) {
+    return {
+      error: `A resource named "${path}" already exists. Rename or delete that one first.`,
+    };
+  }
+  const refusal = nameTaken("resource", path, suggestion);
   return {
     error: refusal.message,
     errorCode: refusal.errorCode,
@@ -758,10 +773,7 @@ export async function handleUpdateResource(event: any) {
     );
     if (!resource) {
       if (nextPath !== existing.path) {
-        return resourcePathTaken(event, activeSharedOwner, nextPath, {
-          userEmail: email,
-          orgId,
-        });
+        return resourcePathTaken(event, activeSharedOwner, nextPath, false);
       }
       setResponseStatus(event, 409);
       return { error: `A resource already exists at path "${nextPath}"` };
@@ -787,20 +799,32 @@ export async function handleUpdateResource(event: any) {
     };
   }
 
-  if (nextPath !== existing.path) {
-    // A rename never writes over another resource. Moving a row onto a taken
-    // path trips the (path, owner) index, and for a local workspace file the
-    // write below would replace the file already there.
-    const occupant = await resourceGetByPath(existing.owner, nextPath, {
-      userEmail: email,
-      orgId,
-    });
-    if (occupant && occupant.id !== existing.id) {
-      return resourcePathTaken(event, existing.owner, nextPath, {
-        userEmail: email,
-        orgId,
-      });
-    }
+  // A rename never writes over another resource. Moving a row onto a taken
+  // path trips the (path, owner) index, and for a local workspace file the
+  // write below would replace the file already there.
+  const localFiles = isLocalWorkspaceResource;
+  const pathTaken =
+    nextPath !== existing.path &&
+    (
+      await resourceStoredPathsTaken(existing.owner, [nextPath], { localFiles })
+    ).has(nextPath);
+  if (
+    pathTaken &&
+    localFiles &&
+    (await isSameLocalWorkspaceFile({
+      path: existing.path,
+      otherPath: nextPath,
+    }))
+  ) {
+    // A case-insensitive disk finds this file at its new letter case, and
+    // writing there and then deleting the old path would delete it.
+    setResponseStatus(event, 409);
+    return {
+      error: `"${nextPath}" is this same file on disk, so it can't be renamed to it. To change only its letter case, rename it to another name first.`,
+    };
+  }
+  if (pathTaken) {
+    return resourcePathTaken(event, existing.owner, nextPath, localFiles);
   }
 
   if (!isLocalWorkspaceResource && body.path && body.path !== existing.path) {
@@ -809,10 +833,7 @@ export async function handleUpdateResource(event: any) {
     } catch (error) {
       // Another write took the path between the check and the move.
       if (!isUniqueViolation(error)) throw error;
-      return resourcePathTaken(event, existing.owner, body.path, {
-        userEmail: email,
-        orgId,
-      });
+      return resourcePathTaken(event, existing.owner, body.path, false);
     }
   }
 

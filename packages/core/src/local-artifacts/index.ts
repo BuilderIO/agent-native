@@ -1342,6 +1342,34 @@ export async function readLocalWorkspaceResource(
   }
 }
 
+/**
+ * Whether two resource paths reach one file on disk, as "skills/Review/SKILL.md"
+ * and "skills/review/SKILL.md" do on a case-insensitive disk. False when
+ * either is missing.
+ */
+export async function isSameLocalWorkspaceFile(
+  options: LocalWorkspaceResourceOptions & { path: string; otherPath: string },
+): Promise<boolean> {
+  const workspaceRoot = await resolveLocalWorkspaceRoot(options);
+  if (!workspaceRoot) return false;
+  try {
+    const [first, second] = await Promise.all(
+      [options.path, options.otherPath].map((resourcePath) =>
+        fs.stat(
+          localWorkspaceResourceAbsolutePath(workspaceRoot, resourcePath, {
+            preferExisting: true,
+          }).absolutePath,
+          { bigint: true },
+        ),
+      ),
+    );
+    return first.dev === second.dev && first.ino === second.ino;
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return false;
+    throw error;
+  }
+}
+
 export async function writeLocalWorkspaceResource(
   options: WriteLocalWorkspaceResourceOptions,
 ): Promise<LocalWorkspaceResourceMeta> {

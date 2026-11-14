@@ -259,7 +259,9 @@ export default defineAction({
 
     // The insert claims the slug. A unique violation means a list this caller
     // can't see has it, or another create took it at the same moment, so pick
-    // the next free one and try again.
+    // the next free one and try again. The slug is the only unique value here
+    // another list can hold: the ids are new and the seeded attributes are
+    // deduplicated.
     const takenSlugs = new Set<string>();
     for (let attempt = 1; ; attempt += 1) {
       try {

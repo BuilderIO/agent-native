@@ -19,6 +19,7 @@ import {
   deleteLocalWorkspaceResourceIfCurrent,
   isLocalWorkspaceResourceId,
   isLocalWorkspaceResourcesEnabled,
+  isSameLocalWorkspaceFile,
   listLocalWorkspaceResources,
   localWorkspaceResourcePathFromId,
   readLocalWorkspaceResource,
@@ -990,7 +991,7 @@ async function assertWritableWorkspaceResourcePath(resourcePath: string) {
   }
 }
 
-export { isLocalWorkspaceResourceId };
+export { isLocalWorkspaceResourceId, isSameLocalWorkspaceFile };
 
 function mergeResourceMetas(
   primary: ResourceMeta[],
@@ -3235,4 +3236,41 @@ export async function resourceMove(
     emitResourceChange(id, newPath, rows[0].owner as string);
   }
   return moved;
+}
+
+/**
+ * Which of `paths` already hold something a resource stored for `owner`
+ * would land on if it moved there. For a local workspace file
+ * (`localFiles`), that's a file on disk, found the way a write finds it, so
+ * a case-insensitive disk counts "Notes.md" as "notes.md". Otherwise it's a
+ * row stored for exactly that owner and path, whatever its visibility, since
+ * the (path, owner) index covers every row. Unlike `resourceGetByPath`, it
+ * leaves out organization rows and grants, which a move never lands on.
+ */
+export async function resourceStoredPathsTaken(
+  owner: string,
+  paths: readonly string[],
+  options: { localFiles?: boolean } = {},
+): Promise<Set<string>> {
+  const candidates = [...new Set(paths)];
+  const taken = new Set<string>();
+  if (candidates.length === 0) return taken;
+  if (options.localFiles) {
+    for (const resourcePath of candidates) {
+      if (
+        canUseLocalWorkspaceResourcePath(resourcePath) &&
+        (await readLocalWorkspaceResource({ path: resourcePath }))
+      ) {
+        taken.add(resourcePath);
+      }
+    }
+    return taken;
+  }
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT path FROM resources WHERE owner = ? AND path IN (${candidates.map(() => "?").join(", ")})`,
+    args: [owner, ...candidates],
+  });
+  for (const row of rows) taken.add(String(row.path));
+  return taken;
 }
