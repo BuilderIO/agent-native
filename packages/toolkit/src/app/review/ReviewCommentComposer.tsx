@@ -522,16 +522,28 @@ export function ReviewCommentComposer({
               : "border-transparent",
           )}
           {...focusWithinProps}
+          // A file dragged over the box is the box's, so a drop zone under
+          // it, such as Design's canvas, never takes it too.
+          onDragEnter={(event) => {
+            if (imagesOn && isFileDrag(event)) event.stopPropagation();
+          }}
+          onDragLeave={(event) => {
+            if (imagesOn && isFileDrag(event)) event.stopPropagation();
+          }}
           onDragOver={(event) => {
-            if (imagesOn && event.dataTransfer.types.includes("Files"))
-              event.preventDefault();
+            if (!imagesOn || !isFileDrag(event)) return;
+            event.stopPropagation();
+            event.preventDefault();
           }}
           // A drop on the editor is its own; this takes one on the rest of
-          // the field.
+          // the field. Other files are taken too, so the page doesn't open
+          // them.
           onDrop={(event) => {
-            if (!imagesOn || event.defaultPrevented) return;
-            if (imageUpload.addFiles(Array.from(event.dataTransfer.files)))
-              event.preventDefault();
+            if (!imagesOn || !isFileDrag(event)) return;
+            event.stopPropagation();
+            if (!event.defaultPrevented)
+              imageUpload.addFiles(Array.from(event.dataTransfer.files));
+            event.preventDefault();
           }}
           onClick={(event) => {
             if (
@@ -775,4 +787,8 @@ export function ReviewCommentComposer({
       </div>
     </form>
   );
+}
+
+function isFileDrag(event: { dataTransfer: DataTransfer | null }): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes("Files");
 }

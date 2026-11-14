@@ -571,6 +571,40 @@ describe("ReviewCommentComposer", () => {
       expect(uploadImage).toHaveBeenCalledTimes(5);
     });
 
+    it("keeps a file dragged over the box from the drop zone under it", async () => {
+      const uploadImage = vi.fn(async (file: File) => uploaded(file));
+      const pageDrop = vi.fn();
+      const pageDrag = vi.fn();
+      await render(
+        <div
+          onDragEnter={pageDrag}
+          onDragOver={pageDrag}
+          onDragLeave={pageDrag}
+          onDrop={pageDrop}
+        >
+          <ImageHarness uploadImage={uploadImage} />
+        </div>,
+      );
+      const toolbar = container.querySelector("[data-review-comment-tools]")!;
+      for (const type of ["dragenter", "dragover", "dragleave"]) {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(event, "dataTransfer", {
+          value: { files: [], types: ["Files"] },
+        });
+        act(() => {
+          toolbar.dispatchEvent(event);
+        });
+      }
+      expect(drop(toolbar, [imageFile("one.png")]).defaultPrevented).toBe(true);
+      // Another kind of file isn't opened by the page either.
+      const pdf = new File(["x"], "notes.pdf", { type: "application/pdf" });
+      expect(drop(toolbar, [pdf]).defaultPrevented).toBe(true);
+      await act(async () => {});
+      expect(shownImages()).toEqual(["one.png"]);
+      expect(pageDrag).not.toHaveBeenCalled();
+      expect(pageDrop).not.toHaveBeenCalled();
+    });
+
     it("doesn't send while an image is uploading", async () => {
       let finish: (image: ReviewCommentImage) => void = () => {};
       const uploadImage = vi.fn(
