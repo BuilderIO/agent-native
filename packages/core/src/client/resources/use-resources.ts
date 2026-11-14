@@ -351,6 +351,7 @@ export async function resourceWriteError(
   res: Response,
   fallback: string,
 ): Promise<Error> {
+  // coercion-ok: a body that isn't JSON has no message to keep; the error still says what failed through `fallback` and the status.
   const body = (await res.json().catch(() => null)) as {
     error?: unknown;
     errorCode?: unknown;

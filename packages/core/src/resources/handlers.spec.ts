@@ -43,7 +43,7 @@ vi.mock("./store.js", () => ({
     mockCanWriteLocalWorkspaceResourcePath(...args),
   isLocalWorkspaceResourceId: (...args: any[]) =>
     mockIsLocalWorkspaceResourceId(...args),
-  isSameLocalWorkspaceFile: (...args: any[]) =>
+  isSameLocalWorkspaceFile: (...args: unknown[]) =>
     mockIsSameLocalWorkspaceFile(...args),
   isLegacyOrganizationWorkspaceFile: (...args: any[]) =>
     mockIsLegacyOrganizationWorkspaceFile(...args),
@@ -63,7 +63,7 @@ vi.mock("./store.js", () => ({
   resourceListOrganization: (...args: any[]) =>
     mockResourceListOrganization(...args),
   resourceMove: (...args: any[]) => mockResourceMove(...args),
-  resourceStoredPathsTaken: (...args: any[]) =>
+  resourceStoredPathsTaken: (...args: unknown[]) =>
     mockResourceStoredPathsTaken(...args),
   resourceEffectiveContext: (...args: any[]) =>
     mockResourceEffectiveContext(...args),
@@ -1549,6 +1549,38 @@ Legacy webhook.`,
       expect(mockResourceDelete).not.toHaveBeenCalled();
     });
 
+    it("suggests the first free local name, past one it can't read", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue(localSkill("draft"));
+      mockResourceStoredPathsTaken.mockImplementation(
+        async (_owner: string, paths: string[]) => {
+          if (
+            paths.includes("skills/review-2/SKILL.md") ||
+            paths.includes("skills/review-4/SKILL.md")
+          ) {
+            throw new Error("EISDIR: illegal operation on a directory");
+          }
+          return new Set(
+            paths.filter((path) => path === "skills/review/SKILL.md"),
+          );
+        },
+      );
+
+      const result = await handleUpdateResource({
+        _params: { id: "local-workspace-resource:skills/draft/SKILL.md" },
+        _body: { path: "skills/review/SKILL.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toMatchObject({
+        errorCode: "name_taken",
+        details: { suggestion: "skills/review-3/SKILL.md" },
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
     it("offers no numbered name for a local control file, which can't be written", async () => {
       mockIsLocalWorkspaceResourceId.mockReturnValue(true);
       mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
@@ -1586,7 +1618,7 @@ Legacy webhook.`,
       expect(lastStatus).toBe(409);
       expect(result).toEqual({
         error:
-          '"skills/Review/SKILL.md" is this same file on disk, so it can\'t be renamed to it. To change only its letter case, rename it to another name first.',
+          '"skills/Review/SKILL.md" names this same file, so it can\'t be renamed to it. To change only its letter case, rename it to another name first.',
       });
       expect(mockIsSameLocalWorkspaceFile).toHaveBeenCalledWith({
         path: "skills/review/SKILL.md",

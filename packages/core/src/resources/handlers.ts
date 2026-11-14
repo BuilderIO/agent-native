@@ -5,7 +5,7 @@ import {
   setResponseStatus,
   readMultipartFormData,
 } from "h3";
-import { createError } from "h3";
+import { createError, type H3Event } from "h3";
 
 import { fail, isActionContractError } from "../action.js";
 import { canUpdateAutomationResource } from "../automations/service.js";
@@ -640,9 +640,9 @@ export async function handleCreateResource(event: any) {
   return resource;
 }
 
-/** How many numbered paths a rename refusal checks at once for a free one, and how many rounds. */
+/** How many numbered paths a rename refusal checks for a free one, and how many it asks the database about at once. */
+const FREE_PATH_LIMIT = 1000;
 const FREE_PATH_BATCH = 50;
-const FREE_PATH_BATCHES = 20;
 
 /**
  * A free path next to `path` for a resource stored for `owner`: the file's
@@ -658,26 +658,49 @@ async function freeResourcePath(
   localFiles: boolean,
 ): Promise<string | null> {
   if (localFiles && !path.startsWith("skills/")) return null;
-  const skill = /^skills\/([^/]+)\/SKILL\.md$/.exec(path);
+  const skillName = /^skills\/([^/]+)\/SKILL\.md$/.exec(path)?.[1];
   const folder = path.slice(0, path.lastIndexOf("/") + 1);
-  const base = skill ? skill[1]! : path.slice(folder.length);
+  const base = skillName ?? path.slice(folder.length);
   const pathFor = (name: string) =>
-    skill ? `skills/${name}/SKILL.md` : `${folder}${name}`;
+    skillName === undefined ? `${folder}${name}` : `skills/${name}/SKILL.md`;
+  // Local files are read one at a time, so the first free one ends the search
+  // before a file further on that can't be read.
+  const batchSize = localFiles ? 1 : FREE_PATH_BATCH;
   const named = new Set([base]);
-  for (let batch = 0; batch < FREE_PATH_BATCHES; batch += 1) {
+  for (let checked = 0; checked < FREE_PATH_LIMIT; checked += batchSize) {
     const names: string[] = [];
-    while (names.length < FREE_PATH_BATCH) {
+    while (names.length < batchSize) {
       const name = nextFreeName(base, named);
       named.add(name);
       names.push(name);
     }
-    const taken = await resourceStoredPathsTaken(owner, names.map(pathFor), {
+    const taken = await suggestionPathsTaken(
+      owner,
+      names.map(pathFor),
       localFiles,
-    });
+    );
     const free = names.find((name) => !taken.has(pathFor(name)));
     if (free) return pathFor(free);
   }
   return null;
+}
+
+/**
+ * Which numbered paths a suggestion leaves out. A local file that can't be
+ * read at one (a folder, a link, a file too big to read) isn't suggested,
+ * rather than failing the refusal the suggestion is for.
+ */
+async function suggestionPathsTaken(
+  owner: string,
+  paths: string[],
+  localFiles: boolean,
+): Promise<Set<string>> {
+  try {
+    return await resourceStoredPathsTaken(owner, paths, { localFiles });
+  } catch (error) {
+    if (!localFiles) throw error;
+    return new Set(paths);
+  }
 }
 
 /**
@@ -687,7 +710,7 @@ async function freeResourcePath(
  * offer, it's a plain 409. Nothing has been written.
  */
 async function resourcePathTaken(
-  event: any,
+  event: H3Event,
   owner: string,
   path: string,
   localFiles: boolean,
@@ -799,31 +822,32 @@ export async function handleUpdateResource(event: any) {
     };
   }
 
-  // A rename never writes over another resource. Moving a row onto a taken
-  // path trips the (path, owner) index, and for a local workspace file the
-  // write below would replace the file already there.
   const localFiles = isLocalWorkspaceResource;
-  const pathTaken =
-    nextPath !== existing.path &&
-    (
-      await resourceStoredPathsTaken(existing.owner, [nextPath], { localFiles })
-    ).has(nextPath);
   if (
-    pathTaken &&
+    nextPath !== existing.path &&
     localFiles &&
     (await isSameLocalWorkspaceFile({
       path: existing.path,
       otherPath: nextPath,
     }))
   ) {
-    // A case-insensitive disk finds this file at its new letter case, and
-    // writing there and then deleting the old path would delete it.
+    // The new path is this file again: in another letter case on a
+    // case-insensitive disk, or in another skill root's spelling. Writing it
+    // and then deleting the old path would delete the file.
     setResponseStatus(event, 409);
     return {
-      error: `"${nextPath}" is this same file on disk, so it can't be renamed to it. To change only its letter case, rename it to another name first.`,
+      error: `"${nextPath}" names this same file, so it can't be renamed to it. To change only its letter case, rename it to another name first.`,
     };
   }
-  if (pathTaken) {
+  // A rename never writes over another resource. Moving a row onto a taken
+  // path trips the (path, owner) index, and for a local workspace file the
+  // write below would replace the file already there.
+  if (
+    nextPath !== existing.path &&
+    (
+      await resourceStoredPathsTaken(existing.owner, [nextPath], { localFiles })
+    ).has(nextPath)
+  ) {
     return resourcePathTaken(event, existing.owner, nextPath, localFiles);
   }
 

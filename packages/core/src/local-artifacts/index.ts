@@ -1343,27 +1343,40 @@ export async function readLocalWorkspaceResource(
 }
 
 /**
- * Whether two resource paths reach one file on disk, as "skills/Review/SKILL.md"
- * and "skills/review/SKILL.md" do on a case-insensitive disk. False when
- * either is missing.
+ * Whether two resource paths name one local workspace file, so that writing
+ * one and deleting the other would lose it. That's the same resource path
+ * spelled another way (".agent/skills/x/SKILL.md" is "skills/x/SKILL.md",
+ * and deleting either removes the skill from every skill root), or one file
+ * on disk, as "skills/Review/SKILL.md" and "skills/review/SKILL.md" are on a
+ * case-insensitive disk. False when either file is missing, and when the
+ * disk gives files no ids to compare.
  */
 export async function isSameLocalWorkspaceFile(
   options: LocalWorkspaceResourceOptions & { path: string; otherPath: string },
 ): Promise<boolean> {
+  if (
+    normalizeLocalWorkspaceResourcePath(options.path) ===
+    normalizeLocalWorkspaceResourcePath(options.otherPath)
+  ) {
+    return true;
+  }
   const workspaceRoot = await resolveLocalWorkspaceRoot(options);
   if (!workspaceRoot) return false;
-  try {
-    const [first, second] = await Promise.all(
-      [options.path, options.otherPath].map((resourcePath) =>
-        fs.stat(
-          localWorkspaceResourceAbsolutePath(workspaceRoot, resourcePath, {
-            preferExisting: true,
-          }).absolutePath,
-          { bigint: true },
-        ),
-      ),
+  const statOf = (resourcePath: string) =>
+    fs.stat(
+      localWorkspaceResourceAbsolutePath(workspaceRoot, resourcePath, {
+        preferExisting: true,
+      }).absolutePath,
+      { bigint: true },
     );
-    return first.dev === second.dev && first.ino === second.ino;
+  try {
+    const [first, second] = await Promise.all([
+      statOf(options.path),
+      statOf(options.otherPath),
+    ]);
+    return (
+      first.ino !== 0n && first.dev === second.dev && first.ino === second.ino
+    );
   } catch (error) {
     if (errorCode(error) === "ENOENT") return false;
     throw error;

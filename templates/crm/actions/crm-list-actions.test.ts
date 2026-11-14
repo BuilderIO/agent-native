@@ -270,9 +270,7 @@ describe("create-crm-list", () => {
       newList("Board Race"),
     ]);
     expect(
-      lists
-        .map((list: any) => list.apiSlug as string)
-        .sort((a, b) => a.localeCompare(b)),
+      lists.map((list) => list.apiSlug).sort((a, b) => a.localeCompare(b)),
     ).toEqual(["board_race", "board_race_2", "board_race_3"]);
     const rows = await getDb()
       .select({ id: schema.crmLists.id })

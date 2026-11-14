@@ -123,6 +123,14 @@ describe("resourceStoredPathsTaken", () => {
           otherPath: ".agents/skills/review/SKILL.md",
         }),
       ).resolves.toBe(true);
+      // Not on disk under .agent/, but deleting the skill would remove it
+      // from both roots.
+      await expect(
+        isSameLocalWorkspaceFile({
+          path: "skills/review/SKILL.md",
+          otherPath: ".agent/skills/review/SKILL.md",
+        }),
+      ).resolves.toBe(true);
       await expect(
         isSameLocalWorkspaceFile({
           path: "skills/review/SKILL.md",
