@@ -170,6 +170,25 @@ export interface PreparedFunctionZip {
  * node_bundler, ...), and the CLI trusts the prebuilt manifest instead of
  * applying them, so a project that sets any must not use this path.
  */
+/** The `[build] functions = "dir"` setting from netlify.toml, if any. */
+export function readBuildFunctionsDir(siteRoot: string): string | undefined {
+  const tomlPath = path.join(siteRoot, "netlify.toml");
+  if (!fs.existsSync(tomlPath)) return undefined;
+  let inBuild = false;
+  for (const raw of fs.readFileSync(tomlPath, "utf-8").split("\n")) {
+    const line = raw.trim();
+    if (line.startsWith("[")) {
+      inBuild = /^\[\s*build\s*\]/.test(line);
+      continue;
+    }
+    const match = inBuild
+      ? /^functions\s*=\s*["']([^"']+)["']/.exec(line)
+      : null;
+    if (match) return match[1];
+  }
+  return undefined;
+}
+
 export function assertNoFunctionsConfig(siteRoot: string): void {
   const tomlPath = path.join(siteRoot, "netlify.toml");
   if (!fs.existsSync(tomlPath)) return;

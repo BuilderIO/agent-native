@@ -11,6 +11,7 @@ import {
   NetlifyManifestExpiredError,
   assertManifestFresh,
   assertNoFunctionsConfig,
+  readBuildFunctionsDir,
   assertSupportedZipItVersion,
   findNetlifyCli,
   prepareNetlifyFunctionZips,
@@ -278,5 +279,17 @@ describe("assertNoFunctionsConfig", () => {
       "[functions.\"x\"]\nincluded_files=['a']\n",
     );
     expect(() => assertNoFunctionsConfig(root)).toThrow(/functions options/);
+  });
+});
+
+describe("readBuildFunctionsDir", () => {
+  it("reads only [build] functions", () => {
+    const root = tmp();
+    expect(readBuildFunctionsDir(root)).toBeUndefined();
+    fs.writeFileSync(
+      path.join(root, "netlify.toml"),
+      "[build]\npublish='dist'\nfunctions = 'netlify/fns'\n[other]\nfunctions='no'\n",
+    );
+    expect(readBuildFunctionsDir(root)).toBe("netlify/fns");
   });
 });

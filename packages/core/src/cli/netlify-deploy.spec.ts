@@ -57,6 +57,10 @@ describe("netlify-deploy status output", () => {
     expect(() => assertStatusOutputEnabled(["--skip-functions-cache"])).toThrow(
       /ignore the deterministic functions manifest/,
     );
+    expect(() => assertStatusOutputEnabled(["--config", "x.toml"])).toThrow(
+      /--config/,
+    );
+    expect(() => assertStatusOutputEnabled(["-c=x.toml"])).toThrow(/--config/);
     expect(() => assertStatusOutputEnabled(["--prod"])).not.toThrow();
   });
 });

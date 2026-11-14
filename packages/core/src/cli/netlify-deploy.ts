@@ -7,6 +7,7 @@ import {
   findNetlifyCli,
   loadCliZipIt,
   prepareNetlifyFunctionZips,
+  readBuildFunctionsDir,
 } from "../deploy/netlify-function-zips.js";
 
 const DEFAULT_FUNCTIONS_DIR = ".netlify/functions-internal";
@@ -37,6 +38,19 @@ function optionValue(
 }
 
 export function assertStatusOutputEnabled(args: string[]): void {
+  if (
+    args.some(
+      (arg) =>
+        arg === "--config" ||
+        arg === "-c" ||
+        arg.startsWith("-c=") ||
+        arg.startsWith("--config="),
+    )
+  ) {
+    throw new Error(
+      "--config selects a netlify.toml this command does not inspect for unsupported functions settings; use the default netlify.toml",
+    );
+  }
   if (args.includes("--skip-functions-cache")) {
     throw new Error(
       "--skip-functions-cache makes the CLI ignore the deterministic functions manifest; run without it",
@@ -112,6 +126,17 @@ export async function runNetlifyDeploy(rawArgs: string[]): Promise<void> {
   assertStatusOutputEnabled(rawArgs);
   const deployArgs = withPathDefaults(rawArgs);
   const siteRoot = process.cwd();
+  const configured = readBuildFunctionsDir(siteRoot);
+  if (
+    configured &&
+    optionValue(deployArgs, "--functions", "-f") === undefined &&
+    path.resolve(siteRoot, configured) !==
+      path.resolve(siteRoot, DEFAULT_FUNCTIONS_DIR)
+  ) {
+    throw new Error(
+      `netlify.toml sets build.functions = "${configured}", but the manifest is built from ${DEFAULT_FUNCTIONS_DIR}; pass --functions=${configured} or change the setting`,
+    );
+  }
   const functionsDir = path.resolve(siteRoot, functionsDirOf(deployArgs));
 
   const cli = findNetlifyCli();
