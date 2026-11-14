@@ -20,6 +20,7 @@ interface ZipEntry {
 }
 
 function findEndOfCentralDirectory(zip: Buffer): number {
+  if (zip.length < 22) throw new Error("not a zip: too short");
   const min = Math.max(0, zip.length - 22 - 0xffff);
   for (let i = zip.length - 22; i >= min; i--) {
     if (zip.readUInt32LE(i) === EOCD_SIG) return i;

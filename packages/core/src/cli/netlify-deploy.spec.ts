@@ -16,10 +16,11 @@ describe("netlify-deploy argument handling", () => {
     ]);
   });
 
-  it("injects nothing when args are given, so netlify.toml paths still apply", () => {
+  it("pins only the functions dir when args are given", () => {
     expect(withPathDefaults(["--message", "hotfix"])).toEqual([
       "--message",
       "hotfix",
+      "--functions=.netlify/functions-internal",
     ]);
     expect(withPathDefaults(["-d", "build", "-f", "custom"])).toEqual([
       "-d",

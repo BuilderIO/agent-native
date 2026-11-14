@@ -70,15 +70,16 @@ export function assertStatusOutputEnabled(args: string[]): void {
 }
 
 /**
- * No args means the full default publish. With args, nothing is injected so the
- * project's own netlify.toml publish directory still applies; the manifest
- * covers `.netlify/functions-internal`, which the CLI always scans.
+ * No args means the full default publish. With args, only the functions
+ * directory is pinned to the one the manifest covers, so the CLI cannot pick a
+ * different one from site settings; the publish directory is left to the
+ * project's own netlify.toml.
  */
 export function withPathDefaults(args: string[]): string[] {
   if (args.length === 0) return DEFAULT_DEPLOY_ARGS;
   optionValue(args, "--dir", "-d");
-  optionValue(args, "--functions", "-f");
-  return args;
+  if (optionValue(args, "--functions", "-f") !== undefined) return args;
+  return [...args, `--functions=${DEFAULT_FUNCTIONS_DIR}`];
 }
 
 export function functionsDirOf(args: string[]): string {
