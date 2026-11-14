@@ -1416,6 +1416,26 @@ export const migrations = runMigrations(
       name: "recording-transcript-earlier-audio-removed-at",
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
     },
+    {
+      version: 103,
+      name: "multipart-staging-parts",
+      // References to pending S3 multipart chunks staged as their own objects
+      // in the upload's bucket; the bytes never live in SQL.
+      sql: `CREATE TABLE IF NOT EXISTS multipart_staging_parts (
+        staging_key TEXT NOT NULL,
+        upload_id TEXT NOT NULL,
+        byte_offset BIGINT NOT NULL,
+        byte_length INTEGER NOT NULL,
+        object_key TEXT NOT NULL,
+        target_key TEXT NOT NULL,
+        storage_fingerprint TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (staging_key, upload_id, byte_offset)
+      );
+      CREATE INDEX IF NOT EXISTS multipart_staging_parts_sweep_idx
+        ON multipart_staging_parts (storage_fingerprint, updated_at)`,
+    },
   ]),
   { table: "clips_migrations" },
 );
