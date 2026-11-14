@@ -926,6 +926,11 @@ export function registerHostAccessResolver(
   }
 }
 
+/** Whether a host access resolver is registered for `resourceType`. */
+export function hasHostAccessResolver(resourceType: string): boolean {
+  return hostAccessResolvers.has(resourceType);
+}
+
 async function ownerOrAdminRole(
   reg: ShareableResourceRegistration,
   resource: any,
