@@ -33,6 +33,8 @@ export interface ContentDatabaseBlocksReadResult {
   schemaRevision: string;
   rowRevision: string;
   fieldRevision: number;
+  /** The page's revision when this field is its body; send it as set-document-property's baseRevision. */
+  baseRevision: string | null;
   identityStatus: BlocksFieldIdentityStatus;
   total: number;
   order: string[];

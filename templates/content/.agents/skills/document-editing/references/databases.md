@@ -140,7 +140,8 @@ page.
 
 To fill or move a whole field, read it with `list-content-database-blocks` and
 write it with `set-document-property`, passing that read's `fieldRevision` as
-`expectedBlocksFieldRevision`. Read every page first: the list returns 50
+`expectedBlocksFieldRevision`, or its `baseRevision` for the main field, which
+is the page's body. Read every page first: the list returns 50
 blocks unless you pass `limit` (up to 100), and `page.nextCursor` continues it.
 A field's text is the NFM of its top-level blocks (`parentId: null`) joined
 with newlines; a nested block's NFM is already inside its parent's, so copying
@@ -181,6 +182,13 @@ value must contain exactly one top-level block of the declared kind. Reuse an
 idempotency key only for an exact retry. Unsupported kinds, kind conversion,
 tombstone reuse, cross-parent reorder, schema drift, and stale row or field
 revisions fail explicitly.
+
+To replace a whole Blocks field with `set-document-property`, pass the field
+revision `list-content-database-blocks` returns as
+`expectedBlocksFieldRevision`. The collection's main Blocks field is the
+page's body, so pass the read's `baseRevision` instead; a field revision alone
+is refused there with `BASE_REVISION_REQUIRED`, and a page that changed since
+the read fails with `DOCUMENT_REVISION_CONFLICT`. Read again and retry.
 
 Formula properties store their expression in property options and support
 `{Property name}` substitution plus simple numeric math such as `{MSV} * 2`.

@@ -26,6 +26,7 @@ import * as Y from "yjs";
 
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import * as nfm from "../../shared/nfm.js";
+import { firstRow } from "../lib/first-row.js";
 
 const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
@@ -4224,9 +4225,25 @@ describe("a SQL body write to a switched page", () => {
 
   async function cliUpdate(id: string, content: string) {
     const action = (await import("../../actions/update-document.js")).default;
+    const { documentRevisionToken } =
+      await import("../../actions/_document-edit-mutation.js");
+    const base = firstRow(
+      await getDb()
+        .select({
+          content: schema.documents.content,
+          bodyRevision: schema.documents.bodyRevision,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id)),
+    );
+    if (!base) throw new Error(`Page ${id} must exist before a CLI update.`);
     return asOwner(async () =>
       action.run(
-        { id, content } as never,
+        {
+          id,
+          content,
+          baseRevision: documentRevisionToken(base.bodyRevision, base.content),
+        } as never,
         { caller: "cli", userEmail: OWNER } as never,
       ),
     );

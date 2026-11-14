@@ -1581,6 +1581,146 @@ describe("primary Blocks value reflects the body, never the title (finding: word
     });
   });
 
+  it("refuses an agent's main Blocks field write without the page revision", async () => {
+    const { databaseId, documentId: databaseDocumentId } =
+      await createDatabaseRow();
+    const now = new Date().toISOString();
+    const propertyId = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    if (!propertyId) throw new Error("No main Blocks field was seeded.");
+    const documentId = `agent_body_write_${databaseId}`;
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocumentId,
+      title: "Poem",
+      content: "Saved body",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values({
+        id: `item_${documentId}`,
+        ownerEmail: OWNER,
+        databaseId,
+        documentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+    const body = async () => {
+      const [page] = await getDb()
+        .select({
+          content: schema.documents.content,
+          bodyRevision: schema.documents.bodyRevision,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId));
+      if (!page) throw new Error(`Page ${documentId} is gone.`);
+      return page;
+    };
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const agent = { caller: "mcp", userEmail: OWNER } as const;
+      const write = (
+        fields: { baseRevision?: string; expectedBlocksFieldRevision?: number },
+        ctx: { caller: "mcp" | "http" | "cli" | "automation" | "frontend" } = {
+          caller: "mcp",
+        },
+      ) =>
+        setDocumentPropertyAction.run(
+          { documentId, databaseId, propertyId, value: "Overwrite", ...fields },
+          { ...ctx, userEmail: OWNER },
+        );
+
+      // The field's own revision can lag the page, so it is not enough here.
+      for (const caller of ["mcp", "http", "cli", "automation"] as const) {
+        for (const fields of [{}, { expectedBlocksFieldRevision: 0 }]) {
+          await expect(write(fields, { caller })).rejects.toMatchObject({
+            errorCode: "BASE_REVISION_REQUIRED",
+            statusCode: 400,
+          });
+        }
+      }
+      const bulk = await updateDatabaseItemsAction.run(
+        { databaseId, documentIds: [documentId], propertyId, value: "Bulk" },
+        agent,
+      );
+      expect(bulk.results).toEqual([
+        expect.objectContaining({
+          documentId,
+          success: false,
+          error: expect.stringContaining("baseRevision"),
+        }),
+      ]);
+      await expect(write({ baseRevision: "body:1" })).rejects.toMatchObject({
+        errorCode: "INVALID_BASE_REVISION",
+        statusCode: 400,
+      });
+      const stale = documentRevisionToken(0, "An older body");
+      await expect(write({ baseRevision: stale })).rejects.toMatchObject({
+        errorCode: "DOCUMENT_REVISION_CONFLICT",
+        statusCode: 409,
+        details: {
+          currentRevision: documentRevisionToken(
+            (await body()).bodyRevision,
+            "Saved body",
+          ),
+        },
+      });
+      expect((await body()).content).toBe("Saved body");
+
+      const notes = await configureDocumentPropertyAction.run({
+        documentId,
+        databaseId,
+        name: "Notes",
+        type: "blocks",
+      });
+      const notesId = notes.properties.find(
+        (property) => property.definition.name === "Notes",
+      )?.definition.id;
+      if (!notesId) throw new Error("Missing the Notes field.");
+      const current = await body();
+      await expect(
+        setDocumentPropertyAction.run(
+          {
+            documentId,
+            databaseId,
+            propertyId: notesId,
+            value: "Notes",
+            baseRevision: documentRevisionToken(
+              current.bodyRevision,
+              current.content,
+            ),
+          },
+          agent,
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "BASE_REVISION_UNSUPPORTED",
+        statusCode: 400,
+      });
+
+      await write({
+        baseRevision: documentRevisionToken(
+          current.bodyRevision,
+          current.content,
+        ),
+      });
+      expect((await body()).content).toBe("Overwrite");
+
+      // The app's own UI is unaffected.
+      await setDocumentPropertyAction.run(
+        { documentId, databaseId, propertyId, value: "From the app" },
+        { caller: "frontend", userEmail: OWNER },
+      );
+      expect((await body()).content).toBe("From the app");
+    });
+  });
+
   it("a row with a title but empty body resolves the primary Blocks value to '' (0 words / Empty)", async () => {
     const { databaseId } = await createDatabaseRow();
     const now = new Date().toISOString();

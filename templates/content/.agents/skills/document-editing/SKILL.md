@@ -203,12 +203,18 @@ edit commits. Restore it before editing. A local-folder sync
 ### update-document
 
 Update an existing document's metadata or browser-owned content. External
-callers use the revisioned `edit-document` protocol for every body change.
+callers use the revisioned `edit-document` protocol for every body change. A
+script, CLI call or automation that replaces the body passes the `baseRevision`
+`get-document` returned (that read's `updatedAt` as `baseUpdatedAt` also
+works): with neither, the write refuses with `BASE_REVISION_REQUIRED` (400),
+and if the page changed since that read it fails with
+`DOCUMENT_REVISION_CONFLICT` (409), carrying the page's
+`details.currentRevision`, and writes nothing.
 
 ```bash
 pnpm action update-document --id abc123 --title "New Title"
-pnpm action update-document --id abc123 --content "# Updated Content\n\nNew text here"
-pnpm action update-document --id abc123 --title "New Title" --content "New content"
+pnpm action update-document --id abc123 --baseRevision "<revision from get-document>" --content "# Updated Content\n\nNew text here"
+pnpm action update-document --id abc123 --baseRevision "<revision from get-document>" --title "New Title" --content "New content"
 pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
 

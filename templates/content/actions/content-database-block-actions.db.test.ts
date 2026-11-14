@@ -23,6 +23,7 @@ import {
 } from "vitest";
 
 import { knownLossTest } from "../acceptance/known-loss";
+import { documentRevisionToken } from "../server/lib/document-revision.js";
 
 const NESTED_TRANSACTION_LOSS = {
   lane: "unowned",
@@ -898,6 +899,71 @@ describe("exact Content database block actions", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, state.target.rowDocumentId));
     expect(stored?.content).toBe("Editor won\nSibling");
+  });
+
+  it("returns the page revision that guards an agent's main Blocks field write", async () => {
+    const state = await fixture("Read by the agent");
+    const page = async () => {
+      const [row] = await getDb()
+        .select({
+          content: schema.documents.content,
+          bodyRevision: schema.documents.bodyRevision,
+        })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, state.target.rowDocumentId));
+      return required(row);
+    };
+    const before = await page();
+    expect(state.listed.baseRevision).toBe(
+      documentRevisionToken(before.bodyRevision, before.content),
+    );
+    const agent = { caller: "mcp", userEmail: ownerEmail } as const;
+    const write = (value: string, baseRevision: string) =>
+      asOwner(() =>
+        setProperty.run(
+          {
+            databaseId: state.databaseId,
+            documentId: state.target.rowDocumentId,
+            propertyId: state.target.propertyId,
+            value,
+            baseRevision,
+          },
+          agent,
+        ),
+      );
+
+    const baseRevision = required(state.listed.baseRevision);
+    await write("Agent write", baseRevision);
+    expect((await page()).content).toBe("Agent write");
+    await expect(
+      write("Second write from the old read", baseRevision),
+    ).rejects.toMatchObject({
+      errorCode: "DOCUMENT_REVISION_CONFLICT",
+      statusCode: 409,
+      details: { currentRevision: expect.stringMatching(/^body:/) },
+    });
+    expect((await page()).content).toBe("Agent write");
+
+    const added = await asOwner(() =>
+      configureProperty.run({
+        documentId: state.databaseDocumentId,
+        databaseId: state.databaseId,
+        name: "Research notes",
+        type: "blocks",
+      }),
+    );
+    const notes = required(
+      added.properties.find(
+        (property) => property.definition.name === "Research notes",
+      ),
+    );
+    const notesListed = await asOwner(() =>
+      listBlocks.run({
+        target: { ...state.target, propertyId: notes.definition.id },
+        limit: 100,
+      }),
+    );
+    expect(notesListed.baseRevision).toBeNull();
   });
 
   it(
