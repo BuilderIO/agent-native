@@ -1,5 +1,9 @@
 import { callActionWithRetry } from "@agent-native/core/client/hooks";
 import {
+  runActionQueryRead,
+  useActionQueryCanFetch,
+} from "@agent-native/core/client/use-action";
+import {
   safeParseIconValue,
   serializeIconValue,
 } from "@agent-native/core/icons";
@@ -16,6 +20,7 @@ import {
   useQuery,
   useQueryClient,
   type QueryClient,
+  type QueryKey,
 } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
@@ -208,6 +213,19 @@ export function confirmCreatedFilesRow(
 }
 
 /**
+ * A page this tab is still creating: the server doesn't have it yet, so
+ * nothing can be moved into it.
+ */
+export function isFilesRowCreationPending(
+  queryClient: QueryClient,
+  documentId: string,
+) {
+  return (
+    createdFilesRows.get(queryClient)?.get(documentId)?.confirmedMark === null
+  );
+}
+
+/**
  * Stops keeping pages in their branches, for a page deleted or moved: the
  * write's own reread of the branch then draws what the server has.
  */
@@ -369,13 +387,25 @@ export async function readFilesNavigationPage(
   }
   const readStartMark = nextFilesMark();
   try {
-    const response = await callActionWithRetry<FilesNavigationRead>(
-      "query-content-database-items",
-      expand.length
-        ? { ...params, navigation: { ...params.navigation, expand } }
-        : params,
-      { method: "GET", signal },
+    // Read like a `useActionQuery`: a refused read drops the rows this page
+    // showed. The Files tree isn't saved in the browser, so the response
+    // isn't offered to the saved results.
+    const response = await runActionQueryRead(
+      queryClient,
+      filesNavigationQueryKey(params),
+      signal,
+      () =>
+        callActionWithRetry<FilesNavigationRead>(
+          "query-content-database-items",
+          expand.length
+            ? { ...params, navigation: { ...params.navigation, expand } }
+            : params,
+          { method: "GET", ...(signal ? { signal } : {}) },
+        ),
     );
+    // A read stopped after its answer arrived, as when the tree's top level
+    // was just refused, seeds nothing.
+    signal?.throwIfAborted();
     if ("available" in response) return response;
     // A folder left out of `branches`, whether the cap dropped it
     // (`branchesTruncated`) or it has no children to show, is not seeded as
@@ -402,8 +432,47 @@ export async function readFilesNavigationPage(
       }
     }
     return withCreatedFilesRows(queryClient, params, page, readStartMark);
+  } catch (error) {
+    // The server checks access to the whole Files database for every page of
+    // it, and answers a folder it can't show with a 400. So a refused read of
+    // any page means the database is out of reach, and every page of it this
+    // tab cached goes too: the top level, the folder pages the sidebar drew,
+    // and one a breadcrumb menu reads alone.
+    const status = (error as { status?: unknown } | undefined)?.status;
+    if (
+      !signal?.aborted &&
+      (status === 401 || status === 403 || status === 404)
+    ) {
+      clearCachedFilesPages(
+        queryClient,
+        params.databaseId,
+        filesNavigationQueryKey(params),
+      );
+    }
+    throw error;
   } finally {
     if (expansionKey && pending) pending.delete(expansionKey);
+  }
+}
+
+function clearCachedFilesPages(
+  queryClient: QueryClient,
+  databaseId: string,
+  refusedKey: QueryKey,
+) {
+  const cache = queryClient.getQueryCache();
+  const refused = cache.find({ queryKey: refusedKey, exact: true });
+  for (const query of cache.findAll({
+    queryKey: ["action", "query-content-database-items"],
+  })) {
+    const params = query.queryKey[2] as FilesNavigationPageParams | undefined;
+    if (!params?.navigation || params.databaseId !== databaseId) continue;
+    // A read still under way would put back what this clears once it
+    // answers, so it stops first. The refused read is the one ending here.
+    if (query !== refused && query.state.fetchStatus !== "idle") {
+      void query.cancel({ revert: true });
+    }
+    query.setState({ data: undefined, dataUpdatedAt: 0 });
   }
 }
 
@@ -458,6 +527,7 @@ export function useFilesNavigationPage(
 ) {
   const queryClient = useQueryClient();
   const queryKey = filesNavigationQueryKey(params);
+  const canFetch = useActionQueryCanFetch(queryKey);
   const pageKey = JSON.stringify(queryKey);
   const expansionKey = JSON.stringify([
     params.databaseId,
@@ -498,7 +568,7 @@ export function useFilesNavigationPage(
       );
     },
     retry: false,
-    enabled,
+    enabled: enabled && canFetch,
   });
   useEffect(() => {
     if (
