@@ -1660,9 +1660,44 @@ Legacy webhook.`,
         }),
       );
       expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(
+        localSkill("draft"),
+      );
       expect(mockResourceDelete).toHaveBeenCalledWith(
         "local-workspace-resource:skills/draft/SKILL.md",
       );
+    });
+
+    it("keeps a local file that changed during its rename, and takes the copy back", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue(localSkill("draft"));
+      const moved = { ...localSkill("review"), content: "draft" };
+      mockResourcePutIfSnapshot.mockResolvedValue({
+        before: null,
+        resource: moved,
+      });
+      // Another write changed the old file after it was read.
+      mockResourceDeleteIfCurrent
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+
+      const result = await handleUpdateResource({
+        _params: { id: "local-workspace-resource:skills/draft/SKILL.md" },
+        _body: { path: "skills/review/SKILL.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toEqual({
+        error: "Resource changed before it could be renamed",
+      });
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(
+        1,
+        localSkill("draft"),
+      );
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, moved);
+      expect(mockResourceDelete).not.toHaveBeenCalled();
     });
 
     it("refuses a local rename when another write takes the path first", async () => {

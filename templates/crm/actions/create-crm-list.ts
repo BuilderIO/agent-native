@@ -25,8 +25,13 @@ const DEFAULT_STAGE_OPTIONS = [
   { value: "lost", title: "Lost" },
 ] as const;
 
-/** How many slugs a create tries before giving up on a run of clashes. */
-const SLUG_CLAIM_ATTEMPTS = 3;
+/**
+ * How many slugs a create tries before giving up on a run of clashes. Each
+ * clash is a slug another list really holds, so every retry gets closer; the
+ * cap covers a burst of creates of one name and slugs in other members'
+ * private lists.
+ */
+const SLUG_CLAIM_ATTEMPTS = 10;
 
 const DEFAULT_CURRENCY_CONFIG = JSON.stringify({ currency: { code: "USD" } });
 

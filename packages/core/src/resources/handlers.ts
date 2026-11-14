@@ -879,6 +879,16 @@ export async function handleUpdateResource(event: any) {
     if (!moved) {
       return resourcePathTaken(event, existing.owner, nextPath, true);
     }
+    // The old file goes only if it's still the version just copied. If
+    // another write changed or removed it meanwhile, take the copy back, so
+    // the newer version isn't lost to a copy of the older one.
+    if (!(await resourceDeleteIfCurrent(existing))) {
+      await resourceDeleteIfCurrent(moved.resource);
+      setResponseStatus(event, 409);
+      return { error: "Resource changed before it could be renamed" };
+    }
+    // A copy of the same skill in the other skill root would bring the old
+    // name back, so it goes too, as it did before.
     await resourceDelete(id);
     return moved.resource;
   }

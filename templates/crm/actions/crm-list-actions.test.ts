@@ -303,19 +303,23 @@ describe("create-crm-list", () => {
   });
 
   it("gives creates made at the same moment their own slugs", async () => {
-    const lists = await Promise.all([
-      newList("Board Race"),
-      newList("Board Race"),
-      newList("Board Race"),
-    ]);
+    const lists = await Promise.all(
+      Array.from({ length: 5 }, () => newList("Board Race")),
+    );
     expect(
       lists.map((list) => list.apiSlug).sort((a, b) => a.localeCompare(b)),
-    ).toEqual(["board_race", "board_race_2", "board_race_3"]);
+    ).toEqual([
+      "board_race",
+      "board_race_2",
+      "board_race_3",
+      "board_race_4",
+      "board_race_5",
+    ]);
     const rows = await getDb()
       .select({ id: schema.crmLists.id })
       .from(schema.crmLists)
       .where(eq(schema.crmLists.name, "Board Race"));
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(5);
   });
 });
 
