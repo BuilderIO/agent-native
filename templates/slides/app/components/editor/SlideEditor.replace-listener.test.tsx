@@ -174,7 +174,9 @@ describe("SlideEditor with a newer version of the edited slide", () => {
 
     scrollBurst();
     measure.mockClear();
+    expect(frames.size).toBe(1);
     view.unmount();
+    expect(frames.size).toBe(0);
     expect(
       observers.every(({ disconnect }) => disconnect.mock.calls.length > 0),
     ).toBe(true);
