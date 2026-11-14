@@ -1891,7 +1891,7 @@ export function processEvent(
       // Upgrade the pending card in place. Prefer the server-assigned id so the
       // subsequent tool_done can match it precisely (parallel same-name calls
       // each carry their own id). Fall back to the locally-generated id.
-      content[pendingToolCallIndex] = {
+      const startedToolCall: ContentPart = {
         type: "tool-call",
         toolCallId: ev.id ?? pendingToolCall.toolCallId,
         toolName: tool,
@@ -1899,6 +1899,12 @@ export function processEvent(
         args,
         ...(omitFromPersistedHistory ? { omitFromPersistedHistory: true } : {}),
       };
+      if (pendingIsActivityPlaceholder) {
+        content.splice(pendingToolCallIndex, 1);
+        content.push(startedToolCall);
+      } else {
+        content[pendingToolCallIndex] = startedToolCall;
+      }
     } else {
       content.push({
         type: "tool-call",
