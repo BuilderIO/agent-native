@@ -10,7 +10,7 @@ describe("EditorLayout media loading", () => {
   it("does not force anonymous CORS on the same-origin video proxy", () => {
     const source = readSource();
     const previewVideo = source.match(
-      /<video\s+ref=\{videoRef\}[\s\S]*?\/>/,
+      /<video\s+ref=\{setVideoElement\}[\s\S]*?\/>/,
     )?.[0];
 
     expect(previewVideo).toContain("src={editorVideoUrl ?? undefined}");
