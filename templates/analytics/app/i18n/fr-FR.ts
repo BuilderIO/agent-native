@@ -1405,6 +1405,8 @@ export default {
     resetFilters: "Réinitialiser les filtres",
     collapseFilters: "Réduire les filtres",
     expandFilters: "Développer les filtres",
+    collapseDescription: "Réduire la description",
+    expandDescription: "Développer la description",
     drilldownChartPoints: "Points du graphique",
     drilldownPreviousPage: "Page précédente des points du graphique",
     drilldownNextPage: "Page suivante des points du graphique",
@@ -1433,6 +1435,7 @@ export default {
     drilldownOverByteCap:
       "Ces enregistrements liraient plus de {{gib}} Gio, ils n'ont donc pas été chargés. Restreignez les filtres ou la période du tableau de bord, puis réessayez.",
     filterSeries: "Filter",
+    noXValue: "Sans valeur",
     chartTimeRangeOverride: "Remplacer la plage horaire de ce graphique",
     chartTimeRangeInherit: "Plage du tableau de bord",
     hide: "Hide",

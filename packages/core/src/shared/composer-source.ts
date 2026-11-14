@@ -18,7 +18,7 @@ export const composerWebsiteUrlSchema = z
 export const composerSourceRequestSchema = z
   .object({
     source: z
-      .enum(["design", "slides", "figma", "website", "integration"])
+      .enum(["design", "slides", "content", "figma", "website", "integration"])
       .describe("Source app, context source, or connected integration."),
     operation: z
       .enum(["list", "read"])
@@ -36,7 +36,7 @@ export const composerSourceRequestSchema = z
       .max(200)
       .optional()
       .describe(
-        "Selected design or deck id; required when reading an app reference.",
+        "Selected design, deck, or Content page id; required when reading an app reference.",
       ),
     figmaUrl: z
       .string()

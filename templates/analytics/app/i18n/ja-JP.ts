@@ -1377,6 +1377,8 @@ export default {
     resetFilters: "フィルターをリセット",
     collapseFilters: "フィルターを折りたたむ",
     expandFilters: "フィルターを展開する",
+    collapseDescription: "説明を折りたたむ",
+    expandDescription: "説明を展開する",
     drilldownChartPoints: "グラフのデータポイント",
     drilldownPreviousPage: "グラフのデータポイントの前のページ",
     drilldownNextPage: "グラフのデータポイントの次のページ",
@@ -1405,6 +1407,7 @@ export default {
     drilldownOverByteCap:
       "これらのレコードは {{gib}} GiB を超えて読み込むため、読み込みませんでした。ダッシュボードのフィルターか期間を絞ってから、もう一度お試しください。",
     filterSeries: "Filter",
+    noXValue: "値なし",
     chartTimeRangeOverride: "このチャートの期間を上書き",
     chartTimeRangeInherit: "ダッシュボードの期間",
     hide: "Hide",

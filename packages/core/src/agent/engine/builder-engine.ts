@@ -166,14 +166,13 @@ async function clearBuilderCreditLimitAfterSuccess(): Promise<void> {
   }
 }
 
-interface GatewayErrorBody {
-  code?: string;
-  message?: string;
-  usageInfo?: {
-    plan?: string;
-    limitExceeded?: string;
-    isEnterprise?: boolean;
-  };
+interface GatewayErrorDetail {
+  code?: unknown;
+  message?: unknown;
+}
+
+interface GatewayErrorBody extends GatewayErrorDetail {
+  error?: GatewayErrorDetail;
 }
 
 export interface BuilderEngineCredentials {
@@ -314,7 +313,12 @@ class BuilderEngine implements AgentEngine {
       await inlineOwnedToolResultImages(opts.messages),
       toolNameMap,
     );
-    const tools = engineToolsToAnthropic(providerTools, toolNameMap);
+    const anthropicTools = engineToolsToAnthropic(providerTools, toolNameMap);
+    // The gateway sends GPT tools in OpenAI strict mode unless told otherwise,
+    // and strict mode makes the model fill every optional action argument.
+    const tools = /^gpt-/i.test(model)
+      ? anthropicTools.map((tool) => ({ ...tool, strict: false }))
+      : anthropicTools;
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
     const reasoningEffort = normalizeReasoningEffortForModel(
@@ -748,18 +752,24 @@ async function* emitHttpError(
   },
 ): AsyncIterable<EngineEvent> {
   const status = response.status;
-  let errBody: GatewayErrorBody = {};
+  let errBody: GatewayErrorBody | null = null;
   const rawText = await response.text().catch(() => "");
   if (rawText) {
     try {
-      errBody = JSON.parse(rawText) as GatewayErrorBody;
+      errBody = JSON.parse(rawText) as GatewayErrorBody | null;
     } catch {
-      errBody.message = normalizeGatewayErrorText(rawText, status);
+      errBody = { message: normalizeGatewayErrorText(rawText, status) };
     }
   }
-  const message = errBody.message ?? `Builder gateway returned ${status}`;
+  const message =
+    [errBody?.message, errBody?.error?.message].find(
+      (value): value is string => typeof value === "string",
+    ) ?? `Builder gateway returned ${status}`;
+  const providerCode = [errBody?.code, errBody?.error?.code].find(
+    (value): value is string => typeof value === "string",
+  );
   const code =
-    canonicalizeBuilderGatewayErrorCode(errBody.code, message) ??
+    canonicalizeBuilderGatewayErrorCode(providerCode, message) ??
     `http_${status}`;
   const retryAfterMs = extractRetryAfterMs({
     responseHeaders: Object.fromEntries(response.headers.entries()),
@@ -1097,19 +1107,23 @@ async function* parseJsonlStream(
               event.error ||
               event.message ||
               "Builder gateway rejected the request as malformed.";
-            const rawErrCode =
+            const gatewayErrCode =
               typeof event.errorCode === "string"
                 ? event.errorCode
                 : typeof event.code === "string"
                   ? event.code
-                  : "invalid_request";
+                  : undefined;
             const errCode =
-              canonicalizeBuilderGatewayErrorCode(rawErrCode, String(errMsg)) ??
-              rawErrCode;
+              canonicalizeBuilderGatewayErrorCode(
+                gatewayErrCode,
+                String(errMsg),
+              ) ??
+              gatewayErrCode ??
+              "invalid_request";
             const gatewayRequestId =
               typeof event.requestId === "string" ? event.requestId : undefined;
             console.warn(
-              `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} requestId=${gatewayRequestId ?? "(none)"} providerMessagePresent=${Boolean(event.error || event.message || event.detail)}`,
+              `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} requestId=${gatewayRequestId ?? "(none)"} requestShape=${JSON.stringify(captureContext.requestShape)} providerMessagePresent=${Boolean(event.error || event.message || event.detail)}`,
             );
             if (isExplicitBuilderCreditsLimitCode(errCode)) {
               await notifyBuilderCreditLimit();
@@ -1117,7 +1131,10 @@ async function* parseJsonlStream(
             yield stop({
               error: errMsg,
               errorCode: errCode,
+              // Without a gateway code the masked envelope does not say the fault
+              // was transient, and the rejected request would be sent unchanged.
               providerRetryable:
+                gatewayErrCode !== undefined &&
                 errCode === BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
               ...(isCreditsLimitErrorCode(errCode)
                 ? { upgradeUrl: await buildUpgradeUrl() }

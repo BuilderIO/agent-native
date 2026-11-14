@@ -23,10 +23,10 @@ import {
 import {
   deleteAppSecret,
   listAppSecretsForScope,
-  VAULT_SYNC_DESCRIPTION_PREFIX,
   type SecretMeta,
 } from "./storage.js";
 import { describeSecretUsage } from "./usage.js";
+import { isVaultManagedSecret } from "./vault-managed.js";
 
 /** Whose key a row is: the caller's own, or the organization's. */
 export type ApiKeyOwnerScope = "user" | "org";
@@ -42,6 +42,8 @@ export interface ApiKeyEntry {
    * shared row (owner `org`) or, for owner `user`, the caller's solo row.
    */
   storedScope: SecretScope;
+  /** Exact outbound origins approved for this saved row. Empty or absent denies forwarding. */
+  urlAllowlist?: string[] | null;
   /** "••••1234". Absent on managed keys, which only say they exist. */
   masked?: string;
   updatedAt: number | null;
@@ -57,6 +59,8 @@ export interface ApiKeyEntry {
   managedBy?: SecretManagedBy;
   /** Saving a new value writes this same row. */
   canReplace: boolean;
+  /** The caller may edit this custom row's outbound origin policy. */
+  canEditOrigins?: boolean;
   canDelete: boolean;
   /** A registered validator can check the stored value. */
   canTest: boolean;
@@ -161,7 +165,7 @@ function toEntry(
   const registered = getRequiredSecret(meta.key);
   const managedBy = resolveSecretManagedBy(meta.key);
   const provider = providerForName(meta.key);
-  const vault = isVaultSynced(meta.scope, meta.description);
+  const vault = isVaultSynced(meta.scope, meta);
   const mayChange = !managedBy && !vault && (owner === "user" || manages);
 
   // Replace writes through the routes' own target, so it only applies when
@@ -177,12 +181,16 @@ function toEntry(
     target.scopeId === meta.scopeId &&
     registered?.kind !== "oauth";
   const canReplace = mayChange && !provider && writesThisRow;
+  const canEditOrigins = mayChange && !registered && !provider;
 
   return {
     name: meta.key,
     ...(registered ? { label: registered.label } : {}),
     scope: owner,
     storedScope: meta.scope,
+    ...(canReplace || canEditOrigins
+      ? { urlAllowlist: meta.urlAllowlist }
+      : {}),
     ...(managedBy || !meta.last4 ? {} : { masked: meta.last4 }),
     updatedAt: meta.updatedAt || null,
     ...(vault ? { vault: true as const } : {}),
@@ -192,6 +200,7 @@ function toEntry(
     usedFor: describeSecretUsage(meta.key),
     ...(managedBy ? { managedBy } : {}),
     canReplace,
+    canEditOrigins,
     canDelete: mayChange,
     canTest: canReplace && !!registered?.validator,
   };
@@ -261,14 +270,12 @@ export async function listApiKeys(
   };
 }
 
-/** Vault writes shared rows with this description; a user's own rows are never synced. */
+/** The Vault owns the shared rows it writes; a user's own rows never belong to it. */
 function isVaultSynced(
   scope: SecretScope,
-  description: string | null | undefined,
+  meta: Pick<SecretMeta, "description" | "createdBy">,
 ): boolean {
-  return (
-    scope !== "user" && !!description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX)
-  );
+  return scope !== "user" && isVaultManagedSecret(meta);
 }
 
 export type DeleteApiKeyRefusal =
@@ -305,7 +312,7 @@ export async function deleteApiKey(
   const rows = await listAppSecretsForScope(storedScope, scopeId);
   const row = rows.find((meta) => meta.key === input.name);
   if (!row) return { status: "not-found" };
-  if (isVaultSynced(storedScope, row.description)) return { status: "vault" };
+  if (isVaultSynced(storedScope, row)) return { status: "vault" };
 
   const provider = AGENT_PROVIDER_CATALOG.find(
     (option) => option.id === providerForName(input.name),
@@ -323,7 +330,7 @@ export async function deleteApiKey(
     if (!meta) continue;
     // Vault owns its rows, and a managed name is never the user's to delete,
     // even when it sits beside the key being removed.
-    if (isVaultSynced(storedScope, meta.description)) continue;
+    if (isVaultSynced(storedScope, meta)) continue;
     if (resolveSecretManagedBy(name)) continue;
     if (await deleteAppSecret({ key: name, scope: storedScope, scopeId })) {
       removed.push(name);

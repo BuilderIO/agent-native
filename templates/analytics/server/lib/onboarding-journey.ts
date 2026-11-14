@@ -23,6 +23,7 @@ import {
   buildOnboardingJourneyPersonFollowupSql,
   onboardingJourneyEventDateRange,
   onboardingJourneyPersonFollowupDateRange,
+  onboardingPersonFollowupEmailHash,
   MAX_ONBOARDING_PERSON_FOLLOWUP_MEMBERS,
   ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS,
   type OnboardingJourneyEventsFilters,
@@ -59,13 +60,24 @@ const MAX_ONBOARDING_JOURNEY_FOLLOWUP_TERMINALS = 2_000;
 const MAX_FOLLOWUP_QUERY_CHARS = 800_000;
 const MAX_FOLLOWUP_QUERY_TOKENS = 50_000;
 const ONBOARDING_QUERY_TIMEOUT_MS = 20_000;
-export const ONBOARDING_EVENT_READ_DEADLINE_MS = 45_000;
+// A hosted request gets about 30 seconds before the gateway answers 504 and
+// drops everything read so far. Queries stop inside these budgets instead, so a
+// slow read returns partial coverage, and a second call with the same
+// observationWatermark continues from the pages already in the query cache.
+export const ONBOARDING_EVENT_READ_DEADLINE_MS = 15_000;
+export const ONBOARDING_JOURNEY_QUERY_BUDGET_MS = 22_000;
+// Pages after the first run this many at a time once the first page reports
+// the read's total row count.
+export const ONBOARDING_EVENT_PAGE_PREFETCH = 10;
 export const ONBOARDING_EVENTS_MAX_BYTES_BILLED = 25_000_000_000;
 export const ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED =
   ONBOARDING_EVENTS_MAX_BYTES_BILLED * 11;
 export const ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED =
   ONBOARDING_EVENTS_MAX_BYTES_BILLED * 51;
-const ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED = 10_000_000_000;
+// Follow-ups scan every event from the cohort's start to 30 days after its
+// end, which on a two-week cohort is more than one journey page scans.
+export const ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED =
+  ONBOARDING_EVENTS_MAX_BYTES_BILLED;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const ONBOARDING_JOURNEY_EXPERIMENT_IDS = [
@@ -210,6 +222,8 @@ function onboardingJourneyFailureDetails(error: unknown): {
 export interface OnboardingJourneyArgs extends OnboardingJourneyEventsFilters {
   format: "tree" | "summary";
   followUpMode: "session" | "person";
+  /** Read as of this earlier minute; see freezeOnboardingJourneyObservationWindow. */
+  observationWatermark?: string;
   maxDepth: number;
   minNodeSessions: number;
   examplesPerNode: number;
@@ -447,6 +461,10 @@ export interface JourneyPersonFollowup {
         | "unknown";
       terminalSessions: number | null;
       sessionsWithCanonicalIdentity: number | null;
+      /** Identified sessions matched by their one email. */
+      sessionsIdentifiedByEmail: number | null;
+      /** Identified sessions with no usable email, matched by sign-in ID. */
+      sessionsIdentifiedBySignInIdOnly: number | null;
       sessionsWithoutCanonicalIdentity: number | null;
       uniqueCanonicalPeople: number | null;
       coveragePct: number | null;
@@ -525,6 +543,7 @@ export function parseJourneyEventRow(
     sessionReplayId.length > 0 &&
     sessionReplayStartedAt !== null &&
     sessionReplayId.length <= MAX_SESSION_ID_LENGTH;
+  const sessionEmailHash = text(raw.session_email_hash);
   return {
     id,
     sessionId,
@@ -532,6 +551,7 @@ export function parseJourneyEventRow(
     tsMs,
     eventName,
     ...(text(raw.auth_user_id) ? { authUserId: text(raw.auth_user_id)! } : {}),
+    ...(sessionEmailHash ? { sessionEmailHash } : {}),
     ...(text(raw.app) ? { app: text(raw.app)! } : {}),
     templateName: text(raw.template_name),
     path: text(raw.path),
@@ -577,6 +597,11 @@ export interface OnboardingJourneyEventPageRequest {
   eventDateRange: { startDate: string; endDate: string };
 }
 
+interface PendingJourneyPage {
+  request: OnboardingJourneyEventPageRequest;
+  result: ReturnType<typeof queryFirstPartyAnalytics>;
+}
+
 /**
  * How every journey event read is scoped: one scan of each raw source, with
  * only the projected columns. The read, its cost estimate and the tests share
@@ -588,6 +613,18 @@ export const ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS = {
   scopedEventsSourceProjections: {
     e: "onboarding_journey",
     r: "onboarding_journey_response_identity",
+  },
+} as const;
+
+/**
+ * The person follow-up reads its one raw source through the narrow identity
+ * projection: it needs the identity, time, app and host columns, and unlike the
+ * journey event projection it keeps `http.response` events as later activity.
+ */
+export const ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS = {
+  scopedEventsSingleScan: true,
+  scopedEventsSourceProjections: {
+    e: "onboarding_journey_response_identity",
   },
 } as const;
 
@@ -636,6 +673,7 @@ async function readJourneyEvents(
   let overflowSessionId: string | null = null;
   let pages = 0;
   let rowsFetched = 0;
+  const pageTotals: JourneyPageTotal[] = [];
   const deadline = new AbortController();
   const deadlineTimer = setTimeout(
     () =>
@@ -650,6 +688,8 @@ async function readJourneyEvents(
   const querySignal = signal
     ? AbortSignal.any([signal, deadline.signal])
     : deadline.signal;
+  const prefetched = new Map<number, PendingJourneyPage>();
+  const stopPrefetch = new AbortController();
   try {
     throwIfAborted(signal);
     let backendSink: FirstPartyAnalyticsSink | null = null;
@@ -669,6 +709,30 @@ async function readJourneyEvents(
             getOnboardingJourneyEventReadPageBudget(maxTotalBytesBilled),
           )
         : requestedMaxPages;
+    const pageSignal = AbortSignal.any([querySignal, stopPrefetch.signal]);
+    const fetchPage = (offset: number): PendingJourneyPage => {
+      // One row past the budget tells a full read from a cut one.
+      const request = buildOnboardingJourneyEventPageRequest(
+        filters,
+        maxEventRows,
+        offset,
+        observation,
+        freezeReceivedAt,
+      );
+      return {
+        request,
+        result: queryFirstPartyAnalytics(request.sql, scope, {
+          cache: true,
+          timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
+          maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
+          eventDateRange: request.eventDateRange,
+          ...ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
+          signal: pageSignal,
+        }),
+      };
+    };
+    let prefetchEnd: number | null = null;
+    let nextPrefetchOffset = 0;
 
     while (!truncated) {
       throwIfAborted(signal);
@@ -677,24 +741,12 @@ async function readJourneyEvents(
         truncationReason = "read_deadline";
         break;
       }
-      // One row past the budget tells a full read from a cut one.
-      const request = buildOnboardingJourneyEventPageRequest(
-        filters,
-        maxEventRows,
-        raw.length,
-        observation,
-        freezeReceivedAt,
-      );
+      const pending = prefetched.get(raw.length) ?? fetchPage(raw.length);
+      prefetched.delete(raw.length);
+      const { request } = pending;
       let page: Awaited<ReturnType<typeof queryFirstPartyAnalytics>>;
       try {
-        page = await queryFirstPartyAnalytics(request.sql, scope, {
-          cache: true,
-          timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
-          maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
-          eventDateRange: request.eventDateRange,
-          ...ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
-          signal: querySignal,
-        });
+        page = await pending.result;
       } catch (error) {
         if (signal?.aborted) throw error;
         if (deadline.signal.aborted) {
@@ -708,6 +760,12 @@ async function readJourneyEvents(
       pages += 1;
       raw.push(...page.rows);
       rowsFetched += page.rows.length;
+      if (page.rows.length) {
+        pageTotals.push({
+          rows: integer(page.rows[0]?.journey_total_rows),
+          fingerprint: integer(page.rows[0]?.journey_rows_fingerprint),
+        });
+      }
       if (page.truncated) {
         truncated = true;
         truncationReason = "backend_result";
@@ -731,9 +789,31 @@ async function readJourneyEvents(
         truncationReason = "page_budget";
         break;
       }
+      // Every page reports the whole read's row count, so the pages still
+      // needed are known after the first and can run side by side. Full
+      // pages only, so each later page starts a fixed step further on.
+      if (pages === 1) {
+        const total = pageTotals[0]?.rows ?? null;
+        prefetchEnd = total === null ? null : Math.min(total, maxEventRows + 1);
+        nextPrefetchOffset = raw.length;
+      }
+      while (
+        prefetchEnd !== null &&
+        nextPrefetchOffset < prefetchEnd &&
+        nextPrefetchOffset / ONBOARDING_EVENT_PAGE_ROWS < maxPages &&
+        prefetched.size < ONBOARDING_EVENT_PAGE_PREFETCH
+      ) {
+        const next = fetchPage(nextPrefetchOffset);
+        // The loop awaits it in page order; a page the read stops before is
+        // cancelled in `finally`, and its rejection is not an unhandled one.
+        next.result.catch(() => undefined);
+        prefetched.set(nextPrefetchOffset, next);
+        nextPrefetchOffset += ONBOARDING_EVENT_PAGE_ROWS;
+      }
     }
   } finally {
     clearTimeout(deadlineTimer);
+    stopPrefetch.abort();
   }
 
   const byId = new Map<string, JourneyEventRow>();
@@ -776,9 +856,40 @@ async function readJourneyEvents(
     standaloneSetupTruncated: truncated,
     lastSessionDroppedFor,
     pages,
-    paginationConsistency: pages > 1 ? "may_have_shifted" : "stable",
+    paginationConsistency: journeyPagesAgree(
+      pages,
+      pageTotals,
+      rowsFetched,
+      truncated,
+    )
+      ? "stable"
+      : "may_have_shifted",
     truncationReason,
   };
+}
+
+type JourneyPageTotal = { rows: number | null; fingerprint: number | null };
+
+/**
+ * OFFSET pages are separate queries, so an event that arrives between them can
+ * move a page boundary. A matching row count alone does not rule that out: a
+ * late duplicate can drop one event and settle another's ambiguous link. So
+ * every page also fingerprints the whole read's sort keys, and pages agree
+ * only when every count and fingerprint matches and a read that ran to its end
+ * returned exactly that many rows.
+ */
+function journeyPagesAgree(
+  pages: number,
+  pageTotals: readonly JourneyPageTotal[],
+  rowsFetched: number,
+  truncated: boolean,
+): boolean {
+  if (pages <= 1) return true;
+  const rows = new Set(pageTotals.map((total) => total.rows));
+  const fingerprints = new Set(pageTotals.map((total) => total.fingerprint));
+  if (rows.size !== 1 || fingerprints.size !== 1) return false;
+  if (rows.has(null) || fingerprints.has(null)) return false;
+  return truncated || rows.has(rowsFetched);
 }
 
 function groupSessions(rows: readonly JourneyEventRow[]): {
@@ -812,6 +923,9 @@ function groupSessions(rows: readonly JourneyEventRow[]): {
         tsMs: terminal.tsMs,
         app: terminal.app ?? "",
         authUserId: terminal.authUserId ?? null,
+        emailHash: onboardingPersonFollowupEmailHash(
+          sessionRows.find((row) => row.sessionEmailHash)?.sessionEmailHash,
+        ),
       });
     } else sessionsWithoutSteps += 1;
   }
@@ -828,15 +942,36 @@ function groupSessions(rows: readonly JourneyEventRow[]): {
   };
 }
 
+/**
+ * A pinned watermark replays an earlier request's read boundary, so every
+ * query it builds has the same text and can come from the query cache.
+ */
 export function freezeOnboardingJourneyObservationWindow(
   args: OnboardingJourneyEventsFilters,
+  pinnedWatermark?: string,
 ): OnboardingJourneyObservationWindow {
-  const requestedAtMs = Date.now();
-  const observationWatermark = new Date(
-    Math.floor(requestedAtMs / 60_000) * 60_000,
-  ).toISOString();
+  const nowMs = Date.now();
+  let requestedAtMs = nowMs;
+  if (pinnedWatermark !== undefined) {
+    const pinnedMs = Date.parse(pinnedWatermark);
+    if (
+      !Number.isFinite(pinnedMs) ||
+      new Date(pinnedMs).toISOString() !== pinnedWatermark ||
+      pinnedMs % 60_000 !== 0 ||
+      pinnedMs > nowMs
+    ) {
+      throw new Error(
+        "observationWatermark must be a past UTC minute as a previous response gave it, such as 2026-11-10T22:38:00.000Z",
+      );
+    }
+    requestedAtMs = pinnedMs;
+  }
+  // The cutoff uses the same whole minute, so passing the watermark back
+  // rebuilds the same SQL even when the window ends today.
+  const watermarkMs = Math.floor(requestedAtMs / 60_000) * 60_000;
+  const observationWatermark = new Date(watermarkMs).toISOString();
   const requestedEndExclusive = Date.parse(`${args.dateTo}T00:00:00Z`) + DAY_MS;
-  const cutoffMs = Math.min(requestedAtMs, requestedEndExclusive);
+  const cutoffMs = Math.min(watermarkMs, requestedEndExclusive);
   const observationCutoff = new Date(cutoffMs).toISOString();
   return {
     observationCutoff,
@@ -902,6 +1037,7 @@ async function readFollowup(
   read: EventRead,
   terminals: readonly OnboardingJourneyTerminalStep[],
   observation: OnboardingJourneyObservationWindow,
+  timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<JourneyFollowup> {
   throwIfAborted(signal);
@@ -969,7 +1105,7 @@ async function readFollowup(
   try {
     result = await queryFirstPartyAnalytics(sql, scope, {
       cache: true,
-      timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
+      timeoutMs,
       maxBytesBilled: ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
       eventDateRange: onboardingJourneyEventDateRange(filters, observation),
       signal,
@@ -1128,6 +1264,104 @@ function canonicalPersonId(value: string | null | undefined): string | null {
   return value;
 }
 
+/** The email hash and direct auth ID a terminal session can be matched on. */
+function personFollowupMember(
+  terminal: OnboardingJourneyPersonMember,
+): OnboardingJourneyPersonMember {
+  return {
+    ...terminal,
+    app: terminal.app.toLowerCase(),
+    authUserId: canonicalPersonId(terminal.authUserId),
+    emailHash: onboardingPersonFollowupEmailHash(terminal.emailHash),
+  };
+}
+
+function isLaterTerminal(
+  terminal: OnboardingJourneyPersonMember,
+  current: OnboardingJourneyPersonMember,
+): boolean {
+  return (
+    terminal.tsMs > current.tsMs ||
+    (terminal.tsMs === current.tsMs &&
+      (terminal.sessionId > current.sessionId ||
+        (terminal.sessionId === current.sessionId &&
+          terminal.stepKey > current.stepKey)))
+  );
+}
+
+/**
+ * Sessions that share an email or a direct auth ID belong to one person, who
+ * keeps their latest terminal step. That member matches later activity by
+ * every email and auth ID its sessions carried, and names one of each when its
+ * own session lacks it.
+ */
+function groupPersonFollowupMembers(
+  members: readonly OnboardingJourneyPersonMember[],
+): OnboardingJourneyPersonMember[] {
+  const parent = new Map<string, string>();
+  const root = (key: string): string => {
+    const next = parent.get(key);
+    if (next === undefined) parent.set(key, key);
+    if (next === undefined || next === key) return key;
+    const top = root(next);
+    parent.set(key, top);
+    return top;
+  };
+  const emailKey = (emailHash: string) => `email:${emailHash}`;
+  const authKey = (authUserId: string) => `auth:${authUserId}`;
+  for (const member of members) {
+    if (member.emailHash && member.authUserId) {
+      parent.set(
+        root(authKey(member.authUserId)),
+        root(emailKey(member.emailHash)),
+      );
+    }
+  }
+  const people = new Map<
+    string,
+    {
+      latest: OnboardingJourneyPersonMember;
+      emailHashes: Set<string>;
+      authUserIds: Set<string>;
+    }
+  >();
+  for (const member of members) {
+    const key = member.emailHash
+      ? emailKey(member.emailHash)
+      : member.authUserId
+        ? authKey(member.authUserId)
+        : null;
+    if (key === null) continue;
+    const id = root(key);
+    const person = people.get(id) ?? {
+      latest: member,
+      emailHashes: new Set<string>(),
+      authUserIds: new Set<string>(),
+    };
+    if (member.emailHash) person.emailHashes.add(member.emailHash);
+    if (member.authUserId) person.authUserIds.add(member.authUserId);
+    if (isLaterTerminal(member, person.latest)) person.latest = member;
+    people.set(id, person);
+  }
+  return [...people.values()].map(({ latest, emailHashes, authUserIds }) => {
+    const aliases = {
+      emailHashes: [...emailHashes].sort(),
+      authUserIds: [...authUserIds].sort(),
+    };
+    return {
+      ...latest,
+      emailHash: latest.emailHash ?? firstValue(aliases.emailHashes),
+      authUserId: latest.authUserId ?? firstValue(aliases.authUserIds),
+      aliases,
+    };
+  });
+}
+
+function firstValue(values: Iterable<string>): string | null {
+  for (const value of values) return value;
+  return null;
+}
+
 interface PersonFollowupStepCohort {
   terminalSessions: number;
   identifiedTerminalSessions: number;
@@ -1195,6 +1429,7 @@ async function readPersonFollowup(
   terminals: readonly OnboardingJourneyPersonMember[],
   sessionsWithoutSelectedStep: number,
   observation: OnboardingJourneyObservationWindow,
+  timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<JourneyPersonFollowup> {
   throwIfAborted(signal);
@@ -1215,6 +1450,8 @@ async function readPersonFollowup(
     status: "unknown" as const,
     terminalSessions: null,
     sessionsWithCanonicalIdentity: null,
+    sessionsIdentifiedByEmail: null,
+    sessionsIdentifiedBySignInIdOnly: null,
     sessionsWithoutCanonicalIdentity: null,
     uniqueCanonicalPeople: null,
     coveragePct: null,
@@ -1292,32 +1529,18 @@ async function readPersonFollowup(
     });
   }
 
-  const canonicalSessions = terminals.filter(
-    (terminal) => canonicalPersonId(terminal.authUserId) !== null,
+  const terminalMembers = terminals.map(personFollowupMember);
+  const isIdentified = (member: OnboardingJourneyPersonMember) =>
+    member.emailHash !== null || member.authUserId !== null;
+  const identifiedMembers = terminalMembers.filter(isIdentified);
+  const identityUnavailableMembers = terminalMembers.filter(
+    (member) => !isIdentified(member),
+  );
+  const canonicalSessions = identifiedMembers.length;
+  const sessionsIdentifiedByEmail = identifiedMembers.filter(
+    (member) => member.emailHash !== null,
   ).length;
-  const identityUnavailableSessions = terminals.length - canonicalSessions;
-  const peopleById = new Map<string, OnboardingJourneyPersonMember>();
-  const identityUnavailableMembers: OnboardingJourneyPersonMember[] = [];
-  for (const terminal of terminals) {
-    const app = terminal.app.toLowerCase();
-    const personId = canonicalPersonId(terminal.authUserId);
-    if (!personId) {
-      identityUnavailableMembers.push({ ...terminal, app, authUserId: null });
-      continue;
-    }
-    const current = peopleById.get(personId);
-    if (
-      !current ||
-      terminal.tsMs > current.tsMs ||
-      (terminal.tsMs === current.tsMs &&
-        (terminal.sessionId > current.sessionId ||
-          (terminal.sessionId === current.sessionId &&
-            terminal.stepKey > current.stepKey)))
-    ) {
-      peopleById.set(personId, { ...terminal, app, authUserId: personId });
-    }
-  }
-  const personMembers = [...peopleById.values()];
+  const personMembers = groupPersonFollowupMembers(identifiedMembers);
   const members = [...personMembers, ...identityUnavailableMembers];
   const identityJoin: JourneyPersonFollowup["coverage"]["identityJoin"] = {
     status:
@@ -1330,7 +1553,10 @@ async function readPersonFollowup(
             : "partial",
     terminalSessions: terminals.length,
     sessionsWithCanonicalIdentity: canonicalSessions,
-    sessionsWithoutCanonicalIdentity: identityUnavailableSessions,
+    sessionsIdentifiedByEmail,
+    sessionsIdentifiedBySignInIdOnly:
+      canonicalSessions - sessionsIdentifiedByEmail,
+    sessionsWithoutCanonicalIdentity: identityUnavailableMembers.length,
     uniqueCanonicalPeople: personMembers.length,
     coveragePct: terminals.length
       ? Math.round((canonicalSessions / terminals.length) * 1_000) / 10
@@ -1377,10 +1603,10 @@ async function readPersonFollowup(
     }
     return cohort;
   };
-  for (const terminal of terminals) {
+  for (const terminal of terminalMembers) {
     const cohort = ensureStep(terminal.stepKey);
     cohort.terminalSessions += 1;
-    if (canonicalPersonId(terminal.authUserId)) {
+    if (isIdentified(terminal)) {
       cohort.identifiedTerminalSessions += 1;
     } else {
       cohort.identityUnavailableSessions += 1;
@@ -1444,9 +1670,10 @@ async function readPersonFollowup(
   try {
     result = await queryFirstPartyAnalytics(sql, scope, {
       cache: true,
-      timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
+      timeoutMs,
       maxBytesBilled: ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
       eventDateRange,
+      ...ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
       signal,
     });
   } catch (error) {
@@ -2131,7 +2358,11 @@ export async function getOnboardingJourney(
     throw new Error("Person follow-up is not available with cohort splits.");
   }
   throwIfAborted(signal);
-  const observation = freezeOnboardingJourneyObservationWindow(args);
+  const budgetEndsAt = performance.now() + ONBOARDING_JOURNEY_QUERY_BUDGET_MS;
+  const observation = freezeOnboardingJourneyObservationWindow(
+    args,
+    args.observationWatermark,
+  );
   let read: EventRead;
   try {
     read = await readJourneyEvents(
@@ -2157,26 +2388,48 @@ export async function getOnboardingJourney(
   const standalone = groupSessions(
     read.rows.filter((row) => row.journeyKind === "standalone_setup"),
   );
-  const followUp = await readFollowup(
-    scope,
-    args,
-    read,
-    terminalSteps,
-    observation,
-    signal,
+  // Both follow-ups share what is left of the budget, so they run side by
+  // side; a failure in one cancels the other.
+  const followupTimeoutMs = Math.min(
+    ONBOARDING_QUERY_TIMEOUT_MS,
+    Math.max(1_000, budgetEndsAt - performance.now()),
   );
-  const personFollowUp =
+  const followupAbort = new AbortController();
+  const followupSignal = signal
+    ? AbortSignal.any([signal, followupAbort.signal])
+    : followupAbort.signal;
+  const cancelOtherOnFailure = <T>(pending: Promise<T>) =>
+    pending.catch((error: unknown) => {
+      followupAbort.abort();
+      throw error;
+    });
+  const [followUp, personFollowUp] = await Promise.all([
+    cancelOtherOnFailure(
+      readFollowup(
+        scope,
+        args,
+        read,
+        terminalSteps,
+        observation,
+        followupTimeoutMs,
+        followupSignal,
+      ),
+    ),
     args.followUpMode === "person"
-      ? await readPersonFollowup(
-          scope,
-          args,
-          read,
-          terminalSteps,
-          sessionsWithoutSteps,
-          observation,
-          signal,
+      ? cancelOtherOnFailure(
+          readPersonFollowup(
+            scope,
+            args,
+            read,
+            terminalSteps,
+            sessionsWithoutSteps,
+            observation,
+            followupTimeoutMs,
+            followupSignal,
+          ),
         )
-      : undefined;
+      : undefined,
+  ]);
   const sessionIds = [
     ...new Set([
       ...sessions.map((session) => session.sessionId),
@@ -2263,7 +2516,7 @@ export async function getOnboardingJourney(
     read.truncationReason === "page_budget"
       ? `Event read reached its aggregate maxTotalBytesBilled=${args.maxTotalBytesBilled} bytes budget before confirming whether maxEventRows=${args.maxEventRows} was exceeded`
       : read.truncationReason === "read_deadline"
-        ? `Event read reached its ${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000}-second deadline before confirming whether maxEventRows=${args.maxEventRows} was exceeded`
+        ? `Event read stopped at its ${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000}-second time budget before confirming whether maxEventRows=${args.maxEventRows} was exceeded`
         : read.truncationReason === "backend_result"
           ? "BigQuery returned an incomplete event page"
           : `Event read stopped at maxEventRows=${args.maxEventRows}`;
@@ -2282,10 +2535,10 @@ export async function getOnboardingJourney(
       `Some onboarding or standalone setup sessions continue beyond maxDepth=${args.maxDepth}; deeperN counts observed continuation omitted below each returned node.`,
     );
   }
-  if (read.pages > 1) {
+  if (read.paginationConsistency === "may_have_shifted") {
     // Late-arriving events can change OFFSET page membership in any window.
     notes.push(
-      `The event read took ${read.pages} OFFSET pages; late-arriving events can shift page membership in any window, so returned tree counts may be incomplete.`,
+      `The event read took ${read.pages} OFFSET pages and their row totals disagreed; late-arriving events can shift page membership in any window, so returned tree counts may be incomplete.`,
     );
   }
   if (capped.dropped) {
@@ -2311,6 +2564,24 @@ export async function getOnboardingJourney(
   if (sessionsWithoutSteps + standalone.sessionsWithoutSteps) {
     notes.push(
       `${sessionsWithoutSteps + standalone.sessionsWithoutSteps} sessions had events but no step with a meaning (for example a pageview without a path) and are not in a tree.`,
+    );
+  }
+  const followupTimedOut =
+    followUp.incompleteReason === "followup_aggregate_query_timeout" ||
+    personFollowUp?.incompleteReason === "person_followup_query_timeout";
+  // A follow-up that had a query's full time and still ran out will run out
+  // again, so only a cut-short one is worth calling again for.
+  const followupCutShort = followupTimeoutMs < ONBOARDING_QUERY_TIMEOUT_MS;
+  if (
+    read.truncationReason === "read_deadline" ||
+    (followupTimedOut && followupCutShort)
+  ) {
+    notes.push(
+      `This request stopped at its time budget (${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000} seconds for the event read, ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000} in all). Call again with the same arguments and observationWatermark="${observation.observationWatermark}" within 5 minutes: queries that finished are normally kept in the query cache, so the next call usually continues from them instead of running them again.`,
+    );
+  } else if (followupTimedOut) {
+    notes.push(
+      `A follow-up query needed more than the ${ONBOARDING_QUERY_TIMEOUT_MS / 1000} seconds one query may run, so calling again will not finish it; a shorter date range reads less.`,
     );
   }
   const head = {

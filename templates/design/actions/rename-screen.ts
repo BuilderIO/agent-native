@@ -8,6 +8,7 @@ import {
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
+import { nameTaken, nextFreeName } from "@agent-native/core/free-name/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -37,7 +38,7 @@ const errors = defineActionErrors(
   "design_not_found",
   "screen_not_renameable",
   "invalid_content_override",
-  "filename_taken",
+  "name_taken",
   "screen_changed",
 );
 
@@ -268,10 +269,16 @@ export default defineAction({
               (file) => file.id !== id && file.filename === nextFilename,
             );
             if (collision) {
-              return errors.noWrite(
-                `File "${nextFilename}" already exists in design ${scopedFile.designId}`,
-                "filename_taken",
-                { statusCode: 409 },
+              const taken = new Set(
+                currentFiles
+                  .filter((file) => file.id !== id)
+                  .map((file) => file.filename),
+              );
+              throw nameTaken(
+                "screen",
+                nextFilename,
+                nextFreeName(nextFilename, taken),
+                { noWrite: true },
               );
             }
 

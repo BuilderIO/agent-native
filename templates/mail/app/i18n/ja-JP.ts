@@ -468,6 +468,22 @@ const messages = {
       scheduledCancelFailed: "予約メールのキャンセルに失敗しました",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "画像のアップロードに失敗しました",
+      storageBuilderRefused:
+        "Builder.io が Mail のファイルストレージ接続を拒否したため、ファイルを添付できませんでした。Builder.io に再接続するか独自のストレージを使ってから、もう一度お試しください。",
+      storageRefused:
+        "ストレージバケットがこのアップロードを拒否したため、ファイルを添付できませんでした。バケットとそのキーを確認してから、もう一度お試しください。",
+      storageNotConfigured:
+        "ファイルストレージが設定されていないため、ファイルを添付できませんでした。Builder.io または独自のストレージバケットを接続してから、もう一度お試しください。",
+      openStorageSettings: "ストレージ設定を開く",
+      reconnectBuilderStorage: "Builder.io に再接続",
+      useOwnStorage: "独自のストレージを使う",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io が Mail のファイルストレージ接続を拒否したため、ファイルを添付できませんでした。Builder.io に再接続するか、オーナーまたは管理者にストレージの設定を依頼してから、もう一度お試しください。",
+      storageRefusedAskAdmin:
+        "組織のストレージバケットがこのアップロードを拒否したため、ファイルを添付できませんでした。オーナーまたは管理者にバケットとそのキーの確認を依頼してください。",
+      storageNotConfiguredAskAdmin:
+        "ファイルストレージが設定されていないため、ファイルを添付できませんでした。自分の Builder.io アカウントを接続するか、オーナーまたは管理者にストレージの設定を依頼してください。",
+      connectBuilderStorage: "Builder.io に接続",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "メッセージを送信しました。",
       failedToSaveDraft: "下書きを保存できませんでした。",
@@ -941,15 +957,19 @@ const messages = {
     shortcutsList: "メール一覧",
     shortcutsThread: "スレッド",
     shortcutsCompose: "作成",
+    askAi: "AIに質問",
     backToCommands: "コマンドに戻る",
     backToMessageList: "メッセージ一覧に戻る",
     cycleTabs: "タブを切り替える",
     extendSelection: "選択範囲を広げる",
+    goToUnread: "未読へ移動",
     moveSelection: "選択を移動",
     nextPreviousConversation: "次 / 前の会話",
     nextPreviousMessage: "次 / 前のメッセージ",
     openMessage: "メールを開く",
+    pageDownUp: "ページを下へ / 上へ",
     selectAllConversations: "すべての会話を選択",
+    selectConversation: "会話を選択",
     sendAndMarkDone: "送信して完了にする",
     toggleMessageExpansion: "メッセージを展開 / 折りたたむ",
     toggleReadState: "既読状態を切り替える",

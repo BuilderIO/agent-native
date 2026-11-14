@@ -955,6 +955,8 @@ export default {
     resetFilters: "Reset filters",
     collapseFilters: "Collapse filters",
     expandFilters: "Expand filters",
+    collapseDescription: "Collapse description",
+    expandDescription: "Expand description",
     drilldownChartPoints: "Chart points",
     drilldownPreviousPage: "Previous page of chart points",
     drilldownNextPage: "Next page of chart points",
@@ -983,6 +985,7 @@ export default {
     drilldownOverByteCap:
       "These records would read more than {{gib}} GiB, so they didn't load. Narrow the dashboard's filters or date range and try again.",
     filterSeries: "Filter",
+    noXValue: "No value",
     chartTimeRangeOverride: "Override time range for this chart",
     chartTimeRangeInherit: "Dashboard range",
     hide: "Hide",

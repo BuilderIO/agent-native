@@ -7,6 +7,7 @@ import {
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
 import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
@@ -47,6 +48,7 @@ import {
   ContentFilesSidebarView,
   PagedContentFilesSidebarView,
   contentSidebarOrderedItems,
+  type ActivePathDocument,
   type ContentFilesSidebarRenderReorder,
 } from "@/components/editor/database/sidebar";
 import {
@@ -92,6 +94,7 @@ import {
   contentFilesCollectionFilter,
   contentRowTargets,
   invalidateContentQueries,
+  SEARCH_QUERY_KEYS,
   useContentActionMutation,
 } from "@/hooks/use-content-action-mutation";
 import {
@@ -124,7 +127,6 @@ import {
   usePermanentlyDeleteDocument,
   useRestoreDocument,
   useTrashedDocuments,
-  useMoveDocument,
   useUpdateDocument,
   isDocumentUpdateConflict,
   isDocumentUpdatePreservationRequired,
@@ -138,6 +140,7 @@ import {
   startPageOpenDocumentReads,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import { usePendingTrash } from "@/hooks/use-pending-trash";
 import { openContentCommandMenu } from "@/lib/content-command-menu";
 import {
   getDesktopContentFiles,
@@ -145,6 +148,7 @@ import {
 } from "@/lib/desktop-content-files";
 import { documentQueryKey } from "@/lib/document-query";
 import {
+  cachedFilesRootDocumentIds,
   filesNavigationOrder,
   openFilesFolderIds,
 } from "@/lib/files-navigation";
@@ -188,15 +192,15 @@ import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import {
+  navigationAfterConfirmedDelete,
+  remainingPageAfterDelete,
+  stillOnPageOpenedForDelete,
+} from "./document-sidebar-actions";
+import {
   firstLocalSourceDocumentId,
   localSourceItemIdentity,
   projectLocalSourceHierarchy,
 } from "./local-source-hierarchy";
-import {
-  MovePageDialog,
-  type MovePageDestination,
-  type MovePageTarget,
-} from "./MovePageDialog";
 import { PersonalSidebarSections } from "./PersonalSidebarSections";
 import {
   contentSpaceActionArgs,
@@ -217,6 +221,7 @@ import {
   SidebarPageActionsProvider,
   type SidebarPageActions,
 } from "./SidebarRowActions";
+import { useMovePageDialog } from "./use-move-page-dialog";
 import {
   WorkspaceSourceMenu,
   type CreatedWorkspace,
@@ -268,14 +273,24 @@ export async function retryCreateAfterDraftRead<T>(
   return { created, draft: await read() };
 }
 
+/**
+ * Re-sends a pending page's create only when the server doesn't have the page.
+ * The tab that created it clears the intent before it frees the create lock,
+ * but the next tab can still read the cleared intent: localStorage reaches
+ * other tabs asynchronously, and nothing orders it with the lock hand-off.
+ */
 export function retryCreateAfterIntentWrite<T>(
   scope: DocumentCreateIntentScope,
   intent: DocumentCreateIntent,
   read: DraftRead,
+  readCommitted: () => Promise<Document>,
   create: () => Promise<T>,
-): Promise<{ created: T; draft: PageDraftJournalEntry | null }> {
+): Promise<{ created: Document | T; draft: PageDraftJournalEntry | null }> {
   writeDocumentCreateIntentBestEffort(scope, { ...intent, status: "pending" });
-  return retryCreateAfterDraftRead(read, create);
+  return retryCreateAfterDraftRead(read, async () => {
+    const resolution = await readDocumentBeforeCreateDiscard(readCommitted);
+    return resolution.kind === "committed" ? resolution.document : create();
+  });
 }
 
 /**
@@ -663,7 +678,7 @@ function WorkspaceSidebarItem({
   activeDocumentId: string | null;
   expandedDocumentIds: ReadonlySet<string>;
   documentMetadata: ReadonlyMap<string, Document>;
-  activePathDocuments: readonly Document[];
+  activePathDocuments: readonly ActivePathDocument[];
   onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
   onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
   onToggleExpanded: () => void;
@@ -1110,16 +1125,19 @@ function WorkspaceSidebarItem({
               onDocumentExpandedChange={onDocumentExpandedChange}
               onSelectView={(viewId) => {
                 const current = filesPersonalView.data?.overrides;
-                updateFilesPersonalView.mutate({
-                  databaseId: space.filesDatabaseId,
-                  overrides: {
-                    version:
-                      current?.version ??
-                      CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
-                    activeViewId: viewId,
-                    views: current?.views ?? [],
+                updateFilesPersonalView.mutate(
+                  {
+                    databaseId: space.filesDatabaseId,
+                    overrides: {
+                      version:
+                        current?.version ??
+                        CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+                      activeViewId: viewId,
+                      views: current?.views ?? [],
+                    },
                   },
-                });
+                  { onError: (error) => reportWriteFailure(error) },
+                );
               }}
               sidebarOrder={sidebarOrder}
               manualReorder={
@@ -1293,6 +1311,20 @@ export function DocumentSidebar({
   const favoritesData = isContentDatabaseUnavailable(favoritesDatabase.data)
     ? undefined
     : favoritesDatabase.data;
+  // A page or collection on its way to Trash leaves Favorites with the click.
+  const pendingTrash = usePendingTrash();
+  const favoriteItems = useMemo(
+    () =>
+      (favoritesData?.items ?? []).filter(
+        (item) =>
+          !pendingTrash.documentIds.has(item.document.id) &&
+          !(
+            item.document.database &&
+            pendingTrash.databaseIds.has(item.document.database.id)
+          ),
+      ),
+    [favoritesData?.items, pendingTrash],
+  );
   const updateFavoritesPersonalView = useUpdateContentPersonalNavigation(
     favoritesDatabaseId,
     favoritesData?.database.viewConfig.views,
@@ -1414,7 +1446,7 @@ export function DocumentSidebar({
       ? 0
       : favoritesDatabase.isPending || favoritesPersonalView.isPending
         ? null
-        : (favoritesData?.items.length ?? 0); // coercion-ok: an unavailable database draws as an empty Pinned list.
+        : favoriteItems.length;
   const handleRetryContentSpaces = useCallback(() => {
     if (contentSpacesQuery.isError) {
       attemptedSpaceReconciliationKeyRef.current = null;
@@ -1929,34 +1961,26 @@ export function DocumentSidebar({
             ),
           )
         : (navigationContextQuery.data?.path.map(
-            (entry): Document => ({
-              id: entry.id,
-              parentId: entry.parentId,
-              title: entry.title,
+            ({
+              databaseId,
+              databaseDocumentId,
+              ...entry
+            }): ActivePathDocument => ({
+              ...entry,
               content: "",
               description: "",
-              icon: entry.icon,
               position: 0,
-              isFavorite: entry.isFavorite,
               hideFromSearch: false,
-              visibility: entry.visibility,
-              accessRole: entry.accessRole,
-              canView: entry.canView,
-              canComment: entry.canComment,
-              canEdit: entry.canEdit,
-              canManage: entry.canManage,
-              source: entry.source,
-              database: undefined,
-              createdAt: entry.createdAt,
-              updatedAt: entry.updatedAt,
-              databaseMembership: entry.databaseId
+              ...(databaseId
                 ? {
-                    databaseId: entry.databaseId,
-                    databaseDocumentId: entry.databaseDocumentId,
-                    databaseTitle: null,
-                    position: null,
+                    databaseMembership: {
+                      databaseId,
+                      databaseDocumentId,
+                      databaseTitle: null,
+                      position: null,
+                    },
                   }
-                : undefined,
+                : {}),
             }),
           ) ?? []),
     [documents, localFileMode, navigationContextQuery.data?.path],
@@ -2251,6 +2275,12 @@ export function DocumentSidebar({
                   scope,
                   currentIntent,
                   read,
+                  () =>
+                    callAction<Document>(
+                      "get-document",
+                      { id: currentIntent.id },
+                      { method: "GET" },
+                    ),
                   () =>
                     createDocumentAsync({
                       id: currentIntent.id,
@@ -2760,6 +2790,7 @@ export function DocumentSidebar({
         tempDoc,
         contentSpaces.find((space) => space.id === rootSpaceId)
           ?.filesDatabaseId ?? null,
+        "database",
       );
       navigateToDocument(id);
       onNavigate?.();
@@ -2866,8 +2897,16 @@ export function DocumentSidebar({
       const deletedIds = localFileMode
         ? collectDocumentSubtreeIds(documents, id)
         : new Set([id]);
-      let activeDeleted = activeDocumentId
-        ? deletedIds.has(activeDocumentId)
+      // A hosted sidebar knows only the open page's path, root first, which
+      // is enough to tell whether the open page goes with the deleted one.
+      const navigationPath = navigationContextQuery.data?.path ?? [];
+      const activePath =
+        navigationPath[navigationPath.length - 1]?.id === activeDocumentId
+          ? navigationPath
+          : [];
+      const activeDeleted = activeDocumentId
+        ? deletedIds.has(activeDocumentId) ||
+          (!localFileMode && activePath.some((entry) => entry.id === id))
         : false;
       const survivingDocuments = documents.filter(
         (doc) => !deletedIds.has(doc.id),
@@ -2877,8 +2916,13 @@ export function DocumentSidebar({
         : survivingDocuments;
       const nextDocument =
         navigationCandidates.find((doc) => doc.isFavorite) ??
-        [...navigationCandidates].sort(compareDocumentsByPosition)[0] ??
-        null;
+        navigationCandidates.reduce<Document | null>(
+          (first, doc) =>
+            first === null || compareDocumentsByPosition(doc, first) < 0
+              ? doc
+              : first,
+          null,
+        );
       const previousDocuments = queryClient.getQueryData(
         LIST_DOCUMENTS_QUERY_KEY,
       );
@@ -2902,38 +2946,46 @@ export function DocumentSidebar({
         queryClient.removeQueries(documentQueryFilter(deletedId));
       }
 
-      if (activeDeleted) {
-        void navigate(nextDocument ? `/page/${nextDocument.id}` : "/home", {
+      // Home would reopen the last page visited, which is the one going to
+      // Trash, so the sidebar opens a remaining page itself or, knowing none,
+      // stays until the server confirms and names a destination.
+      const nextLocalPageId = nextDocument?.id ?? null;
+      const remainingPageId = !activeDeleted
+        ? null
+        : localFileMode
+          ? nextLocalPageId
+          : remainingPageAfterDelete(id, {
+              activePath,
+              filesRootDocumentIds: cachedFilesRootDocumentIds(queryClient, id),
+              pendingTrashIds: pendingTrash.documentIds,
+            });
+      const leftDeletedPage = remainingPageId !== null;
+      if (leftDeletedPage) {
+        void navigate(`/page/${remainingPageId}`, {
           replace: true,
           flushSync: true,
         });
       }
 
       try {
-        if (deletedDocument?.database) {
-          const result = await deleteContentDatabase.mutateAsync({
-            databaseId: deletedDocument.database.id,
-            activeDocumentId: activeDocumentId ?? undefined,
-          });
-          activeDeleted = result.activeTargetDeleted;
-          if (result.navigationPath) {
-            void navigate(result.navigationPath, {
-              replace: true,
-              flushSync: true,
+        const result = deletedDocument?.database
+          ? await deleteContentDatabase.mutateAsync({
+              databaseId: deletedDocument.database.id,
+              ...(activeDocumentId ? { activeDocumentId } : {}),
+            })
+          : await deleteDocument.mutateAsync({
+              id,
+              ...(activeDocumentId ? { activeDocumentId } : {}),
             });
-          }
-        } else {
-          const result = await deleteDocument.mutateAsync({
-            id,
-            activeDocumentId: activeDocumentId ?? undefined,
+        const navigationPath = navigationAfterConfirmedDelete(
+          result.navigationPath,
+          { leftDeletedPage },
+        );
+        if (navigationPath) {
+          void navigate(navigationPath, {
+            replace: true,
+            flushSync: true,
           });
-          activeDeleted = result.activeTargetDeleted ?? false;
-          if (result.navigationPath) {
-            void navigate(result.navigationPath, {
-              replace: true,
-              flushSync: true,
-            });
-          }
         }
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
@@ -2950,7 +3002,9 @@ export function DocumentSidebar({
         void queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        if (activeDeleted) {
+        if (
+          stillOnPageOpenedForDelete(window.location.pathname, remainingPageId)
+        ) {
           void navigate(previousPath, {
             replace: true,
             flushSync: true,
@@ -2972,6 +3026,8 @@ export function DocumentSidebar({
       location.pathname,
       location.search,
       navigate,
+      navigationContextQuery.data,
+      pendingTrash.documentIds,
       queryClient,
     ],
   );
@@ -2995,7 +3051,10 @@ export function DocumentSidebar({
             },
           },
         },
-        { onError: () => toast.error(t("sidebar.failedSaveOrder")) },
+        {
+          onError: (error) =>
+            reportWriteFailure(error, { label: t("sidebar.failedSaveOrder") }),
+        },
       );
     },
     [
@@ -3028,16 +3087,20 @@ export function DocumentSidebar({
     [queryClient, t, updateDocument],
   );
 
-  const moveDocument = useMoveDocument();
   const duplicateDocument = useActionMutation("duplicate-page", {
     skipActionQueryInvalidation: true,
     onSuccess: (_result, { documentId }) =>
       invalidateContentQueries(queryClient, [
         ...contentRowTargets(queryClient, [documentId]),
         contentFilesCollectionFilter(),
+        ...SEARCH_QUERY_KEYS,
       ]),
   });
-  const [movingPage, setMovingPage] = useState<MovePageTarget | null>(null);
+  const { startMove, dialog: movePageDialog } = useMovePageDialog({
+    onMoved: (_page, { parentId }) => {
+      if (parentId) handleDocumentExpandedChange(parentId, true);
+    },
+  });
   const sidebarPageActions = useMemo<SidebarPageActions>(
     () => ({
       renamePage: async (documentId, title) => {
@@ -3072,57 +3135,14 @@ export function DocumentSidebar({
         );
       },
       movePage: ({ documentId, title, spaceId }) =>
-        setMovingPage({
+        startMove({
           documentId,
           title,
           spaceId: spaceId ?? selectedSpace?.id ?? null,
         }),
     }),
-    [duplicateDocument, selectedSpace?.id, t, updateDocument],
+    [duplicateDocument, selectedSpace?.id, startMove, t, updateDocument],
   );
-  const moveSpaces = useMemo(
-    () =>
-      contentSpaces.filter(
-        (space) =>
-          space.id === movingPage?.spaceId ||
-          (space.kind !== "source_backed" && space.canCreateDatabase !== false),
-      ),
-    [contentSpaces, movingPage?.spaceId],
-  );
-  const handleMovePage = useCallback(
-    (page: MovePageTarget, { spaceId, parentId }: MovePageDestination) => {
-      const crossSpace = spaceId !== page.spaceId;
-      moveDocument.mutate(
-        { id: page.documentId, parentId, ...(crossSpace ? { spaceId } : {}) },
-        {
-          onSuccess: () => {
-            if (parentId) handleDocumentExpandedChange(parentId, true);
-            if (crossSpace) {
-              const space = contentSpaces.find(
-                (candidate) => candidate.id === spaceId,
-              );
-              toast.success(
-                t("sidebar.movedToSpace", {
-                  title: page.title,
-                  space: space?.name ?? "",
-                }),
-              );
-            }
-          },
-          onError: (error) => {
-            toast.error(t("sidebar.failedMovePage"), {
-              description:
-                error instanceof Error
-                  ? error.message
-                  : t("empty.genericError"),
-            });
-          },
-        },
-      );
-    },
-    [contentSpaces, handleDocumentExpandedChange, moveDocument, t],
-  );
-
   const handleRestoreDatabase = useCallback(
     async (databaseId: string) => {
       try {
@@ -3852,9 +3872,9 @@ export function DocumentSidebar({
                   const serverOrdered = favoritesOrder.order.mode !== "custom";
                   const renderedItems = (
                     serverOrdered
-                      ? (favoritesData?.items ?? [])
+                      ? favoriteItems
                       : contentSidebarOrderedItems(
-                          favoritesData?.items ?? [],
+                          favoriteItems,
                           favoritesOrder.order,
                         )
                   ).slice(0, limit);
@@ -3974,14 +3994,7 @@ export function DocumentSidebar({
         }
       />
 
-      <MovePageDialog
-        page={movingPage}
-        spaces={moveSpaces}
-        onOpenChange={(open) => {
-          if (!open) setMovingPage(null);
-        }}
-        onMove={handleMovePage}
-      />
+      {movePageDialog}
 
       {createDiscardDialog}
 

@@ -1,6 +1,23 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "المصادر المعتمدة",
+  "settingsApiKeys.originsHint":
+    "مصدر HTTPS محدد واحد في كل سطر. يمنع الحقل الفارغ الإرسال. يُسمح بـ HTTP المحلي.",
+  "settingsApiKeys.invalidOrigins": "أدخل مصادر HTTPS محددة، مصدرًا في كل سطر.",
+  "settingsApiKeys.editOrigins": "تعديل المصادر",
+  "settingsApiKeys.originsSaved": "تم حفظ المصادر",
+  "settingsApiKeys.originsCount_zero": "{{count}} مصادر معتمدة",
+  "settingsApiKeys.originsCount_one": "{{count}} مصدر معتمد",
+  "settingsApiKeys.originsCount_two": "{{count}} مصدران معتمدان",
+  "settingsApiKeys.originsCount_few": "{{count}} مصادر معتمدة",
+  "settingsApiKeys.originsCount_many": "{{count}} مصدرًا معتمدًا",
+  "settingsApiKeys.originsCount_other": "{{count}} مصادر معتمدة",
+  "settingsApiKeys.noApprovedOrigins": "لا توجد مصادر معتمدة",
+  "extensions.cancel": "إلغاء",
+  "extensions.context": "السياق",
+  "extensions.confirmAgentMessage": "هل تريد إرسال رسالة الإضافة إلى الوكيل؟",
+  "extensions.sendToAgent": "إرسال إلى الوكيل",
   "auth.logOutFailed": "تعذّر تسجيل الخروج",
   "block.renderUnavailable": "هذه الكتلة غير متاحة مؤقتًا.",
   "block.loading": "جارٍ تحميل هذه الكتلة.",
@@ -33,10 +50,13 @@ const messages: ToolkitAgentChatTranslation = {
   "activity.groupLabel": "نشاط الوكيل",
   "activity.agents": "تعاون الوكلاء",
   "activity.tasks": "مهام الوكلاء",
+  "activity.tasksProgress": "اكتمل {{completed}} من {{total}}",
   "agent.started": "بدأ العمل",
   "agent.resumed": "استأنف العمل",
   "agent.messaged": "أرسل رسالة",
   "agent.delegated": "فوّض العمل",
+  "agent.working": "يعمل",
+  "agent.workedFor": "عمل لمدة {{duration}}",
   "agent.paused": "أوقف العمل مؤقتًا",
   "agent.queued": "في قائمة الانتظار",
   "agent.completed": "أنهى العمل",
@@ -145,7 +165,7 @@ const messages: ToolkitAgentChatTranslation = {
     "مضمّنة مع أرصدة Builder.io المجانية النشطة",
   "onboarding.builderCredits": "مضمّنة مع أرصدة Builder.io المجانية",
   "onboarding.builderIncludedFreeWithAccount": "مُضمّن مجانًا مع حساب Builder.io",
-  "onboarding.builderMonthlyCredits": "60 رصيد Agent شهريًا",
+  "onboarding.builderMonthlyCredits": "15 رصيدًا مجانيًا يوميًا، حتى 60 شهريًا",
   "onboarding.builderIncludedFree": "مُضمّن مجانًا",
   "onboarding.builderMoreServices": "+ {{count}} خدمات أخرى",
   "onboarding.builderLlmCredits": "أرصدة لنماذج اللغة الكبيرة (LLM)",
@@ -175,9 +195,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
   "onboarding.builderExistingAccount": "لديّ حساب Builder.io",
-  "onboarding.creditsTitle": "جرّبه مع 60 من أرصدة Agent المجانية شهريًا",
+  "onboarding.creditsTitle": "جرّبه مع 15 رصيدًا مجانيًا يوميًا، حتى 60 شهريًا",
   "onboarding.creditsTitleClips":
-    "جرّبه مع تخزين فيديو مجاني و60 من أرصدة Agent شهريًا",
+    "جرّبه مع تخزين فيديو مجاني و15 رصيدًا يوميًا، حتى 60 شهريًا",
   "onboarding.creditsActivate": "تفعيل الأرصدة المجانية",
   "onboarding.creditsFinePrint":
     "سيؤدي هذا إلى إنشاء حساب Builder.io مجاني. بالمتابعة، فأنت توافق على",
@@ -422,6 +442,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.attachmentTooLarge": "حجم الملف أكبر من 8 ميغابايت",
   "composer.attachmentNotUtf8": "الملف ليس نصًا بترميز UTF-8",
   "composer.scrollToBottom": "التمرير إلى الأسفل",
+  "composer.skipToMessageBox": "الانتقال إلى مربع الرسالة",
   "composer.suggestedPrompts": "اقتراحات المطالبات",
   "composer.stopResponse": "إيقاف الرد",
   "composer.subAgentReadOnly":
@@ -597,6 +618,7 @@ const messages: ToolkitAgentChatTranslation = {
   "pastedText.remove": "إزالة النص الملصق",
   "pastedText.title": "نص ملصق",
   "voice.dictation.start": "إملاء ({{shortcut}})",
+  "voice.dictation.startPlain": "إملاء",
   "voice.dictation.stopRecording": "إيقاف التسجيل",
   "voice.dictation.transcribing": "جارٍ النسخ…",
   "voiceMode.errors.channelDisconnected":
@@ -1638,6 +1660,29 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "إحالات أرصدة Builder",
   "featureFlags.builderCreditReferrals.description":
     "عرض تفاصيل إحالات مساحة عمل Builder المتصلة في الاستخدام.",
+  "featureFlags.scope.appliesTo": "ينطبق على",
+  "featureFlags.scope.org": "هذه المؤسسة",
+  "featureFlags.scope.global": "كل المؤسسات",
+  "featureFlags.scope.setForOrg": "مضبوط لهذه المؤسسة",
+  "featureFlags.scope.setForGlobal": "مضبوط لكل المؤسسات",
+  "featureFlags.scope.overridesGlobal": "يتجاوز قاعدة كل المؤسسات",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "قاعدة هذه المؤسسة الخاصة تحل محل قاعدة كل المؤسسات، وهي: {{audience}}.",
+  "featureFlags.scope.unreadable": "تعذّرت القراءة",
+  "featureFlags.scope.enableForMeOrg": "يضيفك إلى قاعدة هذه المؤسسة",
+  "featureFlags.scope.enableForMeGlobal": "يضيفك إلى قاعدة كل المؤسسات",
+  "featureFlags.scope.turnOffOrg": "إيقاف لهذه المؤسسة",
+  "featureFlags.scope.turnOffGlobal": "إيقاف لكل المؤسسات",
+  "featureFlags.scope.turnOffOrgTitle": "هل تريد إيقاف {{name}} لهذه المؤسسة؟",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "هل تريد إيقاف {{name}} لكل المؤسسات؟",
+  "featureFlags.scope.turnOffOrgDescription":
+    "يؤدي هذا إلى إزالة وصول كل الأشخاص في هذه المؤسسة فورًا. يمكنك إعداد طرح جديد لاحقًا.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "يؤدي هذا إلى إزالة الوصول فورًا في كل مؤسسة ليست لها قاعدة خاصة. يمكنك إعداد طرح جديد لاحقًا.",
+  "featureFlags.scope.summaryOrg": "في هذه المؤسسة: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "في كل المؤسسات: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule": "تحتفظ هذه المؤسسة بقاعدتها الخاصة.",
   "usage.inviteFriends": "ادعُ الأصدقاء",
   "usage.inviteCredits":
     "احصل على {{amount}} من أرصدة Builder عندما يشترك صديق.",
@@ -2603,6 +2648,9 @@ const messages: ToolkitAgentChatTranslation = {
     "يستخدم الوكيل رمز الوصول الذي تضيفه، لذلك يرى ما يمكن لهذا الرمز رؤيته.",
   "settingsShell.integrationDetail.accessToken": "رمز الوصول",
   "settingsShell.integrationDetail.addAccessToken": "إضافة رمز وصول",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "تعذّر التحقق من رمز الوصول المحفوظ.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "إعادة المحاولة",
   "settingsShell.integrationDetail.callout.adminNeeded": "يجب أن يُعدّ مسؤول هذا",
   "settingsShell.integrationDetail.callout.adminNeededBody":
     "اطلب من مالك أو مسؤول في {{org}} إضافة معرّف العميل والسر الخاصين بـ {{name}}. بعد ذلك يمكنك ربط حسابك.",
@@ -2997,6 +3045,118 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "رفع ملف مهارة",
   "settingsResources.skills.describePlaceholder":
     "مهارة تراجع طلبات الدمج بحثًا عن مشكلات أمنية",
+  "settingsResources.skills.personalHint": "أنت فقط من يملك هذه.",
+  "settingsResources.skills.orgHint":
+    "مشتركة مع الجميع في {{org}}. مفاتيحك تخصك وحدك.",
+  "settingsResources.skills.orgAdminHint":
+    "مشتركة مع الجميع في {{org}}. بما أنك مسؤول، تختار كيف تبدأ كل واحدة للآخرين.",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch هو المكان الذي تحفظ فيه مساحة عملك المهارات التي تشاركها كل التطبيقات. إيقاف إحداها هنا يغيّر {{app}} فقط.",
+  "settingsResources.skills.thisApp": "هذا التطبيق",
+  "settingsResources.skills.forEveryone": "للجميع",
+  "settingsResources.skills.forYou": "لك",
+  "settingsResources.skills.markRecommended": "موصى بها",
+  "settingsResources.skills.markRecommendedHint": "مفعّلة ما لم يوقفها أحد.",
+  "settingsResources.skills.markOptional": "اختيارية",
+  "settingsResources.skills.markOptionalHint": "متوقفة ما لم يفعّلها أحد.",
+  "settingsResources.skills.markRequired": "مطلوبة",
+  "settingsResources.skills.markRequiredHint":
+    "مفعّلة للجميع. لا يمكن لأحد إيقافها أو استخدام نسخته الخاصة.",
+  "settingsResources.skills.recommendedBy": "موصى بها من {{org}}",
+  "settingsResources.skills.requiredBy": "مطلوبة من {{org}}",
+  "settingsResources.skills.requiredHidesOwn":
+    "غير مستخدمة: تشترط {{org}} على الجميع استخدام النسخة المشتركة",
+  "settingsResources.skills.optionalOff": "اختيارية: متوقفة حتى تفعّلها",
+  "settingsResources.skills.optionalOn": "اختيارية: فعّلتها أنت",
+  "settingsResources.skills.switchedOffOn": "أوقفتها في {{date}}",
+  "settingsResources.skills.alwaysOn": "مفعّلة دائمًا",
+  "settingsResources.skills.requiredLockHint":
+    "مطلوبة من {{org}}، لذا فهي مفعّلة دائمًا",
+  "settingsResources.skills.dispatchClash":
+    "يحتوي Dispatch أيضًا على {{name}}. يستخدم الوكيل هذه ويتخطى التي في Dispatch. أعد تسمية إحداهما لاستخدام الاثنتين.",
+  "settingsResources.skills.dispatchClashRequired":
+    "{{name}} في Dispatch مطلوبة، لذا يستخدمها الوكيل ويتخطى هذه. أعد تسمية إحداهما لاستخدام الاثنتين.",
+  "settingsResources.skills.choicesLoadFailed":
+    "تعذّر تحميل المهارات المفعّلة لك، لذا أُخفيت مفاتيح التبديل. أعد تحميل الصفحة للمحاولة مرة أخرى.",
+  "settingsResources.skills.requireChecking": "جارٍ التحقق ممن يتأثر بهذا…",
+  "settingsResources.skills.requireCountsFailed": "تعذّر التحقق ممن يتأثر بهذا.",
+  "settingsResources.skills.requireTitle": "جعل {{name}} مطلوبة؟",
+  "settingsResources.skills.makeRequired": "جعلها مطلوبة",
+  "settingsResources.skills.switchFailed": "تعذّر حفظ اختيارك لـ {{name}}.",
+  "settingsResources.skills.markFailed":
+    "تعذّر تغيير كيفية بدء {{name}} للآخرين.",
+  "settingsResources.skills.addForMe": "إضافة لي",
+  "settingsResources.skills.addForEveryone": "إضافة للجميع",
+  "settingsResources.skills.offFor_zero": "متوقفة لدى {{off}} من {{count}} شخص",
+  "settingsResources.skills.offFor_one": "متوقفة لدى {{off}} من {{count}} شخص",
+  "settingsResources.skills.offFor_two":
+    "متوقفة لدى {{off}} من {{count}} شخصين",
+  "settingsResources.skills.offFor_few":
+    "متوقفة لدى {{off}} من {{count}} أشخاص",
+  "settingsResources.skills.offFor_many":
+    "متوقفة لدى {{off}} من {{count}} شخصًا",
+  "settingsResources.skills.offFor_other":
+    "متوقفة لدى {{off}} من {{count}} شخص",
+  "settingsResources.skills.onFor_zero": "مفعّلة لدى {{on}} من {{count}} شخص",
+  "settingsResources.skills.onFor_one": "مفعّلة لدى {{on}} من {{count}} شخص",
+  "settingsResources.skills.onFor_two": "مفعّلة لدى {{on}} من {{count}} شخصين",
+  "settingsResources.skills.onFor_few": "مفعّلة لدى {{on}} من {{count}} أشخاص",
+  "settingsResources.skills.onFor_many": "مفعّلة لدى {{on}} من {{count}} شخصًا",
+  "settingsResources.skills.onFor_other": "مفعّلة لدى {{on}} من {{count}} شخص",
+  "settingsResources.skills.ownVersions_zero": "لدى {{count}} شخص نسخة خاصة",
+  "settingsResources.skills.ownVersions_one": "لدى {{count}} شخص نسخة خاصة",
+  "settingsResources.skills.ownVersions_two": "لدى {{count}} شخصين نسخة خاصة",
+  "settingsResources.skills.ownVersions_few": "لدى {{count}} أشخاص نسخة خاصة",
+  "settingsResources.skills.ownVersions_many": "لدى {{count}} شخصًا نسخة خاصة",
+  "settingsResources.skills.ownVersions_other": "لدى {{count}} شخص نسخة خاصة",
+  "settingsResources.skills.requireTurnsBackOn_zero":
+    "ستُفعَّل من جديد لـ {{count}} شخص أوقفوها.",
+  "settingsResources.skills.requireTurnsBackOn_one":
+    "ستُفعَّل من جديد لـ {{count}} شخص أوقفها.",
+  "settingsResources.skills.requireTurnsBackOn_two":
+    "ستُفعَّل من جديد لـ {{count}} شخصين أوقفاها.",
+  "settingsResources.skills.requireTurnsBackOn_few":
+    "ستُفعَّل من جديد لـ {{count}} أشخاص أوقفوها.",
+  "settingsResources.skills.requireTurnsBackOn_many":
+    "ستُفعَّل من جديد لـ {{count}} شخصًا أوقفوها.",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "ستُفعَّل من جديد لـ {{count}} شخص أوقفوها.",
+  "settingsResources.skills.requireTurnsOn_zero":
+    "ستُفعَّل لـ {{count}} شخص لم يفعّلوها.",
+  "settingsResources.skills.requireTurnsOn_one":
+    "ستُفعَّل لـ {{count}} شخص لم يفعّلها.",
+  "settingsResources.skills.requireTurnsOn_two":
+    "ستُفعَّل لـ {{count}} شخصين لم يفعّلاها.",
+  "settingsResources.skills.requireTurnsOn_few":
+    "ستُفعَّل لـ {{count}} أشخاص لم يفعّلوها.",
+  "settingsResources.skills.requireTurnsOn_many":
+    "ستُفعَّل لـ {{count}} شخصًا لم يفعّلوها.",
+  "settingsResources.skills.requireTurnsOn_other":
+    "ستُفعَّل لـ {{count}} شخص لم يفعّلوها.",
+  "settingsResources.skills.requireOwnVersions_zero":
+    "سيحصل {{count}} شخص لديهم نسخهم الخاصة على نص {{org}} بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersions_one":
+    "سيحصل {{count}} شخص لديه نسخته الخاصة على نص {{org}} بدلًا منها. تُحفظ نسخته، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersions_two":
+    "سيحصل {{count}} شخصان لديهما نسختهما الخاصة على نص {{org}} بدلًا منها. تُحفظ نسختاهما، وتعودان إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersions_few":
+    "سيحصل {{count}} أشخاص لديهم نسخهم الخاصة على نص {{org}} بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersions_many":
+    "سيحصل {{count}} شخصًا لديهم نسخهم الخاصة على نص {{org}} بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersions_other":
+    "سيحصل {{count}} شخص لديهم نسخهم الخاصة على نص {{org}} بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_zero":
+    "سيحصل {{count}} شخص لديهم نسخهم الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "سيحصل {{count}} شخص لديه نسخته الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخته، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_two":
+    "سيحصل {{count}} شخصان لديهما نسختهما الخاصة على نص Dispatch بدلًا منها. تُحفظ نسختاهما، وتعودان إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_few":
+    "سيحصل {{count}} أشخاص لديهم نسخهم الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_many":
+    "سيحصل {{count}} شخصًا لديهم نسخهم الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "سيحصل {{count}} شخص لديهم نسخهم الخاصة على نص Dispatch بدلًا منها. تُحفظ نسخهم، وتعود إذا غيّرت هذا لاحقًا.",
   "settingsResources.files.empty": "أضف ملفًا لمنح وكيلك سياقًا أكثر.",
   "settingsResources.files.emptyTitle": "لا توجد ملفات بعد",
   "settingsResources.files.orgEmpty": "لا توجد ملفات مشتركة بعد",
@@ -3493,6 +3653,14 @@ const messages: ToolkitAgentChatTranslation = {
   "guided.other": "أخرى…",
   "guided.otherDescription": "أخبر الوكيل بما تقصده بالضبط.",
   "guided.recommended": "موصى به",
+  "guided.question": "سؤال",
+  "guided.questionProgress": "{{current}}/{{total}}",
+  "guided.questionProgressLabel": "{{current}} من {{total}}",
+  "guided.ownResponse": "أو اكتب ردك الخاص",
+  "guided.next": "التالي",
+  "guided.send": "إرسال",
+  "guided.dismiss": "إغلاق الأسئلة",
+  "guided.chooseFiles": "اختيار ملفات…",
   "guided.typeAnswer": "اكتب إجابتك…",
   "guided.typeCustomAnswer": "اكتب إجابة مخصصة…",
   "guided.dropFiles": "اسحب الملفات إلى هنا أو",
@@ -3530,6 +3698,10 @@ const messages: ToolkitAgentChatTranslation = {
   "toolCells.showMoreLines": "عرض {{count}} من الأسطر الإضافية",
   "toolCells.partial": "جزئي",
   "toolCells.timedOut": "انتهت المهلة",
+  "toolCells.exitCode": "رمز الخروج {{code}}",
+  "toolCells.copyOutput": "نسخ المخرجات",
+  "toolCells.lineAdded": "مضاف",
+  "toolCells.lineRemoved": "محذوف",
   "codeRequired.requestFailed": "فشل الطلب ({{status}})",
   "chatFirst.chats": "المحادثات",
   "chatFirst.noChats": "لا توجد محادثات بعد.",
@@ -3644,6 +3816,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mentions.noCommands": "لا توجد أوامر",
   "mentions.noMatches": "لا توجد نتائج مطابقة",
   "queue.dragToReorder": "اسحب لإعادة الترتيب",
+  "queue.attachedImage": "صورة مرفقة",
   "queue.moveUp": "نقل لأعلى",
   "queue.moveDown": "نقل لأسفل",
   "queue.movedToPosition": "تم النقل إلى الموضع {{position}} من {{count}}",
@@ -3699,6 +3872,10 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.readPagesOther": "تمت قراءة صفحات: {{count}}",
   "workSteps.fetchedOne": "تم جلب عنوان URL واحد",
   "workSteps.fetchedOther": "تم جلب عناوين URL: {{count}}",
+  "workSteps.sourcesOne": "تم استخدام مصدر واحد",
+  "workSteps.sourcesOther": "مصادر مستخدمة: {{count}}",
+  "workSteps.frameworkFrames": "إطارات إطار العمل: {{count}}",
+  "workSteps.copyStackTrace": "نسخ تتبع المكدس",
   "workSteps.readFilesOne": "تمت قراءة ملف واحد",
   "workSteps.readFilesOther": "تمت قراءة ملفات: {{count}}",
   "workSteps.editedOne": "تم تعديل ملف واحد",

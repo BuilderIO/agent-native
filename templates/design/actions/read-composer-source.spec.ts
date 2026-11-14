@@ -97,6 +97,9 @@ describe("Design composer references", () => {
     await expect(
       action.run({ ...input, source: "slides" }, { caller: "a2a" }),
     ).rejects.toMatchObject({ errorCode: "composer_source_wrong_app" });
+    await expect(
+      action.run({ ...input, source: "content" }, { caller: "a2a" }),
+    ).rejects.toMatchObject({ errorCode: "composer_source_wrong_app" });
     expect(mocks.peer).not.toHaveBeenCalled();
   });
 
@@ -204,6 +207,21 @@ describe("Design composer references", () => {
     });
     const args = { ...input, source: "slides", id: "deck-example" } as const;
     await action.run(args);
+    expect(mocks.peer).toHaveBeenCalledWith(args, "design");
+    expect(mocks.snapshot).not.toHaveBeenCalled();
+  });
+
+  it("forwards Content pages to the authenticated peer reader", async () => {
+    mocks.peer.mockResolvedValue({
+      id: "page-example",
+      title: "Launch brief",
+      url: "https://content.example.com/page",
+      context: "Brief",
+    });
+    const args = { ...input, source: "content", id: "page-example" } as const;
+    await expect(action.run(args)).resolves.toMatchObject({
+      id: "page-example",
+    });
     expect(mocks.peer).toHaveBeenCalledWith(args, "design");
     expect(mocks.snapshot).not.toHaveBeenCalled();
   });
@@ -335,5 +353,60 @@ describe("Design composer references", () => {
         page: 1,
       }),
     ).rejects.toMatchObject({ errorCode: "composer_reference_required" });
+  });
+
+  it("reads a page whose frames a large file did not list", async () => {
+    mocks.user.mockReturnValue("designer@example.com");
+    mocks.figma.mockResolvedValue({
+      mode: "overview",
+      pages: [{ id: "12:3", name: "Launch", type: "CANVAS", frames: null }],
+    });
+    const result = await action.run({
+      source: "figma",
+      operation: "read",
+      id: "12:3",
+      figmaUrl: "https://www.figma.com/design/exampleFile/App?node-id=12-3",
+      page: 1,
+    });
+    expect(result).toMatchObject({ id: "12:3", title: "Launch" });
+    expect("context" in result && result.context).toContain(
+      "Layers: not listed for this large file",
+    );
+  });
+
+  it("reads a page link as one reference the agent imports by its URL", async () => {
+    mocks.user.mockReturnValue("designer@example.com");
+    mocks.figma.mockResolvedValue({
+      mode: "overview",
+      pages: [
+        {
+          id: "12:3",
+          name: "Launch",
+          type: "CANVAS",
+          frames: [
+            { id: "12:4", name: "OG image", type: "FRAME", childCount: 3 },
+            { id: "12:5", name: "Promo", type: "FRAME", childCount: 5 },
+          ],
+        },
+      ],
+    });
+    const result = await action.run({
+      source: "figma",
+      operation: "read",
+      id: "12:3",
+      figmaUrl: "https://www.figma.com/design/exampleFile/App?node-id=12-3",
+      page: 1,
+    });
+    expect(result).toMatchObject({
+      id: "12:3",
+      title: "Launch",
+      url: "https://www.figma.com/design/exampleFile?node-id=12%3A3",
+    });
+    expect("context" in result && result.context).toContain(
+      "call import-figma-frame with figmaUrl https://www.figma.com/design/exampleFile?node-id=12%3A3",
+    );
+    expect("context" in result && result.context).toContain(
+      "Layers: OG image, Promo",
+    );
   });
 });

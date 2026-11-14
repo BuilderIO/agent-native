@@ -1,8 +1,5 @@
 // @vitest-environment happy-dom
 
-import { readFileSync } from "node:fs";
-import { URL as NodeURL } from "node:url";
-
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useEffect, useState } from "react";
@@ -37,6 +34,7 @@ import {
   preserveCommentComposerEscape,
   useCommentReplyDrafts,
 } from "./CommentsSidebar";
+import { usePagePanelEscape } from "./document-page-panel-state";
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<
@@ -97,7 +95,7 @@ vi.mock("@agent-native/core/client/review", () => ({
     isLoading: false,
   }),
   useReplyReviewComment: () => ({
-    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
     isPending: false,
     error: null,
   }),
@@ -497,40 +495,81 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     await settle();
     expect(dismiss).toHaveBeenCalledTimes(1);
   });
+});
 
-  it("wires the capture boundary on the production document Sheet", () => {
-    const source = readFileSync(
-      new NodeURL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
+// oracle-change: the page's Escape now runs through the one panel's hook, so
+// these press the key on the page instead of reading DocumentEditor's source.
+// Focus coming back after the panel closes is tested in document-page-panel-state.
+describe("the page panel's Escape with a comment composer", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+  const onClose = vi.fn();
+  const onDismiss = vi.fn();
+
+  function Page() {
+    usePagePanelEscape({
+      belongs: () => true,
+      closes: () => true,
+      keeps: preserveCommentComposerEscape,
+      onDismiss,
+      onClose,
+    });
+    return (
+      <>
+        <button type="button" data-page-button />
+        <div data-comment-composer>
+          <textarea data-composer />
+        </div>
+      </>
     );
-    expect(source).toMatch(
-      /<SheetContent\s+ref=\{setUtilityPanelSheetContainer\}[\s\S]*?onEscapeKeyDown=\{\(event\) => \{\s+preserveCommentComposerEscape\(event\);\s+if \(event\.defaultPrevented\) return;\s+const target = event\.target;\s+const nestedPopper =/,
-    );
+  }
+
+  const pressEscape = (selector: string) => {
+    const target = host.querySelector<HTMLElement>(selector);
+    target?.focus();
+    act(() => {
+      target?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+  };
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createReactRoot(host);
+    act(() => root.render(<Page />));
   });
 
-  it("keeps keyboard focus inside the mobile comments Sheet and restores its trigger", () => {
-    const source = readFileSync(
-      new NodeURL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain(
-      "ref={inSheet ? utilityPanelSheetCloseRef : undefined}",
-    );
-    expect(source).toMatch(
-      /onOpenAutoFocus=\{\(event\) => \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?\(focusedReply \?\? utilityPanelSheetCloseRef\.current\)\?\.focus\(\);/,
-    );
-    expect(source).toContain(
-      "const restoreTarget = utilityPanelSheetTriggerRef.current;",
-    );
-    expect(source).toContain("utilityPanelFocusFallbackRef.current");
-    expect(source).toContain("utilityPanelRegionWasOpenRef.current");
-    expect(source).toContain(
-      "utilityPanelFocusFallbackRef={utilityPanelFocusFallbackRef}",
-    );
-    expect(source).toContain(
-      "utilityPanelFocusGenerationRef.current !== focusGeneration",
-    );
-    expect(source).toContain("restoreTarget?.isConnected");
-    expect(source).toContain(": fallbackTarget");
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    vi.clearAllMocks();
+  });
+
+  it("lets the comment composer take Escape before the page panel closes", () => {
+    pressEscape("[data-composer]");
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("closes the page panel on Escape from anywhere else on the page", () => {
+    pressEscape("[data-page-button]");
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a nested menu use Escape before comment focus is dismissed", () => {
+    host.addEventListener("keydown", (event) => event.preventDefault());
+    pressEscape("[data-page-button]");
+
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

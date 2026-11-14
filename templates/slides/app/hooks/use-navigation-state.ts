@@ -1,4 +1,5 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useBrowserTabUse } from "@agent-native/core/client/navigation";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
@@ -24,6 +25,7 @@ export interface NavigationState {
 
 export function useNavigationState() {
   const location = useLocation();
+  useBrowserTabUse(`${location.pathname}${location.search}`);
   const navigate = useNavigate();
   const qc = useQueryClient();
 

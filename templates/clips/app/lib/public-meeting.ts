@@ -26,6 +26,8 @@ export interface PublicMeetingTranscript {
   language: string | null;
   fullText: string | null;
   segments: TranscriptSegment[];
+  /** Saved lines that can't be read: `segments` is empty, not built from the text. */
+  segmentsUnreadable?: true;
 }
 
 export interface PublicMeeting {

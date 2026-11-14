@@ -54,6 +54,9 @@ catalogs:
     '@tiptap/extension-bubble-menu':
       specifier: 3.31.4
       version: 3.31.4
+    '@tiptap/extension-code':
+      specifier: 3.31.4
+      version: 3.31.4
     '@tiptap/extension-code-block-lowlight':
       specifier: 3.31.4
       version: 3.31.4
@@ -2721,6 +2724,12 @@ importers:
       mdast-util-gfm:
         specifier: ^3.0.0
         version: 3.1.0
+      mdast-util-gfm-strikethrough:
+        specifier: ^2.0.0
+        version: 2.0.0
+      mdast-util-to-markdown:
+        specifier: ^2.1.2
+        version: 2.1.2
       micromark-extension-gfm:
         specifier: ^3.0.0
         version: 3.0.0
@@ -2745,6 +2754,9 @@ importers:
       safe-regex2:
         specifier: 5.1.1
         version: 5.1.1
+      smol-toml:
+        specifier: 1.9.1
+        version: 1.9.1
       turndown:
         specifier: ^7.2.4
         version: 7.2.4
@@ -4032,6 +4044,9 @@ importers:
       '@tiptap/extension-bubble-menu':
         specifier: 'catalog:'
         version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
+      '@tiptap/extension-code':
+        specifier: 'catalog:'
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
       '@tiptap/extension-code-block-lowlight':
         specifier: 'catalog:'
         version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/extension-code-block@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(highlight.js@11.11.1)(lowlight@3.3.0)
@@ -5618,6 +5633,9 @@ importers:
       '@radix-ui/react-alert-dialog':
         specifier: ^1.1.23
         version: 1.1.23(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@radix-ui/react-dialog':
+        specifier: 'catalog:'
+        version: 1.1.19(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@radix-ui/react-dropdown-menu':
         specifier: 'catalog:'
         version: 2.1.20(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5726,7 +5744,7 @@ importers:
     dependencies:
       '@agent-native/core':
         specifier: ^0.219.0
-        version: 0.219.0(7a69e7393d8e8d6b51ea2fc3c4e802fb)
+        version: 0.219.0(3da578056db92833d67d5482f598e241)
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -8215,8 +8233,8 @@ packages:
   '@agent-native/agentkit@0.219.0':
     resolution: {integrity: sha512-aMCbnImC617tDfQrEyUuSy5gbdaBILacVgnHBIVYF5jikIWqCIUyYHvQMvhNCsMYlrcjkWBL9Y7ETs3ub5Cm5w==}
 
-  '@agent-native/core-corpus@0.222.2':
-    resolution: {integrity: sha512-/GoNdmX6udBrNApPneffHpMsHVGpd8Ha0obLvyKjjPtLg/VZf1K3SOd59YVj9oqePAQvmvaW8tXPDE02T+70ow==}
+  '@agent-native/core-corpus@0.227.0':
+    resolution: {integrity: sha512-dOFxaPZVZ2NfCpJhXPuX9RIU16pVaoHCnnD62Iuw2SS98p3flt9HqqIt80H/8yKOkTgMUCWfroiUaK9Fne+STg==}
 
   '@agent-native/core@0.219.0':
     resolution: {integrity: sha512-twQ73+RmBujEvC4O1ezowkADUK83jfMO71E7KMqBbNENWbItZfBmS1czOEtT1MVEgyZOFRtrQ0lyCQBgpSFWTA==}
@@ -23614,6 +23632,10 @@ packages:
     resolution: {integrity: sha512-vZ7rfeehZui7wQs438JXBckYLkIIdfHOXsaVEUMyS5fHo1483l1bMdo0EDSWYclY0yZKFOipDy4KHuKs6ssvdg==}
     engines: {node: '>=8.0.0'}
 
+  smol-toml@1.9.1:
+    resolution: {integrity: sha512-j7WyPdf0CJoutMzMoPLF/bVXHtKZIT9Rb4eGeEbWw8X2t5oirjPgpL+OpaENZrILYaXqYwnVH+qgUwVbl+pUJQ==}
+    engines: {node: '>= 18'}
+
   solid-js@1.9.13:
     resolution: {integrity: sha512-6hJeJMOcEX8ktqjpDoJZEmld3ijvcvWBDtiXBm7f4332SiFN66QeAQI1REQshvyUoISsSeJ4PHDauKYbwao9JQ==}
 
@@ -25135,10 +25157,10 @@ snapshots:
       '@ag-ui/core': 0.0.59
       '@noble/hashes': 2.4.0
 
-  '@agent-native/core-corpus@0.222.2':
+  '@agent-native/core-corpus@0.227.0':
     optional: true
 
-  '@agent-native/core@0.219.0(7a69e7393d8e8d6b51ea2fc3c4e802fb)':
+  '@agent-native/core@0.219.0(3da578056db92833d67d5482f598e241)':
     dependencies:
       '@agent-native/agentkit': 0.219.0
       '@agent-native/recap-cli': 0.5.88(playwright@1.63.0)
@@ -25193,7 +25215,7 @@ snapshots:
       yjs: 13.6.33
       zod: 4.6.7
     optionalDependencies:
-      '@agent-native/core-corpus': 0.222.2
+      '@agent-native/core-corpus': 0.227.0
       '@ai-sdk/anthropic': 3.0.86(zod@4.6.7)
       '@ai-sdk/cohere': 3.0.39(zod@4.6.7)
       '@ai-sdk/google': 3.0.83(zod@4.6.7)
@@ -43251,6 +43273,8 @@ snapshots:
   sliced@1.0.1: {}
 
   slugify@1.6.9: {}
+
+  smol-toml@1.9.1: {}
 
   solid-js@1.9.13:
     dependencies:

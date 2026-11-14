@@ -717,7 +717,7 @@ describe("SuggestionHighlight", () => {
     }
   });
 
-  it("keeps deletions quiet at rest and readable on hover, focus, or selection", () => {
+  it("keeps deletions quiet at rest and readable but struck on hover, focus, or selection", () => {
     const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
       encoding: "utf8",
     });
@@ -726,10 +726,12 @@ describe("SuggestionHighlight", () => {
       /\.content-editor \.suggestion-delete\s*\{[^}]*color: hsl\(var\(--muted-foreground\)\);[^}]*text-decoration: line-through;/,
     );
     expect(css).toMatch(
-      /\.content-editor \.suggestion-delete:hover,[\s\S]*?\.content-editor \.suggestion-delete-widget:focus-visible\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
+      /\.content-editor \.suggestion-delete:hover,[\s\S]*?\.content-editor \.suggestion-delete-widget:focus-visible\s*\{[^}]*color: hsl\(var\(--foreground\)\);/,
     );
+    // Selected removed text drops the selection's underline, which marks the
+    // new text, and stays struck so it can't be read as the replacement.
     expect(css).toMatch(
-      /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: none;/,
+      /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{[^}]*box-shadow: none;[^}]*color: hsl\(var\(--foreground\)\);[^}]*text-decoration: line-through;/,
     );
 
     const pointerAndFocusState = css.match(
@@ -738,8 +740,49 @@ describe("SuggestionHighlight", () => {
     const selectedState = css.match(
       /\.content-editor \.suggestion-delete\.suggestion-highlight--active,[\s\S]*?\.content-editor \.suggestion-delete-widget\.suggestion-highlight--active\s*\{([^}]*)\}/,
     )?.[1];
+    expect(pointerAndFocusState).not.toMatch(/text-decoration: none;/);
     expect(`${pointerAndFocusState}\n${selectedState}`).not.toMatch(
       /(?:font-size|line-height|margin|padding|border-width):/,
+    );
+  });
+
+  it("sets new words apart from the whole words they replace", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
+      encoding: "utf8",
+    });
+    expect(css).toMatch(
+      /\.content-editor\s+\.suggestion-inline-widget\.suggestion-insert--spaced\[data-suggestion-widget\]\s*\{[^}]*margin-inline-start: 0\.3em;/,
+    );
+
+    const text = "Clips keeps the recording you already made. Colour";
+    const insertion = (from: number, to: number, insertedText: string) => {
+      const widget = suggestionHighlightKey
+        .getState(
+          setSpecs(state(text), [
+            {
+              suggestionId: "replace",
+              kind: "replace",
+              from,
+              to,
+              insertedText,
+            },
+          ]),
+        )!
+        .decorations.find()
+        .find((deco) => deco.spec.key?.startsWith("replace:inserted:")) as any;
+      return widget.type.toDOM() as HTMLElement;
+    };
+    // "Clips keeps … made" runs to just before the full stop.
+    expect(
+      insertion(1, 43, "No special recording mode needed").className,
+    ).toContain("suggestion-insert--spaced");
+    // "ou" in "Colour" is part of a word.
+    expect(insertion(48, 50, "o").className).not.toContain(
+      "suggestion-insert--spaced",
+    );
+    // New text that starts with its own space needs no more room.
+    expect(insertion(1, 6, " Clip").className).not.toContain(
+      "suggestion-insert--spaced",
     );
   });
 
@@ -896,6 +939,118 @@ describe("SuggestionHighlight", () => {
           "div.widget Inserted words",
           "p Bravo two.",
         ]);
+      } finally {
+        view.destroy();
+      }
+    });
+
+    it.each([
+      [
+        "callout",
+        '<callout icon="💡">\n\tFirst line.\n\tNew line.\n</callout>',
+      ],
+      [
+        "toggle",
+        "<details>\n<summary>Title</summary>\n\tFirst line.\n\tNew line.\n</details>",
+      ],
+    ])(
+      "draws a saved last line of a %s inside it, below the line before",
+      (_, source) => {
+        const boxSchema = new Schema({
+          nodes: {
+            doc: { content: "block+" },
+            paragraph: {
+              group: "block",
+              content: "text*",
+              toDOM: () => ["p", 0],
+            },
+            box: {
+              group: "block",
+              content: "block+",
+              toDOM: () => ["aside", 0],
+            },
+            text: {},
+          },
+        });
+        const prose = (text: string) =>
+          boxSchema.node("paragraph", null, boxSchema.text(text));
+        const from = source.indexOf("\tNew line.");
+        const to = source.indexOf("</", from);
+        // The point is the end of the box's first line, as the page places it.
+        const point = 2 + "First line.".length;
+        const { view, mount } = mounted(
+          [
+            boxSchema.node("box", null, [prose("First line.")]),
+            prose("After."),
+          ],
+          [
+            {
+              suggestionId: "last",
+              kind: "add_block",
+              from: point,
+              to: point,
+              insertedText: source.slice(from, to),
+              insertedPresentation: { source, from, to },
+            },
+          ],
+        );
+        try {
+          expect(
+            Array.from(
+              mount.querySelector("aside")!.children,
+              (child) =>
+                `${child.tagName.toLowerCase()}${
+                  child.classList.contains("suggestion-block-widget")
+                    ? ".widget"
+                    : ""
+                } ${child.textContent}`,
+            ),
+          ).toEqual(["p First line.", "div.widget New line."]);
+          expect(mount.textContent).not.toContain("⇥");
+        } finally {
+          view.destroy();
+        }
+      },
+    );
+
+    it("keeps lines inline when text that follows them can't go after them", () => {
+      const boxSchema = new Schema({
+        nodes: {
+          doc: { content: "block+" },
+          paragraph: {
+            group: "block",
+            content: "text*",
+            toDOM: () => ["p", 0],
+          },
+          box: { group: "block", content: "block+", toDOM: () => ["aside", 0] },
+          text: {},
+        },
+      });
+      const prose = (text: string) =>
+        boxSchema.node("paragraph", null, boxSchema.text(text));
+      const source =
+        '<callout icon="💡">\n\tFirst line.\n\tNew line.\n\tXY.\n</callout>';
+      const from = source.indexOf("\tNew line.");
+      const to = source.indexOf("Y.", from);
+      // The "X" that starts the next line would be drawn at the point, before
+      // the new line, if the line went after the block the point ends.
+      const point = 2 + "First line.".length;
+      const { view, mount } = mounted(
+        [boxSchema.node("box", null, [prose("First line."), prose("Y.")])],
+        [
+          {
+            suggestionId: "tail",
+            kind: "add_block",
+            from: point,
+            to: point,
+            insertedText: source.slice(from, to),
+            insertedPresentation: { source, from, to },
+          },
+        ],
+      );
+      try {
+        expect(mount.querySelector(".suggestion-block-widget")).toBeNull();
+        expect(mount.querySelector("aside")!.children).toHaveLength(2);
       } finally {
         view.destroy();
       }

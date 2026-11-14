@@ -12,6 +12,7 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowMessage,
+  isProviderTokenRateLimitMessage,
   isRejectedRequestErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
@@ -436,6 +437,11 @@ export function normalizeChatError(
     return { message: CREDITS_LIMIT_REACHED_MESSAGE };
   }
   if (isServerChosenVisitorMessage(text)) return { message: text };
+
+  const providerDetail = providerPayload?.message ?? text;
+  if (isProviderTokenRateLimitMessage(providerDetail)) {
+    return { message: providerDetail };
+  }
 
   const providerMessage =
     providerPayload?.errorCode === "overloaded_error"

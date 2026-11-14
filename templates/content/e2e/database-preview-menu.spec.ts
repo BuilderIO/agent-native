@@ -2,12 +2,13 @@ import {
   expect,
   test,
   type APIResponse,
+  type BrowserContext,
   type Locator,
   type Page,
   type Request,
 } from "@playwright/test";
 
-import { postAction, presentUiCapability } from "./helpers";
+import { EDITOR, gotoEditor, postAction, presentUiCapability } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
 
@@ -54,7 +55,8 @@ async function runAction(
 ): Promise<ActionResult> {
   const response = await page.request.post(`/_agent-native/actions/${name}`, {
     data,
-    headers: ACTION_HEADERS,
+    // Destructive actions such as the fixture cleanup need same-origin proof.
+    headers: { ...ACTION_HEADERS, Origin: new URL(page.url()).origin },
   });
   const result = await readJson(response);
   expect(
@@ -1259,4 +1261,355 @@ test("a failed preview metadata save keeps the Page editor and draft mounted", a
   } finally {
     if (fixture) await cleanupDatabaseFixture(page, fixture);
   }
+});
+
+async function clipboardText(page: Page) {
+  return page.evaluate(() => navigator.clipboard.readText());
+}
+
+function discussionComposer(page: Page) {
+  return page.locator("[data-discussion-composer] [contenteditable='true']");
+}
+
+test("a collection row's menu copies its link and starts a comment on its page", async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    const origin = new URL(page.url()).origin;
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin,
+    });
+    fixture = await createDatabaseFixture(page);
+    const row = fixture.rows[0]!;
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+
+    const rowActions = page.getByRole("button", {
+      name: `Row actions for ${row.title}`,
+    });
+    const rowMenu = page.getByRole("menu").filter({
+      has: page.getByRole("menuitem", { name: "Open page" }),
+    });
+    await rowActions.click();
+    await rowMenu
+      .getByRole("menuitem", { name: "Copy link", exact: true })
+      .click();
+    await expect(page.getByText("Copied page link")).toBeVisible();
+    await expect(rowMenu).toHaveCount(0);
+    expect(await clipboardText(page)).toBe(`${origin}/p/${row.documentId}`);
+
+    await rowActions.focus();
+    await page.keyboard.press("Enter");
+    await expect(
+      rowMenu.getByRole("menuitem", { name: "Open page" }),
+    ).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(
+      rowMenu.getByRole("menuitem", { name: "Copy link", exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    const comment = rowMenu.getByRole("menuitem", {
+      name: "Comment",
+      exact: true,
+    });
+    await expect(comment).toBeFocused();
+    await page.keyboard.press("Enter");
+
+    const preview = previewDialog(page);
+    await expect(preview).toBeVisible();
+    await expect(preview.getByLabel("Document title")).toHaveValue(row.title);
+    await expect(discussionComposer(page)).toBeFocused();
+    const text = `Row menu comment ${Date.now()}`;
+    await page.keyboard.type(text);
+    await page
+      .locator("[data-discussion-composer]")
+      .getByRole("button", { name: "Comment", exact: true })
+      .click();
+    await expect
+      .poll(async () => {
+        const listed = await readAction(page, "list-comments", {
+          documentId: row.documentId,
+        });
+        return (listed.comments as ActionResult[]).map(
+          (entry) => entry.content,
+        );
+      })
+      .toContain(text);
+
+    // A full-page row opens the same way from its link, comment kept.
+    await page.goto(`/page/${row.documentId}?commentPage=1`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(discussionComposer(page)).toBeFocused();
+    await expect(page.getByText(text)).toBeVisible();
+  } finally {
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+async function registerUser(
+  context: BrowserContext,
+  origin: string,
+  email: string,
+): Promise<Page> {
+  const page = await context.newPage();
+  await page.goto(`${origin}/sign-in`, { waitUntil: "domcontentloaded" });
+  const password = "example-content-row-menu-pw";
+  const headers = { Origin: origin, Referer: `${origin}/sign-in` };
+  await page.request.post("/_agent-native/auth/register", {
+    data: { email, password, name: "Row menu reader", callbackURL: "/" },
+    headers,
+  });
+  const login = await page.request.post("/_agent-native/auth/login", {
+    data: { email, password },
+    headers,
+  });
+  expect(login.ok()).toBe(true);
+  return page;
+}
+
+test("a collection's viewers and commenters get the row menu without its edit items", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  let fixture: DatabaseFixture | null = null;
+  const contexts: BrowserContext[] = [];
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    const origin = new URL(page.url()).origin;
+    fixture = await createDatabaseFixture(page, 2);
+    const row = fixture.rows[0]!;
+    // Shared with the collection only, so the reader can't open its page.
+    const closedRow = fixture.rows[1]!;
+    const stamp = Date.now();
+
+    for (const role of ["viewer", "commenter"] as const) {
+      const email = `row-menu-${role}+autoz-${stamp}@content.test`;
+      const context = await browser.newContext();
+      contexts.push(context);
+      await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin,
+      });
+      const reader = await registerUser(context, origin, email);
+      // A page doesn't pass its shares to rows that already exist.
+      for (const resourceId of [fixture.databaseDocumentId, row.documentId]) {
+        await presentUiCapability(page);
+        await runAction(page, "share-resource", {
+          resourceType: "document",
+          resourceId,
+          principalType: "user",
+          principalId: email,
+          role,
+          notify: false,
+        });
+      }
+      await reader.setViewportSize({ width: 1440, height: 900 });
+      await reader.goto(`/page/${fixture.databaseDocumentId}`, {
+        waitUntil: "domcontentloaded",
+        timeout: 120_000,
+      });
+
+      const rowActions = reader.getByRole("button", {
+        name: `Row actions for ${row.title}`,
+      });
+      const rowMenu = reader.getByRole("menu").filter({
+        has: reader.getByRole("menuitem", { name: "Open page" }),
+      });
+      await rowActions.click();
+      await expect(
+        reader.getByRole("button", {
+          name: `Row actions for ${closedRow.title}`,
+        }),
+      ).toHaveCount(0);
+      await expect(rowMenu.getByRole("menuitem")).toHaveText(
+        role === "commenter"
+          ? ["Open page", "Copy link", "Comment"]
+          : ["Open page", "Copy link"],
+      );
+      await rowMenu
+        .getByRole("menuitem", { name: "Copy link", exact: true })
+        .click();
+      await expect(reader.getByText("Copied page link")).toBeVisible();
+      expect(await clipboardText(reader)).toBe(`${origin}/p/${row.documentId}`);
+
+      if (role === "commenter") {
+        await rowActions.click();
+        await rowMenu
+          .getByRole("menuitem", { name: "Comment", exact: true })
+          .click();
+        await expect(previewDialog(reader)).toBeVisible();
+        await expect(discussionComposer(reader)).toBeFocused();
+        const text = `Commenter row menu comment ${stamp}`;
+        await reader.keyboard.type(text);
+        await reader
+          .locator("[data-discussion-composer]")
+          .getByRole("button", { name: "Comment", exact: true })
+          .click();
+        await expect
+          .poll(async () => {
+            const listed = await readAction(page, "list-comments", {
+              documentId: row.documentId,
+            });
+            return (listed.comments as ActionResult[]).map(
+              (entry) => entry.content,
+            );
+          })
+          .toContain(text);
+      }
+    }
+  } finally {
+    for (const context of contexts) await context.close();
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+test("a collection view's menu copies a link that opens that view", async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(240_000);
+  let fixture: DatabaseFixture | null = null;
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    const origin = new URL(page.url()).origin;
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin,
+    });
+    fixture = await createDatabaseFixture(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/page/${fixture.databaseDocumentId}`, {
+      waitUntil: "domcontentloaded",
+    });
+
+    await page.getByRole("button", { name: "Add collection view" }).click();
+    await page.getByLabel("New view name").fill("Second");
+    await page.keyboard.press("Enter");
+    const second = page.getByRole("button", { name: "Second view menu" });
+    await expect(second).toBeVisible();
+
+    await second.click();
+    await page.getByRole("menuitem", { name: "Copy link to view" }).click();
+    await expect(page.getByText("Copied view link")).toBeVisible();
+    const link = new URL(await clipboardText(page));
+    expect(link.origin).toBe(origin);
+    expect(link.pathname).toBe(`/page/${fixture.databaseDocumentId}`);
+    expect(link.searchParams.get("databaseId")).toBe(fixture.databaseId);
+    expect(link.searchParams.get("viewId")).toBeTruthy();
+
+    await page.getByRole("button", { name: "Table", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Table view menu" }),
+    ).toBeVisible();
+    await page.goto(link.href, { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", { name: "Second view menu" }),
+    ).toBeVisible();
+  } finally {
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+test("an inline collection's view link opens the collection as its own page", async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(240_000);
+  let hostId: string | null = null;
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    const origin = new URL(page.url()).origin;
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin,
+    });
+    const host = await runAction(page, "create-document", {
+      title: `Inline view link ${Date.now()}`,
+      content: "Intro paragraph.",
+    });
+    hostId = host.id as string;
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoEditor(page, hostId);
+    await page.locator(`${EDITOR} > *`).first().click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("/collection inline");
+    await expect(page.locator(".slash-command-menu")).toBeVisible();
+    await page.keyboard.press("Enter");
+
+    await page.getByRole("button", { name: "Add collection view" }).click();
+    await page.getByLabel("New view name").fill("Second");
+    await page.keyboard.press("Enter");
+    await page.getByRole("button", { name: "Second view menu" }).click();
+    await page.getByRole("menuitem", { name: "Copy link to view" }).click();
+    await expect(page.getByText("Copied view link")).toBeVisible();
+    const link = new URL(await clipboardText(page));
+    expect(link.pathname).not.toBe(`/page/${hostId}`);
+
+    await page.goto(link.href, { waitUntil: "domcontentloaded" });
+    await expect(page.getByLabel("Document title").first()).toHaveValue(
+      "Untitled collection",
+    );
+    await expect(
+      page.getByRole("button", { name: "Second view menu" }),
+    ).toBeVisible();
+    await expect(page.getByText("Intro paragraph.")).toHaveCount(0);
+  } finally {
+    if (hostId) {
+      await runAction(page, "delete-document", { id: hostId });
+      const plan = await runAction(page, "plan-content-trash-purge", {
+        mode: "selection",
+        documentIds: [hostId],
+      });
+      await presentUiCapability(page);
+      await postAction(page, "permanently-delete-document", {
+        id: hostId,
+        planId: plan.planId,
+        scopeToken: plan.scopeToken,
+      });
+    }
+  }
+});
+
+test.describe("collection menus on a touch screen", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+  test("shows a row's menu and Add view without hover, and taps a row's Comment", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    let fixture: DatabaseFixture | null = null;
+    try {
+      await ensureAuthenticatedLocalSession(page);
+      fixture = await createDatabaseFixture(page);
+      const row = fixture.rows[0]!;
+      await page.goto(`/page/${fixture.databaseDocumentId}`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(
+        await page.evaluate(() => matchMedia("(any-hover: none)").matches),
+      ).toBe(true);
+
+      const rowActions = page.getByRole("button", {
+        name: `Row actions for ${row.title}`,
+      });
+      await rowActions.scrollIntoViewIfNeeded();
+      await expect(rowActions).toHaveCSS("opacity", "1");
+      await expect(
+        page.getByRole("button", { name: "Add collection view" }),
+      ).toHaveCSS("opacity", "1");
+
+      await rowActions.tap();
+      await page.getByRole("menuitem", { name: "Comment", exact: true }).tap();
+      await expect(previewDialog(page)).toBeVisible();
+      await expect(discussionComposer(page)).toBeFocused();
+    } finally {
+      if (fixture) await cleanupDatabaseFixture(page, fixture);
+    }
+  });
 });

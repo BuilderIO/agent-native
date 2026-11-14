@@ -108,14 +108,67 @@ describe("useUpdateContentDatabaseView", () => {
     });
 
     options.onSettled(newer, undefined, variables, newerContext);
-    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(2);
-    expect(queryClient.invalidateQueries).toHaveBeenLastCalledWith({
+    expect(queryClient.invalidateQueries).toHaveBeenCalledTimes(4);
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
       queryKey: [
         "action",
         "get-content-database",
         { databaseId: "database-id" },
       ],
     });
+  });
+
+  it("refreshes the Files tree and the paths through it once a view is saved", async () => {
+    const queryClient = {
+      cancelQueries: vi.fn(),
+      setQueryData: vi.fn(),
+      setQueriesData: vi.fn(),
+      invalidateQueries: vi.fn(),
+    };
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+
+    useUpdateContentDatabaseView("database-page");
+    const options = useActionMutation.mock.lastCall?.[1];
+    const context = await options.onMutate();
+
+    options.onSettled(
+      undefined,
+      undefined,
+      { databaseId: "files", viewConfig: { activeViewId: "all", views: [] } },
+      context,
+    );
+
+    const filters = queryClient.invalidateQueries.mock.calls.map(
+      ([filter]) => filter,
+    );
+    const tree = filters.find(
+      (filter) =>
+        filter.queryKey[1] === "query-content-database-items" &&
+        filter.predicate?.({
+          queryKey: [
+            "action",
+            "query-content-database-items",
+            { databaseId: "files", navigation: { parentId: null } },
+          ],
+        }),
+    );
+    expect(tree).toBeDefined();
+    const paths = filters.find(
+      (filter) => filter.queryKey[1] === "get-content-navigation-context",
+    );
+    expect(
+      paths.predicate({
+        state: { data: { path: [{ id: "page", databaseId: "files" }] } },
+      }),
+    ).toBe(true);
+    expect(
+      paths.predicate({
+        state: { data: { path: [{ id: "page", databaseId: "tracker" }] } },
+      }),
+    ).toBe(false);
+    // Still loading, so it may have read the old view.
+    expect(paths.predicate({ state: { data: undefined } })).toBe(true);
   });
 
   it("writes a legacy canonical response to both caches and invalidates its database id", async () => {
@@ -174,7 +227,7 @@ describe("useUpdateContentDatabaseView", () => {
     );
 
     options.onSettled(legacyResponse, undefined, variables, context);
-    expect(queryClient.invalidateQueries).toHaveBeenLastCalledWith({
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
       queryKey: [
         "action",
         "get-content-database",

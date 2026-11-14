@@ -5,6 +5,7 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   SettingsGroup,
   SettingsRow,
@@ -87,6 +88,7 @@ import {
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { useReportImageUploadFailure } from "@/hooks/use-storage-setup-labels";
 import { openFilePicker, uploadFile } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
@@ -194,7 +196,7 @@ function AliasRow({
   };
 
   const confirmDelete = () => {
-    deleteAlias.mutate(alias.id);
+    deleteAlias.mutate({ id: alias.id });
     setShowDeleteConfirm(false);
   };
 
@@ -619,12 +621,18 @@ function AutomationRow({
   }) => {
     updateAutomation.mutate(
       { id: rule.id, ...data },
-      { onSuccess: onCancelEdit },
+      {
+        onSuccess: onCancelEdit,
+        onError: (error) => reportWriteFailure(error),
+      },
     );
   };
 
   const handleToggle = (enabled: boolean) => {
-    updateAutomation.mutate({ id: rule.id, enabled });
+    updateAutomation.mutate(
+      { id: rule.id, enabled },
+      { onError: (error) => reportWriteFailure(error) },
+    );
   };
 
   if (isEditing) {
@@ -692,7 +700,11 @@ function AutomationRow({
             <Button
               variant="destructive"
               size="sm"
-              onClick={() => deleteAutomation.mutate(rule.id)}
+              onClick={() =>
+                deleteAutomation.mutate(rule.id, {
+                  onError: (error) => reportWriteFailure(error),
+                })
+              }
               disabled={deleteAutomation.isPending}
               className="h-7 w-7 p-0"
             >
@@ -833,6 +845,7 @@ function AutomationsSection() {
   }) => {
     createAutomation.mutate(data, {
       onSuccess: () => setShowNewForm(false),
+      onError: (error) => reportWriteFailure(error),
     });
   };
 
@@ -973,6 +986,7 @@ function AutomationsSection() {
 
 function DraftingSection() {
   const t = useT();
+  const reportSignatureImageFailure = useReportImageUploadFailure();
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const queryClient = useQueryClient();
@@ -1022,8 +1036,11 @@ function DraftingSection() {
         (current) =>
           `${current.slice(0, start)}${markdown}${current.slice(end)}`,
       );
-    } catch {
-      toast.error(t("settings.signatureImageUploadFailed"));
+    } catch (error) {
+      reportSignatureImageFailure(
+        error,
+        t("settings.signatureImageUploadFailed"),
+      );
     }
   };
 
@@ -1101,8 +1118,10 @@ function DraftingSection() {
         updateSettings.mutate(
           { sendAndArchive: checked },
           {
-            onError: () =>
-              toast.error(t("settings.draftingSettingsSaveFailed")),
+            onError: (error) =>
+              reportWriteFailure(error, {
+                label: t("settings.draftingSettingsSaveFailed"),
+              }),
           },
         )
       }

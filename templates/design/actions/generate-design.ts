@@ -14,6 +14,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
+  isCreativeContextOffForUser,
   recordGenerationCreativeContext,
   replaceCreativeContextElementProvenance,
   resolveGenerationCreativeContext,
@@ -32,6 +33,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { trackDesign } from "../server/lib/design-tracking.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
+import { partitionReuseLabels } from "../server/lib/generation-reuse-labels.js";
 import { readDesignDataForUpdate } from "../server/lib/screen-frame-type-store.js";
 import {
   readLiveSourceFile,
@@ -202,33 +204,19 @@ function isFixedCanvasFormatConversion(prompt: string): boolean {
   );
 }
 
-const reuseLabelSchema = z
-  .object({
-    itemId: z.string().min(1).optional(),
-    itemVersionId: z.string().min(1).optional(),
-    kind: z.string().min(1),
-    label: z.string().min(1),
-    dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
-    elementId: z.string().min(1).optional(),
-    influence: z
-      .enum(["reused", "adapted", "reference-conditioned", "generated"])
-      .optional(),
-  })
-  .superRefine((label, context) => {
-    const influence = label.influence ?? "reference-conditioned";
-    if (Boolean(label.itemId) !== Boolean(label.itemVersionId)) {
-      context.addIssue({
-        code: "custom",
-        message: "itemId and itemVersionId must be provided together",
-      });
-    }
-    if (influence !== "generated" && !label.itemId) {
-      context.addIssue({
-        code: "custom",
-        message: "Only generated labels may omit context item ids",
-      });
-    }
-  });
+// Which labels can be recorded is decided in `run` (partitionReuseLabels), not
+// here: a schema refusal rejects the whole design save over a provenance label.
+const reuseLabelSchema = z.object({
+  itemId: z.string().min(1).optional(),
+  itemVersionId: z.string().min(1).optional(),
+  kind: z.string().min(1),
+  label: z.string().min(1),
+  dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+  elementId: z.string().min(1).optional(),
+  influence: z
+    .enum(["reused", "adapted", "reference-conditioned", "generated"])
+    .optional(),
+});
 
 function classifyBreakpointSet(
   value: unknown,
@@ -604,7 +592,9 @@ const reuseLabelsField = z
   .default([])
   .describe(
     "Optional exact item/version labels, with elementId set to a target filename or frame id when evidence applies to one screen. " +
-      "itemId and itemVersionId go together; only `generated` labels may omit them.",
+      "itemId and itemVersionId go together; only `generated` labels may omit them. " +
+      "A label that cannot be recorded (no item ids, or Creative Context is off) is ignored, not an error, and the result lists it as `ignoredReuseLabels`. " +
+      "Omit this field for material outside the library, such as photos the user attached.",
   );
 
 const primaryViewportField = z
@@ -625,9 +615,8 @@ const devicesField = z
       "in the original prompt always use no device breakpoints and ignore " +
       "this field. For a fixed-artwork inference without exact pixels or a " +
       "preset, honor variants explicitly named in the original prompt; omit " +
-      'to default to ["desktop","mobile"]. Pass [] for fixed artwork ' +
-      "without those named variants and for follow-ups on an existing " +
-      "fixed canvas. " +
+      'to default to ["desktop","mobile"]. An empty list is the same as ' +
+      "leaving it out; set `fixedCanvas: true` for one fixed canvas. " +
       "The result lists ignored model devices as `ignoredDevices`; give " +
       "each other exact size its own call. " +
       "One exact canvas size per call; prompts with multiple distinct exact sizes are rejected. " +
@@ -636,6 +625,18 @@ const devicesField = z
       "breakpoint frames — never a duplicate of the base width and never an " +
       "auto-added tablet. A single device yields one frame with no breakpoints. " +
       "When provided, this overrides primaryViewport.",
+  );
+
+const fixedCanvasField = z
+  .boolean()
+  .optional()
+  .describe(
+    "Set true for one fixed canvas with no device breakpoints: fixed " +
+      "artwork without device variants named in the original prompt, and " +
+      "later edits to an existing fixed canvas. It replaces `devices`, which " +
+      "are then listed in `ignoredDevices`. Exact pixels or a platform " +
+      "preset in the prompt pin the canvas without it. False or left out " +
+      "changes nothing.",
   );
 
 // Strings are still accepted for the CLI and older callers. A failure names the
@@ -689,7 +690,8 @@ const generateDesignAction = defineAction({
     "duplicate desktop). Pass `devices` to honor the form factors the prompt " +
     "explicitly names — the widest becomes the base frame and the narrower " +
     "ones become breakpoint frames. Set `primaryViewport` for a mobile- or " +
-    "tablet-primary design when not passing `devices`. " +
+    "tablet-primary design when not passing `devices`, and `fixedCanvas: " +
+    "true` for one fixed canvas. " +
     "Do not report a design as ready until this action succeeds. " +
     "When adding multiple screens or states, pass canvasFrames with filenames " +
     "and numeric x/y/width/height so the new screens appear placed on the " +
@@ -709,6 +711,7 @@ const generateDesignAction = defineAction({
     reuseLabels: z.preprocess(jsonField("reuseLabels"), reuseLabelsField),
     primaryViewport: primaryViewportField,
     devices: devicesField,
+    fixedCanvas: fixedCanvasField,
   }),
   agentInputSchema: z.object({
     designId: designIdField,
@@ -723,6 +726,7 @@ const generateDesignAction = defineAction({
     reuseLabels: reuseLabelsField,
     primaryViewport: primaryViewportField,
     devices: devicesField,
+    fixedCanvas: fixedCanvasField,
   }),
   mcpApp: {
     compactCatalog: true,
@@ -740,8 +744,9 @@ const generateDesignAction = defineAction({
     openWorldHint: false,
   },
   eagerInputStreaming: true,
-  // `devices: []` asks for a fixed canvas; the other lists add to what's there.
-  // GPT-6 Luna sends `[]` for every list it isn't using, beside padded nulls.
+  // Every list here adds to what's there, and `devices: []` means the same as
+  // leaving it out: GPT-6 Luna sends `[]` for every list it isn't using, beside
+  // padded nulls, so only `fixedCanvas: true` asks for a fixed canvas.
   emptyListsEraseNothing: true,
   run: withGenerationAttempt(async (input, context, attempt) => {
     const {
@@ -753,11 +758,18 @@ const generateDesignAction = defineAction({
       tweaks,
       canvasFrames,
       primaryViewport,
-      devices,
+      fixedCanvas,
       contextPackId,
       contextModeOverride,
       reuseLabels,
     } = input;
+    const modelDevices = input.devices ?? [];
+    // From here on, `[]` is the fixed canvas `fixedCanvas: true` asked for.
+    const devices = fixedCanvas
+      ? []
+      : modelDevices.length > 0
+        ? modelDevices
+        : undefined;
     const canvasIntent = resolveCanvasIntent(prompt);
     assertSingleCanvasOutput(canvasIntent);
     const promptCanvasDimensions =
@@ -861,12 +873,24 @@ const generateDesignAction = defineAction({
       );
     }
 
+    // A session without a pack records generated labels only, like every
+    // generation the shared validator treats as Creative Context off.
+    const contextOff =
+      reuseLabels.length > 0 &&
+      (contextModeOverride === "off" ||
+        Boolean(
+          generationSession?.creativeContext &&
+          !generationSession.creativeContext.contextPackId,
+        ) ||
+        (await isCreativeContextOffForUser()));
+    const { recordable: recordableReuseLabels, ignored: ignoredReuseLabels } =
+      partitionReuseLabels(reuseLabels, { contextOff });
     const creativeContextProvenance = await resolveDesignCreativeContext({
       prompt,
       generationSession,
       ...(contextPackId ? { contextPackId } : {}),
       ...(contextModeOverride ? { contextModeOverride } : {}),
-      reuseLabels: reuseLabels.map(
+      reuseLabels: recordableReuseLabels.map(
         ({
           itemId,
           itemVersionId,
@@ -1195,7 +1219,8 @@ const generateDesignAction = defineAction({
           : devices !== undefined && fixedArtworkFollowUp
             ? []
             : devices;
-    const ignoredModelDevices = exactFixedCanvasOutput ? (devices ?? []) : [];
+    const ignoredModelDevices =
+      exactFixedCanvasOutput || fixedCanvas ? modelDevices : [];
     const explicitDeviceSelection =
       requestedDevices !== undefined && requestedDevices.length > 0;
     const explicitlyEmptyDeviceSelection =
@@ -1871,6 +1896,7 @@ const generateDesignAction = defineAction({
       ...(ignoredModelDevices.length > 0
         ? { ignoredDevices: ignoredModelDevices }
         : {}),
+      ...(ignoredReuseLabels.length > 0 ? { ignoredReuseLabels } : {}),
       ...(integrityWarnings.length > 0 ? { warnings: integrityWarnings } : {}),
       ...(fileErrors.length > 0 ? { fileErrors } : {}),
       ...creativeContextProvenance,

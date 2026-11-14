@@ -6,6 +6,7 @@ import { A2AIdentityVerificationUnavailableError } from "../a2a/server.js";
 import type { ActionRunContext } from "../action.js";
 import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { McpOAuthRefreshUnavailableError } from "../mcp-client/oauth-client.js";
 import type { AuthSession } from "./auth.js";
 import {
   getRequestContext,
@@ -668,6 +669,48 @@ describe("mountActionRoutes", () => {
 
       expect(result.error).toContain("a service identity can never give it");
     });
+
+    it.each([
+      [
+        { oauthClientId: "client-1" },
+        "codex-mcp-client/0.167.0",
+        { userAgent: "codex-mcp-client/0.167.0", oauthClientId: "client-1" },
+      ],
+      [{}, "claude-code/2.1.308", { userAgent: "claude-code/2.1.308" }],
+      [{ oauthClientId: "client-1" }, undefined, { oauthClientId: "client-1" }],
+    ])(
+      "hands an MCP bearer %o with User-Agent %s its client facts",
+      async (credential, userAgent, mcpClient) => {
+        const { mountActionRoutes } = await import("./action-routes.js");
+        const mounted: Array<{ path: string; handler: any }> = [];
+        const run = vi.fn(async (_args: unknown, ctx: any) => ({
+          mcpClient: ctx?.mcpClient,
+        }));
+        const owner = "owner@example.com";
+        mountActionRoutes(
+          {
+            use: vi.fn((path: string, handler: any) =>
+              mounted.push({ path, handler }),
+            ),
+          },
+          { "read-thing": { run } as any },
+          { getOwnerFromEvent: async () => owner },
+        );
+        const event: any = {
+          _method: "POST",
+          _headers: {
+            host: "app.example.com",
+            ...(userAgent ? { "user-agent": userAgent } : {}),
+          },
+          context: {
+            __anVerifiedMcpCredential: { userEmail: owner, ...credential },
+          },
+          req: { json: async () => ({}) },
+        };
+
+        expect(await mounted.at(0)?.handler(event)).toEqual({ mcpClient });
+      },
+    );
   });
 
   it.each([
@@ -1063,33 +1106,43 @@ describe("mountActionRoutes", () => {
     );
   });
 
-  it("uses action error statusCode for HTTP responses", async () => {
-    const { mountActionRoutes } = await import("./action-routes.js");
-    const mounted: Array<{ path: string; handler: any }> = [];
-    const nitroApp = {
-      use: vi.fn((path: string, handler: any) =>
-        mounted.push({ path, handler }),
-      ),
-    };
-    const err = Object.assign(new Error("Forbidden"), { statusCode: 403 });
-    const actions: Record<string, ActionEntry> = {
-      "share-resource": {
-        run: vi.fn(async () => {
-          throw err;
-        }),
-      } as any,
-    };
+  it.each([
+    [
+      Object.assign(new Error("Forbidden"), { statusCode: 403 }),
+      403,
+      "Forbidden",
+    ],
+    [new McpOAuthRefreshUnavailableError(), 503, "Internal server error"],
+  ])(
+    "uses action error statusCode for HTTP responses",
+    async (err, status, message) => {
+      mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      const actions: Record<string, ActionEntry> = {
+        "share-resource": {
+          run: vi.fn(async () => {
+            throw err;
+          }),
+        } as any,
+      };
 
-    mountActionRoutes(nitroApp, actions, {
-      getOwnerFromEvent: async () => "owner@example.com",
-    });
+      mountActionRoutes(nitroApp, actions, {
+        getOwnerFromEvent: async () => "owner@example.com",
+      });
 
-    const event = { _method: "POST", req: { json: async () => ({}) } };
-    const result = await mounted[0].handler(event);
+      const event = { _method: "POST", req: { json: async () => ({}) } };
+      const result = await mounted[0].handler(event);
 
-    expect(result).toEqual({ error: "Forbidden" });
-    expect(event._status).toBe(403);
-  });
+      expect(result).toEqual({ error: message });
+      expect(event._status).toBe(status);
+    },
+  );
 
   it("adds a Better Auth id resolved directly from the trusted owner context", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
@@ -3144,6 +3197,8 @@ describe("mountActionRoutes", () => {
     });
     expect(anonymousRequest._status).toBe(401);
     expect(run).not.toHaveBeenCalled();
+
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "personal" });
 
     await expect(
       mounted[0]!.handler({
@@ -7046,42 +7101,55 @@ describe("mountActionRoutes", () => {
     expect(received.orgId).toBeNull();
   });
 
-  it.each(['relation "org_members" does not exist'])(
-    "suppresses the verified first-boot missing org table error: %s",
-    async (message) => {
+  it.each([
+    ["first boot", 'relation "org_members" does not exist', "42P01", true],
+    ["denied", "permission denied for table org_members", "42501", false],
+    ["unknown", "membership lookup failed", undefined, false],
+    ["other table", 'relation "settings" does not exist', "42P01", false],
+  ] as const)(
+    "dispatches only the real first-boot resolver exception: %s",
+    async (_label, message, code, allowed) => {
+      const org =
+        await vi.importActual<typeof import("../org/context.js")>(
+          "../org/context.js",
+        );
+      mockResolveOrgIdForEmail.mockImplementation(org.resolveOrgIdForEmail);
+      mockResolveOrgScopeForEmail.mockImplementation(
+        org.resolveOrgScopeForEmail,
+      );
+      const db = await import("../db/client.js");
+      const failure = Object.assign(new Error(message), { code });
+      const execute = vi.fn().mockRejectedValue(failure);
+      vi.spyOn(db, "getDbExec").mockReturnValue({ execute } as any);
       const { mountActionRoutes } = await import("./action-routes.js");
-      mockResolveOrgIdForEmail.mockRejectedValue(new Error(message));
-      const mounted: Array<{ path: string; handler: any }> = [];
-      const nitroApp = {
-        use: vi.fn((path: string, handler: any) =>
-          mounted.push({ path, handler }),
-        ),
-      };
-      let received: any;
+      const mounted: Array<{ handler: any }> = [];
+      const run = vi.fn(async () => getRequestContext());
       mountActionRoutes(
-        nitroApp,
+        { use: (_path: string, handler: any) => mounted.push({ handler }) },
+        { "do-thing": { run } as any },
         {
-          "do-thing": {
-            run: vi.fn(async (_params, ctx) => {
-              received = ctx;
-              return { ok: true };
-            }),
-          } as any,
-        },
-        {
-          getOwnerFromEvent: async () => "steve@example.com",
+          getOwnerFromEvent: async () => "first-boot@example.test",
           resolveOrgId: async () => null,
         },
       );
+      const response = mounted[0]!.handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        context: {},
+        req: { json: async () => ({}) },
+      });
 
-      await expect(
-        mounted[0].handler({
-          _method: "POST",
-          _headers: { "x-agent-native-frontend": "1" },
-          req: { json: async () => ({}) },
-        }),
-      ).resolves.toEqual({ ok: true });
-      expect(received.orgId).toBeNull();
+      if (allowed) {
+        await expect(response).resolves.toMatchObject({
+          userEmail: "first-boot@example.test",
+        });
+        expect(await response).not.toHaveProperty("orgScope", "personal");
+        expect(run).toHaveBeenCalledOnce();
+      } else {
+        await expect(response).rejects.toBe(failure);
+        expect(run).not.toHaveBeenCalled();
+      }
+      expect(execute).toHaveBeenCalled();
     },
   );
 
@@ -7464,6 +7532,65 @@ describe("action boundary error classification", () => {
       errorCode: "private_conflict",
     });
     expect(captured).not.toHaveBeenCalled();
+  });
+
+  it("answers a refused padded call with a 400 the caller can act on", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { registerErrorCaptureProvider } = await import("./capture-error.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const provider = vi.fn(() => "evt_padded");
+    const unregister = registerErrorCaptureProvider(
+      "padded-call-test",
+      provider,
+    );
+    const run = vi.fn(async () => ({ ok: true }));
+    mockCountActionFailure.mockClear();
+    try {
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "update-item": defineAction({
+            description: "Update an item.",
+            schema: z.object({
+              id: z.string(),
+              title: z.string().optional(),
+              label: z.string().optional(),
+            }),
+            http: { method: "POST" },
+            run,
+          }) as any,
+        },
+      );
+      // `title: null` is padding, but `label: ""` could be a real clear.
+      const event = {
+        _method: "POST",
+        req: { json: async () => ({ id: "a", title: null, label: "" }) },
+      };
+      const result = await mounted[0].handler(event);
+
+      expect((event as any)._status).toBe(400);
+      expect(result).toEqual({
+        error: expect.stringContaining(
+          "Retry the native tool with sparse JSON",
+        ),
+        errorCode: "ambiguous_tool_placeholders",
+      });
+      expect(run).not.toHaveBeenCalled();
+      expect(provider).not.toHaveBeenCalled();
+      expect(mockCountActionFailure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "update-item",
+          status: 400,
+          errorCode: "ambiguous_tool_placeholders",
+        }),
+      );
+    } finally {
+      unregister();
+    }
   });
 
   it("keeps a credential store outage a captured 500", async () => {

@@ -109,14 +109,17 @@ function createDb(transcriptStatus: "pending" | "ready" = "ready") {
   } as any;
 }
 
-function createFinalizingDb(removedAtReads: Array<string | null>) {
+function createFinalizingDb(
+  removedAtReads: Array<string | null>,
+  { claimed = true, transcriptStatus = "ready" } = {},
+) {
   const meeting = {
     id: "meeting-1",
     recordingId: "recording-1",
     title: "Weekly sync",
     ownerEmail: "owner@example.test",
     userNotesMd: "",
-    transcriptStatus: "ready",
+    transcriptStatus,
     bulletsJson: "[]",
     actionItemsJson: "[]",
   };
@@ -162,7 +165,7 @@ function createFinalizingDb(removedAtReads: Array<string | null>) {
         return builder;
       }),
       where: vi.fn(() => builder),
-      returning: vi.fn(async () => [{ id: "meeting-1" }]),
+      returning: vi.fn(async () => (claimed ? [{ id: "meeting-1" }] : [])),
     };
     return builder;
   });
@@ -301,6 +304,26 @@ describe("finalize-meeting", () => {
       ),
     ).rejects.toThrow("no transcript text available yet");
   });
+
+  it.each(["pending", "idle"])(
+    "says what status holds a %s meeting it can't claim",
+    async (transcriptStatus) => {
+      const { db } = createFinalizingDb([], {
+        claimed: false,
+        transcriptStatus,
+      });
+      mockGetDb.mockReturnValue(db);
+
+      await expect(
+        runWithRequestContext({ userEmail: "owner@example.test" }, () =>
+          finalizeMeeting.run({ meetingId: "meeting-1", force: true }),
+        ),
+      ).resolves.toMatchObject({
+        skipped: "already-in-progress",
+        transcriptStatus,
+      });
+    },
+  );
 
   it("leaves a pending meeting retryable while its transcript row is unavailable", async () => {
     const db = createDb("pending");

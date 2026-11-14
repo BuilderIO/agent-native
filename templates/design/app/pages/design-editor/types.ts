@@ -31,7 +31,6 @@ export type DesignLeftPanel =
   | "tools"
   | "tokens"
   | "threads"
-  | "import"
   | "code";
 
 const designSecondaryLeftPanelsSetting =
@@ -54,7 +53,6 @@ export function isDesignLeftPanelEnabled(
     value !== "tools" &&
     value !== "tokens" &&
     value !== "threads" &&
-    value !== "import" &&
     value !== "code"
   ) {
     return false;

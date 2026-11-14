@@ -3,24 +3,80 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-12
+
+### Improved
+
+- Automatic Builder setup is available to more new Design users during signup.
+
+### Fixed
+
+- Pasting too many files, or a file over 15 MB, now tells you how many were left out instead of dropping them silently.
+
+## 2026-11-10
+
+### Fixed
+
+- Builder account setup can finish after verified sign-in even if the app page closes.
+
+## 2026-11-09
+
+### Improved
+
+- Share controls use a consistent compact layout.
+- More save failures now say why, such as being offline or lacking permission.
+- Automatic Builder setup now has bounded retries and a visible retry action when status is unavailable.
+
+### Fixed
+
+- Edits that couldn't be saved right away are merged into the latest version of the screen instead of being discarded, and a Not saved indicator shows while a save is still being retried
+- Fixed designs being written twice when a prompt used attached photos or references.
+- Automatic Builder setup starts sooner and continues if you leave the page during setup.
+
+## 2026-11-08
+
+### Fixed
+
+- Google and email-link signups reliably finish automatic Builder setup when signup cookies are lost.
+
+## 2026-11-07
+
+### Improved
+
+- File → Import now brings a whole .fig or HTML file straight onto the canvas, with no Import panel, and refuses a .fig too large for the browser right away with a suggestion to paste a Figma link instead.
+
 ## 2026-11-06
 
 ### Added
 
+- Add several Figma pages or frames to the prompt at once from a link, and attach .fig files with their images; files too large to read in the browser point you to a link instead.
 - Adds a signup experiment that connects new Builder accounts automatically after acceptance and verification.
 
 ### Improved
 
+- Builder signup terms now appear alongside the existing legal footer
+- Attach a copied Figma frame or a .fig file to your prompt as reference for the agent, or paste a frame on the canvas to import it exactly, with no Figma token.
 - Selecting a layer or screen on a large board responds faster.
 
 ### Fixed
 
+- Choosing a tab on Home right after the page opens now sticks instead of switching back to Recent.
+- Copies of an element made from chat no longer share ids with the original
+- Design signup experiments now retain attribution through account creation and fallback
+
+  Automatic Builder activation waits until the signup email is verified.
+- Figma page and file links import the page's frames instead of an empty frame.
+- Figma shows as connected in the composer and in Settings once you add an access token.
+- Inserting an asset from chat now asks which screen to use, instead of silently adding it to the first screen, when the active screen can't be determined
+- Moving an element to another screen from chat now takes it off the original screen instead of leaving a copy behind
+- Recreating an attached Figma design keeps its logos and icons exact instead of redrawing them.
 - Selecting or duplicating screens on a large design no longer makes the editor run out of memory.
 
 ## 2026-11-05
 
 ### Improved
 
+- Failed saves in the editor now explain why, such as being offline or lacking permission.
 - Add Figma designs, design references, and websites directly from the composer.
 - Large designs stay more responsive while screens load
 - Large designs with hundreds of screens load, pan, and select faster on the canvas.
@@ -28,6 +84,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Screens in view on a large design's canvas now load their previews instead of staying gray.
 - Failed saves in the editor now show an error message instead of failing silently.
 - Large designs open without loading every screen at once.
 - Renaming a screen to a name that is already taken, or saving an invalid file name or source path, now shows the real reason instead of "Internal server error".
@@ -2064,174 +2121,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Security
 
 - Rich Design clipboard markers are now accepted only from the current browser installation.
-
-## 2026-07-09
-
-### Added
-
-- Typography properties now include underline, strikethrough, and text case controls.
-- Component instances can now be detached (⌥⌘B) into plain, independently-editable elements.
-- Export any design screen as a real vector SVG for Figma, with copy-to-clipboard and drag-import support
-- Import Figma frames as editable Design screens via a shared file or branch link
-- The Component inspector panel and canvas context menu can now jump to a component's earliest instance ("Go to main component").
-- Keyboard shortcuts are discoverable in a bottom panel from the app menu or Ctrl+Shift+?.
-- Right-click overlapping or nested objects to choose the visible unlocked layer from the Select layer submenu
-- Component instances can now be swapped for a different component from the design, keeping matching prop overrides.
-
-### Improved
-
-- Editor sidebars use consistent default widths for a roomier canvas.
-- Drawing annotations sent to the agent now include a rendered screenshot with the drawing composited on top, not just coordinates
-- Editor sidebars now use consistent default widths for a roomier canvas.
-- Design keyboard shortcuts, drawing annotations, and cross-screen drag interactions are now faster and more reliable.
-- Inspect Code now hides internal styling metadata and wraps long attribute lists for easier reading.
-- Local preview URLs now live in the inspector instead of taking space above the canvas
-- Local React layers now keep exact source provenance and support safe same-screen reorder, reparent, group, ungroup, and Auto layout editing through the coding agent.
-- Paste from Figma (Cmd+V) now imports exact, editable nodes when possible, with a clear fallback and hint when it can't
-- Screen rows can now be reordered in Layers with matching canvas stack order, undo, and persistence.
-- Screen selection stays responsive in designs with hundreds of screens and thousands of layers.
-- Shift+A now enables Auto layout on a selected screen with flash-free undo, redo, and persistence.
-
-### Fixed
-
-- Annotate now draws across the All Screens canvas without switching views or reloading screen previews.
-- Auto-layout children can now be dragged into freeform screens, other layouts, and absolute frames without jumping or losing their position.
-- Board shapes now stay visible and nest correctly across the All screens canvas without iframe flashes.
-- Component source navigation now opens reliably from the inspector and component interactions.
-- Cross-screen local React layer moves now hand off exact source anchors safely instead of silently refusing the drop.
-- Cross-screen moves, undo, and redo now keep both screens stable without preview flashes or lost selection
-- Design edits, canvas positions, tools, and tab context now persist reliably across navigation and reloads.
-- Dragging layers into auto layout now respects Ignore auto layout and stays visually stable during reparenting
-- Empty frames and rectangles now expose full Auto layout controls, and promoted containers show the correct Layers icon.
-- Grid auto layout now uses true responsive rows and columns with track sizing, independent gaps, and fluid canvas reordering.
-- Hand and Scale tools now keep their active toolbar identity and show their keyboard shortcuts.
-- Hidden and locked screens now behave consistently between Layers and the overview canvas.
-- Image fills now preserve valid URLs and layered fit settings across page and layer edits.
-- Inspector effects preserve sibling filters and fractional values, linking padding no longer overwrites asymmetric sides, and mixed layout or constraint selections now display honestly.
-- Large multi-screen designs now stay responsive during long canvas sessions without accumulating hidden previews.
-- Layer drags now land exactly where the insertion indicator shows, including multi-selection reorders.
-- Layer selection now keeps Cmd or Ctrl toggles and Shift ranges intact in All screens view
-- Layers dropped into Auto layout now participate correctly in ordering, spacing, and alignment.
-- Local live-edit screens now enter and leave Full view without blank, URL-only, or duplicate-loading flashes.
-- Local React layers can now be hidden and locked from Layers with source-backed persistence.
-- Local React visual editing now loads reliably and shows live component layers with exact development source locations.
-- Pressing Escape after selecting a screen now reveals Page properties instead of immediately reselecting the active screen.
-- Scale, edge, stretch, and center constraints now preserve layer geometry when nested or auto-layout frames resize
-
-## 2026-07-08
-
-### Improved
-
-- Settings are cleaner and searchable, with a consistent navigation that jumps straight to any setting.
-
-### Fixed
-
-- Design generation now follows hydrated Builder design-system guidance before creating screens.
-- Local images added to designs now upload to file storage instead of being saved as inline data URLs.
-
-## 2026-07-07
-
-### Improved
-
-- Local visual edit uses live app iframes for click-to-edit previews before applying changes.
-
-### Fixed
-
-- Dragging a free-floating element into a layout column or row no longer leaves it stranded far from the drop point; it now lands cleanly in the indicated slot.
-- Dragging a repeated list item (like a to-do card generated from data) now shows a clear "Can't reorder repeated items" message instead of silently snapping back after the drop.
-- Dragging an element onto a button or chip's middle no longer merges it inside the button's label; it now reorders as a sibling like other layout containers.
-- Elements dropped into another board shape now stay exactly where you dropped them, render inside their parent, and previously misplaced nested elements are repaired automatically
-- Fixed drag-reordering elements within a screen no longer silently loses edits after the first one when a reload happens shortly after
-- Fixed dragging an element from a screen onto the canvas now drops it exactly under the cursor instead of drifting away
-- Fixed dragging elements between screens into AI-generated content no longer corrupts the layout by landing inside hidden template markup
-- Fixed moving elements between screens no longer bakes internal editor styling into the design's HTML
-- Fixed the cross-screen drop indicator now points at the correct spot for duplicated or newly created screens
-- Fixed the zoom menu no longer leaves the canvas unresponsive to clicks and scrolling after choosing a zoom preset
-- Local visual edit keeps bridge access when opening previously connected localhost apps
-- Local visual edit now keeps the live app connection authenticated when applying or discarding style previews.
-- Text drawn on the canvas is now readable white instead of invisible black when the app is in light theme
-
-## 2026-07-06
-
-### Added
-
-- 3D rotation and perspective controls on every element
-- Dragging an element onto a rectangle now nests it inside with auto-layout, just like dropping into a frame
-- Preview and edit hover, focus, and pressed states with real CSS output
-- Responsive breakpoints: pick a device width from the inspector, edits at any width persist as cascading overrides, and breakpoint frames render side by side linked to the base screen
-- Selecting multiple elements and dragging now moves the whole selection together, keeping their spacing
-- Shader fills and effects: AI-authored or preset GLSL shaders with live uniform knobs, editable source in the Code panel, and WebGL rendering that works in exports
-
-### Improved
-
-- Breakpoint frames in the overview now support click-to-select, a width/remove menu, and full-view entry, and deleting an element while a breakpoint is active now hides it only at that width instead of removing it everywhere
-- Breakpoint segments in the inspector now show a device icon (phone/tablet/desktop) for each width
-- Breakpoint targeting now lives in one compact control in the inspector header, with per-breakpoint options to change width or remove it
-- Cleaner inspector: removed the Ask AI box from the Design tab
-- Dragging screens and objects on the canvas is now much smoother, especially in boards with many screens
-- Edit gradients directly on elements inside screens, scale strokes proportionally with K, and drop assets exactly where you point
-- Keyframe animation timeline — per-property keyframes, easing curves and springs, and loop modes
-- Padding and corner-radius value scrubbing now snaps to whole pixels, and scrubbing the combined padding control no longer flips it into the per-side view mid-drag.
-- Padding handles now only resize on the handle line itself, show a live value while hovering or dragging, and the drop-position indicator is visible again when reordering elements
-- Reduced URL history churn and selection-overlay flicker while zooming or editing
-- Removed the decorative dot before screen names in the overview
-- The design agent now visually reviews rendered screenshots of each screen and checks cross-screen token drift before finishing.
-- The zoom menu is more compact with tight rows and right-aligned shortcuts
-
-### Fixed
-
-- AI-generated and duplicated screens now get their editor selection IDs stamped automatically, and multi-screen generation sizes each screen to its intended device instead of forcing every screen to the same size
-- Applying shaders and fills in quick succession can no longer corrupt a screen
-- Canvas edits can no longer be overwritten by stale collaborative sessions
-- Canvas edits inside screens save reliably again
-- Clicking empty canvas space now deselects an element inside a screen, not just a selected screen frame
-- Drawing a shape or text on the canvas no longer flashes away and back — it stays visible while it saves, and new text can be typed into immediately
-- Dropping an element between two others inside a screen now shows the insertion line and lands exactly where you point
-- Duplicating a screen now places the copy exactly where you drop it, matching the original screen's size
-- Edits from collaborators and the agent now update the canvas in place instead of briefly flashing the screen
-- Fixed a bug where most style, position, and text edits briefly flashed the whole screen preview, especially at responsive breakpoints
-- Fixed a confusing raw error message when a file upload fails with a non-JSON server response
-- Fixed a rare case where an edit could be silently overwritten if another change landed at the exact same moment
-- Fixed inserted assets sometimes disappearing, reappearing, or corrupting the screen when added while other edits were in progress
-- Fixed inspector value scrubbing producing erratic numbers and typed values reverting after pressing Enter
-- Fixed padding, gap, and min/max size scrubbing not updating the canvas live while dragging
-- Fixed text stroke color turning black and glyphs disappearing when the fill was removed on text with an outline
-- Fixed the collapsed Effects and Stroke inspector sections showing an empty gap under their headers for plain elements
-- Fixed the New Design dialog closing unexpectedly when using the project or design-system dropdown inside it
-- Fixed the Typography section missing when selecting text nested inside a rectangle
-- Full view no longer flashes back to the overview on entry, no bar covers the top of your page anymore, and zooming out keeps the screen centered
-- Mobile layouts no longer stack a desktop header under the navigation bar.
-- Moving, restyling, and scrubbing values on elements in AI-generated designs now works reliably — elements get a stable id the moment you select them
-- Promoting an element to a component now works correctly for elements on any screen, not just the first one
-- Screen labels no longer turn blue when you hover inside the screen, only when you hover the label itself or select the screen
-- Scrolling a screen with an element selected stays smooth on complex pages
-- Selection borders, handles, and value readouts now stay the same size on screen at any zoom level
-- Selection handles and editing chrome now stay a constant size as you zoom in single-screen view
-- Text drawn on the canvas now defaults to white and Inter in dark mode so it is readable, instead of invisible dark serif text
-- Text dropped into a shape now stays readable instead of disappearing when its color matches the background
-- The add-tweak-controls prompt no longer jumps to the corner of the screen while closing or opening
-- The padding value readout now stays visible while you hover or drag a padding handle
-- The selected element attachment now clears from the chat composer after you send an edit request
-- Undo and redo no longer flash the screen — changes now apply in place instead of reloading the canvas
-- Zoom presets like "Zoom to 50%" now stay on the focused screen instead of jumping back to the overview
-
-### Changed
-
-- .fig files now stay on the Builder indexing path through design-system setup instead of local screen import.
-
-## 2026-07-05
-
-### Added
-
-- Press A to draw screens on the canvas; inside a screen it draws a plain frame div
-
-### Improved
-
-- Code sidebar tabs now use a quieter active highlight that matches the editor chrome.
-- Designs get AI-generated names from your prompt
-
-### Fixed
-
-- Local-code screens keep their connection when duplicated, and source saves now detect conflicts
 
 For the full list of updates, see the [changelog folder](./changelog/).

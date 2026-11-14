@@ -16,6 +16,7 @@ import {
   markStartupMilestone,
 } from "@/lib/startup-timing";
 
+import { isMermaidCodeBlock } from "./extensions/CodeBlockNode";
 import {
   EMPTY_TOGGLE_BODY_PLACEHOLDER,
   humanizeTag,
@@ -43,13 +44,16 @@ type Child = Node | string | null;
 /** Words the static body draws, in the reader's language. */
 export interface StaticBodyLabels {
   imageBroken: string;
+  mermaidSource: string;
 }
 
+// Null draws the node as its `renderHTML`, as a view factory returning nothing
+// does in the editor.
 type StaticNodeView = (
   node: ProseMirrorNode,
   document: Document,
   labels: StaticBodyLabels,
-) => { dom: HTMLElement; contentDOM?: HTMLElement };
+) => { dom: HTMLElement; contentDOM?: HTMLElement } | null;
 
 function h(
   document: Document,
@@ -125,7 +129,7 @@ function nodeViewWrapper(
 
 // A view's content hole holds one more element around the children, so a rule
 // like `> :first-child` reaches that element rather than the first block.
-function nodeViewContent(document: Document, attrs: Attrs) {
+function nodeViewContent(document: Document, attrs: Attrs, tag = "div") {
   const contentDOM = h(document, "div", {
     "data-node-view-content-react": "",
     "data-node-view-wrapper": "",
@@ -133,7 +137,7 @@ function nodeViewContent(document: Document, attrs: Attrs) {
   });
   const dom = h(
     document,
-    "div",
+    tag,
     { ...attrs, "data-node-view-content": "", style: "white-space: pre-wrap;" },
     contentDOM,
   );
@@ -241,7 +245,7 @@ function staticMath(document: Document, latex: string, displayMode: boolean) {
  * it loads later. A view added to the editor needs one here, or an entry in
  * NODE_VIEWS_LAID_OUT_BY_RENDER_HTML.
  */
-export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
+export const STATIC_NODE_VIEWS: Partial<Record<string, StaticNodeView>> = {
   image: mediaView("media-block", (node, document, labels) => {
     const src: string = node.attrs.src;
     const alt: string = node.attrs.alt || "";
@@ -654,10 +658,65 @@ export const STATIC_NODE_VIEWS: Record<string, StaticNodeView> = {
       }),
     ),
   }),
+  // A Mermaid block at rest hides its source above the box its drawing fills
+  // once drawn; an empty one shows its source. Other code blocks keep their
+  // plain markup, as in the editor.
+  codeBlock: (node, document, labels) => {
+    if (!isMermaidCodeBlock(node)) return null;
+    const empty = node.textContent.trim() === "";
+    const { dom: code, contentDOM } = nodeViewContent(document, {}, "code");
+    return {
+      dom: reactNodeView(
+        document,
+        node,
+        nodeViewWrapper(
+          document,
+          "div",
+          {
+            class: empty
+              ? "content-mermaid content-mermaid--open"
+              : "content-mermaid",
+          },
+          empty
+            ? h(
+                document,
+                "div",
+                {
+                  class: "content-code-block-header",
+                  contenteditable: "false",
+                  "data-mermaid-control": "",
+                },
+                h(
+                  document,
+                  "span",
+                  {
+                    class:
+                      "content-code-lang-btn content-code-lang-btn--readonly",
+                  },
+                  labels.mermaidSource,
+                ),
+              )
+            : null,
+          h(document, "pre", { hidden: empty ? null : "" }, code),
+          empty
+            ? null
+            : h(document, "div", {
+                class: "skeleton-shimmer rounded-md bg-muted h-32 w-full",
+                contenteditable: "false",
+                "data-mermaid-control": "",
+              }),
+        ),
+      ),
+      contentDOM,
+    };
+  },
 };
 
 /** Node views whose DOM lays out as their `renderHTML` does. */
-export const NODE_VIEWS_LAID_OUT_BY_RENDER_HTML = new Set(["taskItem"]);
+export const NODE_VIEWS_LAID_OUT_BY_RENDER_HTML = new Set([
+  "taskItem",
+  "notionColumn",
+]);
 
 /**
  * Draws a stored body into `target` as the DOM the editor draws for it. Nodes
@@ -682,9 +741,9 @@ export function renderStaticDocumentBody(
   for (const [name, toDOM] of Object.entries(base.nodes)) {
     const view = STATIC_NODE_VIEWS[name];
     nodes[name] = (node) => {
-      const { dom, contentDOM } = view
-        ? view(node, ownerDocument, labels)
-        : DOMSerializer.renderSpec(ownerDocument, toDOM(node));
+      const { dom, contentDOM } =
+        view?.(node, ownerDocument, labels) ??
+        DOMSerializer.renderSpec(ownerDocument, toDOM(node));
       if (!contentDOM) {
         if (
           dom instanceof ownerDocument.defaultView!.Element &&
@@ -762,6 +821,7 @@ export function StaticDocumentBody({
 }) {
   const t = useT();
   const imageBroken = t("editor.media.imageBroken");
+  const mermaidSource = t("editor.mermaid.source");
   const bodyRef = useRef<HTMLDivElement>(null);
   const markedRef = useRef(false);
   const [failedContent, setFailedContent] = useState<string | null>(null);
@@ -773,7 +833,7 @@ export function StaticDocumentBody({
     const handOver = () => {
       const slot = {
         content,
-        labels: { imageBroken },
+        labels: { imageBroken, mermaidSource },
         nodes: [...body.childNodes],
       };
       handedOver = slot;
@@ -784,7 +844,8 @@ export function StaticDocumentBody({
     };
     if (
       handedOver?.content === content &&
-      handedOver.labels.imageBroken === imageBroken
+      handedOver.labels.imageBroken === imageBroken &&
+      handedOver.labels.mermaidSource === mermaidSource
     ) {
       body.replaceChildren(...handedOver.nodes);
       handedOver = null;
@@ -794,6 +855,7 @@ export function StaticDocumentBody({
     try {
       ({ timed } = renderStaticDocumentBody(schema, content, body, {
         imageBroken,
+        mermaidSource,
       }));
     } catch (error) {
       console.error("[content] could not draw the stored body", error);
@@ -805,7 +867,7 @@ export function StaticDocumentBody({
       markStartupMilestone(CONTENT_BODY_DOM_MARK, documentId);
     }
     return handOver;
-  }, [schema, content, documentId, imageBroken]);
+  }, [schema, content, documentId, imageBroken, mermaidSource]);
   // Sizes the drawn tables as the editor sizes its own, so its body doesn't
   // move when it takes over.
   useLayoutEffect(() => {
@@ -827,7 +889,7 @@ export function StaticDocumentBody({
       return [sizer];
     });
     return () => sizers.forEach((sizer) => sizer.destroy());
-  }, [schema, content, documentId, imageBroken, failed]);
+  }, [schema, content, documentId, imageBroken, mermaidSource, failed]);
 
   if (failed) {
     return (

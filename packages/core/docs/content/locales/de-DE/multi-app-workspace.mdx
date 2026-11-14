@@ -277,7 +277,7 @@ Informationen zum Konfigurationsschema, zu den Prioritätsregeln und zur Hub-Ein
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-Für Laufzeit-App-Anmeldeinformationen bevorzugen Sie den Dispatch-Tresor gegenüber der manuellen Bearbeitung von `.env`-Dateien. Der Tresor ist standardmäßig auf den Zugriff aller Apps eingestellt, sodass jeder gespeicherte Tresorschlüssel für jede Workspace-App verfügbar ist und mit `sync-vault-to-app` übertragen werden kann. Schalten Sie den Tresor nur dann in den manuellen Modus, wenn Apps explizite Gewährung pro Schlüssel benötigen.
+Für Laufzeit-App-Anmeldeinformationen bevorzugen Sie den Dispatch-Tresor gegenüber der manuellen Bearbeitung von `.env`-Dateien. Der Tresor ist standardmäßig auf den Zugriff aller Apps eingestellt, sodass jeder gespeicherte Tresorschlüssel für jede Workspace-App verfügbar ist, die dieselbe Datenbank nutzt. Schalten Sie den Tresor nur dann in den manuellen Modus, wenn Apps explizite Gewährung pro Schlüssel benötigen.
 
 ```text
 my-company-platform/

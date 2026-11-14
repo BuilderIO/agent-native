@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.226.0",
+  "version": "0.228.2",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -675,6 +675,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@tiptap/core": "catalog:",
     "@tiptap/extension-bubble-menu": "catalog:",
+    "@tiptap/extension-code": "catalog:",
     "@tiptap/extension-code-block-lowlight": "catalog:",
     "@tiptap/extension-collaboration": "catalog:",
     "@tiptap/extension-collaboration-caret": "catalog:",
@@ -750,7 +751,7 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@agent-native/core": ">=0.226.0-0",
+    "@agent-native/core": ">=0.228.2-0",
     "@excalidraw/excalidraw": ">=0.18",
     "@excalidraw/mermaid-to-excalidraw": ">=2",
     "@tanstack/react-query": "^5.99.2",

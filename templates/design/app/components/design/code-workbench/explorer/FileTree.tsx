@@ -1,3 +1,4 @@
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -31,7 +32,6 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { reportDesignWriteFailure } from "@/lib/design-write-failure";
 import { cn } from "@/lib/utils";
 
 import { useWorkbench } from "../store";
@@ -144,7 +144,7 @@ export function FileTree({
         );
         return;
       }
-      reportDesignWriteFailure(error);
+      reportWriteFailure(error);
     },
     [onRequestLocalWriteConsent, providerKey],
   );
@@ -472,10 +472,9 @@ export function FileTree({
                   ) : null}
                 </div>
               </ContextMenuTrigger>
-              <ContextMenuContent className="min-w-[180px] text-[12px]">
+              <ContextMenuContent className="min-w-[180px]">
                 {row.node.kind === "folder" && capabilities.create ? (
                   <ContextMenuItem
-                    className="text-[12px]"
                     onSelect={() => {
                       newFileHandledRef.current = false;
                       toggleFolder(row.path, true);
@@ -487,16 +486,13 @@ export function FileTree({
                   </ContextMenuItem>
                 ) : null}
                 {canRenameNode ? (
-                  <ContextMenuItem
-                    className="text-[12px]"
-                    onSelect={() => startRename(row.node)}
-                  >
+                  <ContextMenuItem onSelect={() => startRename(row.node)}>
                     {"Rename…" /* i18n-ignore */}
                   </ContextMenuItem>
                 ) : null}
                 {canDeleteNode ? (
                   <ContextMenuItem
-                    className="text-[12px] text-destructive focus:text-destructive"
+                    className="text-destructive focus:text-destructive"
                     onSelect={() => requestDelete(row.node)}
                   >
                     {"Delete" /* i18n-ignore */}
@@ -505,16 +501,10 @@ export function FileTree({
                 {canRenameNode || canDeleteNode ? (
                   <ContextMenuSeparator />
                 ) : null}
-                <ContextMenuItem
-                  className="text-[12px]"
-                  onSelect={() => copyToClipboard(row.path)}
-                >
+                <ContextMenuItem onSelect={() => copyToClipboard(row.path)}>
                   {"Copy Path" /* i18n-ignore */}
                 </ContextMenuItem>
-                <ContextMenuItem
-                  className="text-[12px]"
-                  onSelect={() => copyToClipboard(row.path)}
-                >
+                <ContextMenuItem onSelect={() => copyToClipboard(row.path)}>
                   {"Copy Relative Path" /* i18n-ignore */}
                 </ContextMenuItem>
               </ContextMenuContent>

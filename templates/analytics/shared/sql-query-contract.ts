@@ -1,6 +1,16 @@
 import type { SourceGenerationResult } from "./source-generation.js";
 
+/** Status as of the original result; a cached receipt is not another job. */
+export interface BigQueryUsageAccounting {
+  status: "recorded" | "pending" | "unavailable";
+  projectId: string;
+  jobId: string;
+  usageStatus?: "pending" | "complete" | "partial" | "unavailable";
+}
+
 export interface SqlQueryExecutionMetadata {
+  /** Unknown accounting never means zero billed bytes. */
+  usageAccounting?: BigQueryUsageAccounting;
   bytesProcessed?: number;
   /** The app served existing rows without executing the query again. */
   cached?: boolean;
@@ -91,6 +101,10 @@ export function isSqlQueryAccessDenied(error: unknown): error is Error {
   );
 }
 
+/**
+ * Sources whose server keeps a cache that a panel's Refresh can skip: BigQuery
+ * results, and the run cache of a program panel's data program.
+ */
 export function supportsSqlQueryCacheBypass(source: string): boolean {
-  return source === "bigquery";
+  return source === "bigquery" || source === "program";
 }
