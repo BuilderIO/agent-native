@@ -45,6 +45,7 @@ async function apiGet<T>(
   path: string,
   cacheKey?: string,
   connectionId?: string,
+  timeoutMs = 8_000,
 ): Promise<T> {
   const key = scopedCredentialCacheKey(
     `${connectionId ?? "selected"}:${cacheKey ?? path}`,
@@ -60,7 +61,7 @@ async function apiGet<T>(
     method: "GET",
     path,
     connectionId,
-    timeoutMs: 8_000,
+    timeoutMs,
     maxBytes: 1_000_000,
   })) as { response?: { ok?: boolean; status?: number; json?: unknown } };
   if (!result.response || result.response.ok !== true) {
@@ -198,6 +199,7 @@ export async function getIssueEvents(
     `/organizations/${org}/issues/${issueId}/events/`,
     undefined,
     connectionId,
+    20_000,
   );
 }
 
