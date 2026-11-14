@@ -133,6 +133,41 @@ npx @agent-native/core@latest deploy
 
 </Callout>
 
+## ビルドキャッシュ {#workspace-build-cache}
+
+ワークスペースのデプロイでは、すべてのアプリをビルドします。所要時間の大半はここにかかります。ビルドキャッシュは、入力が変わっていないアプリのビルドをスキップし、代わりに関数バンドルを含む前回のビルド出力を復元します。デフォルトで有効で、エントリは `node_modules/.cache/agent-native/deploy-build` に保存されます。
+
+アプリのキャッシュキーは、次の内容に対する SHA-256 です。
+
+- `git ls-files` が列挙するアプリのソースファイル（追跡対象と未追跡のもの。無視されるものは除く）と、`.env*` ファイル。ビルドがアプリ内に生成するディレクトリ（`.agent-native`、`.deploy-tmp`、`.react-router`）は含まれません
+- アプリが依存するすべてのワークスペースパッケージのビルド済みの内容。そのため、`@agent-native/core` を再ビルドするとすべてのアプリが無効になります（パッケージが `files` フィールドで公開するファイルのみが対象で、`dist` を持つパッケージは `src` ではなく `dist` でハッシュされます）
+- `pnpm-lock.yaml` を含む、ワークスペースのルートファイル
+- Node のメジャーバージョン、プリセット、Core のバージョン
+- ビルドに渡されるすべての環境変数の名前と値（ハッシュ化され、表示されることはありません）
+
+各アプリはヒットまたはミスをログに記録します。ミスの場合は理由を示し、以前のエントリがあれば、どの入力が変わったかも示します。デプロイが完了すると、合計と節約できた時間が出力されます。
+
+```bash
+[workspace-deploy] cache HIT analytics (restored in 5.9s, saved ~43.8s)
+[workspace-deploy] cache MISS forms (no-entry: inputs changed: source); building
+[workspace-deploy] Build cache: 1 hit, 1 miss; build phase 32.3s, ~43.4s saved
+```
+
+キャッシュの問題がヒットとして扱われることはありません。読み取れないマニフェスト（`entry-unreadable`）、ファイルがエントリと一致しない復元（`restore-failed`）、ハッシュ化できない入力（`hash-failed`。たとえば git リポジトリではないワークスペース）は、いずれも理由をログに記録してアプリを再ビルドします。不良なエントリは削除されます。
+
+| 設定                       | 環境変数                               | デフォルト                                      |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | なし                                            |
+
+`AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` を設定すると、デプロイごとにキャッシュ済みの 2 つのアプリを再ビルドし、再ビルドした出力をキャッシュされた出力とファイル単位で比較します。ビルドのタイムスタンプや新たに発行された関数トークンなど、ビルドごとに変わる値はマスクされます。差分があるとデプロイは失敗し、該当ファイルが列挙されます。これは、ビルドが再現可能でないか、キーに入力が不足していることを意味します。デプロイのたびではなく、CI でスケジュール実行してください。
+
+`PATH`、`PWD`、`npm_*`、`PNPM_*` など、実行のたびに変わってもビルドには影響しない変数は、すでにキーから除外されています。デプロイ環境が独自の変数（たとえば実行 ID）を追加する場合は、`AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` に列挙してください。末尾の `*` はプレフィックスに一致します。それ以外はすべて対象となるため、`VITE_*` や `DATABASE_URL` が変わるとすべてのアプリが再ビルドされます。
+
+毎回クリーンなディスクから始まるホスト型ビルダーでは、キャッシュの利点はありません。そこでは `AGENT_NATIVE_DEPLOY_CACHE=false` を設定して、ビルド後に行われるコピーをスキップしてください。
+
 ## Docker Compose によるワークスペースのセルフホスト {#workspace-docker-compose}
 
 現状、ワークスペースは 1 つの Nitro サーバープロセスではありません。各アプリは依然として独自の `.output/` ディレクトリにビルドされ、独自の Node/Nitro サーバーを実行するため、ワークスペースをセルフホストするということは、単一のエントリポイントの背後で複数のサーバーを実行することを意味します。
