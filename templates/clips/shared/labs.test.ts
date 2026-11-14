@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CLIPS_LOOKBACK_CONTEXT,
+  CLIPS_RICH_RECORDINGS,
   CLIPS_SCREENSHOTS,
   CLIPS_VOICE_DICTATION,
   isLabEnabled,
@@ -60,5 +61,18 @@ describe("Clips screenshots lab", () => {
     expect(
       isLabEnabled({ [CLIPS_SCREENSHOTS.key]: false }, CLIPS_SCREENSHOTS),
     ).toBe(false);
+  });
+});
+
+describe("Clips rich recordings lab", () => {
+  it("is off by default and can be enabled", () => {
+    expect(CLIPS_RICH_RECORDINGS.defaultEnabled).toBe(false);
+    expect(isLabEnabled({}, CLIPS_RICH_RECORDINGS)).toBe(false);
+    expect(
+      isLabEnabled(
+        { [CLIPS_RICH_RECORDINGS.key]: true },
+        CLIPS_RICH_RECORDINGS,
+      ),
+    ).toBe(true);
   });
 });
