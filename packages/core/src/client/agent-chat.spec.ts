@@ -78,6 +78,7 @@ const {
   filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
   generateTabId,
+  getAgentChatContextState,
   getAgentChatSubmitTarget,
   insertAgentComposerReference,
   listAgentChatContext,
@@ -85,6 +86,7 @@ const {
   nextAgentChatStagingId,
   parseSubmitChatMessage,
   publishAgentChatContextItems,
+  refreshAgentChatContext,
   removeAgentChatContextItem,
   removeAgentChatContextItemAndPersist,
   reportAgentChatSubmitResult,
@@ -94,6 +96,7 @@ const {
   setAgentChatContextItem,
   setAgentChatContextItemAndPersist,
   setContextToAgentChat,
+  subscribeAgentChatContext,
 } = await import("./agent-chat.js");
 const { _resetEmbedAuthForTests } = await import("./embed-auth.js");
 
@@ -1781,6 +1784,142 @@ describe("sendToAgentChat", () => {
       "agentNative.chatContextChanged",
       "agent-panel:prepare",
     ]);
+  });
+
+  it("notifies for newer timestamps without accepting a stale refresh", async () => {
+    const items = [{ key: "selection", title: "Selection", context: "A" }];
+    const first = publishAgentChatContextItems(items, {
+      updatedAt: 10,
+      persist: false,
+    });
+    await flushMicrotasks();
+    dispatchEventSpy.mockClear();
+    const listener = vi.fn();
+    const unsubscribe = subscribeAgentChatContext(listener);
+
+    const newer = publishAgentChatContextItems(
+      [{ key: " selection ", title: "Selection", context: "A " }],
+      { updatedAt: 30 },
+    );
+    await flushMicrotasks();
+    expect(newer.updatedAt).toBe(30);
+    expect(newer.items).toBe(first.items);
+    expect(getAgentChatContextState()).toEqual({ items, updatedAt: 30 });
+    expect(JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string)).toEqual({
+      items,
+      updatedAt: 30,
+    });
+    expect(listener).toHaveBeenCalledOnce();
+    expect(dispatchEventSpy).toHaveBeenCalledOnce();
+
+    fetchSpy.mockImplementationOnce(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              values: {
+                "agent-chat-context": {
+                  items: [{ ...items[0], context: "stale" }],
+                  updatedAt: 20,
+                },
+              },
+              missing: [],
+            }),
+          ),
+      }),
+    );
+    await expect(refreshAgentChatContext()).resolves.toEqual({
+      items,
+      updatedAt: 30,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[1]?.[0]).toContain(
+      "/_agent-native/application-state?keys=agent-chat-context",
+    );
+    expect(fetchSpy.mock.calls[1]?.[1]?.method).toBe("GET");
+    await flushMicrotasks();
+    expect(listener).toHaveBeenCalledOnce();
+    expect(dispatchEventSpy).toHaveBeenCalledOnce();
+
+    const refreshedItems = [{ ...items[0], context: "fresh" }];
+    fetchSpy.mockImplementationOnce(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              values: {
+                "agent-chat-context": { items: refreshedItems, updatedAt: 35 },
+              },
+              missing: [],
+            }),
+          ),
+      }),
+    );
+    await expect(refreshAgentChatContext()).resolves.toEqual({
+      items: refreshedItems,
+      updatedAt: 35,
+    });
+    await flushMicrotasks();
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(dispatchEventSpy).toHaveBeenCalledTimes(2);
+
+    const changed = [{ ...items[0], context: "B" }];
+    const result = publishAgentChatContextItems(changed, {
+      updatedAt: 40,
+      persist: false,
+    });
+    await flushMicrotasks();
+    expect(result).toEqual({ items: changed, updatedAt: 40 });
+    expect(result.items).not.toBe(first.items);
+    expect(listener).toHaveBeenCalledTimes(3);
+    expect(dispatchEventSpy).toHaveBeenCalledTimes(3);
+    unsubscribe();
+  });
+
+  it("persists identical context by default without notifying subscribers", async () => {
+    const items = [{ key: "selection", title: "Selection", context: "A" }];
+    const initial = publishAgentChatContextItems(items, {
+      updatedAt: 10,
+      persist: false,
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    await flushMicrotasks();
+    dispatchEventSpy.mockClear();
+    const listener = vi.fn();
+    const unsubscribe = subscribeAgentChatContext(listener);
+
+    expect(publishAgentChatContextItems(items)).toBe(initial);
+    expect(publishAgentChatContextItems(items, { updatedAt: 10 })).toBe(
+      initial,
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    for (const [, options] of fetchSpy.mock.calls) {
+      expect(options?.method).toBe("PUT");
+      expect(JSON.parse(options?.body as string)).toEqual(initial);
+    }
+
+    expect(publishAgentChatContextItems(items, { persist: false })).toBe(
+      initial,
+    );
+    expect(
+      publishAgentChatContextItems(items, { updatedAt: 10, persist: false }),
+    ).toBe(initial);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(publishAgentChatContextItems(items, { persist: true })).toBe(
+      initial,
+    );
+    expect(
+      publishAgentChatContextItems(items, { updatedAt: 9, persist: true }),
+    ).toBe(initial);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    await flushMicrotasks();
+    expect(listener).not.toHaveBeenCalled();
+    expect(dispatchEventSpy).not.toHaveBeenCalled();
+    unsubscribe();
   });
 
   it("persists composer context before publishing it", async () => {

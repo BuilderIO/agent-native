@@ -557,6 +557,20 @@ export function publishAgentChatContextItems(
   if (next.updatedAt < agentChatContextState.updatedAt) {
     return agentChatContextState;
   }
+  if (
+    JSON.stringify(next.items) === JSON.stringify(agentChatContextState.items)
+  ) {
+    if (
+      options?.updatedAt === undefined ||
+      next.updatedAt === agentChatContextState.updatedAt
+    ) {
+      if (options?.persist !== false) {
+        persistAgentChatContextState(agentChatContextState);
+      }
+      return agentChatContextState;
+    }
+    next.items = agentChatContextState.items;
+  }
   agentChatContextState = next;
   notifyAgentChatContextListeners();
   if (typeof window !== "undefined") {

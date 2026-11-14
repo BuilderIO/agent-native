@@ -63,7 +63,7 @@ export function useAgentChatContext(enabled = true): UseAgentChatContextResult {
   }, []);
 
   return {
-    ...state,
+    updatedAt: state.updatedAt,
     items,
     set,
     remove,
